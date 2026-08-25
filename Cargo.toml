@@ -44,3 +44,4 @@ hmac = "0.12"
 subtle = "2"
 futures-util = "0.3"
 clap = { version = "4", features = ["derive"] }
+serde_urlencoded = "0.7"
