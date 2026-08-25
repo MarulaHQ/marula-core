@@ -1,0 +1,19 @@
+# Rust
+/target
+
+# Node / Next.js
+node_modules/
+.next/
+dist/
+coverage/
+.turbo/
+
+# Env & local
+.env
+.env.*
+!.env.example
+*.local
+
+# OS
+.DS_Store
+Thumbs.db

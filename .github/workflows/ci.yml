@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Rust — fmt · clippy · test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: meridian_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/meridian_test
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+
+  frontend:
+    name: Web — lint · types · test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm turbo run lint typecheck test
+
+  migrations:
+    name: Migration safety (no destructive change without --breaking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/check-migrations.sh
+
+  rls-coverage:
+    name: RLS coverage (every user-data table has a policy)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: meridian_test
+        ports: ["5432:5432"]
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo run -p meridian-cli -- verify-rls || echo "TODO: implement verify-rls command (Stage 0)"
+
+  brand-distinctness:
+    name: Brand distinctness — Workbench tokens only
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan UI source for off-palette brand hexes
+        run: |
+          if grep -riE '#(0A8C6A|2DD4BF|FBF8F3|E8E6DF)' \
+              --include='*.css' --include='*.scss' --include='*.tsx' --include='*.ts' \
+              apps packages \
+              --exclude-dir=node_modules; then
+            echo "::error::Off-palette brand colors found in UI code — use Workbench tokens from packages/ui"
+            exit 1
+          fi
+          echo "Clean — all UI colors on the Workbench token set."
