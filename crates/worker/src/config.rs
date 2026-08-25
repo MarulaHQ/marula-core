@@ -39,8 +39,12 @@ impl WorkerConfig {
     /// environment mutation.
     pub fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> Self {
         Self {
+            // Owner role on purpose: the relay drains outbox rows for all
+            // orgs and must not be RLS-constrained (see module note above).
+            // A constrained role here fails SILENTLY — RLS filters every
+            // row, the loop stays idle, and nothing is ever published.
             database_url: lookup("DATABASE_URL").unwrap_or_else(|| {
-                "postgres://meridian_app:meridian_app@localhost:15432/meridian".to_string()
+                "postgres://meridian:meridian@localhost:15432/meridian".to_string()
             }),
             redis_url: lookup("REDIS_URL")
                 .unwrap_or_else(|| "redis://localhost:16379/0".to_string()),
@@ -58,11 +62,13 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
-    fn defaults_mirror_core_api_and_dev_ports() {
+    fn defaults_match_dev_ports_and_owner_role() {
         let cfg = WorkerConfig::from_lookup(|_| None);
+        // The default MUST be the table owner: a constrained role silently
+        // drains nothing (RLS filters all rows without erroring).
         assert_eq!(
             cfg.database_url,
-            "postgres://meridian_app:meridian_app@localhost:15432/meridian"
+            "postgres://meridian:meridian@localhost:15432/meridian"
         );
         assert_eq!(cfg.redis_url, "redis://localhost:16379/0");
         assert_eq!(cfg.bind_addr, "0.0.0.0:8082");

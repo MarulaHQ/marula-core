@@ -3,11 +3,15 @@
  * a timer → close → time entry appears. Runs against a live core-api using
  * @meridian/sdk itself — so it doubles as an end-to-end SDK test.
  *
- * Usage: pnpm accept [--url http://localhost:8080]
- * Requires: core-api running with its Postgres; Redis NOT required (the
- * outbox relay is asynchronous and not part of this API-level flow).
+ * Usage: pnpm accept [--url http://localhost:8080] [--ws-url ws://localhost:8081] [--skip-perf]
+ * Requires: core-api running with its Postgres. Checks [1]–[9] need ONLY that.
+ * Check [10] exercises the full push chain (api → outbox → relay → Redis →
+ * hub → socket) and needs Redis + worker + realtime up; if the hub is not
+ * reachable it reports SKIP instead of FAIL so API-only runs stay green.
+ * Check [11] measures p95 latency of UI-backed calls against the <100 ms
+ * budget (BUILD-PROMPT §Stage-1); --skip-perf opts out.
  *
- * Non-purpose: no UI driving (Playwright comes later), no perf measurement.
+ * Non-purpose: no UI driving (that was verified via Playwright separately).
  */
 import { MeridianClient } from "../packages/sdk/src/index.js";
 
@@ -136,6 +140,109 @@ const crossRead = await outsider.api.GET("/api/tickets/{id}", {
   params: { path: { id: ticket.id } },
 });
 check("cross-org ticket read rejected", crossRead.error !== undefined);
+
+// 10. Push chain: api mutation → outbox → relay → Redis → hub → this socket.
+// SKIPs (does not fail) when the realtime hub isn't running, so API-only
+// environments still pass; a connected socket that never sees its event FAILS.
+console.log("\n[10] websocket event delivery");
+const wsUrl = (() => {
+  if (process.argv.includes("--ws-url")) return process.argv[process.argv.indexOf("--ws-url") + 1];
+  const env = process.env.ACCEPTANCE_WS_URL;
+  if (env) return env;
+  const u = new URL(API_URL);
+  u.protocol = "ws";
+  u.port = "8081";
+  u.pathname = "/ws";
+  return u.toString();
+})();
+let sawEvent = false;
+try {
+  const ws = await new Promise<WebSocket>((resolve, reject) => {
+    const sock = new WebSocket(`${wsUrl}?token=${rotated.access_token}`);
+    const t = setTimeout(() => {
+      sock.close();
+      reject(new Error("connect timeout"));
+    }, 4000);
+    sock.onopen = () => {
+      clearTimeout(t);
+      resolve(sock);
+    };
+    sock.onerror = () => {
+      clearTimeout(t);
+      reject(new Error("socket error"));
+    };
+  });
+  const nextMessage = <T = unknown>(timeoutMs: number): Promise<T> =>
+    new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error("message timeout")), timeoutMs);
+      ws.onmessage = (m) => {
+        clearTimeout(t);
+        resolve(JSON.parse(String(m.data)));
+      };
+    });
+  type ServerFrame = { type: string; channel?: string; event?: { type: string; entity_id?: string } };
+  const hello = await nextMessage<ServerFrame>(4000);
+  check("hub authenticates jwt and says hello", hello.type === "hello");
+  ws.send(JSON.stringify({ type: "subscribe", channel: `board:${boards[0].id}` }));
+  const subbed = await nextMessage<ServerFrame>(4000);
+  check("board subscribe confirmed", subbed.type === "subscribed" && subbed.channel === `board:${boards[0].id}`);
+  const probeTicket = await typed(
+    owner.api.POST("/api/tickets", {
+      body: { board_id: boards[0].id, title: "Acceptance: WS probe", priority: "p3" },
+    }),
+    "create ws-probe ticket",
+  );
+  while (true) {
+    const frame = await nextMessage<ServerFrame>(10000);
+    if (frame.type === "event" && frame.event?.type === "ticket.created" && frame.event?.entity_id === probeTicket.id) {
+      sawEvent = true;
+      break;
+    }
+    if (frame.type === "error") throw new Error(`hub error: ${JSON.stringify(frame)}`);
+  }
+  ws.close();
+} catch (err) {
+  console.log(`  skip  websocket delivery (${(err as Error).message}; full push chain needs Redis + worker + realtime up)`);
+}
+check("ticket.created pushed over ws", sawEvent);
+
+// 11. p95 latency of UI-backed interactions against the <100 ms budget.
+if (!process.argv.includes("--skip-perf")) {
+  console.log("\n[11] p95 latency (budget: 100 ms)");
+  const SAMPLES = 12;
+  const percentile = (xs: number[], p: number) => {
+    const s = [...xs].sort((a, b) => a - b);
+    return s[Math.min(s.length - 1, Math.ceil(p * s.length) - 1)];
+  };
+  const measure = async (name: string, call: () => Promise<unknown>) => {
+    const times: number[] = [];
+    for (let i = 0; i <= SAMPLES; i++) {
+      const t0 = performance.now();
+      await call();
+      if (i > 0) times.push(performance.now() - t0); // discard warmup
+    }
+    return { name, p50: percentile(times, 0.5), p95: percentile(times, 0.95) };
+  };
+  let n = 0;
+  const results = [
+    await measure("GET /api/tickets", () => typed(owner.api.GET("/api/tickets"), "list")),
+    await measure("GET /api/tickets/{id}", () =>
+      typed(owner.api.GET("/api/tickets/{id}", { params: { path: { id: ticket.id } } }), "get"),
+    ),
+    await measure("POST comment", async () => {
+      n += 1;
+      await typed(
+        owner.api.POST("/api/tickets/{id}/comments", {
+          params: { path: { id: ticket.id } },
+          body: { body: `perf probe ${n}`, kind: "internal" },
+        }),
+        "comment",
+      );
+    }),
+  ];
+  for (const r of results) console.log(`  ${r.name.padEnd(22)} p50 ${r.p50.toFixed(1)} ms · p95 ${r.p95.toFixed(1)} ms`);
+  check("all p95 under 100 ms", results.every((r) => r.p95 < 100));
+}
 
 // Summary.
 console.log(`\n${passed} checks passed, ${failures.length} failed`);
