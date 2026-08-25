@@ -1,0 +1,121 @@
+# Meridian local stack.
+#
+# Purpose: one command brings up the full Stage-1 system — Postgres (pg17 +
+# pgvector), Redis, schema migration, core-api, realtime WS hub, worker.
+#
+# Role split matters: migrations and the worker run as the TABLE OWNER
+# (`meridian`, RLS-bypassing — the relay must read every org's outbox),
+# while core-api connects as `meridian_app` (RLS-constrained; the role and
+# its grants are provisioned by migration 0001 itself).
+#
+# Non-purpose: no TLS, no secrets management, no volume backup jobs — this
+# file targets local development and demo stacks, not production.
+#
+# Usage:
+#   docker compose -f deploy/docker-compose.yml up --build
+#
+# Ports: 15432 pg · 16379 redis · 8080 api · 8081 ws · 8082 worker-health
+
+name: meridian
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: meridian
+      POSTGRES_PASSWORD: meridian
+      POSTGRES_DB: meridian
+    ports:
+      - "15432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U meridian -d meridian"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "16379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.rust
+      args: { BIN: meridian-cli }
+    entrypoint: ["/usr/local/bin/meridian-cli"]
+    command: ["migrate"]
+    environment:
+      DATABASE_URL: postgres://meridian:meridian@postgres:5432/meridian
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  core-api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.rust
+      args: { BIN: core-api }
+    # Entrypoint is pinned to core-api in the Dockerfile; see deploy note.
+    environment:
+      DATABASE_URL: postgres://meridian_app:meridian_app@postgres:5432/meridian
+      REDIS_URL: redis://redis:6379/0
+      BIND_ADDR: 0.0.0.0:8080
+      JWT_SECRET: ${JWT_SECRET:-dev-only-insecure-secret-change-me}
+      CORS_ORIGIN: http://localhost:3000
+    ports:
+      - "8080:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  realtime:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.rust
+      args: { BIN: realtime }
+    entrypoint: ["/usr/local/bin/realtime"]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      BIND_ADDR: 0.0.0.0:8081
+      JWT_SECRET: ${JWT_SECRET:-dev-only-insecure-secret-change-me}
+    ports:
+      - "8081:8081"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.rust
+      args: { BIN: worker }
+    entrypoint: ["/usr/local/bin/worker"]
+    # Owner role on purpose: the relay reads outbox rows across ALL orgs
+    # and must not be constrained by RLS (see crates/worker config notes).
+    environment:
+      DATABASE_URL: postgres://meridian:meridian@postgres:5432/meridian
+      REDIS_URL: redis://redis:6379/0
+      BIND_ADDR: 0.0.0.0:8082
+      RELAY_BATCH: "200"
+    ports:
+      - "8082:8082"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
