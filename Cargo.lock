@@ -1837,6 +1837,21 @@ dependencies = [
 [[package]]
 name = "realtime"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "chrono",
+ "core-events",
+ "futures-util",
+ "jsonwebtoken",
+ "redis",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
 
 [[package]]
 name = "redis"
