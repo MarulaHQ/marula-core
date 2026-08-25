@@ -1,0 +1,22 @@
+// Compiler configuration for @meridian/layout.
+// Purpose: strict, bundler-resolution TypeScript for an in-repo source package.
+// Non-purpose: no emit step — apps consume the TypeScript sources directly.
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": []
+  },
+  "include": ["src", "tests", "vitest.config.ts"]
+}

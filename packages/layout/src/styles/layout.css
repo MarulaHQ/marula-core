@@ -1,0 +1,219 @@
+/*
+ * @module Stylesheet for @meridian/layout.
+ *
+ * Purpose: grid scaffolding, divider affordances, tab strip, and container
+ * queries for the pane engine. Every COLOR comes from --meridian-* custom
+ * properties owned by packages/ui; no hex/rgb values appear here, and none of
+ * these rules depend on a specific theme being light or dark.
+ * Non-purpose: no typography scale, spacing system, or component library
+ * styling beyond the engine's own chrome.
+ *
+ * Structural (non-color) variables below carry engine defaults that hosts may
+ * override on .meridian-layout or any ancestor:
+ *   --meridian-layout-divider-size   divider hit area, default 5px
+ *   --meridian-layout-collapse-below documentation-only twin of the JS
+ *                                    collapseBelowPx prop (default 720px)
+ */
+
+.meridian-layout {
+  --meridian-layout-divider-size: 5px;
+
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--meridian-color-canvas);
+}
+
+.meridian-split {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.meridian-pane {
+  container-type: inline-size;
+  container-name: meridian-pane;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background-color: var(--meridian-color-surface);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-pane__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.meridian-pane__empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--meridian-color-text-secondary);
+  font-family: var(--meridian-font-family);
+  font-size: 0.8125rem;
+}
+
+/* --- Dividers ------------------------------------------------------------- */
+
+.meridian-divider {
+  position: relative;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.meridian-divider[data-direction="row"] {
+  width: var(--meridian-layout-divider-size);
+  cursor: col-resize;
+}
+
+.meridian-divider[data-direction="column"] {
+  height: var(--meridian-layout-divider-size);
+  cursor: row-resize;
+}
+
+/* Visible 1px center line per the Workbench "borders over shadows" rule. */
+.meridian-divider::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  background-color: transparent;
+  transition: none;
+}
+
+.meridian-divider[data-direction="row"]::after {
+  width: 1px;
+  height: 100%;
+}
+
+.meridian-divider[data-direction="column"]::after {
+  width: 100%;
+  height: 1px;
+}
+
+.meridian-divider:hover::after,
+.meridian-divider:focus-visible::after {
+  background-color: var(--meridian-color-accent);
+}
+
+.meridian-divider[data-dragging="true"]::after {
+  background-color: var(--meridian-color-accent);
+}
+
+.meridian-divider:focus-visible {
+  outline: 2px solid var(--meridian-color-accent);
+  outline-offset: 1px;
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .meridian-divider::after {
+    transition: background-color 120ms ease;
+  }
+}
+
+/* --- Tab strip ------------------------------------------------------------ */
+
+.meridian-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: stretch;
+  gap: 2px;
+  min-height: 32px;
+  padding: 2px 4px 0;
+  overflow-x: auto;
+  background-color: var(--meridian-color-surface);
+  border-bottom: 1px solid var(--meridian-color-border);
+}
+
+.meridian-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 0 8px;
+  color: var(--meridian-color-text-secondary);
+  font-family: var(--meridian-font-family);
+  font-size: 0.8125rem;
+  line-height: 26px;
+  white-space: nowrap;
+  border-radius: var(--meridian-radius-sm) var(--meridian-radius-sm) 0 0;
+  cursor: pointer;
+}
+
+.meridian-tab__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meridian-tab:hover {
+  color: var(--meridian-color-text-primary);
+}
+
+.meridian-tab:focus-visible {
+  outline: 2px solid var(--meridian-color-accent);
+  outline-offset: -2px;
+}
+
+.meridian-tab[data-active="true"] {
+  color: var(--meridian-color-text-primary);
+  box-shadow: inset 0 -2px 0 0 var(--meridian-color-accent);
+}
+
+.meridian-tab__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  color: inherit;
+  font-size: 0.75rem;
+  line-height: 1;
+  background: transparent;
+  border: none;
+  border-radius: var(--meridian-radius-sm);
+  cursor: pointer;
+}
+
+.meridian-tab__close:hover {
+  background-color: var(--meridian-color-border);
+}
+
+.meridian-tab__close:focus-visible {
+  outline: 2px solid var(--meridian-color-accent);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .meridian-tab,
+  .meridian-tab__close {
+    transition:
+      color 120ms ease,
+      box-shadow 120ms ease;
+  }
+}
+
+/* Container-query-driven compactness: when an individual pane is narrow,
+   tighten the tab strip so more panes remain usable side by side. */
+@container meridian-pane (inline-size < 320px) {
+  .meridian-tab {
+    max-width: 140px;
+    padding: 0 6px;
+    font-size: 0.75rem;
+  }
+
+  .meridian-tab__close {
+    width: 14px;
+    height: 14px;
+  }
+}
