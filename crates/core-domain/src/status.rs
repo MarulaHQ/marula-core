@@ -6,8 +6,7 @@ use std::fmt;
 /// Customization (labels, ordering, per-board sets) can never add, remove, or
 /// re-bind these: SLA timers, pause logic, automations, billing, and reports
 /// bind to the category, not the label.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum TicketStatusCategory {
@@ -73,8 +72,9 @@ impl std::str::FromStr for TicketStatusCategory {
 use crate::error::DomainError;
 
 /// Industry-standard four-tier priority.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum Priority {
@@ -115,8 +115,7 @@ impl std::str::FromStr for Priority {
 }
 
 /// Taxonomy of structured ticket notes (§1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum NoteKind {

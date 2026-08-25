@@ -1,11 +1,14 @@
 //! Append-only audit event persistence (§6).
 
-use crate::{DbResult};
+use crate::DbResult;
 use core_domain::entities::{Actor, AuditEvent};
-use sqlx::PgPool;
+use sqlx::Postgres;
 use uuid::Uuid;
 
-pub async fn insert(pool: &PgPool, e: &AuditEvent) -> DbResult<()> {
+pub async fn insert<'e, E>(executor: E, e: &AuditEvent) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let (kind, id): (String, Option<String>) = match &e.actor {
         Actor::Human(u) => ("human".into(), Some(u.to_string())),
         Actor::Agent(a) => ("agent".into(), Some(a.clone())),
@@ -28,17 +31,20 @@ pub async fn insert(pool: &PgPool, e: &AuditEvent) -> DbResult<()> {
         e.ip,
         e.occurred_at,
     )
-    .execute(pool)
+    .execute(executor)
     .await?;
     Ok(())
 }
 
-pub async fn list(
-    pool: &PgPool,
+pub async fn list<'e, E>(
+    executor: E,
     org_id: Uuid,
     limit: i64,
     before: Option<chrono::DateTime<chrono::Utc>>,
-) -> DbResult<Vec<AuditEvent>> {
+) -> DbResult<Vec<AuditEvent>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let rows = sqlx::query!(
         r#"SELECT id, org_id, actor_kind, actor_id, action, entity_type, entity_id,
                   detail, ip, occurred_at
@@ -49,7 +55,7 @@ pub async fn list(
         before,
         limit
     )
-    .fetch_all(pool)
+    .fetch_all(executor)
     .await?;
     Ok(rows
         .into_iter()

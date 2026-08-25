@@ -14,11 +14,17 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 fn client_view_permission() -> Permission {
-    Permission::Matrix { module: Module::Clients, action: core_domain::policy::Action::View }
+    Permission::Matrix {
+        module: Module::Clients,
+        action: core_domain::policy::Action::View,
+    }
 }
 
 fn client_edit_permission() -> Permission {
-    Permission::Matrix { module: Module::Clients, action: core_domain::policy::Action::Create }
+    Permission::Matrix {
+        module: Module::Clients,
+        action: core_domain::policy::Action::Create,
+    }
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -79,7 +85,8 @@ pub async fn get_one(
 ) -> ApiResult<Json<core_domain::entities::Client>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, client_view_permission())?;
-    let client = core_db::clients::get_client(&state.pool, authed.principal.user.org_id, id).await?;
+    let client =
+        core_db::clients::get_client(&state.pool, authed.principal.user.org_id, id).await?;
     // Per-client visibility rule: restricted_to lists allowed users; admins bypass.
     if !client.restricted_to.is_empty()
         && !client.restricted_to.contains(&authed.principal.user.id)
@@ -164,7 +171,8 @@ pub async fn list_contacts(
 ) -> ApiResult<Json<Vec<core_domain::entities::Contact>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, client_view_permission())?;
-    let contacts = core_db::clients::list_contacts(&state.pool, authed.principal.user.org_id, id).await?;
+    let contacts =
+        core_db::clients::list_contacts(&state.pool, authed.principal.user.org_id, id).await?;
     Ok(Json(contacts))
 }
 
@@ -204,7 +212,8 @@ pub async fn list_assets(
 ) -> ApiResult<Json<Vec<core_domain::entities::DeviceAsset>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, client_view_permission())?;
-    let assets = core_db::clients::list_assets(&state.pool, authed.principal.user.org_id, id).await?;
+    let assets =
+        core_db::clients::list_assets(&state.pool, authed.principal.user.org_id, id).await?;
     Ok(Json(assets))
 }
 

@@ -3,11 +3,12 @@
 use crate::{DbError, DbResult};
 use core_domain::entities::{Board, BoardFavorite, BoardStatus};
 use core_domain::status::TicketStatusCategory;
-use sqlx::PgPool;
+use sqlx::{PgConnection, Postgres};
 use uuid::Uuid;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn add_status(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     org_id: Uuid,
     id: Uuid,
     board_id: Uuid,
@@ -27,19 +28,22 @@ pub async fn add_status(
         sort_order,
         is_entry
     )
-    .execute(pool)
+    .execute(&mut *conn)
     .await?;
-    get_status(pool, id).await
+    get_status(&mut *conn, id).await
 }
 
-pub async fn create_board(
-    pool: &PgPool,
+pub async fn create_board<'e, E>(
+    executor: E,
     org_id: Uuid,
     id: Uuid,
     name: &str,
     description: Option<&str>,
     is_default: bool,
-) -> DbResult<Board> {
+) -> DbResult<Board>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let row = sqlx::query!(
         r#"INSERT INTO boards (id, org_id, name, description, is_default)
            VALUES ($1, $2, $3, $4, $5)
@@ -50,7 +54,7 @@ pub async fn create_board(
         description,
         is_default
     )
-    .fetch_one(pool)
+    .fetch_one(executor)
     .await?;
     Ok(Board {
         id: row.id,
@@ -62,13 +66,16 @@ pub async fn create_board(
     })
 }
 
-pub async fn list_boards(pool: &PgPool, org_id: Uuid) -> DbResult<Vec<Board>> {
+pub async fn list_boards<'e, E>(executor: E, org_id: Uuid) -> DbResult<Vec<Board>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let rows = sqlx::query!(
         r#"SELECT id, org_id, name, description, is_default, created_at
            FROM boards WHERE org_id = $1 ORDER BY is_default DESC, name"#,
         org_id
     )
-    .fetch_all(pool)
+    .fetch_all(executor)
     .await?;
     Ok(rows
         .into_iter()
@@ -83,14 +90,17 @@ pub async fn list_boards(pool: &PgPool, org_id: Uuid) -> DbResult<Vec<Board>> {
         .collect())
 }
 
-pub async fn get_board(pool: &PgPool, org_id: Uuid, id: Uuid) -> DbResult<Board> {
+pub async fn get_board<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<Board>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let row = sqlx::query!(
         r#"SELECT id, org_id, name, description, is_default, created_at
            FROM boards WHERE org_id = $1 AND id = $2"#,
         org_id,
         id
     )
-    .fetch_optional(pool)
+    .fetch_optional(executor)
     .await?
     .ok_or(DbError::NotFound)?;
     Ok(Board {
@@ -125,37 +135,53 @@ fn status_from_row(row: sqlx::postgres::PgRow) -> DbResult<BoardStatus> {
 
 const STATUS_COLS: &str = "id, board_id, org_id, name, category, sort_order, is_entry, color";
 
-pub async fn list_statuses(pool: &PgPool, board_id: Uuid) -> DbResult<Vec<BoardStatus>> {
-    let sql = format!(
-        "SELECT {STATUS_COLS} FROM board_statuses WHERE board_id = $1 ORDER BY sort_order"
-    );
-    let rows = sqlx::query(&sql).bind(board_id).fetch_all(pool).await?;
+pub async fn list_statuses<'e, E>(executor: E, board_id: Uuid) -> DbResult<Vec<BoardStatus>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql =
+        format!("SELECT {STATUS_COLS} FROM board_statuses WHERE board_id = $1 ORDER BY sort_order");
+    let rows = sqlx::query(&sql).bind(board_id).fetch_all(executor).await?;
     rows.into_iter().map(status_from_row).collect()
 }
 
-pub async fn get_status(pool: &PgPool, status_id: Uuid) -> DbResult<BoardStatus> {
+pub async fn get_status<'e, E>(executor: E, status_id: Uuid) -> DbResult<BoardStatus>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let sql = format!("SELECT {STATUS_COLS} FROM board_statuses WHERE id = $1");
     let row = sqlx::query(&sql)
         .bind(status_id)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await?
         .ok_or(DbError::NotFound)?;
     status_from_row(row)
 }
 
-pub async fn default_status_for_board(pool: &PgPool, board_id: Uuid) -> DbResult<BoardStatus> {
+pub async fn default_status_for_board<'e, E>(executor: E, board_id: Uuid) -> DbResult<BoardStatus>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let sql = format!(
         "SELECT {STATUS_COLS} FROM board_statuses WHERE board_id = $1 AND is_entry ORDER BY sort_order LIMIT 1"
     );
     let row = sqlx::query(&sql)
         .bind(board_id)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await?
         .ok_or(DbError::NotFound)?;
     status_from_row(row)
 }
 
-pub async fn add_favorite(pool: &PgPool, user_id: Uuid, board_id: Uuid, sort_order: i32) -> DbResult<()> {
+pub async fn add_favorite<'e, E>(
+    executor: E,
+    user_id: Uuid,
+    board_id: Uuid,
+    sort_order: i32,
+) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     sqlx::query!(
         r#"INSERT INTO board_favorites (user_id, board_id, sort_order) VALUES ($1, $2, $3)
            ON CONFLICT (user_id, board_id) DO UPDATE SET sort_order = $3"#,
@@ -163,29 +189,35 @@ pub async fn add_favorite(pool: &PgPool, user_id: Uuid, board_id: Uuid, sort_ord
         board_id,
         sort_order
     )
-    .execute(pool)
+    .execute(executor)
     .await?;
     Ok(())
 }
 
-pub async fn remove_favorite(pool: &PgPool, user_id: Uuid, board_id: Uuid) -> DbResult<()> {
+pub async fn remove_favorite<'e, E>(executor: E, user_id: Uuid, board_id: Uuid) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     sqlx::query!(
         r#"DELETE FROM board_favorites WHERE user_id = $1 AND board_id = $2"#,
         user_id,
         board_id
     )
-    .execute(pool)
+    .execute(executor)
     .await?;
     Ok(())
 }
 
-pub async fn favorites_for_user(pool: &PgPool, user_id: Uuid) -> DbResult<Vec<BoardFavorite>> {
+pub async fn favorites_for_user<'e, E>(executor: E, user_id: Uuid) -> DbResult<Vec<BoardFavorite>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let rows = sqlx::query!(
         r#"SELECT user_id, board_id, sort_order FROM board_favorites
            WHERE user_id = $1 ORDER BY sort_order"#,
         user_id
     )
-    .fetch_all(pool)
+    .fetch_all(executor)
     .await?;
     Ok(rows
         .into_iter()

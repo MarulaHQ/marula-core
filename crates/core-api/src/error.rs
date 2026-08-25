@@ -26,9 +26,7 @@ impl From<core_db::DbError> for ApiError {
         match &e {
             core_db::DbError::NotFound => ApiError::NotFound,
             core_db::DbError::Sql(sqlx::Error::RowNotFound) => ApiError::NotFound,
-            core_db::DbError::Sql(sqlx::Error::Database(db))
-                if db.constraint().is_some() =>
-            {
+            core_db::DbError::Sql(sqlx::Error::Database(db)) if db.constraint().is_some() => {
                 ApiError::Conflict(db.constraint().unwrap_or("").to_string())
             }
             _ => {
@@ -36,6 +34,12 @@ impl From<core_db::DbError> for ApiError {
                 ApiError::Internal(anyhow::anyhow!(e.to_string()))
             }
         }
+    }
+}
+
+impl From<sqlx::Error> for ApiError {
+    fn from(e: sqlx::Error) -> Self {
+        Self::from(core_db::DbError::Sql(e))
     }
 }
 
@@ -59,9 +63,16 @@ impl IntoResponse for ApiError {
             ApiError::Forbidden(m) => (StatusCode::FORBIDDEN, m.clone()),
             ApiError::Validation(m) => (StatusCode::UNPROCESSABLE_ENTITY, m.clone()),
             ApiError::Conflict(m) => (StatusCode::CONFLICT, m.clone()),
-            ApiError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string()),
+            ApiError::Internal(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal error".to_string(),
+            ),
         };
-        (status, Json(json!({ "error": { "code": status.as_u16(), "message": message } }))).into_response()
+        (
+            status,
+            Json(json!({ "error": { "code": status.as_u16(), "message": message } })),
+        )
+            .into_response()
     }
 }
 

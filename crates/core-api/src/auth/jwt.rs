@@ -84,7 +84,8 @@ mod tests {
     #[test]
     fn wrong_secret_is_rejected() {
         let cfg = test_config();
-        let token = issue_access_token(&cfg, Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7()).unwrap();
+        let token =
+            issue_access_token(&cfg, Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7()).unwrap();
         let mut other = test_config();
         other.jwt_secret = "different".into();
         assert!(verify_access_token(&other, &token).is_none());
@@ -94,6 +95,9 @@ mod tests {
     fn refresh_hash_is_deterministic_and_binds_token() {
         let t = new_refresh_token();
         assert_eq!(hash_refresh_token(&t), hash_refresh_token(&t));
-        assert_ne!(hash_refresh_token(&t), hash_refresh_token(&new_refresh_token()));
+        assert_ne!(
+            hash_refresh_token(&t),
+            hash_refresh_token(&new_refresh_token())
+        );
     }
 }

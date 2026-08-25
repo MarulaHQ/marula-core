@@ -12,7 +12,7 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, ToSchema, utoipa::IntoParams)]
 pub struct ListQuery {
     #[serde(default)]
     pub unread_only: bool,
@@ -53,9 +53,12 @@ pub async fn unread_count(
     extensions: Extensions,
 ) -> ApiResult<Json<UnreadCount>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    let count =
-        core_db::notifications::unread_count(&state.pool, authed.principal.user.org_id, authed.principal.user.id)
-            .await?;
+    let count = core_db::notifications::unread_count(
+        &state.pool,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await?;
     Ok(Json(UnreadCount { count }))
 }
 

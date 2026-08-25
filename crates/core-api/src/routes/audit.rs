@@ -3,11 +3,15 @@
 use crate::auth::middleware::{authed, require_permission};
 use crate::error::ApiResult;
 use crate::state::AppState;
-use axum::{extract::{Query, State}, http::Extensions, Json};
+use axum::{
+    extract::{Query, State},
+    http::Extensions,
+    Json,
+};
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, ToSchema, utoipa::IntoParams)]
 pub struct AuditQuery {
     pub before: Option<chrono::DateTime<chrono::Utc>>,
     #[serde(default = "default_limit")]
@@ -28,7 +32,10 @@ pub async fn list(
     Query(q): Query<AuditQuery>,
 ) -> ApiResult<Json<Vec<core_domain::entities::AuditEvent>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, core_domain::policy::Permission::ViewAuditLog)?;
+    require_permission(
+        &authed.principal,
+        core_domain::policy::Permission::ViewAuditLog,
+    )?;
     let events = core_db::audit::list(
         &state.pool,
         authed.principal.user.org_id,

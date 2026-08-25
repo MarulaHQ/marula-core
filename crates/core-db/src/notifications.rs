@@ -2,11 +2,12 @@
 
 use crate::{DbError, DbResult};
 use core_domain::entities::{Notification, NotificationPreference};
-use sqlx::PgPool;
+use sqlx::Postgres;
 use uuid::Uuid;
 
-pub async fn insert(
-    pool: &PgPool,
+#[allow(clippy::too_many_arguments)]
+pub async fn insert<'e, E>(
+    executor: E,
     id: Uuid,
     org_id: Uuid,
     user_id: Uuid,
@@ -14,7 +15,10 @@ pub async fn insert(
     ticket_id: Option<Uuid>,
     title: &str,
     body: Option<&str>,
-) -> DbResult<Notification> {
+) -> DbResult<Notification>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let row = sqlx::query!(
         r#"INSERT INTO notifications (id, org_id, user_id, kind, ticket_id, title, body)
            VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -27,7 +31,7 @@ pub async fn insert(
         title,
         body
     )
-    .fetch_one(pool)
+    .fetch_one(executor)
     .await?;
     Ok(Notification {
         id: row.id,
@@ -64,13 +68,16 @@ fn notification_from_row(row: sqlx::postgres::PgRow) -> DbResult<Notification> {
     })
 }
 
-pub async fn list_for_user(
-    pool: &PgPool,
+pub async fn list_for_user<'e, E>(
+    executor: E,
     org_id: Uuid,
     user_id: Uuid,
     unread_only: bool,
     limit: i64,
-) -> DbResult<Vec<Notification>> {
+) -> DbResult<Vec<Notification>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let sql = "SELECT id, org_id, user_id, kind, ticket_id, title, body, read_at, created_at \
                FROM notifications \
                WHERE org_id = $1 AND user_id = $2 AND ($3 = false OR read_at IS NULL) \
@@ -80,12 +87,15 @@ pub async fn list_for_user(
         .bind(user_id)
         .bind(unread_only)
         .bind(limit)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await?;
     rows.into_iter().map(notification_from_row).collect()
 }
 
-pub async fn mark_read(pool: &PgPool, org_id: Uuid, user_id: Uuid, id: Uuid) -> DbResult<()> {
+pub async fn mark_read<'e, E>(executor: E, org_id: Uuid, user_id: Uuid, id: Uuid) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let res = sqlx::query!(
         r#"UPDATE notifications SET read_at = now()
            WHERE org_id = $1 AND user_id = $2 AND id = $3 AND read_at IS NULL"#,
@@ -93,7 +103,7 @@ pub async fn mark_read(pool: &PgPool, org_id: Uuid, user_id: Uuid, id: Uuid) -> 
         user_id,
         id
     )
-    .execute(pool)
+    .execute(executor)
     .await?;
     if res.rows_affected() == 0 {
         return Err(DbError::NotFound);
@@ -101,19 +111,25 @@ pub async fn mark_read(pool: &PgPool, org_id: Uuid, user_id: Uuid, id: Uuid) -> 
     Ok(())
 }
 
-pub async fn unread_count(pool: &PgPool, org_id: Uuid, user_id: Uuid) -> DbResult<i64> {
+pub async fn unread_count<'e, E>(executor: E, org_id: Uuid, user_id: Uuid) -> DbResult<i64>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let row = sqlx::query!(
         r#"SELECT COUNT(*) AS c FROM notifications
            WHERE org_id = $1 AND user_id = $2 AND read_at IS NULL"#,
         org_id,
         user_id
     )
-    .fetch_one(pool)
+    .fetch_one(executor)
     .await?;
     Ok(row.c.unwrap_or(0))
 }
 
-pub async fn upsert_preference(pool: &PgPool, p: &NotificationPreference) -> DbResult<()> {
+pub async fn upsert_preference<'e, E>(executor: E, p: &NotificationPreference) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let kind = p.kind.as_str().to_string();
     sqlx::query!(
         r#"INSERT INTO notification_preferences
@@ -128,7 +144,7 @@ pub async fn upsert_preference(pool: &PgPool, p: &NotificationPreference) -> DbR
         p.quiet_from,
         p.quiet_until,
     )
-    .execute(pool)
+    .execute(executor)
     .await?;
     Ok(())
 }

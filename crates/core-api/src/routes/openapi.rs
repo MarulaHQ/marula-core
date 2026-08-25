@@ -116,7 +116,9 @@ use utoipa::OpenApi;
 pub struct ApiDoc;
 
 pub fn openapi_json() -> serde_json::Value {
-    ApiDoc::openapi().to_pretty_json().unwrap_or_else(|_| "{}".to_string())
+    ApiDoc::openapi()
+        .to_pretty_json()
+        .unwrap_or_else(|_| "{}".to_string())
         .parse()
         .unwrap_or_else(|_| serde_json::json!({}))
 }
@@ -133,7 +135,7 @@ async fn openapi_handler() -> axum::Json<serde_json::Value> {
 
 /// Scalar is served from its CDN against our local spec — no vendored UI.
 async fn scalar_handler() -> axum::response::Html<String> {
-    axum::response::Html(format!(
+    axum::response::Html(
         r#"<!doctype html>
 <html>
   <head>
@@ -149,7 +151,8 @@ async fn scalar_handler() -> axum::response::Html<String> {
     <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
   </body>
 </html>"#
-    ))
+            .to_string(),
+    )
 }
 
 /// Token pair returned by all auth flows.

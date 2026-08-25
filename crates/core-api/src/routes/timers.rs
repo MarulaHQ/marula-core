@@ -20,7 +20,10 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 fn time_perm(action: Action) -> Permission {
-    Permission::Matrix { module: Module::Time, action }
+    Permission::Matrix {
+        module: Module::Time,
+        action,
+    }
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -115,16 +118,20 @@ pub async fn start(
 
     let session = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         // Ticket existence check under RLS (also validates org membership).
-        let _ticket = core_db::tickets::get_ticket(&mut ctx.tx, org_id, req.ticket_id).await?;
+        let _ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, req.ticket_id).await?;
 
         let mut switched_from = None;
-        if let Some(mut current) = core_db::timers::active_session(&mut ctx.tx, user_id).await? {
+        if let Some(mut current) = core_db::timers::active_session(&mut *ctx.tx, user_id).await? {
             switched_from = Some(current.id);
             // Auto-pause with Switched semantics; elapsed is preserved.
             let _ = core_domain::entities::TimerSession::start_switch(
-                &mut current, org_id, user_id, req.ticket_id, now,
+                &mut current,
+                org_id,
+                user_id,
+                req.ticket_id,
+                now,
             );
-            core_db::timers::update_session(&mut ctx.tx, &current).await?;
+            core_db::timers::update_session(&mut *ctx.tx, &current).await?;
             ctx.emit(
                 types::TIMER_SWITCHED,
                 "timer",
@@ -135,7 +142,7 @@ pub async fn start(
         }
 
         let session = TimerSession::start(org_id, user_id, req.ticket_id, now);
-        core_db::timers::insert_session(&mut ctx.tx, &session).await?;
+        core_db::timers::insert_session(&mut *ctx.tx, &session).await?;
         ctx.emit(
             types::TIMER_STARTED,
             "timer",
@@ -176,19 +183,19 @@ pub async fn pause(
     let session = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         let mut session = match req.session_id {
             Some(id) => {
-                let s = core_db::timers::get_session(&mut ctx.tx, id).await?;
+                let s = core_db::timers::get_session(&mut *ctx.tx, id).await?;
                 if s.user_id != user_id {
                     return Err(ApiError::Forbidden("not your timer".into()));
                 }
                 s
             }
-            None => core_db::timers::active_session(&mut ctx.tx, user_id)
+            None => core_db::timers::active_session(&mut *ctx.tx, user_id)
                 .await?
                 .ok_or_else(|| ApiError::Validation("no active timer".into()))?,
         };
         let elapsed = session.total_elapsed_secs(now);
         session.pause(now, req.reason.clone())?;
-        core_db::timers::update_session(&mut ctx.tx, &session).await?;
+        core_db::timers::update_session(&mut *ctx.tx, &session).await?;
         ctx.emit(
             types::TIMER_PAUSED,
             "timer",
@@ -227,7 +234,7 @@ pub async fn resume(
 
     let session = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         // Single-active invariant: resuming requires no other running timer.
-        if let Some(active) = core_db::timers::active_session(&mut ctx.tx, user_id).await? {
+        if let Some(active) = core_db::timers::active_session(&mut *ctx.tx, user_id).await? {
             if Some(active.id) != req.session_id {
                 return Err(ApiError::Validation(
                     "another timer is running — switch or stop it first".into(),
@@ -237,12 +244,12 @@ pub async fn resume(
         let session_id = req
             .session_id
             .ok_or_else(|| ApiError::Validation("session_id is required to resume".into()))?;
-        let mut session = core_db::timers::get_session(&mut ctx.tx, session_id).await?;
+        let mut session = core_db::timers::get_session(&mut *ctx.tx, session_id).await?;
         if session.user_id != user_id {
             return Err(ApiError::Forbidden("not your timer".into()));
         }
         session.resume(now)?;
-        core_db::timers::update_session(&mut ctx.tx, &session).await?;
+        core_db::timers::update_session(&mut *ctx.tx, &session).await?;
         ctx.emit(
             types::TIMER_RESUMED,
             "timer",
@@ -276,22 +283,27 @@ pub async fn stop(
     let entry = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         let mut session = match req.session_id {
             Some(id) => {
-                let s = core_db::timers::get_session(&mut ctx.tx, id).await?;
+                let s = core_db::timers::get_session(&mut *ctx.tx, id).await?;
                 if s.user_id != user_id {
                     return Err(ApiError::Forbidden("not your timer".into()));
                 }
                 s
             }
-            None => core_db::timers::active_session(&mut ctx.tx, user_id)
+            None => core_db::timers::active_session(&mut *ctx.tx, user_id)
                 .await?
                 .ok_or_else(|| ApiError::Validation("no active timer".into()))?,
         };
         let total = session.total_elapsed_secs(now);
         session.stop(now, req.reason.clone())?;
-        core_db::timers::update_session(&mut ctx.tx, &session).await?;
+        core_db::timers::update_session(&mut *ctx.tx, &session).await?;
 
-        let entry = TimeEntry::from_session(&session, now, req.notes.clone(), req.billable.unwrap_or(true))?;
-        core_db::timers::insert_time_entry(&mut ctx.tx, &entry).await?;
+        let entry = TimeEntry::from_session(
+            &session,
+            now,
+            req.notes.clone(),
+            req.billable.unwrap_or(true),
+        )?;
+        core_db::timers::insert_time_entry(&mut *ctx.tx, &entry).await?;
         ctx.emit(
             types::TIMER_STOPPED,
             "timer",
@@ -310,8 +322,10 @@ pub async fn stop(
             types::TIME_ENTRY_CREATED,
             "time_entry",
             Some(entry.id.to_string().as_str()),
-            &serde_json::to_value(core_domain::events::TimeEntryCreated { entry: entry.clone() })
-                .unwrap_or_default(),
+            &serde_json::to_value(core_domain::events::TimeEntryCreated {
+                entry: entry.clone(),
+            })
+            .unwrap_or_default(),
         )
         .await?;
         Ok((ctx, entry))
@@ -365,7 +379,9 @@ pub async fn create_entry(
     let org_id = authed.principal.user.org_id;
 
     if req.ended_at <= req.started_at {
-        return Err(ApiError::Validation("ended_at must be after started_at".into()));
+        return Err(ApiError::Validation(
+            "ended_at must be after started_at".into(),
+        ));
     }
     let minutes = (req.ended_at - req.started_at).num_minutes();
     if minutes < 0 {
@@ -387,19 +403,24 @@ pub async fn create_entry(
         created_at: chrono::Utc::now(),
     };
 
-    org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        // Validate the ticket exists in this org.
-        let _ = core_db::tickets::get_ticket(&mut ctx.tx, org_id, req.ticket_id).await?;
-        core_db::timers::insert_time_entry(&mut ctx.tx, &entry).await?;
-        ctx.emit(
-            types::TIME_ENTRY_CREATED,
-            "time_entry",
-            Some(entry.id.to_string().as_str()),
-            &serde_json::to_value(core_domain::events::TimeEntryCreated { entry: entry.clone() })
+    org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| {
+        let entry = entry.clone();
+        async move {
+            // Validate the ticket exists in this org.
+            let _ = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, req.ticket_id).await?;
+            core_db::timers::insert_time_entry(&mut *ctx.tx, &entry).await?;
+            ctx.emit(
+                types::TIME_ENTRY_CREATED,
+                "time_entry",
+                Some(entry.id.to_string().as_str()),
+                &serde_json::to_value(core_domain::events::TimeEntryCreated {
+                    entry: entry.clone(),
+                })
                 .unwrap_or_default(),
-        )
-        .await?;
-        Ok((ctx, ()))
+            )
+            .await?;
+            Ok((ctx, ()))
+        }
     })
     .await?;
 

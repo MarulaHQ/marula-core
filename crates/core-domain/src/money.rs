@@ -6,8 +6,7 @@ use std::fmt;
 use std::str::FromStr;
 
 /// ISO 4217 code, always uppercase, exactly three letters.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct CurrencyCode(String);
 
@@ -53,8 +52,7 @@ impl FromStr for CurrencyCode {
 
 /// An amount of money in minor units (e.g. cents). `i128` internally to make
 /// accumulation overflow implausible; serializes as `{ minor, currency }`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Money {
     pub minor: i64,
@@ -102,7 +100,10 @@ impl Money {
             .checked_mul(10_i64.pow(exp))
             .and_then(|w| w.checked_add(frac_val))
             .ok_or_else(|| DomainError::MoneyOverflow(s.to_string(), currency.to_string()))?;
-        Ok(Self { minor: if neg { -minor } else { minor }, currency: currency.clone() })
+        Ok(Self {
+            minor: if neg { -minor } else { minor },
+            currency: currency.clone(),
+        })
     }
 
     pub fn checked_add(&self, other: &Self) -> Result<Self, DomainError> {
@@ -114,7 +115,10 @@ impl Money {
         }
         self.minor
             .checked_add(other.minor)
-            .map(|m| Self { minor: m, currency: self.currency.clone() })
+            .map(|m| Self {
+                minor: m,
+                currency: self.currency.clone(),
+            })
             .ok_or_else(|| {
                 DomainError::MoneyOverflow(self.minor.to_string(), other.minor.to_string())
             })
@@ -129,7 +133,10 @@ impl Money {
         }
         self.minor
             .checked_sub(other.minor)
-            .map(|m| Self { minor: m, currency: self.currency.clone() })
+            .map(|m| Self {
+                minor: m,
+                currency: self.currency.clone(),
+            })
             .ok_or_else(|| {
                 DomainError::MoneyOverflow(self.minor.to_string(), other.minor.to_string())
             })
@@ -146,7 +153,10 @@ impl Money {
         }
         let minor = i64::try_from(q)
             .map_err(|_| DomainError::MoneyOverflow(raw.to_string(), "percent".into()))?;
-        Ok(Self { minor, currency: self.currency.clone() })
+        Ok(Self {
+            minor,
+            currency: self.currency.clone(),
+        })
     }
 }
 
@@ -156,7 +166,13 @@ impl fmt::Display for Money {
         let sign = if self.minor < 0 { "-" } else { "" };
         let abs = self.minor.unsigned_abs();
         let scale = 10_u64.pow(exp);
-        write!(f, "{sign}{}.{:0width$}", abs / scale, abs % scale, width = exp as usize)?;
+        write!(
+            f,
+            "{sign}{}.{:0width$}",
+            abs / scale,
+            abs % scale,
+            width = exp as usize
+        )?;
         write!(f, " {}", self.currency)
     }
 }

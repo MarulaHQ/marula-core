@@ -16,7 +16,10 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 fn board_view() -> Permission {
-    Permission::Matrix { module: Module::Tickets, action: core_domain::policy::Action::View }
+    Permission::Matrix {
+        module: Module::Tickets,
+        action: core_domain::policy::Action::View,
+    }
 }
 
 fn board_manage() -> Permission {
@@ -55,8 +58,10 @@ pub async fn create(
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, board_manage())?;
     let org_id = authed.principal.user.org_id;
+    // One connection for the board + its seeded statuses.
+    let mut conn = state.pool.acquire().await?;
     let board = core_db::boards::create_board(
-        &state.pool,
+        &mut *conn,
         org_id,
         Uuid::now_v7(),
         &req.name,
@@ -72,8 +77,17 @@ pub async fn create(
         ("Resolved", TicketStatusCategory::Closed, 30, false),
     ];
     for (name, category, sort, is_entry) in defaults {
-        core_db::boards::add_status(&state.pool, org_id, Uuid::now_v7(), board.id, name, category, sort, is_entry)
-            .await?;
+        core_db::boards::add_status(
+            &mut conn,
+            org_id,
+            Uuid::now_v7(),
+            board.id,
+            name,
+            category,
+            sort,
+            is_entry,
+        )
+        .await?;
     }
     Ok(Json(board))
 }
@@ -116,8 +130,9 @@ pub async fn add_status(
 ) -> ApiResult<Json<core_domain::entities::BoardStatus>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, board_manage())?;
+    let mut conn = state.pool.acquire().await?;
     let status = core_db::boards::add_status(
-        &state.pool,
+        &mut conn,
         authed.principal.user.org_id,
         Uuid::now_v7(),
         id,

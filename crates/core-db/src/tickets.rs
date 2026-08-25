@@ -5,7 +5,7 @@ use crate::{DbError, DbResult};
 use core_domain::entities::{ChecklistItem, Ticket, TicketComment};
 use core_domain::ids::TicketNumber;
 use core_domain::status::{NoteKind, Priority, TicketStatusCategory};
-use sqlx::PgPool;
+use sqlx::{PgConnection, Postgres};
 use uuid::Uuid;
 
 fn parse_priority(s: &str) -> DbResult<Priority> {
@@ -14,9 +14,7 @@ fn parse_priority(s: &str) -> DbResult<Priority> {
     })
 }
 
-fn row_to_ticket(
-    row: sqlx::postgres::PgRow,
-) -> Result<Ticket, sqlx::Error> {
+fn row_to_ticket(row: sqlx::postgres::PgRow) -> Result<Ticket, sqlx::Error> {
     use sqlx::Row;
     Ok(Ticket {
         id: row.get("id"),
@@ -26,23 +24,23 @@ fn row_to_ticket(
         status_id: row.get("status_id"),
         title: row.get("title"),
         body: row.get("body"),
-        priority: row
-            .get::<String, _>("priority")
-            .parse()
-            .map_err(|e: core_domain::DomainError| {
-                sqlx::Error::ColumnDecode { index: "priority".into(), source: Box::new(e) }
-            })?,
+        priority: row.get::<String, _>("priority").parse().map_err(
+            |e: core_domain::DomainError| sqlx::Error::ColumnDecode {
+                index: "priority".into(),
+                source: Box::new(e),
+            },
+        )?,
         client_id: row.get("client_id"),
         site_id: row.get("site_id"),
         contact_id: row.get("contact_id"),
         assignee_id: row.get("assignee_id"),
         requester_id: row.get("requester_id"),
-        category: row
-            .get::<String, _>("category")
-            .parse()
-            .map_err(|e: core_domain::DomainError| {
-                sqlx::Error::ColumnDecode { index: "category".into(), source: Box::new(e) }
-            })?,
+        category: row.get::<String, _>("category").parse().map_err(
+            |e: core_domain::DomainError| sqlx::Error::ColumnDecode {
+                index: "category".into(),
+                source: Box::new(e),
+            },
+        )?,
         due_at: row.get("due_at"),
         resolved_at: row.get("resolved_at"),
         created_at: row.get("created_at"),
@@ -71,7 +69,9 @@ pub struct NewTicket<'a> {
     pub due_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-pub async fn insert_ticket(pool: &PgPool, t: NewTicket<'_>) -> DbResult<Ticket> {
+/// Insert + re-fetch (category comes from the board status row): takes a
+/// connection so it can run inside the caller's transaction.
+pub async fn insert_ticket(conn: &mut PgConnection, t: NewTicket<'_>) -> DbResult<Ticket> {
     let row = sqlx::query!(
         r#"INSERT INTO tickets (id, org_id, number, board_id, status_id, title, body,
                                 priority, client_id, site_id, contact_id, assignee_id,
@@ -94,32 +94,38 @@ pub async fn insert_ticket(pool: &PgPool, t: NewTicket<'_>) -> DbResult<Ticket> 
         t.requester_id,
         t.due_at,
     )
-    .fetch_one(pool)
+    .fetch_one(&mut *conn)
     .await?;
-    get_ticket(pool, t.org_id, row.id).await
+    get_ticket(&mut *conn, t.org_id, row.id).await
 }
 
-pub async fn get_ticket(pool: &PgPool, org_id: Uuid, id: Uuid) -> DbResult<Ticket> {
-    let sql = format!(
-        "SELECT {TICKET_COLS} FROM tickets WHERE org_id = $1 AND id = $2"
-    );
+pub async fn get_ticket<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<Ticket>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = format!("SELECT {TICKET_COLS} FROM tickets WHERE org_id = $1 AND id = $2");
     let row = sqlx::query(&sql)
         .bind(org_id)
         .bind(id)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await?
         .ok_or(DbError::NotFound)?;
     Ok(row_to_ticket(row)?)
 }
 
-pub async fn get_ticket_by_number(pool: &PgPool, org_id: Uuid, number: &str) -> DbResult<Ticket> {
-    let sql = format!(
-        "SELECT {TICKET_COLS} FROM tickets WHERE org_id = $1 AND number = $2"
-    );
+pub async fn get_ticket_by_number<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    number: &str,
+) -> DbResult<Ticket>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = format!("SELECT {TICKET_COLS} FROM tickets WHERE org_id = $1 AND number = $2");
     let row = sqlx::query(&sql)
         .bind(org_id)
         .bind(number)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await?
         .ok_or(DbError::NotFound)?;
     Ok(row_to_ticket(row)?)
@@ -135,7 +141,14 @@ pub struct TicketFilter {
     pub offset: i64,
 }
 
-pub async fn list_tickets(pool: &PgPool, org_id: Uuid, f: TicketFilter) -> DbResult<Vec<Ticket>> {
+pub async fn list_tickets<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    f: TicketFilter,
+) -> DbResult<Vec<Ticket>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let sql = format!(
         r#"SELECT {TICKET_COLS} FROM tickets
            WHERE org_id = $1
@@ -158,37 +171,54 @@ pub async fn list_tickets(pool: &PgPool, org_id: Uuid, f: TicketFilter) -> DbRes
         .bind(f.priority.map(|p| p.as_str().to_string()))
         .bind(f.limit)
         .bind(f.offset)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await?;
-    Ok(rows.into_iter().map(row_to_ticket).collect::<Result<_, _>>()?)
+    Ok(rows
+        .into_iter()
+        .map(row_to_ticket)
+        .collect::<Result<_, _>>()?)
 }
 
 /// Tickets for a user's my-work view: assigned to them, not closed, across
 /// all boards, priority-ordered.
-pub async fn my_work(pool: &PgPool, org_id: Uuid, user_id: Uuid, limit: i64) -> DbResult<Vec<Ticket>> {
+pub async fn my_work<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    user_id: Uuid,
+    limit: i64,
+) -> DbResult<Vec<Ticket>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let sql = format!(
         r#"SELECT {TICKET_COLS} FROM tickets
            WHERE org_id = $1 AND assignee_id = $2 AND category <> 'closed'
            ORDER BY
              CASE priority WHEN 'p1' THEN 0 WHEN 'p2' THEN 1 WHEN 'p3' THEN 2 ELSE 3 END,
-             due_at NULLS LAST, created_at
-           LIMIT $3"#
+              due_at NULLS LAST, created_at
+            LIMIT $3"#
     );
     let rows = sqlx::query(&sql)
         .bind(org_id)
         .bind(user_id)
         .bind(limit)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await?;
-    Ok(rows.into_iter().map(row_to_ticket).collect::<Result<_, _>>()?)
+    Ok(rows
+        .into_iter()
+        .map(row_to_ticket)
+        .collect::<Result<_, _>>()?)
 }
 
-pub async fn update_status(
-    pool: &PgPool,
+pub async fn update_status<'e, E>(
+    executor: E,
     org_id: Uuid,
     ticket_id: Uuid,
     status_id: Uuid,
-) -> DbResult<()> {
+) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let res = sqlx::query!(
         r#"UPDATE tickets SET
              status_id = $3,
@@ -203,7 +233,7 @@ pub async fn update_status(
         ticket_id,
         status_id
     )
-    .execute(pool)
+    .execute(executor)
     .await?;
     if res.rows_affected() == 0 {
         return Err(DbError::NotFound);
@@ -224,12 +254,15 @@ pub struct TicketPatch<'a> {
 
 /// Dynamic patch via QueryBuilder (injection-safe: every value is push_bind).
 /// `Some(None)` clears a nullable column; `None` leaves it untouched.
-pub async fn update_ticket(
-    pool: &PgPool,
+pub async fn update_ticket<'e, E>(
+    executor: E,
     org_id: Uuid,
     id: Uuid,
     p: TicketPatch<'_>,
-) -> DbResult<()> {
+) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let mut q = sqlx::QueryBuilder::new("UPDATE tickets SET updated_at = now()");
     if let Some(v) = p.title {
         q.push(", title = ").push_bind(v.to_string());
@@ -255,23 +288,29 @@ pub async fn update_ticket(
     if let Some(v) = p.due_at {
         q.push(", due_at = ").push_bind(v);
     }
-    q.push(" WHERE org_id = ").push_bind(org_id).push(" AND id = ").push_bind(id);
-    let res = q.build().execute(pool).await?;
+    q.push(" WHERE org_id = ")
+        .push_bind(org_id)
+        .push(" AND id = ")
+        .push_bind(id);
+    let res = q.build().execute(executor).await?;
     if res.rows_affected() == 0 {
         return Err(DbError::NotFound);
     }
     Ok(())
 }
 
-pub async fn insert_comment(
-    pool: &PgPool,
+pub async fn insert_comment<'e, E>(
+    executor: E,
     id: Uuid,
     org_id: Uuid,
     ticket_id: Uuid,
     author_id: Option<Uuid>,
     kind: NoteKind,
     body: &str,
-) -> DbResult<TicketComment> {
+) -> DbResult<TicketComment>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let row = sqlx::query!(
         r#"INSERT INTO ticket_comments (id, org_id, ticket_id, author_id, kind, body)
            VALUES ($1, $2, $3, $4, $5, $6)
@@ -283,7 +322,7 @@ pub async fn insert_comment(
         kind.as_str(),
         body
     )
-    .fetch_one(pool)
+    .fetch_one(executor)
     .await?;
     Ok(TicketComment {
         id: row.id,
@@ -299,13 +338,17 @@ pub async fn insert_comment(
     })
 }
 
-pub async fn list_comments(
-    pool: &PgPool,
+pub async fn list_comments<'e, E>(
+    executor: E,
     org_id: Uuid,
     ticket_id: Uuid,
     kinds: Option<&[NoteKind]>,
-) -> DbResult<Vec<TicketComment>> {
-    let kind_strs: Option<Vec<String>> = kinds.map(|ks| ks.iter().map(|k| k.as_str().to_string()).collect());
+) -> DbResult<Vec<TicketComment>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let kind_strs: Option<Vec<String>> =
+        kinds.map(|ks| ks.iter().map(|k| k.as_str().to_string()).collect());
     let rows = sqlx::query!(
         r#"SELECT id, org_id, ticket_id, author_id, kind, body, created_at, updated_at
            FROM ticket_comments
@@ -316,10 +359,9 @@ pub async fn list_comments(
         ticket_id,
         kind_strs.as_deref()
     )
-    .fetch_all(pool)
+    .fetch_all(executor)
     .await?;
-    Ok(rows
-        .into_iter()
+    rows.into_iter()
         .map(|row| {
             Ok(TicketComment {
                 id: row.id,
@@ -334,19 +376,22 @@ pub async fn list_comments(
                 updated_at: row.updated_at,
             })
         })
-        .collect::<DbResult<_>>()?)
+        .collect()
 }
 
 // --- checklist -------------------------------------------------------------
 
-pub async fn add_checklist_item(
-    pool: &PgPool,
+pub async fn add_checklist_item<'e, E>(
+    executor: E,
     id: Uuid,
     org_id: Uuid,
     ticket_id: Uuid,
     text: &str,
     sort_order: i32,
-) -> DbResult<()> {
+) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     sqlx::query!(
         r#"INSERT INTO checklist_items (id, org_id, ticket_id, text, sort_order)
            VALUES ($1, $2, $3, $4, $5)"#,
@@ -356,18 +401,21 @@ pub async fn add_checklist_item(
         text,
         sort_order
     )
-    .execute(pool)
+    .execute(executor)
     .await?;
     Ok(())
 }
 
-pub async fn set_checklist_item(
-    pool: &PgPool,
+pub async fn set_checklist_item<'e, E>(
+    executor: E,
     org_id: Uuid,
     item_id: Uuid,
     checked: bool,
     checked_by: Option<Uuid>,
-) -> DbResult<()> {
+) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let res = sqlx::query!(
         r#"UPDATE checklist_items SET checked = $3, checked_by = $4,
              checked_at = CASE WHEN $3 THEN now() ELSE NULL END
@@ -377,7 +425,7 @@ pub async fn set_checklist_item(
         checked,
         checked_by
     )
-    .execute(pool)
+    .execute(executor)
     .await?;
     if res.rows_affected() == 0 {
         return Err(DbError::NotFound);
@@ -385,14 +433,21 @@ pub async fn set_checklist_item(
     Ok(())
 }
 
-pub async fn list_checklist(pool: &PgPool, org_id: Uuid, ticket_id: Uuid) -> DbResult<Vec<ChecklistItem>> {
+pub async fn list_checklist<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    ticket_id: Uuid,
+) -> DbResult<Vec<ChecklistItem>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let rows = sqlx::query!(
         r#"SELECT id, org_id, ticket_id, text, checked, sort_order, checked_by, checked_at
            FROM checklist_items WHERE org_id = $1 AND ticket_id = $2 ORDER BY sort_order"#,
         org_id,
         ticket_id
     )
-    .fetch_all(pool)
+    .fetch_all(executor)
     .await?;
     Ok(rows
         .into_iter()

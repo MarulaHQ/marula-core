@@ -74,10 +74,7 @@ where
 }
 
 /// Credential lookup inside an org-bound transaction (RLS applies).
-pub async fn find_credentials_by_email<'e, E>(
-    executor: E,
-    email: &str,
-) -> DbResult<UserCredentials>
+pub async fn find_credentials_by_email<'e, E>(executor: E, email: &str) -> DbResult<UserCredentials>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
@@ -124,9 +121,7 @@ pub async fn list_users<'e, E>(executor: E, org_id: Uuid) -> DbResult<Vec<User>>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
-    let sql = format!(
-        "SELECT {USER_COLS} FROM users WHERE org_id = $1 ORDER BY display_name"
-    );
+    let sql = format!("SELECT {USER_COLS} FROM users WHERE org_id = $1 ORDER BY display_name");
     let rows = sqlx::query(&sql).bind(org_id).fetch_all(executor).await?;
     rows.into_iter().map(user_from_row).collect()
 }
@@ -146,11 +141,7 @@ where
     Ok(())
 }
 
-pub async fn roles_for_user<'e, E>(
-    executor: E,
-    user_id: Uuid,
-    org_id: Uuid,
-) -> DbResult<Vec<Role>>
+pub async fn roles_for_user<'e, E>(executor: E, user_id: Uuid, org_id: Uuid) -> DbResult<Vec<Role>>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {

@@ -7,6 +7,7 @@ use chrono::{DateTime, Utc};
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Org {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub id: OrgId,
     pub name: String,
     pub slug: String,
@@ -20,7 +21,9 @@ pub struct Org {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct User {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub id: UserId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub org_id: OrgId,
     pub email: String,
     pub display_name: String,
@@ -35,7 +38,9 @@ pub struct User {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Role {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub id: RoleId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub org_id: OrgId,
     pub name: String,
     pub builtin: Option<BuiltinRole>,
@@ -55,7 +60,10 @@ pub struct Principal {
 impl Principal {
     pub fn is_owner_or_admin(&self) -> bool {
         self.roles.iter().any(|r| {
-            matches!(r.builtin, Some(BuiltinRole::Owner) | Some(BuiltinRole::Admin))
+            matches!(
+                r.builtin,
+                Some(BuiltinRole::Owner) | Some(BuiltinRole::Admin)
+            )
         })
     }
 }
@@ -64,7 +72,9 @@ impl Principal {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct AuthSession {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub id: SessionId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub user_id: UserId,
     pub refresh_token_hash: String,
     pub user_agent: Option<String>,

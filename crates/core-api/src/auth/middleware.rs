@@ -31,11 +31,17 @@ pub fn resolve_permissions(roles: &[core_domain::entities::Role]) -> Vec<Permiss
     }
     // Owner/Admin are superusers by definition.
     if roles.iter().any(|r| {
-        matches!(r.builtin, Some(BuiltinRole::Owner) | Some(BuiltinRole::Admin))
+        matches!(
+            r.builtin,
+            Some(BuiltinRole::Owner) | Some(BuiltinRole::Admin)
+        )
     }) {
         for m in core_domain::policy::Module::ALL {
             for a in core_domain::policy::Action::ALL {
-                let p = Permission::Matrix { module: m, action: a };
+                let p = Permission::Matrix {
+                    module: m,
+                    action: a,
+                };
                 if !out.contains(&p) {
                     out.push(p);
                 }
@@ -74,7 +80,11 @@ pub async fn require_auth(
     let permissions = resolve_permissions(&roles);
 
     request.extensions_mut().insert(AuthedUser {
-        principal: core_domain::entities::Principal { user, roles, permissions },
+        principal: core_domain::entities::Principal {
+            user,
+            roles,
+            permissions,
+        },
     });
 
     Ok(next.run(request).await)

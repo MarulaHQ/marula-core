@@ -2,16 +2,19 @@
 
 use crate::{DbError, DbResult};
 use core_domain::entities::{Client, Contact, DeviceAsset, Site};
-use sqlx::PgPool;
+use sqlx::Postgres;
 use uuid::Uuid;
 
-pub async fn create_client(
-    pool: &PgPool,
+pub async fn create_client<'e, E>(
+    executor: E,
     org_id: Uuid,
     id: Uuid,
     name: &str,
     notes: Option<&str>,
-) -> DbResult<Client> {
+) -> DbResult<Client>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let row = sqlx::query!(
         r#"INSERT INTO clients (id, org_id, name, notes)
            VALUES ($1, $2, $3, $4)
@@ -21,7 +24,7 @@ pub async fn create_client(
         name,
         notes
     )
-    .fetch_one(pool)
+    .fetch_one(executor)
     .await?;
     Ok(Client {
         id: row.id,
@@ -34,13 +37,16 @@ pub async fn create_client(
     })
 }
 
-pub async fn list_clients(pool: &PgPool, org_id: Uuid) -> DbResult<Vec<Client>> {
+pub async fn list_clients<'e, E>(executor: E, org_id: Uuid) -> DbResult<Vec<Client>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let rows = sqlx::query!(
         r#"SELECT id, org_id, name, restricted_to, notes, created_at, updated_at
            FROM clients WHERE org_id = $1 ORDER BY name"#,
         org_id
     )
-    .fetch_all(pool)
+    .fetch_all(executor)
     .await?;
     Ok(rows
         .into_iter()
@@ -56,14 +62,17 @@ pub async fn list_clients(pool: &PgPool, org_id: Uuid) -> DbResult<Vec<Client>> 
         .collect())
 }
 
-pub async fn get_client(pool: &PgPool, org_id: Uuid, id: Uuid) -> DbResult<Client> {
+pub async fn get_client<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<Client>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let row = sqlx::query!(
         r#"SELECT id, org_id, name, restricted_to, notes, created_at, updated_at
            FROM clients WHERE org_id = $1 AND id = $2"#,
         org_id,
         id
     )
-    .fetch_optional(pool)
+    .fetch_optional(executor)
     .await?
     .ok_or(DbError::NotFound)?;
     Ok(Client {
@@ -77,13 +86,16 @@ pub async fn get_client(pool: &PgPool, org_id: Uuid, id: Uuid) -> DbResult<Clien
     })
 }
 
-pub async fn create_site(
-    pool: &PgPool,
+pub async fn create_site<'e, E>(
+    executor: E,
     org_id: Uuid,
     id: Uuid,
     client_id: Uuid,
     name: &str,
-) -> DbResult<Site> {
+) -> DbResult<Site>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let row = sqlx::query!(
         r#"INSERT INTO sites (id, org_id, client_id, name)
            VALUES ($1, $2, $3, $4)
@@ -94,7 +106,7 @@ pub async fn create_site(
         client_id,
         name
     )
-    .fetch_one(pool)
+    .fetch_one(executor)
     .await?;
     Ok(Site {
         id: row.id,
@@ -113,7 +125,10 @@ pub async fn create_site(
     })
 }
 
-pub async fn list_sites(pool: &PgPool, org_id: Uuid, client_id: Uuid) -> DbResult<Vec<Site>> {
+pub async fn list_sites<'e, E>(executor: E, org_id: Uuid, client_id: Uuid) -> DbResult<Vec<Site>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let rows = sqlx::query!(
         r#"SELECT id, org_id, client_id, name, address, city, region, postal_code,
                   country, latitude, longitude, timezone, created_at
@@ -121,7 +136,7 @@ pub async fn list_sites(pool: &PgPool, org_id: Uuid, client_id: Uuid) -> DbResul
         org_id,
         client_id
     )
-    .fetch_all(pool)
+    .fetch_all(executor)
     .await?;
     Ok(rows
         .into_iter()
@@ -143,15 +158,18 @@ pub async fn list_sites(pool: &PgPool, org_id: Uuid, client_id: Uuid) -> DbResul
         .collect())
 }
 
-pub async fn create_contact(
-    pool: &PgPool,
+pub async fn create_contact<'e, E>(
+    executor: E,
     org_id: Uuid,
     id: Uuid,
     client_id: Uuid,
     name: &str,
     email: Option<&str>,
     phone: Option<&str>,
-) -> DbResult<Contact> {
+) -> DbResult<Contact>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let row = sqlx::query!(
         r#"INSERT INTO contacts (id, org_id, client_id, name, email, phone)
            VALUES ($1, $2, $3, $4, $5, $6)
@@ -164,7 +182,7 @@ pub async fn create_contact(
         email,
         phone
     )
-    .fetch_one(pool)
+    .fetch_one(executor)
     .await?;
     Ok(Contact {
         id: row.id,
@@ -180,7 +198,14 @@ pub async fn create_contact(
     })
 }
 
-pub async fn list_contacts(pool: &PgPool, org_id: Uuid, client_id: Uuid) -> DbResult<Vec<Contact>> {
+pub async fn list_contacts<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    client_id: Uuid,
+) -> DbResult<Vec<Contact>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let rows = sqlx::query!(
         r#"SELECT id, org_id, client_id, site_id, name, email, phone, title,
                   is_primary, created_at
@@ -188,7 +213,7 @@ pub async fn list_contacts(pool: &PgPool, org_id: Uuid, client_id: Uuid) -> DbRe
         org_id,
         client_id
     )
-    .fetch_all(pool)
+    .fetch_all(executor)
     .await?;
     Ok(rows
         .into_iter()
@@ -207,15 +232,18 @@ pub async fn list_contacts(pool: &PgPool, org_id: Uuid, client_id: Uuid) -> DbRe
         .collect())
 }
 
-pub async fn create_asset(
-    pool: &PgPool,
+pub async fn create_asset<'e, E>(
+    executor: E,
     org_id: Uuid,
     id: Uuid,
     client_id: Uuid,
     tag: &str,
     name: &str,
     kind: &str,
-) -> DbResult<DeviceAsset> {
+) -> DbResult<DeviceAsset>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let row = sqlx::query!(
         r#"INSERT INTO device_assets (id, org_id, client_id, tag, name, kind)
            VALUES ($1, $2, $3, $4, $5, $6)
@@ -228,7 +256,7 @@ pub async fn create_asset(
         name,
         kind
     )
-    .fetch_one(pool)
+    .fetch_one(executor)
     .await?;
     Ok(DeviceAsset {
         id: row.id,
@@ -244,15 +272,22 @@ pub async fn create_asset(
     })
 }
 
-pub async fn list_assets(pool: &PgPool, org_id: Uuid, client_id: Uuid) -> DbResult<Vec<DeviceAsset>> {
+pub async fn list_assets<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    client_id: Uuid,
+) -> DbResult<Vec<DeviceAsset>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let rows = sqlx::query!(
         r#"SELECT id, org_id, client_id, site_id, tag, name, kind, status,
-                  created_at, updated_at
+                   created_at, updated_at
            FROM device_assets WHERE org_id = $1 AND client_id = $2 ORDER BY tag"#,
         org_id,
         client_id
     )
-    .fetch_all(pool)
+    .fetch_all(executor)
     .await?;
     Ok(rows
         .into_iter()

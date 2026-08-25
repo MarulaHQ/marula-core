@@ -2,16 +2,16 @@
 //! changes, exports, plugin invocations, AI calls, invoice/payment mutations —
 //! and every actor carries provenance (human, agent, plugin, system).
 
-use crate::ids::{OrgId, AuditEventId, UserId};
+use crate::ids::{AuditEventId, OrgId, UserId};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 /// Who performed the audited action. Append-only provenance record.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case", tag = "kind", content = "id")]
 pub enum Actor {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     Human(UserId),
     Agent(String),
     Plugin(String),
@@ -22,7 +22,9 @@ pub enum Actor {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct AuditEvent {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub id: AuditEventId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub org_id: OrgId,
     pub actor: Actor,
     /// Dot-path of the action, e.g. "auth.login", "ticket.status_change".

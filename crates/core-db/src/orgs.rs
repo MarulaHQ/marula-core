@@ -6,17 +6,20 @@ use crate::{DbError, DbResult};
 use core_domain::entities::Org;
 use core_domain::policy::BuiltinRole;
 use core_domain::status::TicketStatusCategory;
-use sqlx::PgPool;
+use sqlx::{PgConnection, Postgres};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-pub async fn insert_org(
-    pool: &PgPool,
+pub async fn insert_org<'e, E>(
+    executor: E,
     id: Uuid,
     name: &str,
     slug: &str,
     ticket_prefix: &str,
-) -> DbResult<Org> {
+) -> DbResult<Org>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let row = sqlx::query!(
         r#"INSERT INTO orgs (id, name, slug, ticket_prefix)
            VALUES ($1, $2, $3, $4)
@@ -26,7 +29,7 @@ pub async fn insert_org(
         slug,
         ticket_prefix,
     )
-    .fetch_one(pool)
+    .fetch_one(executor)
     .await?;
     Ok(Org {
         id: row.id,
@@ -38,13 +41,16 @@ pub async fn insert_org(
     })
 }
 
-pub async fn get_org(pool: &PgPool, id: Uuid) -> DbResult<Org> {
+pub async fn get_org<'e, E>(executor: E, id: Uuid) -> DbResult<Org>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let row = sqlx::query!(
         r#"SELECT id, name, slug, ticket_prefix, ticket_sequence, created_at
            FROM orgs WHERE id = $1"#,
         id
     )
-    .fetch_optional(pool)
+    .fetch_optional(executor)
     .await?
     .ok_or(DbError::NotFound)?;
     Ok(Org {
@@ -59,14 +65,17 @@ pub async fn get_org(pool: &PgPool, id: Uuid) -> DbResult<Org> {
 
 /// Atomically allocates the next ticket number for an org (row-locked
 /// increment; safe under concurrency).
-pub async fn next_ticket_number(pool: &PgPool, org_id: Uuid) -> DbResult<(String, i64)> {
+pub async fn next_ticket_number<'e, E>(executor: E, org_id: Uuid) -> DbResult<(String, i64)>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let row = sqlx::query!(
         r#"UPDATE orgs SET ticket_sequence = ticket_sequence + 1
            WHERE id = $1
            RETURNING ticket_prefix, ticket_sequence"#,
         org_id
     )
-    .fetch_one(pool)
+    .fetch_one(executor)
     .await?;
     Ok((row.ticket_prefix, row.ticket_sequence))
 }
@@ -104,7 +113,12 @@ pub fn default_roles() -> Vec<(String, Option<BuiltinRole>, serde_json::Value, b
 }
 
 /// Seeds default roles for an org; returns role id keyed by builtin name.
-pub async fn seed_default_roles(pool: &PgPool, org_id: Uuid) -> DbResult<HashMap<String, Uuid>> {
+/// Multi-statement: takes a connection (callers inside transactions pass
+/// `&mut *tx`, which deref-coerces).
+pub async fn seed_default_roles(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+) -> DbResult<HashMap<String, Uuid>> {
     let mut map = HashMap::new();
     for (name, builtin, permissions, is_system) in default_roles() {
         let id = Uuid::now_v7();
@@ -118,7 +132,7 @@ pub async fn seed_default_roles(pool: &PgPool, org_id: Uuid) -> DbResult<HashMap
             permissions,
             is_system,
         )
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
         if let Some(b) = builtin {
             map.insert(b.as_str().to_string(), id);
@@ -128,7 +142,7 @@ pub async fn seed_default_roles(pool: &PgPool, org_id: Uuid) -> DbResult<HashMap
 }
 
 /// Seeds the default board with the four semantic statuses.
-pub async fn seed_default_board(pool: &PgPool, org_id: Uuid) -> DbResult<Uuid> {
+pub async fn seed_default_board(conn: &mut PgConnection, org_id: Uuid) -> DbResult<Uuid> {
     let board_id = Uuid::now_v7();
     sqlx::query!(
         r#"INSERT INTO boards (id, org_id, name, description, is_default)
@@ -136,7 +150,7 @@ pub async fn seed_default_board(pool: &PgPool, org_id: Uuid) -> DbResult<Uuid> {
         board_id,
         org_id
     )
-    .execute(pool)
+    .execute(&mut *conn)
     .await?;
     let defaults: [(&str, TicketStatusCategory, i32, bool); 4] = [
         ("New", TicketStatusCategory::Open, 0, true),
@@ -156,7 +170,7 @@ pub async fn seed_default_board(pool: &PgPool, org_id: Uuid) -> DbResult<Uuid> {
             sort,
             is_entry,
         )
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
     }
     Ok(board_id)
@@ -164,7 +178,10 @@ pub async fn seed_default_board(pool: &PgPool, org_id: Uuid) -> DbResult<Uuid> {
 
 /// Seeds the default SLA policy (industry-standard PSA targets, 9-5 M-F UTC
 /// calendar) — an org can run SLAs with zero configuration.
-pub async fn seed_default_sla_policy(pool: &PgPool, org_id: Uuid) -> DbResult<Uuid> {
+pub async fn seed_default_sla_policy<'e, E>(executor: E, org_id: Uuid) -> DbResult<Uuid>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let id = Uuid::now_v7();
     let targets = serde_json::json!({
         "p1": { "first_response_mins": 15, "resolution_mins": 480 },
@@ -189,7 +206,7 @@ pub async fn seed_default_sla_policy(pool: &PgPool, org_id: Uuid) -> DbResult<Uu
         targets,
         calendar,
     )
-    .execute(pool)
+    .execute(executor)
     .await?;
     Ok(id)
 }

@@ -3,7 +3,7 @@
 
 use crate::{DbError, DbResult};
 use core_domain::entities::{TimeEntry, TimerSegment, TimerSession};
-use sqlx::PgPool;
+use sqlx::Postgres;
 use uuid::Uuid;
 
 fn parse_segments(v: serde_json::Value) -> DbResult<Vec<TimerSegment>> {
@@ -15,7 +15,10 @@ fn parse_segments(v: serde_json::Value) -> DbResult<Vec<TimerSegment>> {
     })
 }
 
-pub async fn insert_session(pool: &PgPool, s: &TimerSession) -> DbResult<()> {
+pub async fn insert_session<'e, E>(executor: E, s: &TimerSession) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let segments = serde_json::to_value(&s.segments)
         .map_err(|e| DbError::Sql(sqlx::Error::Configuration(e.to_string().into())))?;
     sqlx::query!(
@@ -29,12 +32,15 @@ pub async fn insert_session(pool: &PgPool, s: &TimerSession) -> DbResult<()> {
         s.stopped_at,
         segments
     )
-    .execute(pool)
+    .execute(executor)
     .await?;
     Ok(())
 }
 
-pub async fn update_session(pool: &PgPool, s: &TimerSession) -> DbResult<()> {
+pub async fn update_session<'e, E>(executor: E, s: &TimerSession) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let segments = serde_json::to_value(&s.segments)
         .map_err(|e| DbError::Sql(sqlx::Error::Configuration(e.to_string().into())))?;
     let res = sqlx::query!(
@@ -43,7 +49,7 @@ pub async fn update_session(pool: &PgPool, s: &TimerSession) -> DbResult<()> {
         s.stopped_at,
         segments
     )
-    .execute(pool)
+    .execute(executor)
     .await?;
     if res.rows_affected() == 0 {
         return Err(DbError::NotFound);
@@ -52,13 +58,16 @@ pub async fn update_session(pool: &PgPool, s: &TimerSession) -> DbResult<()> {
 }
 
 /// The user's running session, if any (at most one — DB-enforced).
-pub async fn active_session(pool: &PgPool, user_id: Uuid) -> DbResult<Option<TimerSession>> {
+pub async fn active_session<'e, E>(executor: E, user_id: Uuid) -> DbResult<Option<TimerSession>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let row = sqlx::query!(
         r#"SELECT id, org_id, user_id, ticket_id, started_at, stopped_at, segments
            FROM timer_sessions WHERE user_id = $1 AND stopped_at IS NULL"#,
         user_id
     )
-    .fetch_optional(pool)
+    .fetch_optional(executor)
     .await?;
     Ok(row.map(|row| TimerSession {
         id: row.id,
@@ -71,13 +80,16 @@ pub async fn active_session(pool: &PgPool, user_id: Uuid) -> DbResult<Option<Tim
     }))
 }
 
-pub async fn get_session(pool: &PgPool, id: Uuid) -> DbResult<TimerSession> {
+pub async fn get_session<'e, E>(executor: E, id: Uuid) -> DbResult<TimerSession>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let row = sqlx::query!(
         r#"SELECT id, org_id, user_id, ticket_id, started_at, stopped_at, segments
            FROM timer_sessions WHERE id = $1"#,
         id
     )
-    .fetch_optional(pool)
+    .fetch_optional(executor)
     .await?
     .ok_or(DbError::NotFound)?;
     Ok(TimerSession {
@@ -92,7 +104,14 @@ pub async fn get_session(pool: &PgPool, id: Uuid) -> DbResult<TimerSession> {
 }
 
 /// The user's docked working set: recently touched sessions (running first).
-pub async fn recent_sessions(pool: &PgPool, user_id: Uuid, limit: i64) -> DbResult<Vec<TimerSession>> {
+pub async fn recent_sessions<'e, E>(
+    executor: E,
+    user_id: Uuid,
+    limit: i64,
+) -> DbResult<Vec<TimerSession>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let rows = sqlx::query!(
         r#"SELECT id, org_id, user_id, ticket_id, started_at, stopped_at, segments
            FROM timer_sessions WHERE user_id = $1
@@ -100,7 +119,7 @@ pub async fn recent_sessions(pool: &PgPool, user_id: Uuid, limit: i64) -> DbResu
         user_id,
         limit
     )
-    .fetch_all(pool)
+    .fetch_all(executor)
     .await?;
     Ok(rows
         .into_iter()
@@ -118,7 +137,10 @@ pub async fn recent_sessions(pool: &PgPool, user_id: Uuid, limit: i64) -> DbResu
 
 // --- time entries ----------------------------------------------------------
 
-pub async fn insert_time_entry(pool: &PgPool, e: &TimeEntry) -> DbResult<()> {
+pub async fn insert_time_entry<'e, E>(executor: E, e: &TimeEntry) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     sqlx::query!(
         r#"INSERT INTO time_entries (id, org_id, ticket_id, user_id, started_at, ended_at,
                                      minutes, billable, notes, work_type, timer_session_id, created_at)
@@ -136,12 +158,15 @@ pub async fn insert_time_entry(pool: &PgPool, e: &TimeEntry) -> DbResult<()> {
         e.timer_session_id,
         e.created_at,
     )
-    .execute(pool)
+    .execute(executor)
     .await?;
     Ok(())
 }
 
-pub async fn get_time_entry(pool: &PgPool, org_id: Uuid, id: Uuid) -> DbResult<TimeEntry> {
+pub async fn get_time_entry<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<TimeEntry>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let row = sqlx::query!(
         r#"SELECT id, org_id, ticket_id, user_id, started_at, ended_at, minutes, billable,
                   notes, work_type, timer_session_id, created_at
@@ -149,7 +174,7 @@ pub async fn get_time_entry(pool: &PgPool, org_id: Uuid, id: Uuid) -> DbResult<T
         org_id,
         id
     )
-    .fetch_optional(pool)
+    .fetch_optional(executor)
     .await?
     .ok_or(DbError::NotFound)?;
     Ok(TimeEntry {
@@ -186,17 +211,20 @@ fn row_to_entry(row: sqlx::postgres::PgRow) -> TimeEntry {
     }
 }
 
-pub async fn list_time_entries(
-    pool: &PgPool,
+pub async fn list_time_entries<'e, E>(
+    executor: E,
     org_id: Uuid,
     ticket_id: Option<Uuid>,
     user_id: Option<Uuid>,
     since: Option<chrono::DateTime<chrono::Utc>>,
     limit: i64,
-) -> DbResult<Vec<TimeEntry>> {
+) -> DbResult<Vec<TimeEntry>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let sql = r#"SELECT id, org_id, ticket_id, user_id, started_at, ended_at, minutes, billable,
                         notes, work_type, timer_session_id, created_at
-                 FROM time_entries
+                  FROM time_entries
                  WHERE org_id = $1
                    AND ($2::uuid IS NULL OR ticket_id = $2)
                    AND ($3::uuid IS NULL OR user_id = $3)
@@ -208,19 +236,22 @@ pub async fn list_time_entries(
         .bind(user_id)
         .bind(since)
         .bind(limit)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await?;
     Ok(rows.into_iter().map(row_to_entry).collect())
 }
 
 /// Minutes logged by a user on a given UTC date (missing-time audit input).
-pub async fn minutes_logged_on(
-    pool: &PgPool,
+pub async fn minutes_logged_on<'e, E>(
+    executor: E,
     user_id: Uuid,
     org_id: Uuid,
     day_start: chrono::DateTime<chrono::Utc>,
     day_end: chrono::DateTime<chrono::Utc>,
-) -> DbResult<i64> {
+) -> DbResult<i64>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let row = sqlx::query!(
         r#"SELECT COALESCE(SUM(minutes), 0) AS total FROM time_entries
            WHERE org_id = $1 AND user_id = $2 AND started_at >= $3 AND started_at < $4"#,
@@ -229,7 +260,7 @@ pub async fn minutes_logged_on(
         day_start,
         day_end
     )
-    .fetch_one(pool)
+    .fetch_one(executor)
     .await?;
     Ok(row.total.unwrap_or(0) as i64)
 }

@@ -36,12 +36,16 @@ pub mod types {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TicketCreated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub ticket_id: TicketId,
     pub number: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub board_id: BoardId,
     pub title: String,
     pub priority: Priority,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub client_id: Option<ClientId>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub assignee_id: Option<UserId>,
     pub created_at: DateTime<Utc>,
 }
@@ -49,11 +53,13 @@ pub struct TicketCreated {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TicketStatusChanged {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub ticket_id: TicketId,
     pub from_status: String,
     pub to_status: String,
     pub from_category: TicketStatusCategory,
     pub to_category: TicketStatusCategory,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub changed_by: Option<UserId>,
     pub occurred_at: DateTime<Utc>,
 }
@@ -61,8 +67,11 @@ pub struct TicketStatusChanged {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TicketAssigned {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub ticket_id: TicketId,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub assignee_id: Option<UserId>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub assigned_by: Option<UserId>,
 }
 
@@ -70,33 +79,43 @@ pub struct TicketAssigned {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TicketCommentAdded {
     pub comment: TicketComment,
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<uuid::Uuid>))]
     pub mentioned_user_ids: Vec<UserId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TicketChecklistUpdated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub ticket_id: TicketId,
     pub items: Vec<ChecklistItem>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub updated_by: Option<UserId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TimerStarted {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub session_id: TimerSessionId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub user_id: UserId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub ticket_id: TicketId,
     pub started_at: DateTime<Utc>,
     /// Session auto-paused by this start (single-active-timer workflow).
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub switched_from: Option<TimerSessionId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TimerPaused {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub session_id: TimerSessionId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub user_id: UserId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub ticket_id: TicketId,
     pub reason: Option<String>,
     pub elapsed_secs: i64,
@@ -105,10 +124,14 @@ pub struct TimerPaused {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TimerStopped {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub session_id: TimerSessionId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub user_id: UserId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub ticket_id: TicketId,
     pub total_secs: i64,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub time_entry_id: Option<TimeEntryId>,
 }
 
@@ -121,8 +144,10 @@ pub struct TimeEntryCreated {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct NotificationCreated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub user_id: UserId,
     pub kind: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub ticket_id: Option<TicketId>,
     pub title: String,
 }

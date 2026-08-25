@@ -27,28 +27,20 @@ impl BusinessCalendar {
             let (h, m) = s
                 .split_once(':')
                 .ok_or_else(|| DomainError::Validation(format!("bad time {s}")))?;
-            let h: u32 = h.parse().map_err(|_| DomainError::Validation(format!("bad time {s}")))?;
-            let m: u32 = m.parse().map_err(|_| DomainError::Validation(format!("bad time {s}")))?;
-            NaiveTime::from_hms_opt(h, m, 0).ok_or_else(|| DomainError::Validation(format!("bad time {s}")))
+            let h: u32 = h
+                .parse()
+                .map_err(|_| DomainError::Validation(format!("bad time {s}")))?;
+            let m: u32 = m
+                .parse()
+                .map_err(|_| DomainError::Validation(format!("bad time {s}")))?;
+            NaiveTime::from_hms_opt(h, m, 0)
+                .ok_or_else(|| DomainError::Validation(format!("bad time {s}")))
         };
         Ok((parse(&w.0)?, parse(&w.1)?))
     }
 
     fn tz(&self) -> chrono_tz::Tz {
         self.timezone.parse().unwrap_or(chrono_tz::UTC)
-    }
-
-    /// Business-hours window for the local date of `at`, if any.
-    #[cfg(test)]
-    fn window_on(&self, at: DateTime<Utc>) -> Option<(NaiveTime, NaiveTime)> {
-        let tz = self.tz();
-        let local = at.with_timezone(&tz);
-        let date = local.date_naive();
-        if self.holidays.iter().any(|h| h.as_str() == date.to_string()) {
-            return None;
-        }
-        let idx = local.weekday().num_days_from_monday() as usize;
-        self.windows.get(idx).and_then(|w| w.as_ref()).and_then(|w| Self::parse_window(w).ok())
     }
 
     /// Seconds of business time elapsed between two instants.
@@ -63,12 +55,18 @@ impl BusinessCalendar {
         let last_day = to.with_timezone(&tz).date_naive();
         while day <= last_day {
             let local_date = day;
-            let is_holiday = self.holidays.iter().any(|h| h.as_str() == local_date.to_string());
+            let is_holiday = self
+                .holidays
+                .iter()
+                .any(|h| h.as_str() == local_date.to_string());
             let idx = local_date.weekday().num_days_from_monday() as usize;
             let window = if is_holiday {
                 None
             } else {
-                self.windows.get(idx).and_then(|w| w.as_ref()).and_then(|w| Self::parse_window(w).ok())
+                self.windows
+                    .get(idx)
+                    .and_then(|w| w.as_ref())
+                    .and_then(|w| Self::parse_window(w).ok())
             };
             if let Some((open, close)) = window {
                 let day_start = tz
@@ -111,7 +109,10 @@ impl BusinessCalendar {
             let window = if is_holiday {
                 None
             } else {
-                self.windows.get(idx).and_then(|w| w.as_ref()).and_then(|w| Self::parse_window(w).ok())
+                self.windows
+                    .get(idx)
+                    .and_then(|w| w.as_ref())
+                    .and_then(|w| Self::parse_window(w).ok())
             };
             if let Some((open, close)) = window {
                 let ws = tz
@@ -154,7 +155,9 @@ pub struct SlaTargets {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct SlaPolicy {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub id: SlaPolicyId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub org_id: OrgId,
     pub name: String,
     pub is_default: bool,
@@ -167,8 +170,11 @@ pub struct SlaPolicy {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TicketSlaState {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub org_id: OrgId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub ticket_id: TicketId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub policy_id: SlaPolicyId,
     pub first_response_due: Option<DateTime<Utc>>,
     pub resolution_due: Option<DateTime<Utc>>,
@@ -191,11 +197,10 @@ impl TicketSlaState {
     ) -> Self {
         let calendar = &policy.calendar;
         let targets = policy.targets.get(&priority);
-        let resolution_due = targets.map(|t| {
-            calendar.advance_business(created_at, t.resolution_mins * 60)
-        });
-        let first_response_due = targets
-            .map(|t| calendar.advance_business(created_at, t.first_response_mins * 60));
+        let resolution_due =
+            targets.map(|t| calendar.advance_business(created_at, t.resolution_mins * 60));
+        let first_response_due =
+            targets.map(|t| calendar.advance_business(created_at, t.first_response_mins * 60));
         Self {
             org_id,
             ticket_id,
@@ -303,23 +308,57 @@ mod tests {
             name: "std".into(),
             is_default: true,
             targets: [
-                (Priority::P1, SlaTargets { first_response_mins: 15, resolution_mins: 480 }),
-                (Priority::P2, SlaTargets { first_response_mins: 60, resolution_mins: 1440 }),
-                (Priority::P3, SlaTargets { first_response_mins: 240, resolution_mins: 4320 }),
-                (Priority::P4, SlaTargets { first_response_mins: 480, resolution_mins: 10080 }),
+                (
+                    Priority::P1,
+                    SlaTargets {
+                        first_response_mins: 15,
+                        resolution_mins: 480,
+                    },
+                ),
+                (
+                    Priority::P2,
+                    SlaTargets {
+                        first_response_mins: 60,
+                        resolution_mins: 1440,
+                    },
+                ),
+                (
+                    Priority::P3,
+                    SlaTargets {
+                        first_response_mins: 240,
+                        resolution_mins: 4320,
+                    },
+                ),
+                (
+                    Priority::P4,
+                    SlaTargets {
+                        first_response_mins: 480,
+                        resolution_mins: 10080,
+                    },
+                ),
             ]
             .into_iter()
             .collect(),
             calendar: weekday_calendar(),
         };
         let created = at(2026, 5, 18, 9, 0); // Monday 09:00
-        let mut state = TicketSlaState::init(uuid::Uuid::now_v7(), uuid::Uuid::now_v7(), &policy, Priority::P1, created);
+        let mut state = TicketSlaState::init(
+            uuid::Uuid::now_v7(),
+            uuid::Uuid::now_v7(),
+            &policy,
+            Priority::P1,
+            created,
+        );
         // P1 resolution: 8 business hours → Monday 17:00
         assert_eq!(state.resolution_due, Some(at(2026, 5, 18, 17, 0)));
         // Wait from 10:00 Tuesday to 11:00 Wednesday:
         // Tue 10:00–17:00 (7h) + Wed 09:00–11:00 (2h) = 9 business hours.
         state.apply_category(TicketStatusCategory::Waiting, at(2026, 5, 19, 10, 0), &cal);
-        state.apply_category(TicketStatusCategory::InProgress, at(2026, 5, 20, 11, 0), &cal);
+        state.apply_category(
+            TicketStatusCategory::InProgress,
+            at(2026, 5, 20, 11, 0),
+            &cal,
+        );
         assert_eq!(state.paused_business_secs, 9 * 3600);
         assert!(state.paused_since.is_none());
     }

@@ -45,7 +45,11 @@ impl OrgTx<'_> {
 
 /// Begins an org-bound transaction for the principal.
 pub async fn begin(state: &AppState, org_id: Uuid, user_id: Uuid) -> ApiResult<OrgTx<'static>> {
-    let mut tx = state.pool.begin().await.map_err(|e| ApiError::Internal(e.into()))?;
+    let mut tx = state
+        .pool
+        .begin()
+        .await
+        .map_err(|e| ApiError::Internal(e.into()))?;
     // Bind THIS transaction to the org. `set_config(..., true)` is
     // transaction-local: it auto-resets on commit/rollback, so a pooled
     // connection can never leak org scope across requests.

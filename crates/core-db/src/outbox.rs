@@ -81,9 +81,12 @@ where
     if ids.is_empty() {
         return Ok(());
     }
-    sqlx::query!(r#"UPDATE outbox_events SET published_at = now() WHERE id = ANY($1)"#, ids)
-        .execute(executor)
-        .await?;
+    sqlx::query!(
+        r#"UPDATE outbox_events SET published_at = now() WHERE id = ANY($1)"#,
+        ids
+    )
+    .execute(executor)
+    .await?;
     Ok(())
 }
 

@@ -8,18 +8,27 @@ use chrono::{DateTime, Utc};
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Ticket {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub id: TicketId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub org_id: OrgId,
     pub number: TicketNumber,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub board_id: BoardId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub status_id: TicketStatusId,
     pub title: String,
     pub body: Option<String>,
     pub priority: Priority,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub client_id: Option<ClientId>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub site_id: Option<SiteId>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub contact_id: Option<ContactId>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub assignee_id: Option<UserId>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub requester_id: Option<UserId>,
     /// Denormalized from the board status for cheap filtering/sorting.
     pub category: TicketStatusCategory,
@@ -47,9 +56,13 @@ impl Ticket {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TicketComment {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub id: TicketCommentId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub org_id: OrgId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub ticket_id: TicketId,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub author_id: Option<UserId>,
     pub kind: NoteKind,
     pub body: String,
@@ -62,12 +75,16 @@ pub struct TicketComment {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ChecklistItem {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub id: ChecklistItemId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub org_id: OrgId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub ticket_id: TicketId,
     pub text: String,
     pub checked: bool,
     pub sort_order: i32,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub checked_by: Option<UserId>,
     pub checked_at: Option<DateTime<Utc>>,
 }

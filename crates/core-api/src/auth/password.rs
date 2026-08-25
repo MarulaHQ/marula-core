@@ -1,6 +1,8 @@
 //! Argon2id password hashing (§6). PHC-string format, random salt per hash.
 
-use argon2::password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
+use argon2::password_hash::{
+    rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString,
+};
 use argon2::Argon2;
 
 /// Hashes a password with argon2id. Returns the PHC string for storage.

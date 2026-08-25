@@ -5,8 +5,7 @@ use crate::ids::{NotificationId, OrgId, TicketId, UserId};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum NotificationKind {
@@ -57,8 +56,7 @@ impl std::fmt::Display for NotificationKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum Channel {
@@ -69,10 +67,14 @@ pub enum Channel {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Notification {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub id: NotificationId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub org_id: OrgId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub user_id: UserId,
     pub kind: NotificationKind,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub ticket_id: Option<TicketId>,
     pub title: String,
     pub body: Option<String>,
@@ -85,6 +87,7 @@ pub struct Notification {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct NotificationPreference {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub user_id: UserId,
     pub kind: NotificationKind,
     pub in_app: bool,

@@ -4,8 +4,9 @@
 use serde::Serialize;
 
 /// Product modules that carry a permission matrix (view/create/edit/delete/export).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum Module {
@@ -55,8 +56,9 @@ impl Module {
 }
 
 /// CRUD + export actions, plus module-independent operational grants.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum Action {
@@ -68,7 +70,13 @@ pub enum Action {
 }
 
 impl Action {
-    pub const ALL: [Action; 5] = [Action::View, Action::Create, Action::Edit, Action::Delete, Action::Export];
+    pub const ALL: [Action; 5] = [
+        Action::View,
+        Action::Create,
+        Action::Edit,
+        Action::Delete,
+        Action::Export,
+    ];
 
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -82,8 +90,9 @@ impl Action {
 }
 
 /// A concrete grant: `module:action` (matrix) or a special operational grant.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[derive(Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, serde::Deserialize,
+)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum Permission {
@@ -103,7 +112,9 @@ pub enum Permission {
 impl Permission {
     pub fn key(self) -> String {
         match self {
-            Permission::Matrix { module, action } => format!("{}:{}", module.as_str(), action.as_str()),
+            Permission::Matrix { module, action } => {
+                format!("{}:{}", module.as_str(), action.as_str())
+            }
             other => match other {
                 Permission::ManageUsers => "special:manage_users".into(),
                 Permission::ManageRoles => "special:manage_roles".into(),
@@ -130,8 +141,7 @@ impl std::fmt::Display for Permission {
 /// Built-in roles. Custom roles are arbitrary permission sets stored per org;
 /// these four ship as defaults so a new org works with zero configuration
 /// (defaults-first doctrine).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum BuiltinRole {
@@ -159,7 +169,12 @@ impl BuiltinRole {
         let full_matrix = |modules: &[Module]| {
             modules
                 .iter()
-                .flat_map(|m| Action::ALL.iter().map(move |a| Permission::Matrix { module: *m, action: *a }))
+                .flat_map(|m| {
+                    Action::ALL.iter().map(move |a| Permission::Matrix {
+                        module: *m,
+                        action: *a,
+                    })
+                })
                 .collect::<Vec<_>>()
         };
         let specials = |ps: &[Permission]| ps.to_vec();
@@ -182,28 +197,68 @@ impl BuiltinRole {
             }
             BuiltinRole::Dispatcher => {
                 let mut p = full_matrix(&[Module::Tickets, Module::Scheduling, Module::Clients]);
-                p.extend(full_matrix(&[Module::Time, Module::Projects, Module::Commercial, Module::Kb, Module::Reporting])
+                p.extend(
+                    full_matrix(&[
+                        Module::Time,
+                        Module::Projects,
+                        Module::Commercial,
+                        Module::Kb,
+                        Module::Reporting,
+                    ])
                     .into_iter()
-                    .filter(|perm| matches!(perm, Permission::Matrix { action: Action::View | Action::Edit, .. })));
+                    .filter(|perm| {
+                        matches!(
+                            perm,
+                            Permission::Matrix {
+                                action: Action::View | Action::Edit,
+                                ..
+                            }
+                        )
+                    }),
+                );
                 p.extend(specials(&[Permission::ManageBoards]));
                 p
             }
             BuiltinRole::Technician => {
                 let mut p = full_matrix(&[Module::Tickets, Module::Kb]);
                 p.extend([
-                    Permission::Matrix { module: Module::Clients, action: Action::View },
-                    Permission::Matrix { module: Module::Time, action: Action::View },
-                    Permission::Matrix { module: Module::Time, action: Action::Create },
-                    Permission::Matrix { module: Module::Time, action: Action::Edit },
-                    Permission::Matrix { module: Module::Scheduling, action: Action::View },
-                    Permission::Matrix { module: Module::Scheduling, action: Action::Edit },
-                    Permission::Matrix { module: Module::Reporting, action: Action::View },
+                    Permission::Matrix {
+                        module: Module::Clients,
+                        action: Action::View,
+                    },
+                    Permission::Matrix {
+                        module: Module::Time,
+                        action: Action::View,
+                    },
+                    Permission::Matrix {
+                        module: Module::Time,
+                        action: Action::Create,
+                    },
+                    Permission::Matrix {
+                        module: Module::Time,
+                        action: Action::Edit,
+                    },
+                    Permission::Matrix {
+                        module: Module::Scheduling,
+                        action: Action::View,
+                    },
+                    Permission::Matrix {
+                        module: Module::Scheduling,
+                        action: Action::Edit,
+                    },
+                    Permission::Matrix {
+                        module: Module::Reporting,
+                        action: Action::View,
+                    },
                 ]);
                 p
             }
             BuiltinRole::ReadOnly => Module::ALL
                 .iter()
-                .map(|m| Permission::Matrix { module: *m, action: Action::View })
+                .map(|m| Permission::Matrix {
+                    module: *m,
+                    action: Action::View,
+                })
                 .collect(),
         }
     }
@@ -246,7 +301,9 @@ pub fn check(granted: &[Permission], required: Permission) -> PolicyDecision {
 /// Convenience: check any-of (a view action satisfiable by several grants).
 pub fn check_any(granted: &[Permission], required: &[Permission]) -> PolicyDecision {
     if required.is_empty() {
-        return PolicyDecision::Denied { reason: "no permission requirement configured".into() };
+        return PolicyDecision::Denied {
+            reason: "no permission requirement configured".into(),
+        };
     }
     if required.iter().any(|p| granted.contains(p)) {
         PolicyDecision::Allowed
@@ -254,7 +311,11 @@ pub fn check_any(granted: &[Permission], required: &[Permission]) -> PolicyDecis
         PolicyDecision::Denied {
             reason: format!(
                 "missing one of: {}",
-                required.iter().map(|p| p.key()).collect::<Vec<_>>().join(", ")
+                required
+                    .iter()
+                    .map(|p| p.key())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ),
         }
     }
@@ -267,8 +328,23 @@ mod tests {
     #[test]
     fn technician_can_create_tickets_but_not_delete_clients() {
         let tech = BuiltinRole::Technician.permissions();
-        assert!(check(&tech, Permission::Matrix { module: Module::Tickets, action: Action::Create }).is_allowed());
-        assert!(check(&tech, Permission::Matrix { module: Module::Clients, action: Action::Delete }).is_allowed().not());
+        assert!(check(
+            &tech,
+            Permission::Matrix {
+                module: Module::Tickets,
+                action: Action::Create
+            }
+        )
+        .is_allowed());
+        assert!(check(
+            &tech,
+            Permission::Matrix {
+                module: Module::Clients,
+                action: Action::Delete
+            }
+        )
+        .is_allowed()
+        .not());
     }
 
     #[test]
@@ -276,7 +352,14 @@ mod tests {
         let owner = BuiltinRole::Owner.permissions();
         for m in Module::ALL {
             for a in Action::ALL {
-                assert!(check(&owner, Permission::Matrix { module: m, action: a }).is_allowed());
+                assert!(check(
+                    &owner,
+                    Permission::Matrix {
+                        module: m,
+                        action: a
+                    }
+                )
+                .is_allowed());
             }
         }
         assert!(check(&owner, Permission::ManageUsers).is_allowed());
@@ -287,8 +370,18 @@ mod tests {
         let ro = BuiltinRole::ReadOnly.permissions();
         for m in Module::ALL {
             for a in [Action::Create, Action::Edit, Action::Delete, Action::Export] {
-                assert!(check(&ro, Permission::Matrix { module: m, action: a }).is_allowed().not(),
-                    "{m:?}:{a:?} should be denied");
+                assert!(
+                    check(
+                        &ro,
+                        Permission::Matrix {
+                            module: m,
+                            action: a
+                        }
+                    )
+                    .is_allowed()
+                    .not(),
+                    "{m:?}:{a:?} should be denied"
+                );
             }
         }
     }

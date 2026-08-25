@@ -20,7 +20,10 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 fn tickets(action: core_domain::policy::Action) -> Permission {
-    Permission::Matrix { module: Module::Tickets, action }
+    Permission::Matrix {
+        module: Module::Tickets,
+        action,
+    }
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -97,7 +100,10 @@ pub async fn list(
     Query(q): Query<TicketListQuery>,
 ) -> ApiResult<Json<Vec<core_domain::entities::Ticket>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, tickets(core_domain::policy::Action::View))?;
+    require_permission(
+        &authed.principal,
+        tickets(core_domain::policy::Action::View),
+    )?;
     let rows = core_db::tickets::list_tickets(
         &state.pool,
         authed.principal.user.org_id,
@@ -124,9 +130,17 @@ pub async fn my_work(
     extensions: Extensions,
 ) -> ApiResult<Json<Vec<core_domain::entities::Ticket>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, tickets(core_domain::policy::Action::View))?;
-    let rows =
-        core_db::tickets::my_work(&state.pool, authed.principal.user.org_id, authed.principal.user.id, 100).await?;
+    require_permission(
+        &authed.principal,
+        tickets(core_domain::policy::Action::View),
+    )?;
+    let rows = core_db::tickets::my_work(
+        &state.pool,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+        100,
+    )
+    .await?;
     Ok(Json(rows))
 }
 
@@ -141,7 +155,10 @@ pub async fn create(
     Json(req): Json<CreateTicketRequest>,
 ) -> ApiResult<Json<core_domain::entities::Ticket>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, tickets(core_domain::policy::Action::Create))?;
+    require_permission(
+        &authed.principal,
+        tickets(core_domain::policy::Action::Create),
+    )?;
     if req.title.trim().is_empty() {
         return Err(ApiError::Validation("title is required".into()));
     }
@@ -149,8 +166,8 @@ pub async fn create(
     let user_id = authed.principal.user.id;
 
     let ticket = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        let status = core_db::boards::default_status_for_board(&mut ctx.tx, req.board_id).await?;
-        let (prefix, seq) = core_db::orgs::next_ticket_number(&mut ctx.tx, org_id).await?;
+        let status = core_db::boards::default_status_for_board(&mut *ctx.tx, req.board_id).await?;
+        let (prefix, seq) = core_db::orgs::next_ticket_number(&mut *ctx.tx, org_id).await?;
         let number = format!("{prefix}-{seq}");
         let ticket = core_db::tickets::insert_ticket(
             &mut ctx.tx,
@@ -174,7 +191,7 @@ pub async fn create(
         .await?;
 
         // SLA clocks start now, under the org's default policy.
-        if let Ok(policy) = core_db::sla::get_default_policy(&mut ctx.tx, org_id).await {
+        if let Ok(policy) = core_db::sla::get_default_policy(&mut *ctx.tx, org_id).await {
             let sla = core_domain::entities::TicketSlaState::init(
                 org_id,
                 ticket.id,
@@ -182,7 +199,7 @@ pub async fn create(
                 ticket.priority,
                 ticket.created_at,
             );
-            core_db::sla::upsert_ticket_state(&mut ctx.tx, &sla).await?;
+            core_db::sla::upsert_ticket_state(&mut *ctx.tx, &sla).await?;
         }
 
         ctx.emit(
@@ -220,8 +237,12 @@ pub async fn get_one(
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<core_domain::entities::Ticket>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, tickets(core_domain::policy::Action::View))?;
-    let ticket = core_db::tickets::get_ticket(&state.pool, authed.principal.user.org_id, id).await?;
+    require_permission(
+        &authed.principal,
+        tickets(core_domain::policy::Action::View),
+    )?;
+    let ticket =
+        core_db::tickets::get_ticket(&state.pool, authed.principal.user.org_id, id).await?;
     Ok(Json(ticket))
 }
 
@@ -237,14 +258,17 @@ pub async fn patch(
     Json(req): Json<PatchTicketRequest>,
 ) -> ApiResult<Json<core_domain::entities::Ticket>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, tickets(core_domain::policy::Action::Edit))?;
+    require_permission(
+        &authed.principal,
+        tickets(core_domain::policy::Action::Edit),
+    )?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
 
     let ticket = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        let before = core_db::tickets::get_ticket(&mut ctx.tx, org_id, id).await?;
+        let before = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id).await?;
         core_db::tickets::update_ticket(
-            &mut ctx.tx,
+            &mut *ctx.tx,
             org_id,
             id,
             core_db::tickets::TicketPatch {
@@ -259,7 +283,7 @@ pub async fn patch(
             },
         )
         .await?;
-        let after = core_db::tickets::get_ticket(&mut ctx.tx, org_id, id).await?;
+        let after = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id).await?;
 
         ctx.emit(
             types::TICKET_UPDATED,
@@ -303,13 +327,16 @@ pub async fn change_status(
     Json(req): Json<ChangeStatusRequest>,
 ) -> ApiResult<Json<core_domain::entities::Ticket>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, tickets(core_domain::policy::Action::Edit))?;
+    require_permission(
+        &authed.principal,
+        tickets(core_domain::policy::Action::Edit),
+    )?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
 
     let ticket = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        let ticket = core_db::tickets::get_ticket(&mut ctx.tx, org_id, id).await?;
-        let target = core_db::boards::get_status(&mut ctx.tx, req.status_id).await?;
+        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id).await?;
+        let target = core_db::boards::get_status(&mut *ctx.tx, req.status_id).await?;
 
         // 1. Domain transition rules (closed tickets cannot go straight back to Open).
         if !ticket.can_transition_to(&target) {
@@ -319,24 +346,24 @@ pub async fn change_status(
             )));
         }
         // 2. Pre-close checklist: closing requires every item checked (§1).
-        let checklist = core_db::tickets::list_checklist(&mut ctx.tx, org_id, id).await?;
+        let checklist = core_db::tickets::list_checklist(&mut *ctx.tx, org_id, id).await?;
         core_domain::entities::validate_pre_close(&checklist, &target)?;
 
         // 3. SLA pause bookkeeping binds to the semantic category.
         let now = chrono::Utc::now();
-        if let Ok(mut sla) = core_db::sla::get_ticket_state(&mut ctx.tx, id).await {
+        if let Ok(mut sla) = core_db::sla::get_ticket_state(&mut *ctx.tx, id).await {
             if let Some(mut sla_state) = sla.take() {
                 let calendar = {
-                    let policy = core_db::sla::get_default_policy(&mut ctx.tx, org_id).await?;
+                    let policy = core_db::sla::get_default_policy(&mut *ctx.tx, org_id).await?;
                     policy.calendar
                 };
                 sla_state.apply_category(target.category, now, &calendar);
-                core_db::sla::upsert_ticket_state(&mut ctx.tx, &sla_state).await?;
+                core_db::sla::upsert_ticket_state(&mut *ctx.tx, &sla_state).await?;
             }
         }
 
-        core_db::tickets::update_status(&mut ctx.tx, org_id, id, req.status_id).await?;
-        let after = core_db::tickets::get_ticket(&mut ctx.tx, org_id, id).await?;
+        core_db::tickets::update_status(&mut *ctx.tx, org_id, id, req.status_id).await?;
+        let after = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id).await?;
 
         ctx.emit(
             types::TICKET_STATUS_CHANGED,
@@ -365,7 +392,7 @@ pub async fn change_status(
         }
 
         // Audit the lifecycle change.
-        core_db::audit::insert(&mut ctx.tx, &AuditEvent {
+        core_db::audit::insert(&mut *ctx.tx, &AuditEvent {
             id: Uuid::now_v7(),
             org_id,
             actor: Actor::Human(user_id),
@@ -396,9 +423,13 @@ pub async fn list_comments(
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<Vec<core_domain::entities::TicketComment>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, tickets(core_domain::policy::Action::View))?;
+    require_permission(
+        &authed.principal,
+        tickets(core_domain::policy::Action::View),
+    )?;
     let comments =
-        core_db::tickets::list_comments(&state.pool, authed.principal.user.org_id, id, None).await?;
+        core_db::tickets::list_comments(&state.pool, authed.principal.user.org_id, id, None)
+            .await?;
     Ok(Json(comments))
 }
 
@@ -414,7 +445,10 @@ pub async fn add_comment(
     Json(req): Json<AddCommentRequest>,
 ) -> ApiResult<Json<core_domain::entities::TicketComment>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, tickets(core_domain::policy::Action::Edit))?;
+    require_permission(
+        &authed.principal,
+        tickets(core_domain::policy::Action::Edit),
+    )?;
     if req.body.trim().is_empty() {
         return Err(ApiError::Validation("comment body is required".into()));
     }
@@ -423,7 +457,7 @@ pub async fn add_comment(
 
     let comment = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         let comment = core_db::tickets::insert_comment(
-            &mut ctx.tx,
+            &mut *ctx.tx,
             Uuid::now_v7(),
             org_id,
             id,
@@ -437,7 +471,7 @@ pub async fn add_comment(
         let handles = events::extract_mentions(req.body.trim());
         let mut mentioned = Vec::new();
         if !handles.is_empty() {
-            let users = core_db::users::list_users(&mut ctx.tx, org_id).await?;
+            let users = core_db::users::list_users(&mut *ctx.tx, org_id).await?;
             for u in users {
                 let handle = u.email.split('@').next().unwrap_or_default().to_lowercase();
                 if handles.iter().any(|h| h.eq_ignore_ascii_case(&handle)) && u.id != user_id {
@@ -447,7 +481,7 @@ pub async fn add_comment(
         }
         for mentioned_user in &mentioned {
             core_db::notifications::insert(
-                &mut ctx.tx,
+                &mut *ctx.tx,
                 Uuid::now_v7(),
                 org_id,
                 *mentioned_user,
@@ -487,8 +521,12 @@ pub async fn get_checklist(
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<Vec<core_domain::entities::ChecklistItem>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, tickets(core_domain::policy::Action::View))?;
-    let items = core_db::tickets::list_checklist(&state.pool, authed.principal.user.org_id, id).await?;
+    require_permission(
+        &authed.principal,
+        tickets(core_domain::policy::Action::View),
+    )?;
+    let items =
+        core_db::tickets::list_checklist(&state.pool, authed.principal.user.org_id, id).await?;
     Ok(Json(items))
 }
 
@@ -503,7 +541,10 @@ pub async fn add_checklist_item(
     Json(req): Json<AddChecklistItemRequest>,
 ) -> ApiResult<Json<Vec<core_domain::entities::ChecklistItem>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, tickets(core_domain::policy::Action::Edit))?;
+    require_permission(
+        &authed.principal,
+        tickets(core_domain::policy::Action::Edit),
+    )?;
     let org_id = authed.principal.user.org_id;
     let existing = core_db::tickets::list_checklist(&state.pool, org_id, id).await?;
     core_db::tickets::add_checklist_item(
@@ -532,10 +573,19 @@ pub async fn set_checklist_item(
     Json(req): Json<SetChecklistItemRequest>,
 ) -> ApiResult<Json<Vec<core_domain::entities::ChecklistItem>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, tickets(core_domain::policy::Action::Edit))?;
+    require_permission(
+        &authed.principal,
+        tickets(core_domain::policy::Action::Edit),
+    )?;
     let org_id = authed.principal.user.org_id;
-    core_db::tickets::set_checklist_item(&state.pool, org_id, item_id, req.checked, Some(authed.principal.user.id))
-        .await?;
+    core_db::tickets::set_checklist_item(
+        &state.pool,
+        org_id,
+        item_id,
+        req.checked,
+        Some(authed.principal.user.id),
+    )
+    .await?;
     let items = core_db::tickets::list_checklist(&state.pool, org_id, id).await?;
     Ok(Json(items))
 }
@@ -550,7 +600,10 @@ pub async fn ticket_time_entries(
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<Vec<core_domain::entities::TimeEntry>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, tickets(core_domain::policy::Action::View))?;
+    require_permission(
+        &authed.principal,
+        tickets(core_domain::policy::Action::View),
+    )?;
     let entries = core_db::timers::list_time_entries(
         &state.pool,
         authed.principal.user.org_id,

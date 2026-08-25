@@ -85,8 +85,8 @@ pub async fn assert_rls_coverage(pool: &PgPool) -> DbResult<()> {
     if offenders.is_empty() {
         Ok(())
     } else {
-        Err(DbError::Sql(sqlx::Error::Configuration(format!(
-            "tables missing RLS: {offenders:?}"
-        ).into())))
+        Err(DbError::Sql(sqlx::Error::Configuration(
+            format!("tables missing RLS: {offenders:?}").into(),
+        )))
     }
 }

@@ -9,8 +9,7 @@ use serde::{Deserialize, Serialize};
 
 /// Why a timer segment ended. Preserved forever — the pause reason is
 /// billable-work metadata, not a transient UI state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum SegmentEnd {
@@ -55,9 +54,13 @@ impl TimerSegment {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TimerSession {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub id: TimerSessionId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub org_id: OrgId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub user_id: UserId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub ticket_id: TicketId,
     pub started_at: DateTime<Utc>,
     pub stopped_at: Option<DateTime<Utc>>,
@@ -94,7 +97,9 @@ impl TimerSession {
         }
         let seg = self.segments.last_mut().expect("running segment");
         if seg.started_at > now {
-            return Err(DomainError::InvalidDuration((now - seg.started_at).num_seconds()));
+            return Err(DomainError::InvalidDuration(
+                (now - seg.started_at).num_seconds(),
+            ));
         }
         seg.ended_at = Some(now);
         seg.end_kind = Some(SegmentEnd::Paused);
@@ -127,7 +132,9 @@ impl TimerSession {
         if self.is_running() {
             let seg = self.segments.last_mut().expect("running segment");
             if seg.started_at > now {
-                return Err(DomainError::InvalidDuration((now - seg.started_at).num_seconds()));
+                return Err(DomainError::InvalidDuration(
+                    (now - seg.started_at).num_seconds(),
+                ));
             }
             seg.ended_at = Some(now);
             seg.end_kind = Some(SegmentEnd::Stopped);
@@ -169,9 +176,13 @@ impl TimerSession {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TimeEntry {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub id: TimeEntryId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub org_id: OrgId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub ticket_id: TicketId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub user_id: UserId,
     pub started_at: DateTime<Utc>,
     pub ended_at: DateTime<Utc>,
@@ -181,6 +192,7 @@ pub struct TimeEntry {
     pub notes: Option<String>,
     pub work_type: Option<String>,
     /// Origin: timer-derived entries keep their session for audit.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub timer_session_id: Option<TimerSessionId>,
     pub created_at: DateTime<Utc>,
 }
@@ -246,7 +258,11 @@ mod tests {
     fn pause_reason_preserved_across_resume() {
         let (t0, org, user, ticket) = base();
         let mut s = TimerSession::start(org, user, ticket, t0);
-        s.pause(t0 + Duration::minutes(10), Some("on call with vendor".into())).unwrap();
+        s.pause(
+            t0 + Duration::minutes(10),
+            Some("on call with vendor".into()),
+        )
+        .unwrap();
         s.resume(t0 + Duration::minutes(15)).unwrap();
         assert_eq!(s.segments[0].reason.as_deref(), Some("on call with vendor"));
         assert_eq!(s.total_elapsed_secs(t0 + Duration::minutes(20)), 15 * 60);

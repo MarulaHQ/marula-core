@@ -29,9 +29,11 @@ async fn main() -> anyhow::Result<()> {
     let state = core_api::state::AppState { pool, config };
     let app = core_api::router(state);
 
-    let listener = tokio::net::TcpListener::bind(&std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".into()))
-        .await
-        .context("binding listener")?;
+    let listener = tokio::net::TcpListener::bind(
+        &std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".into()),
+    )
+    .await
+    .context("binding listener")?;
     tracing::info!("core-api listening");
     axum::serve(listener, app).await?;
     Ok(())
