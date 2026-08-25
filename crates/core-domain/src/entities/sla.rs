@@ -159,7 +159,7 @@ pub struct SlaPolicy {
     pub name: String,
     pub is_default: bool,
     pub targets: std::collections::HashMap<Priority, SlaTargets>,
-    pub calendar_name: String,
+    pub calendar: BusinessCalendar,
 }
 
 /// Per-ticket SLA clock state. Accumulates paused business seconds so a
@@ -167,6 +167,7 @@ pub struct SlaPolicy {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TicketSlaState {
+    pub org_id: OrgId,
     pub ticket_id: TicketId,
     pub policy_id: SlaPolicyId,
     pub first_response_due: Option<DateTime<Utc>>,
@@ -182,12 +183,13 @@ pub struct TicketSlaState {
 impl TicketSlaState {
     /// Recomputes due dates from ticket creation under a policy + calendar.
     pub fn init(
+        org_id: OrgId,
         ticket_id: TicketId,
         policy: &SlaPolicy,
         priority: Priority,
         created_at: DateTime<Utc>,
-        calendar: &BusinessCalendar,
     ) -> Self {
+        let calendar = &policy.calendar;
         let targets = policy.targets.get(&priority);
         let resolution_due = targets.map(|t| {
             calendar.advance_business(created_at, t.resolution_mins * 60)
@@ -195,6 +197,7 @@ impl TicketSlaState {
         let first_response_due = targets
             .map(|t| calendar.advance_business(created_at, t.first_response_mins * 60));
         Self {
+            org_id,
             ticket_id,
             policy_id: policy.id,
             first_response_due,
@@ -307,10 +310,10 @@ mod tests {
             ]
             .into_iter()
             .collect(),
-            calendar_name: "9to5 M-F".into(),
+            calendar: weekday_calendar(),
         };
         let created = at(2026, 5, 18, 9, 0); // Monday 09:00
-        let mut state = TicketSlaState::init(uuid::Uuid::now_v7(), &policy, Priority::P1, created, &cal);
+        let mut state = TicketSlaState::init(uuid::Uuid::now_v7(), uuid::Uuid::now_v7(), &policy, Priority::P1, created);
         // P1 resolution: 8 business hours → Monday 17:00
         assert_eq!(state.resolution_due, Some(at(2026, 5, 18, 17, 0)));
         // Wait from 10:00 Tuesday to 11:00 Wednesday:

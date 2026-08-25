@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO board_favorites (user_id, board_id, sort_order) VALUES ($1, $2, $3)\n           ON CONFLICT (user_id, board_id) DO UPDATE SET sort_order = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f588741e81dab8458ee8291323098cab86a4af62caa4829aefa14563fc1b9702"
+}

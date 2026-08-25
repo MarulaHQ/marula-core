@@ -19,6 +19,44 @@ pub enum NotificationKind {
     TicketUpdate,
 }
 
+impl NotificationKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            NotificationKind::Mention => "mention",
+            NotificationKind::Assignment => "assignment",
+            NotificationKind::SlaRisk => "sla_risk",
+            NotificationKind::SlaBreach => "sla_breach",
+            NotificationKind::Escalation => "escalation",
+            NotificationKind::MissingTime => "missing_time",
+            NotificationKind::TicketUpdate => "ticket_update",
+        }
+    }
+}
+
+impl std::str::FromStr for NotificationKind {
+    type Err = crate::DomainError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "mention" => Ok(NotificationKind::Mention),
+            "assignment" => Ok(NotificationKind::Assignment),
+            "sla_risk" => Ok(NotificationKind::SlaRisk),
+            "sla_breach" => Ok(NotificationKind::SlaBreach),
+            "escalation" => Ok(NotificationKind::Escalation),
+            "missing_time" => Ok(NotificationKind::MissingTime),
+            "ticket_update" => Ok(NotificationKind::TicketUpdate),
+            other => Err(crate::DomainError::Validation(format!(
+                "invalid notification kind: {other}"
+            ))),
+        }
+    }
+}
+
+impl std::fmt::Display for NotificationKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[derive(Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
