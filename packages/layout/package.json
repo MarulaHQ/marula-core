@@ -1,0 +1,25 @@
+{
+  "name": "@meridian/layout",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0",
+  "type": "module",
+  "description": "Multi-pane layout engine: declarative pane tree, CSS grid + container queries, persisted per-user panel state.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./styles.css": "./src/styles/layout.css"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.0",
+    "react": "^19.1.0",
+    "typescript": "^5.5.0",
+    "vitest": "^3.1.0"
+  }
+}
