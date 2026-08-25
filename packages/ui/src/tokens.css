@@ -1,0 +1,113 @@
+/*
+ * Workbench design tokens — the single source of hex truth for Meridian UI.
+ * Purpose: define every color, radius, spacing, and motion token for light and
+ * dark modes, generated from docs/theme.md §3/§5.
+ * Non-purpose: contains no component selectors (see components.css); feature
+ * code must never redeclare or bypass these variables (docs/theme.md §9).
+ *
+ * Structure: primitive ramp first (shared by both modes), then semantic layer
+ * (:root = light defaults, [data-theme="dark"] = overrides). Derived tones use
+ * color-mix() against primitives only — no additional hexes exist anywhere.
+ */
+
+:root {
+  /* ---- Primitive greyscale ramp (theme.md §3 Greyscale ramp) ---- */
+  --m-ink: #12161c;
+  --m-graphite: #3a424c;
+  --m-slate: #55606e;
+  --m-mist: #9aa4b2;
+  --m-fog: #d3d8df;
+  --m-paper: #ffffff;
+
+  /* ---- Primitives: mode-specific anchors ---- */
+  --m-canvas-light: #f4f5f7;
+  --m-canvas-dark: #101216;
+  --m-surface-dark: #171a1f;
+  --m-border-dark: #2a2f37;
+  --m-text-dark: #e8ebef;
+  --m-ember: #d64b0a;
+  --m-ember-dark: #ff8a4c;
+
+  /* ---- Semantic: light mode (default) ---- */
+  --m-canvas: var(--m-canvas-light);
+  --m-surface: var(--m-paper);
+  --m-overlay-surface: var(--m-paper);
+  --m-text: var(--m-ink);
+  --m-text-secondary: var(--m-slate);
+  --m-text-muted: var(--m-mist);
+  --m-border: var(--m-fog);
+  --m-border-strong: var(--m-mist);
+
+  /* Ember: interactive affordances only (theme.md §2 rule 2, §3.1) */
+  --m-accent: var(--m-ember);
+  --m-on-accent: var(--m-paper);
+  --m-accent-hover: color-mix(in srgb, var(--m-accent) 90%, var(--m-ink));
+  --m-accent-active: color-mix(in srgb, var(--m-accent) 82%, var(--m-ink));
+  --m-accent-soft: color-mix(in srgb, var(--m-accent) 10%, transparent);
+  --m-focus-ring: var(--m-accent);
+
+  /* Semantic status (theme.md §3 Semantic status) */
+  --m-status-success-fg: #15803d;
+  --m-status-success-bg: #dcfce7;
+  --m-status-warning-fg: #b45309;
+  --m-status-warning-bg: #fef3c7;
+  --m-status-danger-fg: #b91c1c;
+  --m-status-danger-bg: #fee2e2;
+  --m-status-danger-fg-hover: color-mix(in srgb, var(--m-status-danger-fg) 88%, var(--m-ink));
+  --m-status-neutral-fg: var(--m-slate);
+  --m-status-neutral-bg: #e5e7eb;
+
+  /* Overlay scrim derived from ink */
+  --m-scrim: color-mix(in srgb, var(--m-ink) 44%, transparent);
+
+  /* Overlay shadows (the only permitted shadow use — theme.md §5) */
+  --m-shadow: color-mix(in srgb, var(--m-ink) 16%, transparent);
+  --m-shadow-strong: color-mix(in srgb, var(--m-ink) 26%, transparent);
+
+  /* ---- Shape / density / motion (theme.md §5) ---- */
+  --m-radius-control: 2px;
+  --m-radius-container: 3px;
+  --m-control-height: 32px;
+  --m-control-height-sm: 28px;
+  --m-row-height: 24px;
+  --m-duration: 120ms;
+
+  /* ---- Typography (theme.md §4) ---- */
+  --m-font-ui: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --m-font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+
+/* ---- Semantic: dark mode overrides (theme.md §3 Core UI dark) ---- */
+[data-theme="dark"] {
+  --m-canvas: var(--m-canvas-dark);
+  --m-surface: var(--m-surface-dark);
+  --m-overlay-surface: var(--m-surface-dark);
+  --m-text: var(--m-text-dark);
+  --m-text-secondary: var(--m-mist);
+  --m-text-muted: color-mix(in srgb, var(--m-mist) 72%, var(--m-surface));
+  --m-border: var(--m-border-dark);
+  --m-border-strong: var(--m-graphite);
+
+  --m-accent: var(--m-ember-dark);
+  /* Dark ember is light — ink text passes AA on it; white does not */
+  --m-on-accent: var(--m-ink);
+  --m-accent-hover: color-mix(in srgb, var(--m-accent) 86%, var(--m-paper));
+  --m-accent-active: color-mix(in srgb, var(--m-accent) 78%, var(--m-paper));
+  --m-accent-soft: color-mix(in srgb, var(--m-accent) 14%, transparent);
+  --m-focus-ring: var(--m-accent);
+
+  --m-status-success-fg: #4ade80;
+  --m-status-success-bg: #14532d;
+  --m-status-warning-fg: #fbbf24;
+  --m-status-warning-bg: #78350f;
+  --m-status-danger-fg: #f87171;
+  --m-status-danger-bg: #7f1d1d;
+  --m-status-danger-fg-hover: color-mix(in srgb, var(--m-status-danger-fg) 88%, var(--m-paper));
+  --m-status-neutral-fg: var(--m-mist);
+  --m-status-neutral-bg: #262b33;
+
+  --m-scrim: color-mix(in srgb, var(--m-canvas-dark) 60%, transparent);
+  /* Dark overlays need deeper shadows against the low-luminance canvas */
+  --m-shadow: color-mix(in srgb, var(--m-ink) 30%, transparent);
+  --m-shadow-strong: color-mix(in srgb, var(--m-ink) 46%, transparent);
+}

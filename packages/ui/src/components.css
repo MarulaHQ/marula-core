@@ -1,0 +1,484 @@
+/*
+ * Workbench component styles.
+ * Purpose: element defaults and the .m-* component classes consumed by
+ * packages/ui components; every declaration references tokens.css variables.
+ * Non-purpose: no raw colors (theme.md §9), no layout above component scope,
+ * no transitions beyond 120ms or outside opacity/transform (theme.md §5).
+ */
+
+/* ---------- Base ---------- */
+
+.m-root {
+  font-family: var(--m-font-ui);
+  color: var(--m-text);
+  background: var(--m-canvas);
+  font-variant-numeric: tabular-nums;
+}
+
+.m-root :where(button, input, select, textarea) {
+  font: inherit;
+  color: inherit;
+}
+
+:where(.m-root) :focus-visible {
+  outline: 2px solid var(--m-focus-ring);
+  outline-offset: 2px;
+}
+
+/* ---------- Button ---------- */
+
+.m-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: var(--m-control-height);
+  padding: 0 12px;
+  border-radius: var(--m-radius-control);
+  border: 1px solid transparent;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+
+.m-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.m-btn-sm {
+  height: var(--m-control-height-sm);
+  padding: 0 8px;
+}
+
+.m-btn-primary {
+  background: var(--m-accent);
+  color: var(--m-on-accent);
+}
+
+.m-btn-primary:hover:not(:disabled) {
+  background: var(--m-accent-hover);
+}
+
+.m-btn-primary:active:not(:disabled) {
+  background: var(--m-accent-active);
+}
+
+.m-btn-secondary {
+  background: var(--m-surface);
+  border-color: var(--m-border);
+  color: var(--m-text);
+}
+
+.m-btn-secondary:hover:not(:disabled) {
+  background: var(--m-canvas);
+}
+
+.m-btn-ghost {
+  background: transparent;
+  color: var(--m-text-secondary);
+}
+
+.m-btn-ghost:hover:not(:disabled) {
+  background: var(--m-accent-soft);
+  color: var(--m-text);
+}
+
+.m-btn-destructive {
+  background: var(--m-surface);
+  border-color: var(--m-status-danger-fg);
+  color: var(--m-status-danger-fg);
+}
+
+.m-btn-destructive:hover:not(:disabled) {
+  background: var(--m-status-danger-bg);
+}
+
+.m-btn-destructive-solid {
+  background: var(--m-status-danger-fg);
+  color: var(--m-status-success-bg);
+}
+
+.m-btn-destructive-solid:hover:not(:disabled) {
+  background: var(--m-status-danger-fg-hover);
+}
+
+/* ---------- Inputs ---------- */
+
+.m-input,
+.m-textarea,
+.m-select-trigger {
+  width: 100%;
+  background: var(--m-surface);
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-control);
+  color: var(--m-text);
+}
+
+.m-input,
+.m-select-trigger {
+  height: var(--m-control-height);
+  padding: 0 10px;
+}
+
+.m-textarea {
+  min-height: 64px;
+  padding: 6px 10px;
+  resize: vertical;
+}
+
+.m-input::placeholder,
+.m-textarea::placeholder {
+  color: var(--m-text-muted);
+}
+
+.m-input:hover:not(:disabled),
+.m-textarea:hover:not(:disabled),
+.m-select-trigger:hover:not(:disabled) {
+  border-color: var(--m-border-strong);
+}
+
+.m-input:disabled,
+.m-textarea:disabled,
+.m-select-trigger:disabled {
+  background: var(--m-canvas);
+  color: var(--m-text-muted);
+  cursor: not-allowed;
+}
+
+.m-input[aria-invalid="true"],
+.m-textarea[aria-invalid="true"] {
+  border-color: var(--m-status-danger-fg);
+}
+
+.m-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.m-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--m-text);
+}
+
+.m-field-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--m-status-danger-fg);
+}
+
+.m-field-hint {
+  font-size: 12px;
+  color: var(--m-text-secondary);
+}
+
+/* ---------- Checkbox ---------- */
+
+.m-checkbox {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--m-surface);
+  border: 1px solid var(--m-border-strong);
+  border-radius: var(--m-radius-control);
+  cursor: pointer;
+}
+
+.m-checkbox[data-state="checked"],
+.m-checkbox[data-state="indeterminate"] {
+  background: var(--m-accent);
+  border-color: var(--m-accent);
+  color: var(--m-on-accent);
+}
+
+.m-checkbox:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.m-checkbox:focus-visible {
+  outline: 2px solid var(--m-focus-ring);
+  outline-offset: 2px;
+}
+
+/* ---------- Select ---------- */
+
+.m-select-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.m-select-trigger[data-placeholder] {
+  color: var(--m-text-muted);
+}
+
+.m-select-content {
+  z-index: 50;
+  min-width: var(--radix-select-trigger-width);
+  background: var(--m-overlay-surface);
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-container);
+  box-shadow: 0 4px 16px var(--m-shadow);
+  overflow: hidden;
+}
+
+.m-select-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: var(--m-control-height-sm);
+  padding: 0 10px;
+  cursor: pointer;
+  color: var(--m-text);
+}
+
+.m-select-item[data-highlighted] {
+  background: var(--m-canvas);
+  outline: none;
+}
+
+.m-select-item[data-disabled] {
+  color: var(--m-text-muted);
+  cursor: not-allowed;
+}
+
+/* ---------- Tag / StatusTag ---------- */
+
+.m-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--m-radius-control);
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.m-tag-neutral {
+  background: var(--m-status-neutral-bg);
+  color: var(--m-status-neutral-fg);
+}
+
+.m-tag-success {
+  background: var(--m-status-success-bg);
+  color: var(--m-status-success-fg);
+}
+
+.m-tag-warning {
+  background: var(--m-status-warning-bg);
+  color: var(--m-status-warning-fg);
+}
+
+.m-tag-danger {
+  background: var(--m-status-danger-bg);
+  color: var(--m-status-danger-fg);
+}
+
+.m-tag-outline {
+  background: var(--m-surface);
+  border-color: var(--m-border);
+  color: var(--m-text-secondary);
+}
+
+/* ---------- Surfaces ---------- */
+
+.m-card {
+  background: var(--m-surface);
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-container);
+}
+
+.m-card-header {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--m-border);
+  font-weight: 600;
+}
+
+.m-card-content {
+  padding: 12px;
+}
+
+.m-separator {
+  background: var(--m-border);
+  flex-shrink: 0;
+}
+
+.m-separator-horizontal {
+  width: 100%;
+  height: 1px;
+}
+
+.m-separator-vertical {
+  width: 1px;
+  height: 100%;
+}
+
+/* ---------- Kbd / Spinner / EmptyState ---------- */
+
+.m-kbd {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 5px;
+  border: 1px solid var(--m-border);
+  border-bottom-width: 2px;
+  border-radius: var(--m-radius-control);
+  background: var(--m-canvas);
+  font-family: var(--m-font-mono);
+  font-size: 11px;
+  color: var(--m-text-secondary);
+}
+
+.m-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--m-border-strong);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: m-spin 0.7s linear infinite;
+}
+
+@keyframes m-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .m-spinner {
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+  }
+}
+
+.m-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--m-text-secondary);
+}
+
+/* ---------- Table ---------- */
+
+.m-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.m-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--m-surface);
+  border-bottom: 1px solid var(--m-border-strong);
+  padding: 4px 10px;
+  text-align: left;
+  font-weight: 500;
+  color: var(--m-text-secondary);
+}
+
+.m-table td {
+  height: var(--m-row-height);
+  padding: 2px 10px;
+  border-bottom: 1px solid var(--m-border);
+  vertical-align: middle;
+}
+
+.m-table tbody tr[data-selected="true"] {
+  background: var(--m-accent-soft);
+}
+
+.m-table tbody tr:hover {
+  background: var(--m-canvas);
+}
+
+/* ---------- Dialog ---------- */
+
+.m-dialog-overlay {
+  z-index: 60;
+  background: var(--m-scrim);
+  position: fixed;
+  inset: 0;
+}
+
+.m-dialog-content {
+  z-index: 61;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(480px, calc(100vw - 32px));
+  background: var(--m-overlay-surface);
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-container);
+  box-shadow: 0 8px 32px var(--m-shadow-strong);
+  padding: 16px;
+}
+
+.m-dialog-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--m-text);
+}
+
+.m-dialog-description {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--m-text-secondary);
+}
+
+.m-dialog-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: var(--m-radius-control);
+  color: var(--m-text-muted);
+  cursor: pointer;
+}
+
+.m-dialog-close:hover {
+  background: var(--m-canvas);
+  color: var(--m-text);
+}
+
+/* ---------- Tooltip ---------- */
+
+.m-tooltip-content {
+  z-index: 70;
+  max-width: 280px;
+  padding: 4px 8px;
+  background: var(--m-overlay-surface);
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-control);
+  box-shadow: 0 4px 16px var(--m-shadow);
+  font-size: 12px;
+  color: var(--m-text);
+}
