@@ -15,7 +15,10 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        # pgvector/pgvector:pg17 — same image as prod; core-db integration
+        # tests (crates/core-db/tests) attach to THIS service container via
+        # DATABASE_URL below, so no Docker-in-Docker/testcontainers needed.
+        image: pgvector/pgvector:pg17
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: meridian_test
@@ -66,14 +69,24 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        # pgvector/pgvector:pg17 — prod parity. The gate runs the same
+        # assert_rls_coverage check core-api performs at boot, as a
+        # standalone test target (fails CI independently of server start).
+        image: pgvector/pgvector:pg17
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: meridian_test
         ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/meridian_test
     steps:
       - uses: actions/checkout@v4
-      - run: cargo run -p meridian-cli -- verify-rls || echo "TODO: implement verify-rls command (Stage 0)"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -p core-db --test rls_coverage
 
   brand-distinctness:
     name: Brand distinctness — Workbench tokens only
