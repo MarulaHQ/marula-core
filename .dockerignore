@@ -1,0 +1,17 @@
+# Build-context exclusions shared by all images in deploy/.
+#
+# Purpose: keep `docker build` contexts small — the Rust builder only needs
+# Cargo manifests + crates/, the web builder only needs the pnpm workspace.
+.git
+.kilo
+.github
+target
+**/node_modules
+**/.next
+**/.turbo
+**/*.tsbuildinfo
+coverage
+design
+docs
+scripts
+TASKLIST.md

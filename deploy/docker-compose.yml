@@ -15,6 +15,11 @@
 #   docker compose -f deploy/docker-compose.yml up --build
 #
 # Ports: 15432 pg · 16379 redis · 8080 api · 8081 ws · 8082 worker-health
+#        · 3000 web · (stage2 profile) 9000/9001 minio · 1025/8025 mailpit
+#
+# Stage-2 slots (object storage + email sink) are declared but NOT started by
+# default — launch them explicitly with:
+#   docker compose -f deploy/docker-compose.yml --profile stage2 up
 
 name: meridian
 
@@ -117,5 +122,42 @@ services:
       redis:
         condition: service_healthy
 
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+      # Baked into the client bundle at build time — must be reachable from
+      # the user's browser, hence a localhost URL, not the service name.
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+    ports:
+      - "3000:3000"
+    depends_on:
+      core-api:
+        condition: service_started
+
+  # ---- Stage-2 slots (not started by default; see --profile stage2) ----
+
+  minio:
+    image: minio/minio:latest
+    profiles: ["stage2"]
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: meridian
+      MINIO_ROOT_PASSWORD: meridian-dev-minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+
+  mailpit:
+    image: axllent/mailpit:latest
+    profiles: ["stage2"]
+    ports:
+      - "1025:1025"   # SMTP sink
+      - "8025:8025"   # Web UI
+
 volumes:
   pgdata:
+  miniodata:
