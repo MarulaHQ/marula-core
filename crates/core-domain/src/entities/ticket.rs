@@ -1,0 +1,165 @@
+//! Ticket entity, structured comments, and pre-close checklist items.
+
+use crate::entities::board::BoardStatus;
+use crate::ids::*;
+use crate::status::{NoteKind, Priority, TicketStatusCategory};
+use chrono::{DateTime, Utc};
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct Ticket {
+    pub id: TicketId,
+    pub org_id: OrgId,
+    pub number: TicketNumber,
+    pub board_id: BoardId,
+    pub status_id: TicketStatusId,
+    pub title: String,
+    pub body: Option<String>,
+    pub priority: Priority,
+    pub client_id: Option<ClientId>,
+    pub site_id: Option<SiteId>,
+    pub contact_id: Option<ContactId>,
+    pub assignee_id: Option<UserId>,
+    pub requester_id: Option<UserId>,
+    /// Denormalized from the board status for cheap filtering/sorting.
+    pub category: TicketStatusCategory,
+    pub due_at: Option<DateTime<Utc>>,
+    pub resolved_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl Ticket {
+    /// Whether this ticket may transition into `target`. Category rules are
+    /// the floor (any→any is legal except closed→open without reopen intent);
+    /// per-board transition tables (Stage 2) tighten this further.
+    pub fn can_transition_to(&self, target: &BoardStatus) -> bool {
+        if self.board_id != target.board_id {
+            return false;
+        }
+        !matches!(self.category, TicketStatusCategory::Closed)
+            || !matches!(target.category, TicketStatusCategory::Open)
+    }
+}
+
+/// A structured ticket note. Taxonomy: internal / client-visible /
+/// in-house update. `kind` gates portal visibility and email fan-out.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TicketComment {
+    pub id: TicketCommentId,
+    pub org_id: OrgId,
+    pub ticket_id: TicketId,
+    pub author_id: Option<UserId>,
+    pub kind: NoteKind,
+    pub body: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: Option<DateTime<Utc>>,
+}
+
+/// One line of a ticket's pre-close checklist. Closing a ticket whose
+/// category target requires a checklist fails while any item is unchecked.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ChecklistItem {
+    pub id: ChecklistItemId,
+    pub org_id: OrgId,
+    pub ticket_id: TicketId,
+    pub text: String,
+    pub checked: bool,
+    pub sort_order: i32,
+    pub checked_by: Option<UserId>,
+    pub checked_at: Option<DateTime<Utc>>,
+}
+
+/// Enforces the pre-close checklist rule (§1): a ticket may only enter a
+/// status whose category `requires_checklist()` when every item is checked.
+/// Tickets with no checklist items are unconstrained.
+pub fn validate_pre_close(
+    items: &[ChecklistItem],
+    target: &BoardStatus,
+) -> Result<(), crate::error::DomainError> {
+    if !target.category.requires_checklist() {
+        return Ok(());
+    }
+    let unchecked = items.iter().filter(|i| !i.checked).count();
+    if unchecked > 0 {
+        return Err(crate::error::DomainError::ChecklistIncomplete(unchecked));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::status::TicketStatusCategory;
+    use uuid::Uuid;
+
+    fn item(checked: bool) -> ChecklistItem {
+        ChecklistItem {
+            id: Uuid::now_v7(),
+            org_id: Uuid::now_v7(),
+            ticket_id: Uuid::now_v7(),
+            text: "root cause documented".into(),
+            checked,
+            sort_order: 0,
+            checked_by: None,
+            checked_at: None,
+        }
+    }
+
+    fn status(board: Uuid, cat: TicketStatusCategory) -> BoardStatus {
+        BoardStatus {
+            id: Uuid::now_v7(),
+            board_id: board,
+            org_id: Uuid::now_v7(),
+            name: "Done".into(),
+            category: cat,
+            sort_order: 0,
+            is_entry: false,
+            color: None,
+        }
+    }
+
+    #[test]
+    fn close_blocked_while_checklist_unchecked() {
+        let target = status(Uuid::now_v7(), TicketStatusCategory::Closed);
+        assert!(validate_pre_close(&[item(true), item(false)], &target).is_err());
+        assert!(validate_pre_close(&[item(true), item(true)], &target).is_ok());
+    }
+
+    #[test]
+    fn waiting_transition_ignores_checklist() {
+        let target = status(Uuid::now_v7(), TicketStatusCategory::Waiting);
+        assert!(validate_pre_close(&[item(false)], &target).is_ok());
+    }
+
+    #[test]
+    fn closed_ticket_cannot_reopen_to_open() {
+        let board = Uuid::now_v7();
+        let open = status(board, TicketStatusCategory::Open);
+        let waiting = status(board, TicketStatusCategory::Waiting);
+        let t = Ticket {
+            id: Uuid::now_v7(),
+            org_id: Uuid::now_v7(),
+            number: TicketNumber("MER-1".into()),
+            board_id: board,
+            status_id: Uuid::now_v7(),
+            title: "t".into(),
+            body: None,
+            priority: Priority::P3,
+            client_id: None,
+            site_id: None,
+            contact_id: None,
+            assignee_id: None,
+            requester_id: None,
+            category: TicketStatusCategory::Closed,
+            due_at: None,
+            resolved_at: Some(Utc::now()),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        assert!(!t.can_transition_to(&open));
+        assert!(t.can_transition_to(&waiting)); // reopen via intermediate is allowed
+    }
+}
