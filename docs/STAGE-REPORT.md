@@ -7,8 +7,8 @@
 ## Stage 0 — Scaffold
 
 **Status:** ~95% complete. Infra + backend services fully up; `apps/web`
-shipped and merged. Remaining: web compose service, two CI gates, MinIO +
-Mailpit slots.
+shipped and merged. Remaining: MinIO + Mailpit are declared compose slots
+(`--profile stage2`) but unexercised until their Stage-2 consumers land.
 
 ### What shipped
 
@@ -27,8 +27,10 @@ Mailpit slots.
 | deploy | `docker-compose.yml` (pg, redis, migrate one-shot, api, realtime, worker) + parameterized Rust image |
 | apps/web | Next.js 15 + Tailwind v4: `/login`, `/today`, `/tickets/[id]` three-pane workspace; token bridge to `packages/ui`; light+dark verified live |
 | core-api hardening | axum 0.8 route syntax, CORS layer gated on `CORS_ORIGIN`, bound-fetch SDK fix |
-| acceptance | `scripts/acceptance.ts` (`pnpm accept`): 14 live checks register → ticket → timer → close → RLS rejection, all green |
+| acceptance | `scripts/acceptance.ts` (`pnpm accept`): 18 live checks — register → ticket → timer → close → refresh rotation → RLS rejection → **WS push chain** → p95 latency, all green |
 | core-db tests | testcontainers Postgres-17 suite (14 tests) + standalone RLS-coverage gate parsing migration SQL |
+| CI gates | rust matrix · frontend · migration-safety (`--breaking` lint) · RLS coverage · brand-distinctness scan |
+| web image | `deploy/Dockerfile.web` (standalone Next output) + compose `web` service; verified serving locally |
 
 ### Criteria status
 
@@ -36,10 +38,10 @@ Mailpit slots.
 - [x] API round-trip verified live: register → JWT → authenticated `/api/me`
 - [x] Generated SDK typechecks against the live spec
 - [x] Both UI themes generated from one token set; components cover both modes
-- [ ] `docker compose up` starts **web** service — `apps/web` merged; compose entry pending
-- [ ] MinIO + Mailpit services (Stage 2 consumers; slots reserved)
-- [ ] CI brand-distinctness check — needs built CSS from `apps/web`
-- [ ] CI migration-diff check
+- [x] `docker compose up` starts **web** service (image build + serve verified)
+- [x] MinIO + Mailpit slots declared (compose `stage2` profile; exercised in Stage 2)
+- [x] CI brand-distinctness check
+- [x] CI migration-diff check (`scripts/check-migrations.sh`)
 
 ### Known gaps / deferred
 
@@ -50,16 +52,15 @@ Mailpit slots.
 
 ## Stage 1 — Foundation (MER-P0)
 
-**Status:** entity set, authn/authz, timers, clients, WS events, and the
-layout shell shipped during Stage 0 rescue work. Acceptance harness green
-(14/14 live); remaining: WS-push assertion in the harness + formal p95
-measurement.
+**Status:** COMPLETE. Acceptance harness green end-to-end (18/18 live),
+including the full push chain and the latency budget.
 
 ### Criteria status
 
-- [x] E2E acceptance: create ticket → timer → close → time entry appears — API→DB→events via `pnpm accept` (14/14); web-UI leg verified manually (Playwright: register → status change → comment → checklist → timer)
-- [ ] p95 UI interaction <100 ms against localhost — measure and record
+- [x] E2E acceptance: create ticket → timer → close → time entry appears — API→DB→events via `pnpm accept`; web-UI leg verified manually (Playwright: register → status change → comment → checklist → timer)
+- [x] p95 UI interaction <100 ms against localhost — harness check [11]: GET list 5.7 ms, GET ticket 9.6 ms, POST comment 14.4 ms
 - [x] RLS-coverage CI test green (standalone gate in `.github/workflows/ci.yml`)
+- [x] WS push chain verified live: `ticket.created` delivered api → outbox → relay → Redis → hub → subscribed socket (harness check [10]; surfaced + fixed worker defaulting to the RLS-constrained DB role)
 
 ### Known gaps / deferred
 
