@@ -7,6 +7,12 @@
 //! Non-purpose: nothing realtime-specific (no bind/JWT concerns beyond the
 //! health endpoint) and no per-job tuning — the general job queue is Stage
 //! 2 scope and will grow its own config section then.
+//!
+//! Operational note: the relay drains outbox rows for *all* orgs and never
+//! sets `app.org_id`, so the role in `DATABASE_URL` must be able to read
+//! across org RLS (table owner or BYPASSRLS). Single-role compose setups
+//! get this for free; split-role dev databases must point the worker at
+//! the owner role.
 
 /// Runtime settings for the worker process.
 #[derive(Debug, Clone)]
