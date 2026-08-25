@@ -166,7 +166,7 @@ async fn send(
     message: &ServerMessage,
 ) -> Result<(), axum::Error> {
     match message.to_text() {
-        Some(text) => sink.send(Message::Text(text)).await,
+        Some(text) => sink.send(Message::Text(text.into())).await,
         None => Ok(()), // serialization cannot fail for our owned types
     }
 }
