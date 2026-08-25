@@ -52,7 +52,8 @@ export class MeridianClient {
 
   constructor(options: MeridianClientOptions = {}) {
     this.baseUrl = (options.baseUrl ?? "").replace(/\/$/, "");
-    this.fetchFn = options.fetch ?? globalThis.fetch;
+    // Bind: bare `fetch` loses its receiver and browsers throw Illegal invocation.
+    this.fetchFn = options.fetch ?? globalThis.fetch.bind(globalThis);
     const self = this;
     this.api = createClient<MeridianPaths>({ baseUrl: this.baseUrl, fetch: this.fetchFn });
     // Attach the bearer token on every typed request when present.

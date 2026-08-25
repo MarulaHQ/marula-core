@@ -26,8 +26,33 @@ async fn main() -> anyhow::Result<()> {
         .context("RLS coverage check")?;
     tracing::info!("migrations applied; RLS coverage verified");
 
-    let state = core_api::state::AppState { pool, config };
-    let app = core_api::router(state);
+    let state = core_api::state::AppState {
+        pool,
+        config: std::sync::Arc::clone(&config),
+    };
+    let mut app = core_api::router(state);
+
+    // Browser clients (apps/web) need CORS when served from another origin.
+    if let Some(origin) = &config.cors_origin {
+        use axum::http::{header, HeaderValue, Method};
+        app = app.layer(
+            tower_http::cors::CorsLayer::new()
+                .allow_origin(
+                    origin
+                        .parse::<HeaderValue>()
+                        .context("parsing CORS_ORIGIN")?,
+                )
+                .allow_methods([
+                    Method::GET,
+                    Method::POST,
+                    Method::PATCH,
+                    Method::DELETE,
+                    Method::OPTIONS,
+                ])
+                .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION]),
+        );
+        tracing::info!(origin = %origin, "CORS enabled");
+    }
 
     let listener = tokio::net::TcpListener::bind(
         &std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".into()),

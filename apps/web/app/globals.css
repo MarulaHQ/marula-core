@@ -1,0 +1,36 @@
+/*
+ * Global styles for the Meridian web app.
+ *
+ * Purpose: load Tailwind, the Workbench token set and component styles from
+ * @meridian/ui, the layout engine stylesheet from @meridian/layout, and
+ * bridge the engine's --meridian-* variables onto the token layer (--m-*).
+ * Non-purpose: no component styling here — components own their classes.
+ */
+@import "tailwindcss";
+@import "@meridian/ui/tokens.css";
+@import "@meridian/ui/components.css";
+@import "@meridian/layout/styles.css";
+
+:root {
+  /* Bridge: the layout engine speaks --meridian-*; tokens speak --m-*. */
+  --meridian-color-canvas: var(--m-canvas);
+  --meridian-color-surface: var(--m-surface);
+  --meridian-color-border: var(--m-border);
+  --meridian-color-text-primary: var(--m-text);
+  --meridian-color-text-secondary: var(--m-text-secondary);
+  --meridian-color-accent: var(--m-accent);
+  --meridian-font-family: var(--m-font-sans, "Inter", system-ui, sans-serif);
+  --meridian-radius-sm: var(--m-radius-control);
+  --meridian-layout-divider-size: 1px;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--m-canvas);
+  color: var(--m-text);
+  font-family: var(--m-font-sans, "Inter", system-ui, sans-serif);
+}
