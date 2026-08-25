@@ -3,3 +3,17 @@ name = "meridian-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+
+[[bin]]
+name = "meridian"
+path = "src/main.rs"
+
+[dependencies]
+core-db = { path = "../core-db" }
+realtime = { path = "../realtime" }
+worker = { path = "../worker" }
+anyhow = { workspace = true }
+clap = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

@@ -3,3 +3,19 @@ name = "realtime"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+
+[dependencies]
+core-events = { path = "../core-events" }
+anyhow = { workspace = true }
+axum = { workspace = true }
+chrono = { workspace = true }
+futures-util = { workspace = true }
+jsonwebtoken = { workspace = true }
+redis = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_urlencoded = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
