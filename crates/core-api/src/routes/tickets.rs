@@ -91,7 +91,7 @@ fn default_limit() -> i64 {
 }
 
 /// GET /api/tickets — filtered, priority-ordered list.
-#[utoipa::path(get, path = "/api/tickets", tag = "tickets", security(("bearer" = [])),
+#[utoipa::path(operation_id = "tickets_list", get, path = "/api/tickets", tag = "tickets", security(("bearer" = [])),
     params(TicketListQuery),
     responses((status = 200, body = [core_domain::entities::Ticket])))]
 pub async fn list(
@@ -123,7 +123,7 @@ pub async fn list(
 
 /// GET /api/tickets/my-work — everything assigned to me, not closed,
 /// across all boards (the unified cross-board view from §1).
-#[utoipa::path(get, path = "/api/tickets/my-work", tag = "tickets", security(("bearer" = [])),
+#[utoipa::path(operation_id = "tickets_my_work", get, path = "/api/tickets/my-work", tag = "tickets", security(("bearer" = [])),
     responses((status = 200, body = [core_domain::entities::Ticket])))]
 pub async fn my_work(
     State(state): State<AppState>,
@@ -146,7 +146,7 @@ pub async fn my_work(
 
 /// POST /api/tickets — allocates the human ticket number, initializes SLA
 /// clocks, and emits `ticket.created` — all in one transaction.
-#[utoipa::path(post, path = "/api/tickets", tag = "tickets", security(("bearer" = [])),
+#[utoipa::path(operation_id = "tickets_create", post, path = "/api/tickets", tag = "tickets", security(("bearer" = [])),
     request_body = CreateTicketRequest,
     responses((status = 200, body = core_domain::entities::Ticket)))]
 pub async fn create(
@@ -228,7 +228,7 @@ pub async fn create(
 }
 
 /// GET /api/tickets/{id}
-#[utoipa::path(get, path = "/api/tickets/{id}", tag = "tickets", security(("bearer" = [])),
+#[utoipa::path(operation_id = "tickets_get_one", get, path = "/api/tickets/{id}", tag = "tickets", security(("bearer" = [])),
     params(("id" = Uuid, Path)),
     responses((status = 200, body = core_domain::entities::Ticket)))]
 pub async fn get_one(
@@ -248,7 +248,7 @@ pub async fn get_one(
 
 /// PATCH /api/tickets/{id} — partial update; emits `ticket.updated` and
 /// `ticket.assigned` when the assignee changes.
-#[utoipa::path(patch, path = "/api/tickets/{id}", tag = "tickets", security(("bearer" = [])),
+#[utoipa::path(operation_id = "tickets_patch", patch, path = "/api/tickets/{id}", tag = "tickets", security(("bearer" = [])),
     params(("id" = Uuid, Path)), request_body = PatchTicketRequest,
     responses((status = 200, body = core_domain::entities::Ticket)))]
 pub async fn patch(
@@ -316,7 +316,7 @@ pub async fn patch(
 /// POST /api/tickets/{id}/status — the guarded lifecycle transition:
 /// domain transition rules, pre-close checklist enforcement, SLA pause
 /// bookkeeping, and the `ticket.status_changed` event, all in one tx.
-#[utoipa::path(post, path = "/api/tickets/{id}/status", tag = "tickets", security(("bearer" = [])),
+#[utoipa::path(operation_id = "tickets_change_status", post, path = "/api/tickets/{id}/status", tag = "tickets", security(("bearer" = [])),
     params(("id" = Uuid, Path)), request_body = ChangeStatusRequest,
     responses((status = 200, body = core_domain::entities::Ticket),
               (status = 422, description = "checklist incomplete or invalid transition")))]
@@ -414,7 +414,7 @@ pub async fn change_status(
 
 /// GET /api/tickets/{id}/comments — internal notes require ticket view;
 /// the portal surface filters kinds separately (portal v1).
-#[utoipa::path(get, path = "/api/tickets/{id}/comments", tag = "tickets", security(("bearer" = [])),
+#[utoipa::path(operation_id = "tickets_list_comments", get, path = "/api/tickets/{id}/comments", tag = "tickets", security(("bearer" = [])),
     params(("id" = Uuid, Path)),
     responses((status = 200, body = [core_domain::entities::TicketComment])))]
 pub async fn list_comments(
@@ -435,7 +435,7 @@ pub async fn list_comments(
 
 /// POST /api/tickets/{id}/comments — adds a structured note; @mentions
 /// fan out into the notification center.
-#[utoipa::path(post, path = "/api/tickets/{id}/comments", tag = "tickets", security(("bearer" = [])),
+#[utoipa::path(operation_id = "tickets_add_comment", post, path = "/api/tickets/{id}/comments", tag = "tickets", security(("bearer" = [])),
     params(("id" = Uuid, Path)), request_body = AddCommentRequest,
     responses((status = 200, body = core_domain::entities::TicketComment)))]
 pub async fn add_comment(
@@ -512,7 +512,7 @@ pub async fn add_comment(
 }
 
 /// GET /api/tickets/{id}/checklist
-#[utoipa::path(get, path = "/api/tickets/{id}/checklist", tag = "tickets", security(("bearer" = [])),
+#[utoipa::path(operation_id = "tickets_get_checklist", get, path = "/api/tickets/{id}/checklist", tag = "tickets", security(("bearer" = [])),
     params(("id" = Uuid, Path)),
     responses((status = 200, body = [core_domain::entities::ChecklistItem])))]
 pub async fn get_checklist(
@@ -531,7 +531,7 @@ pub async fn get_checklist(
 }
 
 /// POST /api/tickets/{id}/checklist — appends a pre-close checklist item.
-#[utoipa::path(post, path = "/api/tickets/{id}/checklist", tag = "tickets", security(("bearer" = [])),
+#[utoipa::path(operation_id = "tickets_add_checklist_item", post, path = "/api/tickets/{id}/checklist", tag = "tickets", security(("bearer" = [])),
     params(("id" = Uuid, Path)), request_body = AddChecklistItemRequest,
     responses((status = 200, body = [core_domain::entities::ChecklistItem])))]
 pub async fn add_checklist_item(
@@ -561,7 +561,7 @@ pub async fn add_checklist_item(
 }
 
 /// POST /api/tickets/{id}/checklist/{item_id} — toggles one checklist item.
-#[utoipa::path(post, path = "/api/tickets/{id}/checklist/{item_id}", tag = "tickets",
+#[utoipa::path(operation_id = "tickets_set_checklist_item", post, path = "/api/tickets/{id}/checklist/{item_id}", tag = "tickets",
     security(("bearer" = [])),
     params(("id" = Uuid, Path), ("item_id" = Uuid, Path)),
     request_body = SetChecklistItemRequest,
@@ -591,7 +591,7 @@ pub async fn set_checklist_item(
 }
 
 /// GET /api/tickets/{id}/time-entries
-#[utoipa::path(get, path = "/api/tickets/{id}/time-entries", tag = "tickets",
+#[utoipa::path(operation_id = "tickets_ticket_time_entries", get, path = "/api/tickets/{id}/time-entries", tag = "tickets",
     security(("bearer" = [])), params(("id" = Uuid, Path)),
     responses((status = 200, body = [core_domain::entities::TimeEntry])))]
 pub async fn ticket_time_entries(

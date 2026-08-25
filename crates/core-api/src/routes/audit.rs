@@ -23,7 +23,7 @@ fn default_limit() -> i64 {
 }
 
 /// GET /api/audit-events — append-only audit trail, newest first.
-#[utoipa::path(get, path = "/api/audit-events", tag = "audit", security(("bearer" = [])),
+#[utoipa::path(operation_id = "audit_list", get, path = "/api/audit-events", tag = "audit", security(("bearer" = [])),
     params(AuditQuery),
     responses((status = 200, body = [core_domain::entities::AuditEvent])))]
 pub async fn list(

@@ -62,7 +62,7 @@ pub struct CreateAssetRequest {
 }
 
 /// GET /api/clients
-#[utoipa::path(get, path = "/api/clients", tag = "clients", security(("bearer" = [])),
+#[utoipa::path(operation_id = "clients_list", get, path = "/api/clients", tag = "clients", security(("bearer" = [])),
     responses((status = 200, body = [core_domain::entities::Client])))]
 pub async fn list(
     State(state): State<AppState>,
@@ -75,7 +75,7 @@ pub async fn list(
 }
 
 /// GET /api/clients/{id}
-#[utoipa::path(get, path = "/api/clients/{id}", tag = "clients", security(("bearer" = [])),
+#[utoipa::path(operation_id = "clients_get_one", get, path = "/api/clients/{id}", tag = "clients", security(("bearer" = [])),
     params(("id" = Uuid, Path)),
     responses((status = 200, body = core_domain::entities::Client)))]
 pub async fn get_one(
@@ -98,7 +98,7 @@ pub async fn get_one(
 }
 
 /// POST /api/clients
-#[utoipa::path(post, path = "/api/clients", tag = "clients", security(("bearer" = [])),
+#[utoipa::path(operation_id = "clients_create", post, path = "/api/clients", tag = "clients", security(("bearer" = [])),
     request_body = CreateClientRequest,
     responses((status = 200, body = core_domain::entities::Client)))]
 pub async fn create(
@@ -123,7 +123,7 @@ pub async fn create(
 }
 
 /// GET /api/clients/{id}/sites
-#[utoipa::path(get, path = "/api/clients/{id}/sites", tag = "clients", security(("bearer" = [])),
+#[utoipa::path(operation_id = "clients_list_sites", get, path = "/api/clients/{id}/sites", tag = "clients", security(("bearer" = [])),
     params(("id" = Uuid, Path)),
     responses((status = 200, body = [core_domain::entities::Site])))]
 pub async fn list_sites(
@@ -138,7 +138,7 @@ pub async fn list_sites(
 }
 
 /// POST /api/clients/{id}/sites
-#[utoipa::path(post, path = "/api/clients/{id}/sites", tag = "clients", security(("bearer" = [])),
+#[utoipa::path(operation_id = "clients_create_site", post, path = "/api/clients/{id}/sites", tag = "clients", security(("bearer" = [])),
     params(("id" = Uuid, Path)), request_body = CreateSiteRequest,
     responses((status = 200, body = core_domain::entities::Site)))]
 pub async fn create_site(
@@ -161,7 +161,7 @@ pub async fn create_site(
 }
 
 /// GET /api/clients/{id}/contacts
-#[utoipa::path(get, path = "/api/clients/{id}/contacts", tag = "clients", security(("bearer" = [])),
+#[utoipa::path(operation_id = "clients_list_contacts", get, path = "/api/clients/{id}/contacts", tag = "clients", security(("bearer" = [])),
     params(("id" = Uuid, Path)),
     responses((status = 200, body = [core_domain::entities::Contact])))]
 pub async fn list_contacts(
@@ -177,7 +177,7 @@ pub async fn list_contacts(
 }
 
 /// POST /api/clients/{id}/contacts
-#[utoipa::path(post, path = "/api/clients/{id}/contacts", tag = "clients", security(("bearer" = [])),
+#[utoipa::path(operation_id = "clients_create_contact", post, path = "/api/clients/{id}/contacts", tag = "clients", security(("bearer" = [])),
     params(("id" = Uuid, Path)), request_body = CreateContactRequest,
     responses((status = 200, body = core_domain::entities::Contact)))]
 pub async fn create_contact(
@@ -202,7 +202,7 @@ pub async fn create_contact(
 }
 
 /// GET /api/clients/{id}/assets
-#[utoipa::path(get, path = "/api/clients/{id}/assets", tag = "clients", security(("bearer" = [])),
+#[utoipa::path(operation_id = "clients_list_assets", get, path = "/api/clients/{id}/assets", tag = "clients", security(("bearer" = [])),
     params(("id" = Uuid, Path)),
     responses((status = 200, body = [core_domain::entities::DeviceAsset])))]
 pub async fn list_assets(
@@ -218,7 +218,7 @@ pub async fn list_assets(
 }
 
 /// POST /api/clients/{id}/assets
-#[utoipa::path(post, path = "/api/clients/{id}/assets", tag = "clients", security(("bearer" = [])),
+#[utoipa::path(operation_id = "clients_create_asset", post, path = "/api/clients/{id}/assets", tag = "clients", security(("bearer" = [])),
     params(("id" = Uuid, Path)), request_body = CreateAssetRequest,
     responses((status = 200, body = core_domain::entities::DeviceAsset)))]
 pub async fn create_asset(

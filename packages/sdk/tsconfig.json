@@ -1,0 +1,22 @@
+// Compiler configuration for @meridian/sdk.
+// Purpose: strict, bundler-resolution TypeScript; the generated schema is
+// declaration-only and consumed via `import type`.
+// Non-purpose: no emit step — apps consume the TypeScript sources directly.
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": []
+  },
+  "include": ["src"]
+}

@@ -25,7 +25,7 @@ fn default_limit() -> i64 {
 }
 
 /// GET /api/notifications — the caller's notifications, newest first.
-#[utoipa::path(get, path = "/api/notifications", tag = "notifications", security(("bearer" = [])),
+#[utoipa::path(operation_id = "notifications_list", get, path = "/api/notifications", tag = "notifications", security(("bearer" = [])),
     params(ListQuery),
     responses((status = 200, body = [core_domain::entities::Notification])))]
 pub async fn list(
@@ -46,7 +46,7 @@ pub async fn list(
 }
 
 /// GET /api/notifications/unread-count
-#[utoipa::path(get, path = "/api/notifications/unread-count", tag = "notifications",
+#[utoipa::path(operation_id = "notifications_unread_count", get, path = "/api/notifications/unread-count", tag = "notifications",
     security(("bearer" = [])), responses((status = 200, body = UnreadCount)))]
 pub async fn unread_count(
     State(state): State<AppState>,
@@ -68,7 +68,7 @@ pub struct UnreadCount {
 }
 
 /// POST /api/notifications/{id}/read
-#[utoipa::path(post, path = "/api/notifications/{id}/read", tag = "notifications",
+#[utoipa::path(operation_id = "notifications_mark_read", post, path = "/api/notifications/{id}/read", tag = "notifications",
     security(("bearer" = [])), params(("id" = Uuid, Path)), responses((status = 204)))]
 pub async fn mark_read(
     State(state): State<AppState>,

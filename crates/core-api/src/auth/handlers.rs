@@ -60,7 +60,7 @@ fn validate_email(email: &str) -> ApiResult<()> {
 /// POST /api/auth/register — creates the org, its default roles/board/SLA
 /// policy, and the first user as Owner. One transaction: a half-created org
 /// can never exist.
-#[utoipa::path(post, path = "/api/auth/register", tag = "auth",
+#[utoipa::path(operation_id = "handlers_register", post, path = "/api/auth/register", tag = "auth",
     request_body = RegisterRequest, responses(
         (status = 200, body = TokenPair),
         (status = 422, description = "validation error"),
@@ -155,7 +155,7 @@ pub async fn register(
 
 /// POST /api/auth/login — resolves the org by email (SECURITY DEFINER
 /// bridge), verifies the argon2 hash under RLS scope, issues tokens.
-#[utoipa::path(post, path = "/api/auth/login", tag = "auth",
+#[utoipa::path(operation_id = "handlers_login", post, path = "/api/auth/login", tag = "auth",
     request_body = LoginRequest, responses(
         (status = 200, body = TokenPair),
         (status = 401, description = "bad credentials")
@@ -218,7 +218,7 @@ pub async fn login(
 
 /// POST /api/auth/refresh — rotates the refresh token (old one dies with the
 /// transaction; replay of a rotated token fails).
-#[utoipa::path(post, path = "/api/auth/refresh", tag = "auth",
+#[utoipa::path(operation_id = "handlers_refresh", post, path = "/api/auth/refresh", tag = "auth",
     request_body = RefreshRequest, responses((status = 200, body = TokenPair)))]
 pub async fn refresh(
     State(state): State<AppState>,
@@ -260,7 +260,7 @@ pub async fn refresh(
 }
 
 /// POST /api/auth/logout — revokes the refresh session.
-#[utoipa::path(post, path = "/api/auth/logout", tag = "auth", security(("bearer" = [])),
+#[utoipa::path(operation_id = "handlers_logout", post, path = "/api/auth/logout", tag = "auth", security(("bearer" = [])),
     request_body = RefreshRequest, responses((status = 200)))]
 pub async fn logout(
     State(state): State<AppState>,
@@ -271,7 +271,7 @@ pub async fn logout(
 }
 
 /// GET /api/me — the authenticated principal with resolved permissions.
-#[utoipa::path(get, path = "/api/me", tag = "auth", security(("bearer" = [])),
+#[utoipa::path(operation_id = "handlers_me", get, path = "/api/me", tag = "auth", security(("bearer" = [])),
     responses((status = 200, body = MeResponse)))]
 pub async fn me(extensions: Extensions) -> ApiResult<Json<MeResponse>> {
     // Validates the authenticated principal is present (middleware-inserted).

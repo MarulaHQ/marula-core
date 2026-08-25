@@ -72,7 +72,7 @@ fn default_limit() -> i64 {
 }
 
 /// GET /api/timers/active — the caller's running session (at most one).
-#[utoipa::path(get, path = "/api/timers/active", tag = "timers", security(("bearer" = [])),
+#[utoipa::path(operation_id = "timers_active", get, path = "/api/timers/active", tag = "timers", security(("bearer" = [])),
     responses((status = 200, body = Object)))]
 pub async fn active(
     State(state): State<AppState>,
@@ -86,7 +86,7 @@ pub async fn active(
 
 /// GET /api/timers/working-set — recent sessions (running first): the
 /// docked working set the UI renders.
-#[utoipa::path(get, path = "/api/timers/working-set", tag = "timers", security(("bearer" = [])),
+#[utoipa::path(operation_id = "timers_working_set", get, path = "/api/timers/working-set", tag = "timers", security(("bearer" = [])),
     responses((status = 200, body = [core_domain::entities::TimerSession])))]
 pub async fn working_set(
     State(state): State<AppState>,
@@ -102,7 +102,7 @@ pub async fn working_set(
 /// POST /api/timers/start — starts (or switches to) a timer. If another
 /// session is running it is auto-paused with reason `switched` and stays in
 /// the working set; the DB's partial unique index is the backstop.
-#[utoipa::path(post, path = "/api/timers/start", tag = "timers", security(("bearer" = [])),
+#[utoipa::path(operation_id = "timers_start", post, path = "/api/timers/start", tag = "timers", security(("bearer" = [])),
     request_body = StartTimerRequest,
     responses((status = 200, body = core_domain::entities::TimerSession)))]
 pub async fn start(
@@ -166,7 +166,7 @@ pub async fn start(
 
 /// POST /api/timers/pause — pauses the active (or given) session, recording
 /// the reason on the segment.
-#[utoipa::path(post, path = "/api/timers/pause", tag = "timers", security(("bearer" = [])),
+#[utoipa::path(operation_id = "timers_pause", post, path = "/api/timers/pause", tag = "timers", security(("bearer" = [])),
     request_body = PauseTimerRequest,
     responses((status = 200, body = core_domain::entities::TimerSession)))]
 pub async fn pause(
@@ -218,7 +218,7 @@ pub async fn pause(
 }
 
 /// POST /api/timers/resume — resumes a paused session with a new segment.
-#[utoipa::path(post, path = "/api/timers/resume", tag = "timers", security(("bearer" = [])),
+#[utoipa::path(operation_id = "timers_resume", post, path = "/api/timers/resume", tag = "timers", security(("bearer" = [])),
     request_body = PauseTimerRequest,
     responses((status = 200, body = core_domain::entities::TimerSession)))]
 pub async fn resume(
@@ -266,7 +266,7 @@ pub async fn resume(
 
 /// POST /api/timers/stop — stops the session and materializes a time entry
 /// (rounded up to the minute) in the same transaction.
-#[utoipa::path(post, path = "/api/timers/stop", tag = "timers", security(("bearer" = [])),
+#[utoipa::path(operation_id = "timers_stop", post, path = "/api/timers/stop", tag = "timers", security(("bearer" = [])),
     request_body = StopTimerRequest,
     responses((status = 200, body = core_domain::entities::TimeEntry)))]
 pub async fn stop(
@@ -336,7 +336,7 @@ pub async fn stop(
 }
 
 /// GET /api/time-entries
-#[utoipa::path(get, path = "/api/time-entries", tag = "timers", security(("bearer" = [])),
+#[utoipa::path(operation_id = "timers_list_entries", get, path = "/api/time-entries", tag = "timers", security(("bearer" = [])),
     params(ListEntriesQuery),
     responses((status = 200, body = [core_domain::entities::TimeEntry])))]
 pub async fn list_entries(
@@ -365,7 +365,7 @@ pub async fn list_entries(
 }
 
 /// POST /api/time-entries — manual entry (no timer).
-#[utoipa::path(post, path = "/api/time-entries", tag = "timers", security(("bearer" = [])),
+#[utoipa::path(operation_id = "timers_create_entry", post, path = "/api/time-entries", tag = "timers", security(("bearer" = [])),
     request_body = CreateTimeEntryRequest,
     responses((status = 200, body = core_domain::entities::TimeEntry)))]
 pub async fn create_entry(

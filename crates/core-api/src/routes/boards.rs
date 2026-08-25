@@ -27,7 +27,7 @@ fn board_manage() -> Permission {
 }
 
 /// GET /api/boards
-#[utoipa::path(get, path = "/api/boards", tag = "boards", security(("bearer" = [])),
+#[utoipa::path(operation_id = "boards_list", get, path = "/api/boards", tag = "boards", security(("bearer" = [])),
     responses((status = 200, body = [core_domain::entities::Board])))]
 pub async fn list(
     State(state): State<AppState>,
@@ -47,7 +47,7 @@ pub struct CreateBoardRequest {
 }
 
 /// POST /api/boards — creates a board seeded with the four default statuses.
-#[utoipa::path(post, path = "/api/boards", tag = "boards", security(("bearer" = [])),
+#[utoipa::path(operation_id = "boards_create", post, path = "/api/boards", tag = "boards", security(("bearer" = [])),
     request_body = CreateBoardRequest,
     responses((status = 200, body = core_domain::entities::Board)))]
 pub async fn create(
@@ -93,7 +93,7 @@ pub async fn create(
 }
 
 /// GET /api/boards/{id}/statuses
-#[utoipa::path(get, path = "/api/boards/{id}/statuses", tag = "boards", security(("bearer" = [])),
+#[utoipa::path(operation_id = "boards_list_statuses", get, path = "/api/boards/{id}/statuses", tag = "boards", security(("bearer" = [])),
     params(("id" = Uuid, Path)),
     responses((status = 200, body = [core_domain::entities::BoardStatus])))]
 pub async fn list_statuses(
@@ -119,7 +119,7 @@ pub struct CreateStatusRequest {
 
 /// POST /api/boards/{id}/statuses — adds a custom status bound to a
 /// semantic category.
-#[utoipa::path(post, path = "/api/boards/{id}/statuses", tag = "boards", security(("bearer" = [])),
+#[utoipa::path(operation_id = "boards_add_status", post, path = "/api/boards/{id}/statuses", tag = "boards", security(("bearer" = [])),
     params(("id" = Uuid, Path)), request_body = CreateStatusRequest,
     responses((status = 200, body = core_domain::entities::BoardStatus)))]
 pub async fn add_status(
@@ -152,7 +152,7 @@ pub struct FavoriteRequest {
 }
 
 /// POST /api/boards/favorite — toggles a board favorite for the current user.
-#[utoipa::path(post, path = "/api/boards/favorite", tag = "boards", security(("bearer" = [])),
+#[utoipa::path(operation_id = "boards_toggle_favorite", post, path = "/api/boards/favorite", tag = "boards", security(("bearer" = [])),
     request_body = FavoriteRequest, responses((status = 204)))]
 pub async fn toggle_favorite(
     State(state): State<AppState>,
