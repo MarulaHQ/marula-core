@@ -5125,7 +5125,7 @@ async fn attachments_dedup_link_and_refcounted_delete() {
 
     let mut tx = org_tx(&db.app, sa.org).await;
     let t1 = create_ticket(
-        &mut *tx,
+        &mut tx,
         &sa,
         fixed_uuid(13001),
         "Attach me",
