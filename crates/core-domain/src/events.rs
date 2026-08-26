@@ -59,6 +59,14 @@ pub mod types {
     /// Emitted when the org profile (name/ticket prefix) is edited from
     /// General settings or the first-run wizard.
     pub const ORG_UPDATED: &str = "org.updated";
+    /// Portal v1 lifecycle: admin provisioned / changed / removed a client
+    /// portal identity, or toggled a board×client exposure. Portal ticket
+    /// replies intentionally reuse `ticket.comment_added` so every staff
+    /// notification path keeps working unchanged.
+    pub const PORTAL_USER_CREATED: &str = "portal_user.created";
+    pub const PORTAL_USER_UPDATED: &str = "portal_user.updated";
+    pub const PORTAL_USER_DELETED: &str = "portal_user.deleted";
+    pub const BOARD_PORTAL_EXPOSURE_UPDATED: &str = "board_portal_exposure.updated";
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

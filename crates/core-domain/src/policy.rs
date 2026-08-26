@@ -321,9 +321,92 @@ pub fn check_any(granted: &[Permission], required: &[Permission]) -> PolicyDecis
     }
 }
 
+// --- portal v1 role policy ---------------------------------------------------
+//
+// Portal authorization is deliberately NOT the staff permission matrix:
+// portal users are client personnel whose entire grant is "their own
+// client's tickets on exposed boards". These checks are the single
+// authorization entry point for /api/portal/* — unit-tested, exhaustive.
+
+/// Everything a portal session may attempt. There is no create/close/
+/// assign/etc.: v1 portal is strictly view + reply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PortalAction {
+    /// List/read tickets of the caller's own client on exposed boards.
+    ViewTickets,
+    /// Reply to a ticket of the caller's own client. The reply is ALWAYS
+    /// created as a `client_visible` note regardless of tier.
+    PostReply,
+    /// Read `in_house_update` notes. Allowed ONLY for the it_manager tier;
+    /// the notes whitelist still hard-excludes `internal` for every tier
+    /// (see `notes::visible_kinds` — this action widens by one kind, never
+    /// two).
+    ViewInHouseUpdates,
+}
+
+/// The single portal authorization entry point. Denials carry the reason
+/// for audit + API error surfaces. Note that client/board scoping is NOT
+/// decided here — callers must additionally constrain queries to the
+/// authenticated portal user's client_id and exposed boards; this function
+/// decides what the TIER may do, the query layer decides WHICH rows exist.
+pub fn check_portal(role: crate::entities::PortalRole, action: PortalAction) -> PolicyDecision {
+    use crate::entities::PortalRole;
+    match action {
+        PortalAction::ViewTickets | PortalAction::PostReply => PolicyDecision::Allowed,
+        PortalAction::ViewInHouseUpdates => match role {
+            PortalRole::ItManager => PolicyDecision::Allowed,
+            PortalRole::Contact | PortalRole::Approver => PolicyDecision::Denied {
+                reason: "in-house updates are visible to the IT-manager tier only".into(),
+            },
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::entities::PortalRole;
+
+    #[test]
+    fn every_portal_tier_may_view_and_reply() {
+        for role in [
+            PortalRole::Contact,
+            PortalRole::Approver,
+            PortalRole::ItManager,
+        ] {
+            assert!(check_portal(role, PortalAction::ViewTickets).is_allowed());
+            assert!(check_portal(role, PortalAction::PostReply).is_allowed());
+        }
+    }
+
+    #[test]
+    fn only_it_manager_reads_in_house_updates() {
+        assert!(check_portal(PortalRole::ItManager, PortalAction::ViewInHouseUpdates).is_allowed());
+        for role in [PortalRole::Contact, PortalRole::Approver] {
+            let decision = check_portal(role, PortalAction::ViewInHouseUpdates);
+            assert!(decision.is_allowed().not(), "{role:?} must be denied");
+        }
+    }
+
+    /// The binding v1 rule: the IT-manager tier widens visibility to
+    /// in-house updates and NEVER to internal notes. Pinned at the policy
+    /// layer (in addition to `notes`) so both enforcement surfaces must
+    /// agree before a regression can ship.
+    #[test]
+    fn it_manager_widening_stops_at_internal() {
+        use crate::notes::{visible_kinds, visible_to, NoteAudience};
+        let kinds = visible_kinds(NoteAudience::PortalItManager);
+        assert!(kinds.contains(&crate::status::NoteKind::InHouseUpdate));
+        assert!(kinds.contains(&crate::status::NoteKind::ClientVisible));
+        assert!(kinds
+            .iter()
+            .all(|k| *k != crate::status::NoteKind::Internal));
+        assert!(visible_to(
+            crate::status::NoteKind::Internal,
+            NoteAudience::PortalItManager
+        )
+        .not());
+    }
 
     #[test]
     fn technician_can_create_tickets_but_not_delete_clients() {
