@@ -33,6 +33,7 @@ type TicketComment = components["schemas"]["TicketComment"];
 type ChecklistItem = components["schemas"]["ChecklistItem"];
 type BoardStatus = components["schemas"]["BoardStatus"];
 type BoardTransitionsResponse = components["schemas"]["BoardTransitionsResponse"];
+type TicketSlaStatus = components["schemas"]["TicketSlaStatus"];
 
 const PANE_LIST = "pane-list" as const;
 const PANE_DETAIL = "pane-detail" as const;
@@ -57,6 +58,30 @@ function categoryTone(category: string): "success" | "warning" | "neutral" {
   if (category === "closed") return "success";
   if (category === "waiting") return "warning";
   return "neutral";
+}
+
+/// SLA badge state: tone follows industry-standard PSA semantics — amber
+/// when the clock is running low, red only for an actual breach. All
+/// colors come from the shared Workbench status tokens.
+function slaBadge(sla: TicketSlaStatus): { tone: "neutral" | "warning" | "danger"; label: string } | null {
+  if (sla.breached) return { tone: "danger", label: "SLA breached" };
+  const mins = sla.minutes_remaining;
+  if (mins === null || mins === undefined) return null;
+  if (mins < 0) return { tone: "danger", label: `SLA over ${formatMins(-mins)}` };
+  const label = `${sla.paused ? "SLA paused · " : ""}${formatMins(mins)} left`;
+  // Inside the last business hour (or already paused with little left)
+  // the badge turns amber.
+  if (mins <= 60 && !sla.paused) return { tone: "warning", label };
+  return { tone: "neutral", label };
+}
+
+function formatMins(mins: number): string {
+  if (mins >= 60) {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return m === 0 ? `${h}h` : `${h}h ${m}m`;
+  }
+  return `${mins}m`;
 }
 
 /// Client mirror of the server's transition verdict (core-domain `workflow`):
@@ -105,6 +130,7 @@ export default function TicketWorkspacePage() {
   });
 
   const [ticket, setTicket] = useState<Ticket | null>(null);
+  const [sla, setSla] = useState<TicketSlaStatus | null>(null);
   const [statuses, setStatuses] = useState<BoardStatus[]>([]);
   const [workflow, setWorkflow] = useState<BoardTransitionsResponse>({ mode: "floor", edges: [] });
   const [comments, setComments] = useState<TicketComment[]>([]);
@@ -115,10 +141,12 @@ export default function TicketWorkspacePage() {
 
   const refreshTicket = useCallback(async () => {
     if (ticketId === "") return;
-    const [t, c, cl] = await Promise.all([
+    const [t, c, cl, sla] = await Promise.all([
       api.api.GET("/api/tickets/{id}", { params: { path: { id: ticketId } } }),
       api.api.GET("/api/tickets/{id}/comments", { params: { path: { id: ticketId } } }),
       api.api.GET("/api/tickets/{id}/checklist", { params: { path: { id: ticketId } } }),
+      // SLA clock readout; absent (no policy) renders no badge.
+      api.api.GET("/api/tickets/{id}/sla", { params: { path: { id: ticketId } } }),
     ]);
     if (t.error !== undefined) {
       setError("Ticket not found in your organization");
@@ -127,6 +155,7 @@ export default function TicketWorkspacePage() {
     setTicket(t.data);
     setComments(c.data ?? []);
     setChecklist(cl.data ?? []);
+    setSla(sla.data ?? null);
     setError(null);
     if (t.data.board_id !== null && statuses.length === 0) {
       // Statuses + the board's effective workflow arrive together so the
@@ -230,6 +259,12 @@ export default function TicketWorkspacePage() {
                     <StatusTag tone={categoryTone(ticket.category)}>
                       {statuses.find((s) => s.id === ticket.status_id)?.name ?? ticket.category}
                     </StatusTag>
+                    {(() => {
+                      const badge = sla === null ? null : slaBadge(sla);
+                      return badge !== null ? (
+                        <StatusTag tone={badge.tone}>{badge.label}</StatusTag>
+                      ) : null;
+                    })()}
                   </div>
                   <h1 className="text-base font-semibold">{ticket.title}</h1>
                   {ticket.body !== null && (
