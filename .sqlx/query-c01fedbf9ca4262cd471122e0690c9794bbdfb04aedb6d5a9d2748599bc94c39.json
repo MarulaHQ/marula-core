@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO settings (id, org_id, scope, key, owner_id, value, updated_by)\n           VALUES ($1, $2, 'org', $3, $2, $4, $5)\n           ON CONFLICT (org_id, scope, key,\n                        COALESCE(owner_id, '00000000-0000-0000-0000-000000000000'))\n           DO UPDATE SET value = EXCLUDED.value,\n                         updated_by = EXCLUDED.updated_by,\n                         updated_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Jsonb",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c01fedbf9ca4262cd471122e0690c9794bbdfb04aedb6d5a9d2748599bc94c39"
+}

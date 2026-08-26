@@ -80,6 +80,37 @@ where
     Ok((row.ticket_prefix, row.ticket_sequence))
 }
 
+/// Updates the editable profile fields (General settings / first-run
+/// wizard). `None` leaves a field untouched; the slug is immutable.
+pub async fn update_profile(
+    executor: impl sqlx::Executor<'_, Database = Postgres>,
+    org_id: Uuid,
+    name: Option<&str>,
+    ticket_prefix: Option<&str>,
+) -> DbResult<Org> {
+    let row = sqlx::query!(
+        r#"UPDATE orgs SET
+             name = COALESCE($2, name),
+             ticket_prefix = COALESCE($3, ticket_prefix)
+           WHERE id = $1
+           RETURNING id, name, slug, ticket_prefix, ticket_sequence, created_at"#,
+        org_id,
+        name,
+        ticket_prefix,
+    )
+    .fetch_optional(executor)
+    .await?
+    .ok_or(DbError::NotFound)?;
+    Ok(Org {
+        id: row.id,
+        name: row.name,
+        slug: row.slug,
+        ticket_prefix: row.ticket_prefix,
+        ticket_sequence: row.ticket_sequence,
+        created_at: row.created_at,
+    })
+}
+
 pub fn permissions_for_builtin(role: BuiltinRole) -> serde_json::Value {
     serde_json::to_value(role.permissions()).unwrap_or_else(|_| serde_json::json!([]))
 }
