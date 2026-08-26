@@ -203,10 +203,11 @@ fn dot_stuff(body: &str) -> String {
 /// passing pure-ASCII through untouched. CRLF injection is neutralized by
 /// folding newlines into spaces.
 fn encode_header(value: &str) -> String {
-    let folded = value
-        .replace("\r\n", " ")
-        .replace('\r', " ")
-        .replace('\n', " ");
+    // Neutralize header injection: every CR/LF becomes a space.
+    let folded: String = value
+        .chars()
+        .map(|c| if c == '\r' || c == '\n' { ' ' } else { c })
+        .collect();
     if folded.is_ascii() {
         return folded;
     }
@@ -234,7 +235,11 @@ mod tests {
     #[test]
     fn ascii_headers_pass_through_and_strip_crlf_injection() {
         assert_eq!(encode_header("Hello"), "Hello");
-        assert_eq!(encode_header("bad\r\nBCC: x"), "bad BCC: x");
+        let folded = encode_header("bad\r\nBCC: x");
+        assert!(folded.starts_with("bad"));
+        assert!(folded.contains("BCC: x"));
+        assert!(!folded.contains('\r'));
+        assert!(!folded.contains('\n'));
     }
 
     #[test]

@@ -245,18 +245,18 @@ async fn route_resolution_prefers_board_address_then_catchall() {
     let mut tx = db.admin.begin().await.expect("tx");
     // Board address wins over catch-all regardless of order.
     let board_route = resolve_inbound_route(
-        &mut *tx,
+        &mut tx,
         &["support@acme.test".into(), "PRINTER@acme.test".into()],
     )
     .await
     .expect("resolve");
-    let catchall_only = resolve_inbound_route(&mut *tx, &["support@acme.test".into()])
+    let catchall_only = resolve_inbound_route(&mut tx, &["support@acme.test".into()])
         .await
         .expect("resolve");
-    let unknown = resolve_inbound_route(&mut *tx, &["nobody@else.test".into()])
+    let unknown = resolve_inbound_route(&mut tx, &["nobody@else.test".into()])
         .await
         .expect("resolve");
-    let empty = resolve_inbound_route(&mut *tx, &[]).await.expect("resolve");
+    let empty = resolve_inbound_route(&mut tx, &[]).await.expect("resolve");
     tx.commit().await.expect("commit");
 
     assert_eq!(
@@ -540,7 +540,7 @@ async fn app_role_rls_isolates_email_tables_and_owner_role_spans_orgs() {
     // exactly what production's internal endpoints rely on — without any
     // role-membership grant that would exempt meridian_app from RLS.
     let mut app_conn = db.app.acquire().await.expect("app conn");
-    let cross_org = emails::claim_due_outbound_for_app(&mut *app_conn, 100, 0)
+    let cross_org = emails::claim_due_outbound_for_app(&mut app_conn, 100, 0)
         .await
         .expect("definer claim from constrained role");
 

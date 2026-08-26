@@ -75,6 +75,13 @@ services:
       BIND_ADDR: 0.0.0.0:8080
       JWT_SECRET: ${JWT_SECRET:-dev-only-insecure-secret-change-me}
       CORS_ORIGIN: http://localhost:3000
+      # Email v1 defaults (see crates/core-mail/README.md none modes):
+      # webhook DISABLED until EMAIL_INBOUND_HMAC_SECRET is set; transport
+      # `smtp` requires the stage2-profile mailpit slot (--profile stage2).
+      EMAIL_INTERNAL_TOKEN: ${EMAIL_INTERNAL_TOKEN:-dev-email-internal}
+      EMAIL_TRANSPORT: ${EMAIL_TRANSPORT:-smtp}
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
     ports:
       - "8080:8080"
     depends_on:
@@ -114,6 +121,11 @@ services:
       REDIS_URL: redis://redis:6379/0
       BIND_ADDR: 0.0.0.0:8082
       RELAY_BATCH: "200"
+      CORE_API_URL: http://core-api:8080
+      EMAIL_INTERNAL_TOKEN: ${EMAIL_INTERNAL_TOKEN:-dev-email-internal}
+      EMAIL_TRANSPORT: ${EMAIL_TRANSPORT:-smtp}
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
     ports:
       - "8082:8082"
     depends_on:

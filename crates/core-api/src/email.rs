@@ -143,7 +143,7 @@ pub async fn process_inbound(
     // --- REPLAY GATE: claim the Message-ID before any side effect ---
     let message_id = Uuid::now_v7();
     let inserted = emails::insert_message(
-        &mut *tx,
+        &mut tx,
         &NewMessage {
             id: message_id,
             org_id,
@@ -289,7 +289,7 @@ async fn create_ticket_from_email(
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| format!("Email from {}", msg.from_address));
     let ticket = core_db::tickets::insert_ticket(
-        &mut **tx,
+        tx,
         core_db::tickets::NewTicket {
             id: Uuid::now_v7(),
             org_id,
@@ -343,61 +343,67 @@ async fn create_ticket_from_email(
     // v1 autoresponder: confirm receipt, threaded to the original message.
     enqueue_outbound(
         tx,
-        mail,
-        org_id,
-        &[msg.from_address.clone()],
-        &core_mail::outbound::OutboundKind::TicketCreatedConfirmation {
-            ticket_number: ticket.number.0.clone(),
-            ticket_title: ticket.title.clone(),
+        OutboundEnqueue {
+            mail,
+            org_id,
+            to_addresses: std::slice::from_ref(&msg.from_address).to_vec(),
+            kind: &core_mail::outbound::OutboundKind::TicketCreatedConfirmation {
+                ticket_number: ticket.number.0.clone(),
+                ticket_title: ticket.title.clone(),
+            },
+            in_reply_to: Some(msg.rfc_message_id.clone()),
+            references: vec![msg.rfc_message_id.clone()],
+            ticket_id: Some(ticket.id),
         },
-        Some(msg.rfc_message_id.clone()),
-        vec![msg.rfc_message_id.clone()],
-        Some(ticket.id),
     )
     .await?;
 
     Ok((Some(ticket.id), None, InboundStatus::TicketCreated))
 }
 
+/// Everything `enqueue_outbound` needs beyond the transaction.
+pub struct OutboundEnqueue<'a> {
+    pub mail: &'a MailStack,
+    pub org_id: Uuid,
+    pub to_addresses: Vec<String>,
+    pub kind: &'a core_mail::outbound::OutboundKind,
+    /// RFC id this mail answers (normalized before storage).
+    pub in_reply_to: Option<String>,
+    pub references: Vec<String>,
+    pub ticket_id: Option<Uuid>,
+}
+
 /// Shared outbound enqueue: renders the kind, writes the ledger + retry
 /// rows, and emits `email.message_recorded` (outcome `queued`). Caller
 /// owns the transaction.
-pub async fn enqueue_outbound(
-    tx: &mut Tx,
-    mail: &MailStack,
-    org_id: Uuid,
-    to_addresses: &[String],
-    kind: &core_mail::outbound::OutboundKind,
-    in_reply_to: Option<String>,
-    references: Vec<String>,
-    ticket_id: Option<Uuid>,
-) -> ApiResult<()> {
-    if to_addresses.is_empty() {
+pub async fn enqueue_outbound(tx: &mut Tx, req: OutboundEnqueue<'_>) -> ApiResult<()> {
+    if req.to_addresses.is_empty() {
         return Ok(());
     }
     let message_id = emails::enqueue_outbound(
-        &mut **tx,
+        tx,
         emails::NewOutbound {
-            org_id,
+            org_id: req.org_id,
             rfc_message_id: emails::new_outbound_message_id(),
-            in_reply_to: in_reply_to.map(|r| normalize_message_key(&r)),
-            references: references
+            in_reply_to: req.in_reply_to.map(|r| normalize_message_key(&r)),
+            references: req
+                .references
                 .iter()
                 .map(|r| normalize_message_key(r))
                 .collect(),
-            subject: kind.subject(),
-            from_address: mail.from_address.clone(),
-            from_name: mail.from_name.clone(),
-            to_addresses: to_addresses.to_vec(),
-            body_text: kind.body(),
-            ticket_id,
-            transport: mail.transport.name().to_string(),
+            subject: req.kind.subject(),
+            from_address: req.mail.from_address.clone(),
+            from_name: req.mail.from_name.clone(),
+            to_addresses: req.to_addresses.clone(),
+            body_text: req.kind.body(),
+            ticket_id: req.ticket_id,
+            transport: req.mail.transport.name().to_string(),
         },
     )
     .await?;
     emit_event(
         tx,
-        org_id,
+        req.org_id,
         types::EMAIL_MESSAGE_RECORDED,
         "email_message",
         Some(message_id),
@@ -405,7 +411,7 @@ pub async fn enqueue_outbound(
             "message_id": message_id,
             "direction": "outbound",
             "outcome": "queued",
-            "ticket_id": ticket_id,
+            "ticket_id": req.ticket_id,
             "comment_id": null,
         }),
     )

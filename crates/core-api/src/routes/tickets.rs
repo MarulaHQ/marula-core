@@ -509,17 +509,19 @@ pub async fn add_comment(
                         {
                             crate::email::enqueue_outbound(
                                 &mut ctx.tx,
-                                &mail,
-                                org_id,
-                                &[requester.email],
-                                &core_mail::outbound::OutboundKind::CommentNotification {
-                                    ticket_number: ticket.number.0.clone(),
-                                    ticket_title: ticket.title.clone(),
-                                    excerpt: core_mail::outbound::excerpt(req.body.trim(), 280),
+                                crate::email::OutboundEnqueue {
+                                    mail: &mail,
+                                    org_id,
+                                    to_addresses: vec![requester.email],
+                                    kind: &core_mail::outbound::OutboundKind::CommentNotification {
+                                        ticket_number: ticket.number.0.clone(),
+                                        ticket_title: ticket.title.clone(),
+                                        excerpt: core_mail::outbound::excerpt(req.body.trim(), 280),
+                                    },
+                                    in_reply_to: None,
+                                    references: Vec::new(),
+                                    ticket_id: Some(id),
                                 },
-                                None,
-                                Vec::new(),
-                                Some(id),
                             )
                             .await?;
                         }

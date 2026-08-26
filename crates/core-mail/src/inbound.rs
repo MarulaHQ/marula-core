@@ -109,8 +109,9 @@ pub fn normalize_message_key(raw: &str) -> String {
 }
 
 /// Extracts bracketed subject tokens: `Re: [TCK-12] printer` → `["TCK-12"]`.
-/// Pure scan, no regex dependency; tokens are returned trimmed, original
-/// case (callers compare against ticket numbers case-insensitively).
+/// Pure scan, no regex dependency; tokens are returned trimmed, deduplicated
+/// in first-occurrence order. Nested/unbalanced bracket artifacts (a token
+/// that still contains a bracket) are discarded defensively.
 #[must_use]
 pub fn extract_subject_tokens(subject: &str) -> Vec<String> {
     let mut out = Vec::new();
@@ -120,7 +121,11 @@ pub fn extract_subject_tokens(subject: &str) -> Vec<String> {
             break;
         };
         let token = rest[open + 1..open + close_rel].trim();
-        if !token.is_empty() && !out.iter().any(|t: &String| t == token) {
+        if !token.is_empty()
+            && !token.contains('[')
+            && !token.contains(']')
+            && !out.iter().any(|t: &String| t == token)
+        {
             out.push(token.to_string());
         }
         rest = &rest[open + close_rel + 1..];

@@ -122,13 +122,10 @@ async fn reset_schema(admin: &PgPool) {
 async fn connect_with_retry(url: &str) -> PgPool {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
     loop {
-        match core_db::connect(url).await {
-            Ok(pool) => {
-                if sqlx::query("SELECT 1").execute(&pool).await.is_ok() {
-                    return pool;
-                }
+        if let Ok(pool) = core_db::connect(url).await {
+            if sqlx::query("SELECT 1").execute(&pool).await.is_ok() {
+                return pool;
             }
-            Err(_) => {}
         }
         assert!(
             tokio::time::Instant::now() < deadline,

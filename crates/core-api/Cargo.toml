@@ -4,6 +4,11 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[dev-dependencies]
+tokio = { workspace = true }
+async-trait = { workspace = true }
+testcontainers = { version = "0.23", features = ["reusable-containers"] }
+
 [[bin]]
 name = "core-api"
 path = "src/main.rs"

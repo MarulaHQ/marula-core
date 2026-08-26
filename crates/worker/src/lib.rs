@@ -133,8 +133,8 @@ mod tests {
             claim_batch: 10,
             lease_secs: 300,
         };
-        // Awaiting resolves only if the loop returned.
-        let _ = tokio::time::timeout(
+        // Resolves only if the loop returned; timeout proves no spin.
+        tokio::time::timeout(
             std::time::Duration::from_secs(2),
             email::run_email_loop(cfg, Arc::new(core_mail::RecordingTransport::new()), rx),
         )
