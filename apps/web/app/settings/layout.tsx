@@ -27,10 +27,11 @@ const SECTIONS: NavItem[] = [
   { href: "/settings/preferences", label: "Preferences" },
   { href: "/settings/notifications", label: "Notifications" },
   { href: "/settings/security", label: "Security" },
-  { href: "/settings/workflow", label: "Workflow", pending: true },
-  { href: "/settings/sla", label: "SLA", pending: true },
+  { href: "/settings/workflow", label: "Workflow" },
+  { href: "/settings/sla", label: "SLA" },
   { href: "/settings/mail", label: "Mail", pending: true },
   { href: "/settings/integrations", label: "Integrations" },
+  { href: "/settings/api-keys", label: "API keys" },
 ];
 
 export default function SettingsLayout({ children }: { children: ReactNode }) {
