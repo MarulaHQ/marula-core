@@ -14,6 +14,7 @@ pub mod mentions;
 pub mod money;
 pub mod notifications;
 pub mod policy;
+pub mod settings;
 pub mod status;
 pub mod workflow;
 

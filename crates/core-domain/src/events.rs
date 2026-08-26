@@ -41,6 +41,12 @@ pub mod types {
     /// Emitted when a user overrides one preference row.
     pub const NOTIFICATION_PREFS_UPDATED: &str = "notification_prefs.updated";
     pub const EMAIL_MESSAGE_RECORDED: &str = "email.message_recorded";
+    /// Emitted when an org- or user-scoped setting changes through the
+    /// typed settings registry.
+    pub const SETTING_UPDATED: &str = "setting.updated";
+    /// Emitted when the org profile (name/ticket prefix) is edited from
+    /// General settings or the first-run wizard.
+    pub const ORG_UPDATED: &str = "org.updated";
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
