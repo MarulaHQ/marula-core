@@ -5125,7 +5125,7 @@ async fn attachments_dedup_link_and_refcounted_delete() {
 
     let mut tx = org_tx(&db.app, sa.org).await;
     let t1 = create_ticket(
-        &mut tx,
+        &mut *tx,
         &sa,
         fixed_uuid(13001),
         "Attach me",
@@ -5194,14 +5194,14 @@ async fn attachments_dedup_link_and_refcounted_delete() {
 
     // Listing sees both rows for the ticket and per-comment.
     assert_eq!(
-        core_db::attachments::list_for_ticket(&mut tx, sa.org, t1.id)
+        core_db::attachments::list_for_ticket(&mut *tx, sa.org, t1.id)
             .await
             .expect("list")
             .len(),
         2
     );
     assert_eq!(
-        core_db::attachments::list_for_comment(&mut tx, sa.org, c1.id)
+        core_db::attachments::list_for_comment(&mut *tx, sa.org, c1.id)
             .await
             .expect("per-comment")
             .len(),
@@ -5270,12 +5270,12 @@ async fn rls_isolates_attachments_table() {
     // Org B cannot read or delete org A's attachment.
     let mut tx_b = org_tx(&db.app, sb.org).await;
     assert!(
-        core_db::attachments::get(&mut tx_b, sb.org, fixed_uuid(13302))
+        core_db::attachments::get(&mut *tx_b, sb.org, fixed_uuid(13302))
             .await
             .is_err()
     );
     assert!(
-        core_db::attachments::list_for_ticket(&mut tx_b, sb.org, t1.id)
+        core_db::attachments::list_for_ticket(&mut *tx_b, sb.org, t1.id)
             .await
             .expect("empty")
             .is_empty()

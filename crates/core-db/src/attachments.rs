@@ -10,7 +10,7 @@
 
 use crate::{DbError, DbResult};
 use core_domain::entities::{Attachment, AttachmentKind};
-use sqlx::PgConnection;
+use sqlx::{PgConnection, Postgres};
 use uuid::Uuid;
 
 const COLS: &str = "id, org_id, kind::text AS kind, ticket_id, ticket_comment_id, \
@@ -90,66 +90,78 @@ pub async fn insert(conn: &mut PgConnection, a: NewAttachment<'_>) -> DbResult<A
 }
 
 /// Fetches one attachment by id within the org.
-pub async fn get(conn: &mut PgConnection, org_id: Uuid, id: Uuid) -> DbResult<Attachment> {
+pub async fn get<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<Attachment>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let row = sqlx::query(&format!(
         r#"SELECT {COLS} FROM attachments WHERE org_id = $1 AND id = $2"#
     ))
     .bind(org_id)
     .bind(id)
     .try_map(row_to_attachment)
-    .fetch_optional(conn)
+    .fetch_optional(executor)
     .await?
     .ok_or(DbError::NotFound)?;
     Ok(row)
 }
 
 /// Every attachment hanging off one ticket (any kind).
-pub async fn list_for_ticket(
-    conn: &mut PgConnection,
+pub async fn list_for_ticket<'e, E>(
+    executor: E,
     org_id: Uuid,
     ticket_id: Uuid,
-) -> DbResult<Vec<Attachment>> {
+) -> DbResult<Vec<Attachment>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let rows = sqlx::query(&format!(
         r#"SELECT {COLS} FROM attachments WHERE org_id = $1 AND ticket_id = $2 ORDER BY created_at, id"#
     ))
     .bind(org_id)
     .bind(ticket_id)
     .try_map(row_to_attachment)
-    .fetch_all(conn)
+    .fetch_all(executor)
     .await?;
     Ok(rows)
 }
 
 /// Attachments bound to one specific comment.
-pub async fn list_for_comment(
-    conn: &mut PgConnection,
+pub async fn list_for_comment<'e, E>(
+    executor: E,
     org_id: Uuid,
     comment_id: Uuid,
-) -> DbResult<Vec<Attachment>> {
+) -> DbResult<Vec<Attachment>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let rows = sqlx::query(&format!(
         r#"SELECT {COLS} FROM attachments WHERE org_id = $1 AND ticket_comment_id = $2 ORDER BY created_at, id"#
     ))
     .bind(org_id)
     .bind(comment_id)
     .try_map(row_to_attachment)
-    .fetch_all(conn)
+    .fetch_all(executor)
     .await?;
     Ok(rows)
 }
 
 /// Attachments extracted from one inbound email message.
-pub async fn list_for_email(
-    conn: &mut PgConnection,
+pub async fn list_for_email<'e, E>(
+    executor: E,
     org_id: Uuid,
     email_message_id: Uuid,
-) -> DbResult<Vec<Attachment>> {
+) -> DbResult<Vec<Attachment>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let rows = sqlx::query(&format!(
         r#"SELECT {COLS} FROM attachments WHERE org_id = $1 AND email_message_id = $2 ORDER BY created_at, id"#
     ))
     .bind(org_id)
     .bind(email_message_id)
     .try_map(row_to_attachment)
-    .fetch_all(conn)
+    .fetch_all(executor)
     .await?;
     Ok(rows)
 }
