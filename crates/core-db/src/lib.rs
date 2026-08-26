@@ -19,6 +19,7 @@ pub mod orgs;
 pub mod outbox;
 pub mod sla;
 pub mod tickets;
+pub mod time_audit;
 pub mod timers;
 pub mod users;
 

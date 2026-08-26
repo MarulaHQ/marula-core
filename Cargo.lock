@@ -622,6 +622,7 @@ dependencies = [
  "base32",
  "base64 0.22.1",
  "chrono",
+ "chrono-tz",
  "core-db",
  "core-domain",
  "core-events",
@@ -659,6 +660,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "chrono-tz",
  "core-domain",
  "serde",
  "serde_json",
@@ -4382,6 +4384,7 @@ dependencies = [
  "async-trait",
  "axum 0.8.9",
  "chrono",
+ "chrono-tz",
  "core-db",
  "core-domain",
  "core-events",
