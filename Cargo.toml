@@ -5,6 +5,7 @@ members = [
     "crates/core-domain",
     "crates/core-db",
     "crates/core-events",
+    "crates/core-mail",
     "crates/realtime",
     "crates/worker",
     "crates/plugin-host",
@@ -52,3 +53,6 @@ aes-gcm = "0.10"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 url = "2"
 data-encoding = "2"
+async-trait = "0.1"
+base64 = "0.22"
+proptest = "1"

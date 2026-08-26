@@ -4,11 +4,14 @@
 pub mod audit;
 pub mod boards;
 pub mod clients;
+pub mod email_admin;
+pub mod internal;
 pub mod notifications;
 pub mod oidc;
 pub mod openapi;
 pub mod tickets;
 pub mod timers;
+pub mod webhooks;
 
 use crate::auth::handlers as auth_handlers;
 use crate::auth::mfa_handlers as mfa;
@@ -45,6 +48,17 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/auth/oidc/{name}/login", get(oidc::login_redirect))
         .route("/api/auth/oidc/{name}/callback", get(oidc::callback))
         .route("/api/sso/exchange", post(oidc::sso_exchange));
+        // Machine-to-machine surfaces with their own auth (HMAC webhook,
+        // internal worker token) — never behind JWT middleware.
+        .route("/api/webhooks/email-inbound", post(webhooks::email_inbound))
+        .route(
+            "/api/internal/email/outbound/claim",
+            post(internal::claim_outbound),
+        )
+        .route(
+            "/api/internal/email/outbound/results",
+            post(internal::report_results),
+        );
 
     let protected = Router::new()
         .route("/api/me", get(auth_handlers::me))
@@ -182,6 +196,15 @@ pub fn build_router(state: AppState) -> Router {
         )
         // audit (admin)
         .route("/api/audit-events", get(audit::list))
+        // email inbound routing settings (admin)
+        .route(
+            "/api/email/inbound-settings",
+            get(email_admin::get_inbound_settings).put(email_admin::put_inbound_settings),
+        )
+        .route(
+            "/api/boards/{id}/inbound-address",
+            put(email_admin::put_board_inbound_address),
+        )
         .layer(middleware::from_fn_with_state(state.clone(), require_auth));
 
     let docs = openapi::scalar_router();

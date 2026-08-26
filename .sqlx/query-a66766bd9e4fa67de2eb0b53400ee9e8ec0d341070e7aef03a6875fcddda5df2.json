@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO email_outbound (id, org_id, email_message_id)\n           VALUES ($1, $2, $3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a66766bd9e4fa67de2eb0b53400ee9e8ec0d341070e7aef03a6875fcddda5df2"
+}

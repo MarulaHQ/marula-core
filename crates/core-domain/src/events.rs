@@ -40,6 +40,7 @@ pub mod types {
     pub const NOTIFICATION_READ: &str = "notification.read";
     /// Emitted when a user overrides one preference row.
     pub const NOTIFICATION_PREFS_UPDATED: &str = "notification_prefs.updated";
+    pub const EMAIL_MESSAGE_RECORDED: &str = "email.message_recorded";
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -199,6 +200,24 @@ pub struct NotificationCreated {
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub ticket_id: Option<TicketId>,
     pub title: String,
+}
+
+/// Emitted whenever an email message is recorded in the ledger (either
+/// direction), with the routing outcome so consumers can correlate.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct EmailMessageRecorded {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub message_id: uuid::Uuid,
+    pub rfc_message_id: String,
+    /// "inbound" | "outbound" — kept as a string to avoid coupling
+    /// consumers to the enum across versions.
+    pub direction: String,
+    pub outcome: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub ticket_id: Option<TicketId>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub comment_id: Option<uuid::Uuid>,
 }
 
 /// Extracts @mentions from a note body (`@alice`, `@alice@org` → user ids

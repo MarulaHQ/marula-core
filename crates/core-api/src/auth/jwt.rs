@@ -168,6 +168,12 @@ mod tests {
             webauthn_rp_origin: "http://localhost:3000".into(),
             public_base_url: "http://localhost:8080".into(),
             web_base_url: "http://localhost:3000".into(),
+            email_inbound_hmac_secret: None,
+            email_internal_token: None,
+            email_transport: core_mail::TransportKind::None,
+            email_scan_clamd_addr: None,
+            email_from_address: "support@meridian.local".into(),
+            email_from_name: None,
         }
     }
 

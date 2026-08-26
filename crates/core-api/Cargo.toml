@@ -4,6 +4,11 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[dev-dependencies]
+tokio = { workspace = true }
+async-trait = { workspace = true }
+testcontainers = { version = "0.23", features = ["reusable-containers"] }
+
 [[bin]]
 name = "core-api"
 path = "src/main.rs"
@@ -12,6 +17,8 @@ path = "src/main.rs"
 core-db = { path = "../core-db" }
 core-domain = { path = "../core-domain", features = ["openapi"] }
 core-events = { path = "../core-events" }
+core-mail = { path = "../core-mail" }
+subtle = { workspace = true }
 axum = { workspace = true }
 sqlx = { workspace = true }
 serde = { workspace = true }

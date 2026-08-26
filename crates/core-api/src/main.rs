@@ -30,6 +30,7 @@ async fn main() -> anyhow::Result<()> {
         pool,
         config: std::sync::Arc::clone(&config),
         oidc: core_api::auth::oidc_client::OidcHttpClient::new(),
+        mail: std::sync::Arc::new(core_api::email::MailStack::from_config(&config)),
     };
     let mut app = core_api::router(state);
 

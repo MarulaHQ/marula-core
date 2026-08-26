@@ -10,6 +10,8 @@
 #[derive(Debug, Clone, Copy)]
 pub struct SecretKey(pub [u8; 32]);
 
+use core_mail::TransportKind;
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub database_url: String,
@@ -37,9 +39,38 @@ pub struct Config {
     pub public_base_url: String,
     /// Web app base URL — SSO callback lands the browser here.
     pub web_base_url: String,
+    /// HMAC shared secret for the inbound email webhook. Unset ⇒ the
+    /// webhook endpoint is DISABLED (the documented none mode — never an
+    /// open relay into ticketing).
+    pub email_inbound_hmac_secret: Option<String>,
+    /// Shared secret the worker must present on internal send-pipeline
+    /// endpoints. Unset ⇒ those endpoints are disabled.
+    pub email_internal_token: Option<String>,
+    /// Outbound transport selection (none | smtp | postmark).
+    pub email_transport: TransportKind,
+    /// Malware scanner selection (none | clamd TCP).
+    pub email_scan_clamd_addr: Option<String>,
+    /// From-identity for Meridian-generated outbound mail.
+    pub email_from_address: String,
+    pub email_from_name: Option<String>,
+}
+
+/// Which malware scanner the inbound path uses.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ScanChoice {
+    None,
+    Clamd(String),
 }
 
 impl Config {
+    #[must_use]
+    pub fn scan_choice(&self) -> ScanChoice {
+        match &self.email_scan_clamd_addr {
+            Some(addr) => ScanChoice::Clamd(addr.clone()),
+            None => ScanChoice::None,
+        }
+    }
+
     pub fn from_env() -> Self {
         let jwt_secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| {
             // Dev default; compose sets a real one. Never do this in prod.
@@ -124,6 +155,44 @@ impl Config {
             webauthn_rp_origin: "http://localhost:3000".into(),
             public_base_url: "http://localhost:8080".into(),
             web_base_url: "http://localhost:3000".into(),
+            email_inbound_hmac_secret: std::env::var("EMAIL_INBOUND_HMAC_SECRET").ok(),
+            email_internal_token: std::env::var("EMAIL_INTERNAL_TOKEN").ok(),
+            email_transport: TransportKind::parse(
+                &std::env::var("EMAIL_TRANSPORT").unwrap_or_default(),
+                smtp_from_env(),
+                postmark_from_env(),
+            ),
+            email_scan_clamd_addr: match std::env::var("EMAIL_SCAN").as_deref() {
+                Ok("clamd") => {
+                    Some(std::env::var("CLAMD_ADDR").unwrap_or_else(|_| "127.0.0.1:3310".into()))
+                }
+                _ => None,
+            },
+            email_from_address: std::env::var("EMAIL_FROM_ADDRESS")
+                .unwrap_or_else(|_| "support@meridian.local".into()),
+            email_from_name: std::env::var("EMAIL_FROM_NAME").ok(),
         }
     }
+}
+
+fn smtp_from_env() -> Option<(String, u16, Option<String>, Option<String>)> {
+    let host = std::env::var("SMTP_HOST").ok()?;
+    let port = std::env::var("SMTP_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(25);
+    Some((
+        host,
+        port,
+        std::env::var("SMTP_USERNAME").ok(),
+        std::env::var("SMTP_PASSWORD").ok(),
+    ))
+}
+
+fn postmark_from_env() -> Option<(String, String)> {
+    let token = std::env::var("POSTMARK_SERVER_TOKEN").ok()?;
+    Some((
+        token,
+        std::env::var("POSTMARK_BASE_URL").unwrap_or_else(|_| "https://api.postmarkapp.com".into()),
+    ))
 }

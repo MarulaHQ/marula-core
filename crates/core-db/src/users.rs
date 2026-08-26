@@ -130,6 +130,31 @@ where
     rows.into_iter().map(user_from_row).collect()
 }
 
+/// Finds an active user by email within one org — requester resolution for
+/// inbound email (email-in/out v1).
+pub async fn find_by_email_in_org<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    email: &str,
+) -> DbResult<Option<User>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let sql = format!(
+        "SELECT {USER_COLS} FROM users \
+         WHERE org_id = $1 AND lower(email) = lower($2) AND is_active LIMIT 1"
+    );
+    let row = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(email.trim())
+        .fetch_optional(executor)
+        .await?;
+    match row {
+        Some(row) => Ok(Some(user_from_row(row)?)),
+        None => Ok(None),
+    }
+}
+
 pub async fn assign_role<'e, E>(executor: E, user_id: Uuid, role_id: Uuid) -> DbResult<()>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,

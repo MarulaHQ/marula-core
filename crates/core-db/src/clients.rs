@@ -232,6 +232,40 @@ where
         .collect())
 }
 
+/// Finds a contact by email across the org's clients — requester
+/// resolution for inbound email (email-in/out v1).
+pub async fn find_contact_by_email<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    email: &str,
+) -> DbResult<Option<Contact>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let rows = sqlx::query!(
+        r#"SELECT id, org_id, client_id, site_id, name, email, phone, title,
+                  is_primary, created_at
+           FROM contacts WHERE org_id = $1 AND lower(email) = lower($2)
+           ORDER BY is_primary DESC, created_at LIMIT 1"#,
+        org_id,
+        email.trim()
+    )
+    .fetch_optional(executor)
+    .await?;
+    Ok(rows.map(|row| Contact {
+        id: row.id,
+        org_id: row.org_id,
+        client_id: row.client_id,
+        site_id: row.site_id,
+        name: row.name,
+        email: row.email,
+        phone: row.phone,
+        title: row.title,
+        is_primary: row.is_primary,
+        created_at: row.created_at,
+    }))
+}
+
 pub async fn create_asset<'e, E>(
     executor: E,
     org_id: Uuid,

@@ -3,6 +3,7 @@
 pub mod auth;
 pub mod config;
 pub mod crypto;
+pub mod email;
 pub mod error;
 pub mod org_tx;
 pub mod routes;

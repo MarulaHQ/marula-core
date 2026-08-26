@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, org_id, catchall_address, catchall_board_id, enabled\n           FROM email_inbound_settings WHERE org_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "catchall_address",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "catchall_board_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "enabled",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "33efed3cfad0f5f621b3dc0b3d24989d0ce3f954d5943b89558b010055cb2b38"
+}
