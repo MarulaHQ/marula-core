@@ -5,6 +5,7 @@ members = [
     "crates/core-domain",
     "crates/core-db",
     "crates/core-events",
+    "crates/core-mail",
     "crates/realtime",
     "crates/worker",
     "crates/plugin-host",
@@ -45,3 +46,7 @@ subtle = "2"
 futures-util = "0.3"
 clap = { version = "4", features = ["derive"] }
 serde_urlencoded = "0.7"
+async-trait = "0.1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+base64 = "0.22"
+proptest = "1"
