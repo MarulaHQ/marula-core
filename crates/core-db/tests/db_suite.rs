@@ -1509,7 +1509,7 @@ fn edge(a: Uuid, b: Uuid) -> TransitionEdge {
 #[tokio::test]
 async fn transitions_replace_and_list_roundtrip() {
     let db = test_db().await;
-    let s = seed_org(&db.app, 21).await;
+    let s = seed_org(&db.app, 26).await;
     let mut tx = org_tx(&db.app, s.org).await;
 
     // Empty by default → the semantic floor governs.
