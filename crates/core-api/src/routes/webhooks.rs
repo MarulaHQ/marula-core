@@ -78,6 +78,7 @@ mod tests {
                 .expect("lazy pool"),
             config: std::sync::Arc::new(config),
             mail: std::sync::Arc::new(MailStack::from_config(&Config::from_env())),
+            store: std::sync::Arc::new(core_store::memory::MemoryStore::new()),
             oidc: crate::auth::oidc_client::OidcHttpClient::new(),
         }
     }

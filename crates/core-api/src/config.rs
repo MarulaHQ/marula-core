@@ -56,6 +56,27 @@ pub struct Config {
     /// Bearer token guarding /api/internal/* machine endpoints used by the
     /// worker (§4.1 single-writer). Unset ⇒ the surface is disabled.
     pub internal_token: Option<String>,
+    /// Object store selection for attachments (TASKLIST 2.14).
+    pub object_store: core_store::StoreChoice,
+    /// Per-file upload cap in bytes (default 25 MB; env can lower it).
+    pub max_upload_bytes: i64,
+}
+
+/// Parses OBJECT_STORE plus its companion vars. Unknown values degrade to
+/// the documented local none mode rather than failing boot.
+fn object_store_from_env() -> core_store::StoreChoice {
+    match std::env::var("OBJECT_STORE").as_deref() {
+        Ok("s3") => core_store::StoreChoice::S3(core_store::S3Config {
+            endpoint: std::env::var("S3_ENDPOINT").ok().filter(|e| !e.is_empty()),
+            bucket: std::env::var("S3_BUCKET").unwrap_or_else(|_| "meridian".into()),
+            region: std::env::var("S3_REGION").unwrap_or_else(|_| "us-east-1".into()),
+            access_key_id: std::env::var("S3_ACCESS_KEY_ID").unwrap_or_default(),
+            secret_access_key: std::env::var("S3_SECRET_ACCESS_KEY").unwrap_or_default(),
+        }),
+        _ => core_store::StoreChoice::Local(
+            std::env::var("OBJECT_STORE_LOCAL_DIR").unwrap_or_else(|_| "./data/objects".into()),
+        ),
+    }
 }
 
 /// Which malware scanner the inbound path uses.
@@ -145,6 +166,12 @@ impl Config {
                 .unwrap_or_else(|_| "support@meridian.local".into()),
             email_from_name: std::env::var("EMAIL_FROM_NAME").ok(),
             internal_token: std::env::var("MERIDIAN_INTERNAL_TOKEN").ok(),
+            object_store: object_store_from_env(),
+            max_upload_bytes: std::env::var("MERIDIAN_MAX_UPLOAD_MB")
+                .ok()
+                .and_then(|v| v.parse::<i64>().ok())
+                .map(|mb| mb * 1024 * 1024)
+                .unwrap_or(core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES),
         }
     }
 }
@@ -192,6 +219,12 @@ impl Config {
                 .unwrap_or_else(|_| "support@meridian.local".into()),
             email_from_name: std::env::var("EMAIL_FROM_NAME").ok(),
             internal_token: std::env::var("MERIDIAN_INTERNAL_TOKEN").ok(),
+            object_store: object_store_from_env(),
+            max_upload_bytes: std::env::var("MERIDIAN_MAX_UPLOAD_MB")
+                .ok()
+                .and_then(|v| v.parse::<i64>().ok())
+                .map(|mb| mb * 1024 * 1024)
+                .unwrap_or(core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES),
         }
     }
 }

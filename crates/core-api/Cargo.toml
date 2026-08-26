@@ -20,7 +20,9 @@ core-db = { path = "../core-db" }
 core-domain = { path = "../core-domain", features = ["openapi"] }
 core-events = { path = "../core-events" }
 core-mail = { path = "../core-mail" }
+core-store = { path = "../core-store" }
 subtle = { workspace = true }
+futures-util = { workspace = true }
 axum = { workspace = true }
 sqlx = { workspace = true }
 serde = { workspace = true }

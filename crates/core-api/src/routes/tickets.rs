@@ -83,6 +83,11 @@ pub struct ChangeStatusRequest {
 pub struct AddCommentRequest {
     pub body: String,
     pub kind: NoteKind,
+    /// Attachments uploaded earlier against this ticket (composer flow:
+    /// upload first, link when the comment is created). Absent/empty in
+    /// older clients — purely additive.
+    #[serde(default)]
+    pub attachment_ids: Vec<Uuid>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -726,6 +731,33 @@ pub async fn add_comment(
             req.body.trim(),
         )
         .await?;
+
+        // Bind composer-uploaded files to this comment (one-shot links;
+        // foreign/duplicate ids are skipped rather than failing the note).
+        for attachment_id in &req.attachment_ids {
+            if let Some(linked) = core_db::attachments::link_to_comment(
+                &mut ctx.tx,
+                org_id,
+                *attachment_id,
+                id,
+                comment.id,
+            )
+            .await?
+            {
+                ctx.emit(
+                    types::ATTACHMENT_LINKED,
+                    "attachment",
+                    Some(linked.id.to_string().as_str()),
+                    &serde_json::to_value(core_domain::events::AttachmentLinked {
+                        attachment_id: linked.id,
+                        ticket_comment_id: comment.id,
+                        ticket_id: id,
+                    })
+                    .unwrap_or_default(),
+                )
+                .await?;
+            }
+        }
 
         // Resolve @mentions against active org members (visibility is the
         // member directory itself until board RBAC lands), ignoring the

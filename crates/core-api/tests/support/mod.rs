@@ -270,6 +270,7 @@ impl MailHarness {
             pool: app.clone(),
             config: Arc::new(config),
             mail: mail_stack,
+            store: std::sync::Arc::new(core_store::memory::MemoryStore::new()),
             oidc: core_api::auth::oidc_client::OidcHttpClient::new(),
         };
 

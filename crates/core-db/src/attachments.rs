@@ -246,6 +246,13 @@ pub async fn count_other_refs(
     Ok(n)
 }
 
+/// Same projection, qualified for queries that JOIN ticket_comments.
+const QUALIFIED_COLS: &str = "a.id, a.org_id, a.kind::text AS kind, a.ticket_id, \
+                    a.ticket_comment_id, a.email_message_id, a.filename, a.content_type, \
+                    a.size_bytes, a.sha256, a.storage_key, a.uploaded_by_user_id, \
+                    a.uploaded_by_portal_user_id, a.created_at";
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -272,4 +279,61 @@ mod tests {
             assert!(COLS.contains(col), "COLS missing {col}");
         }
     }
+}
+
+/// Portal-visible attachments for one exposed ticket: kind=ticket rows
+/// always, comment rows only when their note kind is in the visible set.
+/// Invisible rows are indistinguishable from absent ones (no existence
+/// leak through 404s).
+pub async fn list_portal_visible<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    ticket_id: Uuid,
+    visible_comment_kinds: &[String],
+) -> DbResult<Vec<Attachment>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let rows = sqlx::query(&format!(
+        r#"SELECT {QUALIFIED_COLS} FROM attachments a
+           LEFT JOIN ticket_comments c ON c.id = a.ticket_comment_id
+           WHERE a.org_id = $1 AND a.ticket_id = $2
+             AND (a.kind::text = 'ticket' OR c.kind = ANY($3))
+           ORDER BY a.created_at, a.id"#
+    ))
+    .bind(org_id)
+    .bind(ticket_id)
+    .bind(visible_comment_kinds.to_vec())
+    .try_map(row_to_attachment)
+    .fetch_all(executor)
+    .await?;
+    Ok(rows)
+}
+
+/// One portal-visible attachment by id under the same visibility rule as
+/// [`list_portal_visible`]; `None` covers both missing and hidden.
+pub async fn find_portal_visible<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    ticket_id: Uuid,
+    attachment_id: Uuid,
+    visible_comment_kinds: &[String],
+) -> DbResult<Option<Attachment>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query(&format!(
+        r#"SELECT {QUALIFIED_COLS} FROM attachments a
+           LEFT JOIN ticket_comments c ON c.id = a.ticket_comment_id
+           WHERE a.org_id = $1 AND a.ticket_id = $2 AND a.id = $3
+             AND (a.kind::text = 'ticket' OR c.kind = ANY($4))"#
+    ))
+    .bind(org_id)
+    .bind(ticket_id)
+    .bind(attachment_id)
+    .bind(visible_comment_kinds.to_vec())
+    .try_map(row_to_attachment)
+    .fetch_optional(executor)
+    .await?;
+    Ok(row)
 }
