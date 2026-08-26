@@ -1,16 +1,19 @@
 //! worker — the background process host.
 //!
 //! Purpose: run the outbox→Redis relay (`core_events::run_relay`) as the
-//! primary loop plus the notification email fan-out consumer, and expose a
-//! `/healthz` endpoint that reflects relay liveness. `meridian-cli` hosts
-//! this same library via `meridian serve-worker`.
+//! primary loop plus the notification email fan-out consumer and the
+//! unified-search indexer consumer, and expose a `/healthz` endpoint that
+//! reflects relay liveness. `meridian-cli` hosts this same library via
+//! `meridian serve-worker`.
 //!
 //! Non-purpose: no general job queue, webhook delivery, or SLA evaluation
 //! — those are later-stage scope — and no direct database writes of its own
-//! beyond what the relay's mark-published step performs.
+//! beyond what the relay's mark-published step performs (the search indexer
+//! writes through core-api's internal effect surface, §4.1).
 
 pub mod config;
 pub mod notifier;
+pub mod search_indexer;
 
 use axum::extract::State;
 use axum::routing::get;
@@ -54,11 +57,30 @@ pub async fn run(
     // configured (standalone-first "none" mode). Best-effort consumer;
     // liveness is reported by the relay.
     tokio::spawn(notifier::run_notifier(
-        pool,
+        pool.clone(),
         config.redis_url.clone(),
         NoopMailTransport,
         shutdown.clone(),
     ));
+
+    // Unified-search indexing: consumes domain events and pushes index
+    // writes through core-api's internal effect surface. Disabled cleanly
+    // when no internal token is configured (fail-closed on both sides).
+    match &config.internal_token {
+        Some(token) => {
+            let sink = search_indexer::HttpIndexSink::new(&config.api_base_url, token);
+            tokio::spawn(search_indexer::run_search_indexer(
+                pool,
+                config.clone(),
+                sink,
+                shutdown.clone(),
+            ));
+            tracing::info!("search indexer enabled (pushing through core-api)");
+        }
+        None => {
+            tracing::info!("search indexer disabled: MERIDIAN_INTERNAL_TOKEN not configured");
+        }
+    }
 
     let app = Router::new()
         .route("/healthz", get(healthz))

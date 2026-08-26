@@ -26,11 +26,20 @@ pub struct WorkerConfig {
     pub bind_addr: String,
     /// Outbox rows relayed per batch (`RELAY_BATCH`).
     pub relay_batch: i64,
+    /// core-api base URL (`CORE_API_URL`, default `http://localhost:8080`)
+    /// — the search indexer pushes index writes through the API's internal
+    /// effect surface because core-api is the single writer (§4.1).
+    pub api_base_url: String,
+    /// Shared secret for that surface (`MERIDIAN_INTERNAL_TOKEN`). When
+    /// unset the search indexer is disabled cleanly; when set it MUST match
+    /// core-api's token or every push is rejected 401.
+    pub internal_token: Option<String>,
 }
 
 impl WorkerConfig {
-    /// Reads `DATABASE_URL`, `REDIS_URL`, `BIND_ADDR`, `RELAY_BATCH` from
-    /// the process environment, falling back to dev defaults.
+    /// Reads `DATABASE_URL`, `REDIS_URL`, `BIND_ADDR`, `RELAY_BATCH`,
+    /// `CORE_API_URL` and `MERIDIAN_INTERNAL_TOKEN` from the process
+    /// environment, falling back to dev defaults.
     pub fn from_env() -> Self {
         Self::from_lookup(|key| std::env::var(key).ok())
     }
@@ -52,6 +61,8 @@ impl WorkerConfig {
             relay_batch: lookup("RELAY_BATCH")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(100),
+            api_base_url: lookup("CORE_API_URL").unwrap_or_else(|| "http://localhost:8080".into()),
+            internal_token: lookup("MERIDIAN_INTERNAL_TOKEN"),
         }
     }
 }
@@ -73,6 +84,9 @@ mod tests {
         assert_eq!(cfg.redis_url, "redis://localhost:16379/0");
         assert_eq!(cfg.bind_addr, "0.0.0.0:8082");
         assert_eq!(cfg.relay_batch, 100);
+        assert_eq!(cfg.api_base_url, "http://localhost:8080");
+        // No token configured ⇒ the search indexer must stay disabled.
+        assert_eq!(cfg.internal_token, None);
     }
 
     #[test]
@@ -82,11 +96,15 @@ mod tests {
         vars.insert("REDIS_URL", "redis://r".into());
         vars.insert("BIND_ADDR", "127.0.0.1:1".into());
         vars.insert("RELAY_BATCH", "7".into());
+        vars.insert("CORE_API_URL", "http://api:9000".into());
+        vars.insert("MERIDIAN_INTERNAL_TOKEN", "tok".into());
         let cfg = WorkerConfig::from_lookup(|k| vars.get(k).cloned());
         assert_eq!(cfg.database_url, "postgres://db");
         assert_eq!(cfg.redis_url, "redis://r");
         assert_eq!(cfg.bind_addr, "127.0.0.1:1");
         assert_eq!(cfg.relay_batch, 7);
+        assert_eq!(cfg.api_base_url, "http://api:9000");
+        assert_eq!(cfg.internal_token.as_deref(), Some("tok"));
     }
 
     #[test]
