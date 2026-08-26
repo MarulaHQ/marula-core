@@ -15,6 +15,7 @@ pub mod money;
 pub mod notifications;
 pub mod policy;
 pub mod status;
+pub mod time_audit;
 pub mod workflow;
 
 pub use entities::*;
