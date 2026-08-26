@@ -136,8 +136,14 @@ pub fn sanitize_filename(raw: &str) -> String {
         })
         .collect();
     let trimmed = cleaned.trim().trim_matches('.').to_string();
-    let mut out = trimmed;
-    out.truncate(MAX_FILENAME_LEN);
+    // Char-boundary-safe length cap: never split a multi-byte character.
+    let mut out = String::new();
+    for c in trimmed.chars() {
+        if out.len() + c.len_utf8() > MAX_FILENAME_LEN {
+            break;
+        }
+        out.push(c);
+    }
     if out.is_empty() {
         "attachment".to_string()
     } else {
