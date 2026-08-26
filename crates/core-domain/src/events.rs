@@ -85,6 +85,12 @@ pub mod types {
     pub const AVAILABILITY_UPDATED: &str = "availability.updated";
     pub const ON_CALL_UPDATED: &str = "on_call.updated";
     pub const CALENDAR_EXCLUSION_UPDATED: &str = "calendar_exclusion.updated";
+    /// Attachments (TASKLIST 2.14): added on upload/extraction, linked
+    /// when bound to a comment, deleted when a row (and possibly its
+    /// content-addressed object) goes away.
+    pub const ATTACHMENT_ADDED: &str = "attachment.added";
+    pub const ATTACHMENT_LINKED: &str = "attachment.linked";
+    pub const ATTACHMENT_DELETED: &str = "attachment.deleted";
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -387,6 +393,52 @@ pub fn extract_mentions(body: &str) -> Vec<String> {
         }
     }
     out
+}
+
+/// attachment.added — a file was stored and its metadata row committed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AttachmentAdded {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub attachment_id: uuid::Uuid,
+    pub kind: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub ticket_id: Option<uuid::Uuid>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub ticket_comment_id: Option<uuid::Uuid>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub email_message_id: Option<uuid::Uuid>,
+    pub filename: String,
+    pub content_type: String,
+    pub size_bytes: i64,
+    /// sha256 hex — consumers can verify integrity after download.
+    pub sha256: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub uploaded_by_user_id: Option<uuid::Uuid>,
+}
+
+/// attachment.linked — an unattached upload was bound to a comment.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AttachmentLinked {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub attachment_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub ticket_comment_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub ticket_id: uuid::Uuid,
+}
+
+/// attachment.deleted — the metadata row went away; `object_removed`
+/// reports whether the backing bytes were reclaimed too (refcount hit 0).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AttachmentDeleted {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub attachment_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub ticket_id: Option<uuid::Uuid>,
+    pub object_removed: bool,
 }
 
 /// Convenience for building the note-kind of a comment event.
