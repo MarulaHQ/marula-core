@@ -19,6 +19,17 @@ pub enum NotificationKind {
 }
 
 impl NotificationKind {
+    /// Every kind, stable order — drives preference screens and defaults.
+    pub const ALL: [NotificationKind; 7] = [
+        NotificationKind::Mention,
+        NotificationKind::Assignment,
+        NotificationKind::SlaRisk,
+        NotificationKind::SlaBreach,
+        NotificationKind::Escalation,
+        NotificationKind::MissingTime,
+        NotificationKind::TicketUpdate,
+    ];
+
     pub const fn as_str(self) -> &'static str {
         match self {
             NotificationKind::Mention => "mention",
@@ -82,8 +93,9 @@ pub struct Notification {
     pub created_at: DateTime<Utc>,
 }
 
-/// Per-user, per-channel delivery preferences with quiet hours (UTC offsets
-/// resolved against the user's timezone at send time).
+/// Per-user, per-channel delivery preferences with quiet hours (wall-clock
+/// in the row's timezone, resolved at fan-out time). Absent rows fall back
+/// to the org defaults table, then to built-in defaults.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct NotificationPreference {
@@ -96,4 +108,11 @@ pub struct NotificationPreference {
     /// classes are deferred to the end of the window.
     pub quiet_from: Option<String>,
     pub quiet_until: Option<String>,
+    /// IANA timezone the quiet-hours window reads in (`UTC` by default).
+    #[serde(default = "default_timezone")]
+    pub timezone: String,
+}
+
+fn default_timezone() -> String {
+    "UTC".to_string()
 }
