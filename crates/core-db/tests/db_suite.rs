@@ -17,9 +17,13 @@
 mod common;
 
 use common::{fixed_uuid, org_tx, test_db, FUTURE, PAST};
-use core_db::{audit, notifications as notif, orgs, outbox, sla, tickets, timers, users, DbError};
+use core_db::{
+    audit, automations, notifications as notif, orgs, outbox, queue, sla, tickets, timers, users,
+    DbError,
+};
 use core_domain::entities::{
-    Actor, AuditEvent, NotificationPreference, Ticket, TimeEntry, TimerSession,
+    Actor, AuditEvent, BusinessCalendar, NotificationPreference, SlaCalendar, Ticket, TimeEntry,
+    TimerSession,
 };
 use core_domain::policy::BuiltinRole;
 use core_domain::status::{NoteKind, Priority, TicketStatusCategory};
@@ -1770,4 +1774,827 @@ async fn migration_seed_logic_restores_missing_category_defaults() {
             .await
             .expect("healthy count");
     assert_eq!(healthy, 4);
+}
+
+// --- SLA v1 + automations v1 (TASKLIST 2.7; seed slots 40–49) ---------------
+
+/// Calendar body for tests: 9–5 Mon–Fri in `tz`, optional downtime.
+fn test_calendar(
+    tz: &str,
+    maintenance: Vec<(chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)>,
+) -> BusinessCalendar {
+    BusinessCalendar {
+        name: "test cal".into(),
+        timezone: tz.into(),
+        windows: [
+            Some(("09:00".into(), "17:00".into())),
+            Some(("09:00".into(), "17:00".into())),
+            Some(("09:00".into(), "17:00".into())),
+            Some(("09:00".into(), "17:00".into())),
+            Some(("09:00".into(), "17:00".into())),
+            None,
+            None,
+        ],
+        holidays: vec![],
+        maintenance: maintenance
+            .into_iter()
+            .enumerate()
+            .map(|(i, (s, e))| core_domain::entities::MaintenanceWindow {
+                name: format!("m{i}"),
+                starts_at: s,
+                ends_at: e,
+            })
+            .collect(),
+    }
+}
+
+#[tokio::test]
+async fn sla_calendars_crud_attach_and_detach() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 40).await;
+
+    let cal = SlaCalendar {
+        id: Uuid::now_v7(),
+        org_id: s.org,
+        name: "NOC hours".into(),
+        calendar: test_calendar("America/New_York", vec![]),
+    };
+    {
+        let mut tx = org_tx(&db.app, s.org).await;
+        let inserted = sla::insert_calendar(&mut *tx, &cal).await.expect("insert");
+        assert_eq!(inserted.calendar.timezone, "America/New_York");
+        assert_eq!(inserted.name, "NOC hours");
+
+        let listed = sla::list_calendars(&mut *tx, s.org).await.expect("list");
+        assert_eq!(listed.len(), 1);
+
+        // Attach to the seeded default policy; resolution prefers the row.
+        let policy = sla::get_default_policy(&mut *tx, s.org)
+            .await
+            .expect("policy");
+        sla::set_policy_calendar(&mut *tx, s.org, policy.id, Some(cal.id))
+            .await
+            .expect("attach");
+        tx.commit().await.expect("commit");
+    }
+
+    // Owner-pool resolution path used by the worker sweep.
+    let policy_id = {
+        let mut t2 = org_tx(&db.app, s.org).await;
+        let p = sla::get_default_policy(&mut *t2, s.org)
+            .await
+            .expect("policy")
+            .id;
+        t2.commit().await.expect("commit");
+        p
+    };
+    let pool = &db.admin;
+    let record = {
+        let mut tx = pool.begin().await.expect("tx");
+        sla::get_policy_record(&mut *tx, s.org, policy_id)
+            .await
+            .expect("record")
+    };
+    assert_eq!(record.calendar_id, Some(cal.id));
+    let resolved = sla::resolve_policy_calendar(pool, &record)
+        .await
+        .expect("resolve");
+    assert_eq!(resolved.timezone, "America/New_York");
+
+    // Patch the timezone through the partial update.
+    {
+        let mut tx = org_tx(&db.app, s.org).await;
+        let patched = sla::update_calendar(
+            &mut *tx,
+            s.org,
+            cal.id,
+            &sla::CalendarPatch {
+                name: None,
+                timezone: Some("Australia/Sydney"),
+                windows: None,
+                holidays: None,
+                maintenance: None,
+            },
+        )
+        .await
+        .expect("patch");
+        assert_eq!(patched.calendar.timezone, "Australia/Sydney");
+
+        // Delete detaches instead of destroying the policy.
+        sla::delete_calendar(&mut *tx, s.org, cal.id)
+            .await
+            .expect("delete");
+        assert!(matches!(
+            sla::get_calendar(&mut *tx, s.org, cal.id).await,
+            Err(DbError::NotFound)
+        ));
+        let policy_id = sla::get_default_policy(&mut *tx, s.org)
+            .await
+            .expect("policy")
+            .id;
+        let record = sla::get_policy_record(&mut *tx, s.org, policy_id)
+            .await
+            .expect("record after detach");
+        assert_eq!(record.calendar_id, None, "detach on delete");
+        // Embedded document still resolves.
+        let embedded = sla::resolve_policy_calendar(&db.admin, &record)
+            .await
+            .expect("embedded");
+        assert_eq!(embedded.timezone, "UTC");
+    }
+}
+
+/// RLS isolation across every new 0015 user-data table.
+#[tokio::test]
+async fn rls_isolates_sla_v1_tables() {
+    let db = test_db().await;
+    let sa = seed_org(&db.app, 41).await;
+    let sb = seed_org(&db.app, 42).await;
+
+    let mut tx_a = org_tx(&db.app, sa.org).await;
+    sla::insert_calendar(
+        &mut *tx_a,
+        &SlaCalendar {
+            id: Uuid::now_v7(),
+            org_id: sa.org,
+            name: "A only".into(),
+            calendar: test_calendar("UTC", vec![]),
+        },
+    )
+    .await
+    .expect("calendar A");
+    automations::insert(
+        &mut *tx_a,
+        Uuid::now_v7(),
+        sa.org,
+        None,
+        "a-rule",
+        "ticket.created",
+        serde_json::json!([]),
+        serde_json::json!([{ "type": "set_priority", "priority": "p3" }]),
+    )
+    .await
+    .expect("rule A");
+    queue::enqueue(
+        &mut *tx_a,
+        &queue::NewJob {
+            org_id: sa.org,
+            kind: "sla.verdict".into(),
+            payload: serde_json::json!({}),
+            max_attempts: 5,
+        },
+    )
+    .await
+    .expect("job A");
+    tx_a.commit().await.expect("commit A");
+
+    // Org B sees none of it.
+    let mut tx_b = org_tx(&db.app, sb.org).await;
+    assert!(sla::list_calendars(&mut *tx_b, sb.org)
+        .await
+        .expect("cals")
+        .is_empty());
+    assert!(
+        automations::list(&mut *tx_b, sb.org)
+            .await
+            .expect("rules")
+            .is_empty(),
+        "org B must not see org A rules"
+    );
+    let claimed = queue::claim_batch(&mut *tx_b, 10, "worker-b")
+        .await
+        .expect("claim");
+    assert!(
+        claimed.is_empty(),
+        "RLS must hide org A jobs from org B claims"
+    );
+    drop(tx_b);
+
+    // Unscoped connections (no app.org_id ever set) see nothing either.
+    let unscoped = db.fresh_app_pool().await;
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM jobs")
+        .fetch_one(&unscoped)
+        .await
+        .expect("unscoped count");
+    assert_eq!(count, 0, "unscoped reads are default-deny");
+}
+
+#[tokio::test]
+async fn escalation_ladder_replace_and_unique_step_order() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 43).await;
+    let mut tx = org_tx(&db.app, s.org).await;
+    let policy_id = sla::get_default_policy(&mut *tx, s.org)
+        .await
+        .expect("policy")
+        .id;
+
+    let steps = vec![
+        sla::LadderStepInput {
+            step_index: 0,
+            trigger_kind: "risk".into(),
+            at_pct: 75,
+            notify_user_ids: vec![],
+            enabled: true,
+        },
+        sla::LadderStepInput {
+            step_index: 1,
+            trigger_kind: "breach".into(),
+            at_pct: 100,
+            notify_user_ids: vec![],
+            enabled: true,
+        },
+    ];
+    let inserted = sla::replace_ladder(&mut *tx, s.org, policy_id, &steps)
+        .await
+        .expect("replace");
+    assert_eq!(inserted.len(), 2);
+    assert_eq!(inserted[0].trigger_kind, "risk");
+
+    let listed = sla::list_steps_for_policies(&mut *tx, &[policy_id])
+        .await
+        .expect("list");
+    assert_eq!(listed.len(), 2);
+    assert_eq!(listed[0].at_pct, 75, "ordered by threshold");
+
+    // Replacing swaps the whole ladder.
+    let replacement = vec![sla::LadderStepInput {
+        step_index: 0,
+        trigger_kind: "escalate".into(),
+        at_pct: 125,
+        notify_user_ids: vec![],
+        enabled: true,
+    }];
+    let replaced = sla::replace_ladder(&mut *tx, s.org, policy_id, &replacement)
+        .await
+        .expect("second replace");
+    assert_eq!(replaced.len(), 1);
+    assert_eq!(replaced[0].trigger_kind, "escalate");
+
+    // Duplicate step_index violates the per-policy uniqueness.
+    let dupe = sqlx::query(
+        "INSERT INTO sla_escalation_steps \
+         (id, org_id, policy_id, step_index, trigger_kind, at_pct, notify_user_ids) \
+         VALUES ($1, $2, $3, 0, 'risk', 10, '[]'::jsonb)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(s.org)
+    .bind(policy_id)
+    .execute(&mut *tx)
+    .await;
+    assert!(
+        matches!(&dupe,
+            Err(e) if e.as_database_error().map(|d| d.constraint().is_some()).unwrap_or(false)),
+        "unique (policy, index)"
+    );
+    tx.commit().await.expect("commit");
+}
+
+#[tokio::test]
+async fn fired_ledger_and_breach_flag_fire_exactly_once() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 44).await;
+
+    let mut tx = org_tx(&db.app, s.org).await;
+    let ticket = create_ticket(
+        &mut *tx,
+        &s,
+        Uuid::now_v7(),
+        "fire once",
+        Priority::P1,
+        s.entry_status,
+        None,
+    )
+    .await;
+    let policy = sla::get_default_policy(&mut *tx, s.org)
+        .await
+        .expect("policy");
+    let state = core_domain::entities::TicketSlaState::init(
+        s.org,
+        ticket.id,
+        &policy,
+        Priority::P1,
+        ticket.created_at,
+    );
+    sla::upsert_ticket_state(&mut *tx, &state)
+        .await
+        .expect("state init");
+    let step_id = {
+        let ladder = sla::replace_ladder(
+            &mut *tx,
+            s.org,
+            policy.id,
+            &[sla::LadderStepInput {
+                step_index: 0,
+                trigger_kind: "breach".into(),
+                at_pct: 100,
+                notify_user_ids: vec![],
+                enabled: true,
+            }],
+        )
+        .await
+        .expect("ladder");
+        ladder[0].id
+    };
+    tx.commit().await.expect("commit setup");
+
+    let first = {
+        let mut tx = org_tx(&db.app, s.org).await;
+        let recorded = sla::try_record_fired(&mut *tx, s.org, ticket.id, step_id, "resolution")
+            .await
+            .expect("record 1");
+        assert!(recorded, "first fire wins");
+        let breached = sla::mark_breached(&mut *tx, ticket.id)
+            .await
+            .expect("breach update");
+        tx.commit().await.expect("commit first fire");
+        breached
+    };
+    assert!(first, "breach flips once");
+
+    let mut tx = org_tx(&db.app, s.org).await;
+    let replay = sla::try_record_fired(&mut *tx, s.org, ticket.id, step_id, "resolution")
+        .await
+        .expect("record 2");
+    assert!(!replay, "ledger PK blocks the second fire");
+    let re_breach = sla::mark_breached(&mut *tx, ticket.id)
+        .await
+        .expect("update 2");
+    assert!(!re_breach, "already-breached clock does not flip again");
+
+    // Per-target independence: same step may fire for the other clock.
+    let fr = sla::try_record_fired(&mut *tx, s.org, ticket.id, step_id, "first_response")
+        .await
+        .expect("record fr");
+    assert!(fr, "targets are independent ledger keys");
+
+    let fired = sla::list_fired_for_tickets(&mut *tx, &[ticket.id])
+        .await
+        .expect("fired");
+    assert_eq!(fired.len(), 2);
+}
+
+#[tokio::test]
+async fn automation_rules_crud_and_trigger_listing() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 45).await;
+    let mut tx = org_tx(&db.app, s.org).await;
+
+    let rule_id = Uuid::now_v7();
+    let actions = serde_json::json!([
+        { "type": "assign_user", "user_id": fixed_uuid(46) },
+        { "type": "add_internal_comment", "body": "auto-routed" }
+    ]);
+    automations::insert(
+        &mut *tx,
+        rule_id,
+        s.org,
+        Some(s.board),
+        "p1 triage",
+        "ticket.created",
+        serde_json::json!([{ "type": "priority_is", "priority": "p1" }]),
+        actions.clone(),
+    )
+    .await
+    .expect("insert");
+
+    // Trigger listing returns only matching enabled rules of THIS org.
+    let hit = automations::list_enabled_by_trigger(&mut *tx, s.org, "ticket.created")
+        .await
+        .expect("by trigger");
+    assert_eq!(hit.len(), 1);
+    assert_eq!(hit[0].id, rule_id);
+    assert!(
+        automations::list_enabled_by_trigger(&mut *tx, s.org, "timer.started")
+            .await
+            .expect("other trigger")
+            .is_empty()
+    );
+
+    // Typed round-trip through the domain parser.
+    let parsed = core_domain::automations::AutomationRule::parse(
+        &core_domain::automations::AutomationRuleRow {
+            id: hit[0].id,
+            org_id: hit[0].org_id,
+            board_id: hit[0].board_id,
+            name: hit[0].name.clone(),
+            trigger_event: hit[0].trigger_event.clone(),
+            conditions: hit[0].conditions.clone(),
+            actions: hit[0].actions.clone(),
+            enabled: hit[0].enabled,
+        },
+    )
+    .expect("valid documents parse");
+    assert_eq!(parsed.conditions.len(), 1);
+    assert_eq!(parsed.actions.len(), 2);
+    assert!(parsed.applies_to_board(s.board));
+    assert!(
+        !parsed.applies_to_board(Uuid::now_v7()),
+        "board scope enforced"
+    );
+
+    // Disabling removes it from the hot path but keeps the row.
+    automations::update(
+        &mut *tx,
+        s.org,
+        rule_id,
+        &automations::RulePatch {
+            name: None,
+            board_id: None,
+            trigger_event: None,
+            conditions: None,
+            actions: None,
+            enabled: Some(false),
+        },
+    )
+    .await
+    .expect("disable");
+    assert!(
+        automations::list_enabled_by_trigger(&mut *tx, s.org, "ticket.created")
+            .await
+            .expect("post-disable")
+            .is_empty()
+    );
+    let fetched = automations::get(&mut *tx, s.org, rule_id)
+        .await
+        .expect("still there");
+    assert!(!fetched.enabled);
+
+    // Clearing the board scope widens to all boards (Some(None) convention).
+    automations::update(
+        &mut *tx,
+        s.org,
+        rule_id,
+        &automations::RulePatch {
+            name: None,
+            board_id: Some(None),
+            trigger_event: None,
+            conditions: None,
+            actions: None,
+            enabled: Some(true),
+        },
+    )
+    .await
+    .expect("clear scope");
+    assert_eq!(
+        automations::get(&mut *tx, s.org, rule_id)
+            .await
+            .expect("refetched")
+            .board_id,
+        None
+    );
+
+    automations::delete(&mut *tx, s.org, rule_id)
+        .await
+        .expect("delete");
+    assert!(matches!(
+        automations::get(&mut *tx, s.org, rule_id).await,
+        Err(DbError::NotFound)
+    ));
+
+    // Malformed documents STORE fine (JSONB is schemaless); the parse-skip
+    // contract keeps evaluation alive.
+    automations::insert(
+        &mut *tx,
+        Uuid::now_v7(),
+        s.org,
+        None,
+        "broken rule",
+        "ticket.created",
+        serde_json::json!("not an array"),
+        serde_json::json!([{ "type": "detonate" }]),
+    )
+    .await
+    .expect("storage tolerates malformed docs");
+    let stored = &automations::list_enabled_by_trigger(&mut *tx, s.org, "ticket.created")
+        .await
+        .expect("list")[0];
+    assert!(
+        core_domain::automations::AutomationRule::parse(
+            &core_domain::automations::AutomationRuleRow {
+                id: stored.id,
+                org_id: stored.org_id,
+                board_id: stored.board_id,
+                name: stored.name.clone(),
+                trigger_event: stored.trigger_event.clone(),
+                conditions: stored.conditions.clone(),
+                actions: stored.actions.clone(),
+                enabled: stored.enabled,
+            },
+        )
+        .is_err(),
+        "malformed rule parses to Err, never panics"
+    );
+}
+
+/// Concurrent claimants take disjoint sets — SKIP LOCKED under live lock
+/// contention. Worker A holds its (uncommitted) claim while B claims, the
+/// exact topology of two workers overlapping in production.
+#[tokio::test]
+async fn job_queue_concurrent_claims_are_disjoint() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 46).await;
+
+    let mut ids = Vec::new();
+    {
+        let mut tx = org_tx(&db.app, s.org).await;
+        for i in 0..6 {
+            ids.push(
+                queue::enqueue(
+                    &mut *tx,
+                    &queue::NewJob {
+                        org_id: s.org,
+                        kind: format!("kind{i}"),
+                        payload: serde_json::json!({ "i": i }),
+                        max_attempts: 3,
+                    },
+                )
+                .await
+                .expect("enqueue"),
+            );
+        }
+        tx.commit().await.expect("commit jobs");
+    }
+
+    // Worker A claims four and HOLDS the transaction open.
+    let mut hold_tx = org_tx(&db.app, s.org).await;
+    let a = queue::claim_batch(&mut *hold_tx, 4, "worker-a")
+        .await
+        .expect("claim a");
+    assert_eq!(a.len(), 4);
+
+    // Worker B races against A's live row locks: it must see only the rest.
+    let mut tx_b = org_tx(&db.app, s.org).await;
+    let b = queue::claim_batch(&mut *tx_b, 4, "worker-b")
+        .await
+        .expect("claim b");
+    assert_eq!(b.len(), 2, "SKIP LOCKED hands out only uncontended rows");
+
+    let mut claimed: Vec<Uuid> = a.iter().chain(b.iter()).map(|j| j.id).collect();
+    let before = claimed.len();
+    claimed.sort();
+    claimed.dedup();
+    assert_eq!(claimed.len(), before, "no job claimed twice");
+    assert_eq!(claimed.len(), 6, "everything claimed exactly once");
+    assert!(a.iter().chain(b.iter()).all(|j| j.attempts == 1));
+
+    // A third racer gets nothing while both leases are live.
+    let mut tx_c = org_tx(&db.app, s.org).await;
+    assert!(queue::claim_batch(&mut *tx_c, 4, "worker-c")
+        .await
+        .expect("c")
+        .is_empty());
+    tx_b.commit().await.expect("commit b");
+    tx_c.commit().await.expect("commit c");
+    hold_tx.commit().await.expect("commit a");
+}
+
+#[tokio::test]
+async fn job_queue_retry_backoff_dead_letter_lifecycle() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 47).await;
+    let mut tx = org_tx(&db.app, s.org).await;
+    let job_id = queue::enqueue(
+        &mut *tx,
+        &queue::NewJob {
+            org_id: s.org,
+            kind: "sla.verdict".into(),
+            payload: serde_json::json!({ "ticket": "x" }),
+            max_attempts: 2,
+        },
+    )
+    .await
+    .expect("enqueue");
+    tx.commit().await.expect("commit");
+
+    // Attempt 1 fails → retry scheduled one hour out.
+    let mut tx = org_tx(&db.app, s.org).await;
+    queue::reclaim_stale(&mut *tx, 300).await.expect("reap");
+    let batch = queue::claim_batch(&mut *tx, 5, "w").await.expect("claim 1");
+    assert_eq!(batch.len(), 1);
+    queue::schedule_retry(&mut *tx, job_id, 3600, "api unreachable")
+        .await
+        .expect("retry");
+    tx.commit().await.expect("commit retry");
+
+    // Backoff holds: nothing claimable right now.
+    let mut tx = org_tx(&db.app, s.org).await;
+    queue::reclaim_stale(&mut *tx, 300).await.expect("reap");
+    assert!(queue::claim_batch(&mut *tx, 5, "w")
+        .await
+        .expect("held")
+        .is_empty());
+
+    // Force due and fail again → attempts exhausted → dead-letter.
+    sqlx::query("UPDATE jobs SET run_after = now() - interval '1 second' WHERE id = $1")
+        .bind(job_id)
+        .execute(&mut *tx)
+        .await
+        .expect("force due");
+    queue::reclaim_stale(&mut *tx, 300).await.expect("reap");
+    let batch = queue::claim_batch(&mut *tx, 5, "w").await.expect("claim 2");
+    assert_eq!(batch.len(), 1);
+    assert_eq!(batch[0].attempts, 2);
+    assert_eq!(batch[0].max_attempts, 2);
+    queue::mark_dead(&mut *tx, job_id, "api unreachable, giving up")
+        .await
+        .expect("dead");
+    tx.commit().await.expect("commit dead");
+
+    // Dead jobs never come back; stats report them.
+    let mut tx = org_tx(&db.app, s.org).await;
+    queue::reclaim_stale(&mut *tx, 300).await.expect("reap");
+    assert!(queue::claim_batch(&mut *tx, 5, "w")
+        .await
+        .expect("skip dead")
+        .is_empty());
+    let stats = queue::stats(&mut *tx).await.expect("stats");
+    assert_eq!(stats.dead, 1);
+    assert_eq!(stats.pending, 0);
+}
+
+/// Crashed claimants lose their lease and the job runs again.
+#[tokio::test]
+async fn job_queue_reclaims_stale_running_jobs() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 48).await;
+    let mut tx = org_tx(&db.app, s.org).await;
+    let job_id = queue::enqueue(
+        &mut *tx,
+        &queue::NewJob {
+            org_id: s.org,
+            kind: "automation.effects".into(),
+            payload: serde_json::json!({}),
+            max_attempts: 5,
+        },
+    )
+    .await
+    .expect("enqueue");
+    tx.commit().await.expect("commit");
+
+    let mut tx = org_tx(&db.app, s.org).await;
+    let first = queue::claim_batch(&mut *tx, 5, "crashed-worker")
+        .await
+        .expect("claim");
+    assert_eq!(first.len(), 1);
+
+    // Simulate a crash: the lease went stale without completion.
+    sqlx::query("UPDATE jobs SET claimed_at = now() - interval '10 minutes' WHERE id = $1")
+        .bind(job_id)
+        .execute(&mut *tx)
+        .await
+        .expect("age the lease");
+
+    assert_eq!(
+        queue::reclaim_stale(&mut *tx, 300)
+            .await
+            .expect("reap count"),
+        1,
+        "exactly one stale lease re-armed"
+    );
+    let reclaimed = queue::claim_batch(&mut *tx, 5, "replacement-worker")
+        .await
+        .expect("reclaim");
+    assert_eq!(
+        reclaimed.len(),
+        1,
+        "stale running rows re-arm within the same claim"
+    );
+    assert_eq!(reclaimed[0].id, job_id);
+    assert_eq!(reclaimed[0].attempts, 2, "attempt counter advanced");
+    assert_eq!(reclaimed[0].claimed_by, "replacement-worker");
+
+    // Fresh leases are NOT stolen even when the sweep runs.
+    let still_running = queue::claim_batch(&mut *tx, 5, "another-worker")
+        .await
+        .expect("no steal");
+    assert!(still_running.is_empty());
+}
+
+/// The worker's sweep read: open tickets with resolved calendars; closed
+/// tickets drop out; attached vs embedded both resolve.
+#[tokio::test]
+async fn evaluation_candidates_resolve_open_tickets_and_calendars() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 49).await;
+
+    let (open_ticket, closed_ticket) = {
+        let mut tx = org_tx(&db.app, s.org).await;
+        let policy = sla::get_default_policy(&mut *tx, s.org)
+            .await
+            .expect("policy");
+        let open = create_ticket(
+            &mut *tx,
+            &s,
+            Uuid::now_v7(),
+            "open candidate",
+            Priority::P2,
+            s.entry_status,
+            None,
+        )
+        .await;
+        sla::upsert_ticket_state(
+            &mut *tx,
+            &core_domain::entities::TicketSlaState::init(
+                s.org,
+                open.id,
+                &policy,
+                Priority::P2,
+                open.created_at,
+            ),
+        )
+        .await
+        .expect("open state");
+        let closed = create_ticket(
+            &mut *tx,
+            &s,
+            Uuid::now_v7(),
+            "closed candidate",
+            Priority::P3,
+            s.entry_status,
+            None,
+        )
+        .await;
+        sla::upsert_ticket_state(
+            &mut *tx,
+            &core_domain::entities::TicketSlaState::init(
+                s.org,
+                closed.id,
+                &policy,
+                Priority::P3,
+                closed.created_at,
+            ),
+        )
+        .await
+        .expect("closed state");
+        tickets::update_status(&mut *tx, s.org, closed.id, s.resolved_status)
+            .await
+            .expect("close");
+        tx.commit().await.expect("commit");
+        (open, closed)
+    };
+
+    // Owner-role read path (worker doctrine): embedded-calendar default
+    // policy resolves; the closed ticket is filtered out.
+    let candidates = {
+        let conn = &db.admin;
+        let mut tx = conn.begin().await.expect("admin tx");
+        let all = sla::list_evaluation_candidates(&mut *tx, 200)
+            .await
+            .expect("candidates");
+        tx.commit().await.expect("commit");
+        all
+    };
+    assert!(
+        candidates.iter().any(|c| c.ticket_id == open_ticket.id),
+        "open ticket is a candidate"
+    );
+    assert!(
+        !candidates.iter().any(|c| c.ticket_id == closed_ticket.id),
+        "closed tickets never evaluated"
+    );
+    let mine = candidates
+        .iter()
+        .find(|c| c.ticket_id == open_ticket.id)
+        .unwrap();
+    assert_eq!(mine.calendar.timezone, "UTC", "embedded fallback governs");
+    assert!(mine.state.resolution_due.is_some());
+    assert!(!mine.state.breached);
+
+    // Attaching a calendar flips resolution to the attached row.
+    let mut tx = org_tx(&db.app, s.org).await;
+    let cal = sla::insert_calendar(
+        &mut *tx,
+        &SlaCalendar {
+            id: Uuid::now_v7(),
+            org_id: s.org,
+            name: "attached".into(),
+            calendar: test_calendar("Europe/Berlin", vec![]),
+        },
+    )
+    .await
+    .expect("cal");
+    let policy_id = sla::get_default_policy(&mut *tx, s.org)
+        .await
+        .expect("policy")
+        .id;
+    sla::set_policy_calendar(&mut *tx, s.org, policy_id, Some(cal.id))
+        .await
+        .expect("attach");
+    tx.commit().await.expect("commit attach");
+
+    let candidates = {
+        let mut admin = db.admin.begin().await.expect("admin tx");
+        sla::list_evaluation_candidates(&mut *admin, 200)
+            .await
+            .expect("candidates 2")
+    };
+    let mine = candidates
+        .iter()
+        .find(|c| c.ticket_id == open_ticket.id)
+        .unwrap();
+    assert_eq!(
+        mine.calendar.timezone, "Europe/Berlin",
+        "attached calendar wins"
+    );
 }

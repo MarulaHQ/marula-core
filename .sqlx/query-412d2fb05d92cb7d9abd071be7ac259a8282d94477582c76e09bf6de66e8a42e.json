@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM sla_escalation_steps WHERE org_id = $1 AND policy_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "412d2fb05d92cb7d9abd071be7ac259a8282d94477582c76e09bf6de66e8a42e"
+}

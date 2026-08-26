@@ -9,11 +9,13 @@
 //! crate persists and retrieves.
 
 pub mod audit;
+pub mod automations;
 pub mod boards;
 pub mod clients;
 pub mod notifications;
 pub mod orgs;
 pub mod outbox;
+pub mod queue;
 pub mod sla;
 pub mod tickets;
 pub mod timers;

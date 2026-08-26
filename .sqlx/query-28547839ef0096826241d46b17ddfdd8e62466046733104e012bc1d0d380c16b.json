@@ -1,0 +1,148 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.org_id, s.ticket_id, s.policy_id,\n                  t.number, t.priority, t.category, t.created_at,\n                  s.first_response_due, s.resolution_due, s.first_responded_at,\n                  s.paused_business_secs, s.paused_since, s.breached,\n                  p.targets AS \"targets: serde_json::Value\",\n                  p.calendar AS \"embedded_calendar: serde_json::Value\",\n                  p.calendar_id AS \"calendar_id: Option<Uuid>\",\n                  c.id AS \"cal_id: Option<Uuid>\",\n                  c.timezone AS \"cal_tz: Option<String>\",\n                  c.windows AS \"cal_windows: Option<serde_json::Value>\",\n                  c.holidays AS \"cal_holidays: Option<serde_json::Value>\",\n                  c.maintenance AS \"cal_maintenance: Option<serde_json::Value>\",\n                  c.name AS \"cal_name: Option<String>\"\n           FROM ticket_sla_state s\n           JOIN tickets t ON t.id = s.ticket_id AND t.category <> 'closed'\n           JOIN sla_policies p ON p.id = s.policy_id\n           LEFT JOIN sla_calendars c ON c.id = p.calendar_id\n           ORDER BY s.resolution_due ASC NULLS LAST\n           LIMIT $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "ticket_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "policy_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "number",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "priority",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "category",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "first_response_due",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "resolution_due",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "first_responded_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "paused_business_secs",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "paused_since",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 12,
+        "name": "breached",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 13,
+        "name": "targets: serde_json::Value",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 14,
+        "name": "embedded_calendar: serde_json::Value",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 15,
+        "name": "calendar_id: Option<Uuid>",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 16,
+        "name": "cal_id: Option<Uuid>",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 17,
+        "name": "cal_tz: Option<String>",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 18,
+        "name": "cal_windows: Option<serde_json::Value>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 19,
+        "name": "cal_holidays: Option<serde_json::Value>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 20,
+        "name": "cal_maintenance: Option<serde_json::Value>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 21,
+        "name": "cal_name: Option<String>",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "28547839ef0096826241d46b17ddfdd8e62466046733104e012bc1d0d380c16b"
+}
