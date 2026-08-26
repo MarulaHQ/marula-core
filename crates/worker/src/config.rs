@@ -119,7 +119,9 @@ pub struct WorkerConfig {
 }
 
 impl WorkerConfig {
-    /// Reads env vars, falling back to dev defaults.
+    /// Reads `DATABASE_URL`, `REDIS_URL`, `BIND_ADDR`, `RELAY_BATCH`,
+    /// `CORE_API_URL` and `MERIDIAN_INTERNAL_TOKEN` from the process
+    /// environment, falling back to dev defaults.
     pub fn from_env() -> Self {
         Self::from_lookup(|key| std::env::var(key).ok())
     }
@@ -256,13 +258,15 @@ mod tests {
         vars.insert("QUEUE_BATCH", "3".into());
         vars.insert("QUEUE_STALE_SECS", "60".into());
         vars.insert("MERIDIAN_SECRET_KEY", "ab".repeat(32));
+        vars.insert("CORE_API_URL", "http://api:9000".into());
+        vars.insert("MERIDIAN_INTERNAL_TOKEN", "tok".into());
         let cfg = WorkerConfig::from_lookup(|k| vars.get(k).cloned());
         assert_eq!(cfg.database_url, "postgres://db");
         assert_eq!(cfg.redis_url, "redis://r");
         assert_eq!(cfg.bind_addr, "127.0.0.1:1");
         assert_eq!(cfg.relay_batch, 7);
         assert_eq!(cfg.internal_api_url, "http://api:9000");
-        assert_eq!(cfg.internal_token.as_deref(), Some("sekrit"));
+        assert_eq!(cfg.internal_token.as_deref(), Some("tok"));
         assert_eq!(cfg.eval_interval_secs, 15);
         assert_eq!(cfg.queue_batch, 3);
         assert_eq!(cfg.queue_stale_after_secs, 60);

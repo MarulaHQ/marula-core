@@ -1,14 +1,18 @@
 // App header shared by authenticated surfaces.
 //
-// Purpose: product mark, theme toggle, identity + logout. Chrome-quiet per
-// docs/theme.md — greyscale, one hairline border, no marketing surface.
-// Non-purpose: no navigation state of its own.
+// Purpose: product mark, unified-search entry point (⌘K), theme toggle,
+// identity + logout. Chrome-quiet per docs/theme.md — greyscale, one
+// hairline border, no marketing surface.
+// Non-purpose: no navigation state of its own; the search page owns results.
 "use client";
 
 import { useTheme } from "@meridian/ui";
 import type { Theme } from "@meridian/ui";
 import { Button } from "@meridian/ui";
 import { useRouter } from "next/navigation";
+import { Button, Kbd } from "@meridian/ui";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 import { useAuth } from "../lib/api";
 import { NotificationDock } from "./notification-dock";
 
@@ -22,6 +26,36 @@ function ThemeToggle() {
       aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
     >
       {theme === "dark" ? "Light" : "Dark"}
+    </Button>
+  );
+}
+
+/**
+ * Search entry point: a quiet button plus the global ⌘K / Ctrl+K shortcut
+ * that jumps to /search. Results live on the search page.
+ */
+function SearchLauncher() {
+  const router = useRouter();
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        router.push("/search");
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [router]);
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={() => router.push("/search")}
+      className="flex items-center gap-1.5"
+      aria-label="Search (Command K)"
+    >
+      Search
+      <Kbd>⌘K</Kbd>
     </Button>
   );
 }
@@ -41,6 +75,7 @@ export function AppHeader() {
         </span>
       </div>
       <div className="flex items-center gap-2">
+        <SearchLauncher />
         <NotificationDock />
         <Button
           variant="ghost"

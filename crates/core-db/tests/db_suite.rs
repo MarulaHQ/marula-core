@@ -18,8 +18,8 @@ mod common;
 
 use common::{fixed_uuid, org_tx, test_db, FUTURE, PAST};
 use core_db::{
-    audit, automations, notifications as notif, orgs, outbox, portal, queue, sla, tickets, timers,
-    users, DbError, DbResult,
+    audit, automations, notifications as notif, orgs, outbox, portal, queue, search, sla, tickets,
+    timers, users, DbError, DbResult,
 };
 use core_domain::entities::{
     Actor, AuditEvent, BusinessCalendar, NotificationPreference, PortalRole, PortalUser,
@@ -5075,5 +5075,430 @@ async fn rls_isolates_scheduling_tables() {
         .await
         .unwrap_or_else(|e| panic!("unscoped count {table}: {e}"));
         assert_eq!(count, 0, "unscoped reads on {table} are default-deny");
+    }
+}
+
+// --- unified search v1 (TASKLIST 2.16) --------------------------------------
+
+/// Thin wrapper so search tests read like the domain operations they model.
+async fn idx_upsert(
+    conn: &mut PgConnection,
+    org: Uuid,
+    kind: search::SearchKind,
+    entity_id: Uuid,
+    parent_id: Option<Uuid>,
+    title: &str,
+    body: &str,
+) {
+    search::upsert_row(&mut *conn, org, kind, entity_id, parent_id, title, body)
+        .await
+        .expect("search upsert");
+}
+
+#[tokio::test]
+async fn search_upsert_is_exactly_once_and_updates_in_place() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 120).await;
+    let entity = fixed_uuid(126);
+    let mut tx = org_tx(&db.app, s.org).await;
+
+    idx_upsert(
+        &mut tx,
+        s.org,
+        search::SearchKind::Ticket,
+        entity,
+        None,
+        "Mail relay down",
+        "outbound mail queuing",
+    )
+    .await;
+    // Replay of the same (org, kind, entity) — e.g. a redelivered event.
+    idx_upsert(
+        &mut tx,
+        s.org,
+        search::SearchKind::Ticket,
+        entity,
+        None,
+        "Mail relay down",
+        "updated: outbound mail flushed",
+    )
+    .await;
+
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM search_index WHERE org_id = $1")
+        .bind(s.org)
+        .fetch_one(&mut *tx)
+        .await
+        .expect("count");
+    assert_eq!(count, 1, "replayed upserts must not duplicate rows");
+
+    let hits = search::search_page(
+        &mut *tx,
+        s.org,
+        &["ticket".to_string()],
+        "relay",
+        false,
+        10,
+        0,
+    )
+    .await
+    .expect("page");
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].title, "Mail relay down");
+    assert!(
+        hits[0].body_excerpt.contains("flushed"),
+        "row content reflects the latest upsert"
+    );
+    tx.commit().await.expect("commit");
+}
+
+#[tokio::test]
+async fn search_delete_is_idempotent() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 121).await;
+    let client = fixed_uuid(127);
+    let mut tx = org_tx(&db.app, s.org).await;
+    idx_upsert(
+        &mut tx,
+        s.org,
+        search::SearchKind::Client,
+        client,
+        None,
+        "Northwind Traders",
+        "",
+    )
+    .await;
+    assert!(
+        search::delete_row(&mut *tx, s.org, search::SearchKind::Client, client)
+            .await
+            .expect("delete"),
+        "first delete removes the row"
+    );
+    assert!(
+        !search::delete_row(&mut *tx, s.org, search::SearchKind::Client, client)
+            .await
+            .expect("delete again"),
+        "second delete reports nothing removed"
+    );
+    tx.commit().await.expect("commit");
+}
+
+/// Seeds the shared websearch corpus: kinds exercise phrases, exclusions,
+/// and the trigram prefix leg. Org `n` gets its own isolated copy.
+async fn seed_websearch_corpus(app: &PgPool, n: u64) -> Seeded {
+    let s = seed_org(app, n).await;
+    let mut tx = org_tx(app, s.org).await;
+    for (i, (title, body)) in [
+        ("Printer offline after firmware update", "office printer"),
+        ("VPN drops intermittently", "network tunnel unstable"),
+        ("Firmware upgrade plan", "router network maintenance"),
+        ("Printer queue jammed", "tray 2 sensor stuck"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        idx_upsert(
+            &mut tx,
+            s.org,
+            search::SearchKind::Ticket,
+            fixed_uuid(120 + i as u64),
+            None,
+            title,
+            body,
+        )
+        .await;
+    }
+    tx.commit().await.expect("commit corpus");
+    s
+}
+
+#[tokio::test]
+async fn search_websearch_phrases_exclusions_and_prefix_tokens() {
+    let db = test_db().await;
+    let s = seed_websearch_corpus(&db.app, 122).await;
+    let mut tx = org_tx(&db.app, s.org).await;
+
+    // Phrase: only adjacency counts ("firmware update", not "firmware … plan").
+    let phrase = search::search_page(
+        &mut *tx,
+        s.org,
+        &["ticket".to_string()],
+        "\"firmware update\"",
+        false,
+        10,
+        0,
+    )
+    .await
+    .expect("phrase query");
+    assert_eq!(phrase.len(), 1, "phrase matches adjacent tokens only");
+    assert!(phrase[0].title.contains("offline"));
+
+    // Exclusion: printer hits minus offline ones.
+    let excluded = search::search_page(
+        &mut *tx,
+        s.org,
+        &["ticket".to_string()],
+        "printer -offline",
+        false,
+        10,
+        0,
+    )
+    .await
+    .expect("exclusion query");
+    assert_eq!(excluded.len(), 1);
+    assert!(excluded[0].title.contains("queue"));
+
+    // Partial token via the trigram leg: no lexeme "net" exists anywhere.
+    let prefix = search::search_page(&mut *tx, s.org, &["ticket".to_string()], "net", true, 10, 0)
+        .await
+        .expect("prefix query");
+    assert_eq!(prefix.len(), 2, "'net' finds 'network' rows");
+    // With the trigram leg off, the same query is a no-op (FTS-only).
+    let fts_only = search::search_page(
+        &mut *tx,
+        s.org,
+        &["ticket".to_string()],
+        "net",
+        false,
+        10,
+        0,
+    )
+    .await
+    .expect("fts-only query");
+    assert!(fts_only.is_empty());
+    tx.commit().await.expect("commit");
+}
+
+#[tokio::test]
+async fn search_ranking_prefers_title_matches_over_body_mentions() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 123).await;
+    let mut tx = org_tx(&db.app, s.org).await;
+    idx_upsert(
+        &mut tx,
+        s.org,
+        search::SearchKind::Ticket,
+        fixed_uuid(124),
+        None,
+        "Backup failure on srv01",
+        "routine check",
+    )
+    .await;
+    idx_upsert(
+        &mut tx,
+        s.org,
+        search::SearchKind::Ticket,
+        fixed_uuid(125),
+        None,
+        "Weekly report",
+        "the backup failure details were attached",
+    )
+    .await;
+
+    let hits = search::search_page(
+        &mut *tx,
+        s.org,
+        &["ticket".to_string()],
+        "backup",
+        false,
+        10,
+        0,
+    )
+    .await
+    .expect("ranked query");
+    assert_eq!(hits.len(), 2);
+    assert_eq!(
+        hits[0].title, "Backup failure on srv01",
+        "title-weighted hit outranks body mention"
+    );
+    assert!(hits[0].score > hits[1].score);
+    tx.commit().await.expect("commit");
+}
+
+#[tokio::test]
+async fn search_kind_filter_and_pagination() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 124).await;
+    let mut tx = org_tx(&db.app, s.org).await;
+    for i in 0..3_u64 {
+        idx_upsert(
+            &mut tx,
+            s.org,
+            search::SearchKind::Ticket,
+            fixed_uuid(126 + i),
+            None,
+            &format!("alpha ticket {i}"),
+            "",
+        )
+        .await;
+    }
+    idx_upsert(
+        &mut tx,
+        s.org,
+        search::SearchKind::Client,
+        fixed_uuid(129),
+        None,
+        "alpha client",
+        "",
+    )
+    .await;
+
+    let tickets_only =
+        search::search_count(&mut *tx, s.org, &["ticket".to_string()], "alpha", false)
+            .await
+            .expect("kind-filtered count");
+    assert_eq!(tickets_only, 3);
+
+    let all_kinds = search::search_count(
+        &mut *tx,
+        s.org,
+        &["ticket".to_string(), "client".to_string()],
+        "alpha",
+        false,
+    )
+    .await
+    .expect("all-kind count");
+    assert_eq!(all_kinds, 4);
+
+    let page_one = search::search_page(
+        &mut *tx,
+        s.org,
+        &["ticket".to_string()],
+        "alpha",
+        false,
+        2,
+        0,
+    )
+    .await
+    .expect("page one");
+    let page_two = search::search_page(
+        &mut *tx,
+        s.org,
+        &["ticket".to_string()],
+        "alpha",
+        false,
+        2,
+        2,
+    )
+    .await
+    .expect("page two");
+    assert_eq!(page_one.len(), 2);
+    assert_eq!(page_two.len(), 1);
+    let page_ids: std::collections::HashSet<Uuid> = page_one
+        .iter()
+        .chain(page_two.iter())
+        .map(|h| h.entity_id)
+        .collect();
+    assert_eq!(page_ids.len(), 3, "pages never overlap");
+    tx.commit().await.expect("commit");
+}
+
+#[tokio::test]
+async fn search_rls_blocks_cross_org_hits_and_unscoped_writes() {
+    let db = test_db().await;
+    let a = seed_org(&db.admin, 125).await;
+    let b = seed_org(&db.admin, 126).await;
+    // Identical corpora in two orgs; isolation must hold regardless.
+    for seeded in [&a, &b] {
+        let mut tx = org_tx(&db.app, seeded.org).await;
+        idx_upsert(
+            &mut tx,
+            seeded.org,
+            search::SearchKind::Ticket,
+            fixed_uuid(128),
+            None,
+            "firewall audit findings",
+            "",
+        )
+        .await;
+        tx.commit().await.expect("commit");
+    }
+
+    // RLS-scoped reader in org B sees exactly org B's row.
+    let mut scoped_b = org_tx(&db.app, b.org).await;
+    let hits_b = search::search_page(
+        &mut *scoped_b,
+        b.org,
+        &["ticket".to_string()],
+        "firewall",
+        false,
+        10,
+        0,
+    )
+    .await
+    .expect("scoped query");
+    assert_eq!(hits_b.len(), 1);
+    tx_commit_org_check(scoped_b, a.org, "firewall").await;
+}
+
+/// Within an org-B transaction, org A rows are invisible even when the
+/// query string would match them (belt-and-braces against filter drift).
+async fn tx_commit_org_check(mut tx: Transaction<'_, Postgres>, other_org: Uuid, q: &str) {
+    let leaks = search::search_page(
+        &mut *tx,
+        other_org,
+        &["ticket".to_string()],
+        q,
+        false,
+        10,
+        0,
+    )
+    .await
+    .expect("other-org query under B scope");
+    assert!(leaks.is_empty(), "RLS scope must hide foreign-org rows");
+    tx.commit().await.expect("commit");
+}
+
+#[tokio::test]
+async fn search_unscoped_app_role_cannot_read_or_write() {
+    let db = test_db().await;
+    let s = seed_org(&db.admin, 127).await;
+    {
+        let mut tx = org_tx(&db.app, s.org).await;
+        idx_upsert(
+            &mut tx,
+            s.org,
+            search::SearchKind::Ticket,
+            fixed_uuid(129),
+            None,
+            "secret projector code",
+            "",
+        )
+        .await;
+        tx.commit().await.expect("commit");
+    }
+    // A pool that has NEVER set app.org_id sees zero rows…
+    let fresh = db.fresh_app_pool().await;
+    let mut unscoped = fresh.begin().await.expect("begin");
+    let hits = search::search_page(
+        &mut *unscoped,
+        s.org,
+        &["ticket".to_string()],
+        "projector",
+        false,
+        10,
+        0,
+    )
+    .await
+    .expect("unscoped read");
+    assert!(
+        hits.is_empty(),
+        "default-deny: unset org scope reads nothing"
+    );
+    // …and the write path is equally denied by the policy's implicit WITH CHECK.
+    let result = search::upsert_row(
+        &mut *unscoped,
+        s.org,
+        search::SearchKind::Ticket,
+        fixed_uuid(128),
+        None,
+        "should not land",
+        "",
+    )
+    .await;
+    match result {
+        Err(DbError::Sql(sqlx::Error::Database(db_err))) => {
+            assert_eq!(db_err.code().unwrap_or_default(), "42501")
+        }
+        other => panic!("expected RLS violation, got {other:?}"),
     }
 }

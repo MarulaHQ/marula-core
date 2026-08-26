@@ -22,6 +22,10 @@ pub enum ApiError {
     /// exact blockers without a second round-trip.
     #[error("pre-close checklist incomplete")]
     ChecklistBlocked { missing: Vec<String> },
+    /// Capability present but disabled by configuration (fail-closed
+    /// surfaces such as the internal effect surface without its token).
+    #[error("service unavailable: {0}")]
+    Unavailable(String),
     #[error("internal error")]
     Internal(#[from] anyhow::Error),
 }
@@ -67,6 +71,7 @@ impl IntoResponse for ApiError {
                 "pre-close checklist incomplete".to_string(),
                 Some(json!({ "missing": missing })),
             ),
+            ApiError::Unavailable(m) => (StatusCode::SERVICE_UNAVAILABLE, m.clone(), None),
             ApiError::Internal(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "internal error".to_string(),

@@ -1,13 +1,17 @@
 //! Client hierarchy endpoints: company → site → contact → asset.
+//! Mutations run in org-scoped transactions and emit their domain events
+//! in the same commit (§4.2) — the search indexer depends on these.
 
 use crate::auth::middleware::{authed, require_permission};
 use crate::error::{ApiError, ApiResult};
+use crate::org_tx;
 use crate::state::AppState;
 use axum::{
     extract::{Path, State},
     http::Extensions,
     Json,
 };
+use core_domain::events::types;
 use core_domain::policy::{Module, Permission};
 use serde::Deserialize;
 use utoipa::ToSchema;
@@ -111,13 +115,30 @@ pub async fn create(
     if req.name.trim().is_empty() {
         return Err(ApiError::Validation("name is required".into()));
     }
-    let client = core_db::clients::create_client(
-        &state.pool,
-        authed.principal.user.org_id,
-        Uuid::now_v7(),
-        req.name.trim(),
-        req.notes.as_deref(),
-    )
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+    let client = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        let client = core_db::clients::create_client(
+            &mut *ctx.tx,
+            org_id,
+            Uuid::now_v7(),
+            req.name.trim(),
+            req.notes.as_deref(),
+        )
+        .await?;
+        ctx.emit(
+            types::CLIENT_CREATED,
+            "client",
+            Some(client.id.to_string().as_str()),
+            &serde_json::to_value(core_domain::events::ClientCreated {
+                client_id: client.id,
+                name: client.name.clone(),
+            })
+            .unwrap_or_else(|_| serde_json::json!({})),
+        )
+        .await?;
+        Ok((ctx, client))
+    })
     .await?;
     Ok(Json(client))
 }
@@ -149,13 +170,26 @@ pub async fn create_site(
 ) -> ApiResult<Json<core_domain::entities::Site>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, client_edit_permission())?;
-    let site = core_db::clients::create_site(
-        &state.pool,
-        authed.principal.user.org_id,
-        Uuid::now_v7(),
-        id,
-        &req.name,
-    )
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+    let site = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        let site =
+            core_db::clients::create_site(&mut *ctx.tx, org_id, Uuid::now_v7(), id, &req.name)
+                .await?;
+        ctx.emit(
+            types::SITE_CREATED,
+            "site",
+            Some(site.id.to_string().as_str()),
+            &serde_json::to_value(core_domain::events::SiteCreated {
+                site_id: site.id,
+                client_id: site.client_id,
+                name: site.name.clone(),
+            })
+            .unwrap_or_else(|_| serde_json::json!({})),
+        )
+        .await?;
+        Ok((ctx, site))
+    })
     .await?;
     Ok(Json(site))
 }
@@ -188,15 +222,33 @@ pub async fn create_contact(
 ) -> ApiResult<Json<core_domain::entities::Contact>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, client_edit_permission())?;
-    let contact = core_db::clients::create_contact(
-        &state.pool,
-        authed.principal.user.org_id,
-        Uuid::now_v7(),
-        id,
-        &req.name,
-        req.email.as_deref(),
-        req.phone.as_deref(),
-    )
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+    let contact = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        let contact = core_db::clients::create_contact(
+            &mut *ctx.tx,
+            org_id,
+            Uuid::now_v7(),
+            id,
+            &req.name,
+            req.email.as_deref(),
+            req.phone.as_deref(),
+        )
+        .await?;
+        ctx.emit(
+            types::CONTACT_CREATED,
+            "contact",
+            Some(contact.id.to_string().as_str()),
+            &serde_json::to_value(core_domain::events::ContactCreated {
+                contact_id: contact.id,
+                client_id: contact.client_id,
+                name: contact.name.clone(),
+            })
+            .unwrap_or_else(|_| serde_json::json!({})),
+        )
+        .await?;
+        Ok((ctx, contact))
+    })
     .await?;
     Ok(Json(contact))
 }

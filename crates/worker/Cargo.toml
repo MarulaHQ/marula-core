@@ -27,4 +27,4 @@ aes-gcm = { workspace = true }
 hex = { workspace = true }
 
 [dev-dependencies]
-uuid = { workspace = true }
+chrono = { workspace = true }

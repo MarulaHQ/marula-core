@@ -11,6 +11,16 @@
 //! Non-purpose: no domain writes — effects flow back through core-api's
 //! internal surface (§4.1); the worker touches only its own queue tables,
 //! and the email loop never touches Postgres at all.
+//! Purpose: run the outbox→Redis relay (`core_events::run_relay`) as the
+//! primary loop plus the notification email fan-out consumer and the
+//! unified-search indexer consumer, and expose a `/healthz` endpoint that
+//! reflects relay liveness. `meridian-cli` hosts this same library via
+//! `meridian serve-worker`.
+//!
+//! Non-purpose: no general job queue, webhook delivery, or SLA evaluation
+//! — those are later-stage scope — and no direct database writes of its own
+//! beyond what the relay's mark-published step performs (the search indexer
+//! writes through core-api's internal effect surface, §4.1).
 
 pub mod automations;
 pub mod config;
@@ -18,6 +28,7 @@ pub mod effects;
 pub mod email;
 pub mod notifier;
 pub mod queue_runner;
+pub mod search_indexer;
 pub mod sla_sweep;
 pub mod time;
 pub mod webhook_out;
@@ -97,6 +108,25 @@ pub async fn run(
         });
     }
 
+    // Unified-search indexing: consumes domain events and pushes index
+    // writes through core-api's internal effect surface. Disabled cleanly
+    // when no internal token is configured (fail-closed on both sides).
+    match &config.internal_token {
+        Some(token) => {
+            let sink = search_indexer::HttpIndexSink::new(&config.internal_api_url, token);
+            tokio::spawn(search_indexer::run_search_indexer(
+                pool.clone(),
+                config.clone(),
+                sink,
+                shutdown.clone(),
+            ));
+            tracing::info!("search indexer enabled (pushing through core-api)");
+        }
+        None => {
+            tracing::info!("search indexer disabled: MERIDIAN_INTERNAL_TOKEN not configured");
+        }
+    }
+
     // General job queue: claims durable jobs and applies them through
     // core-api's internal machine surface (plus signed webhook delivery).
     let queue_alive = Arc::new(AtomicBool::new(true));
@@ -145,13 +175,13 @@ pub async fn run(
 
     // Automations consumer: event stream → matched rules → effect jobs.
     let auto_alive = Arc::new(AtomicBool::new(true));
-    let webhook_pool = pool.clone();
-    let webhook_redis = config.redis_url.clone();
     {
         let alive = Arc::clone(&auto_alive);
+        let pool = pool.clone();
+        let redis_url = config.redis_url.clone();
         let shutdown = shutdown.clone();
         tokio::spawn(async move {
-            automations::run_automations(pool, config.redis_url, shutdown).await;
+            automations::run_automations(pool, redis_url, shutdown).await;
             alive.store(false, Ordering::Relaxed);
             tracing::error!("automations loop exited; reporting unhealthy");
         });
@@ -163,6 +193,8 @@ pub async fn run(
     let webhooks_alive = Arc::new(AtomicBool::new(true));
     {
         let alive = Arc::clone(&webhooks_alive);
+        let webhook_pool = pool.clone();
+        let webhook_redis = config.redis_url.clone();
         let shutdown = shutdown.clone();
         tokio::spawn(async move {
             webhook_out::run_webhook_out(webhook_pool, webhook_redis, shutdown).await;
@@ -180,6 +212,27 @@ pub async fn run(
         automations_alive: auto_alive,
         webhooks_alive,
     };
+    // Unified-search indexing: consumes domain events and pushes index
+    // writes through core-api's internal effect surface. Disabled cleanly
+    // when no internal token is configured (fail-closed on both sides).
+    match &config.internal_token {
+        Some(token) => {
+            let sink = search_indexer::HttpIndexSink::new(&config.internal_api_url, token);
+            let indexer_pool = pool.clone();
+            let indexer_config = config.clone();
+            tokio::spawn(search_indexer::run_search_indexer(
+                indexer_pool,
+                indexer_config,
+                sink,
+                shutdown.clone(),
+            ));
+            tracing::info!("search indexer enabled (pushing through core-api)");
+        }
+        None => {
+            tracing::info!("search indexer disabled: MERIDIAN_INTERNAL_TOKEN not configured");
+        }
+    }
+
     let app = Router::new()
         .route("/healthz", get(healthz))
         .with_state(Arc::new(health));

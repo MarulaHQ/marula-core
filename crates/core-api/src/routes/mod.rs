@@ -17,6 +17,7 @@ pub mod openapi;
 pub mod portal;
 pub mod portal_admin;
 pub mod scheduling;
+pub mod search;
 pub mod settings;
 pub mod sla_admin;
 pub mod tickets;
@@ -291,6 +292,8 @@ pub fn build_router(state: AppState) -> Router {
             "/api/notification-preferences",
             get(notifications::prefs_get).put(notifications::prefs_update),
         )
+        // unified search (TASKLIST 2.16)
+        .route("/api/search", get(search::search))
         // audit (admin)
         .route("/api/audit-events", get(audit::list))
         // plugin runtime v1: signed webhooks OUT + API keys (admin;
@@ -397,11 +400,18 @@ pub fn build_router(state: AppState) -> Router {
         )
         .layer(middleware::from_fn_with_state(state.clone(), require_auth));
 
+    // Machine-to-machine effect surface (§4.1): token-guarded, NOT behind
+    // the JWT middleware, and deliberately absent from OpenAPI/the SDK.
+    let internal = Router::new()
+        .route("/internal/search/upsert", post(internal::upsert))
+        .route("/internal/search/delete", post(internal::delete));
+
     let docs = openapi::scalar_router();
 
     Router::new()
         .merge(public)
         .merge(protected)
+        .merge(internal)
         .merge(docs)
         .with_state(state)
 }

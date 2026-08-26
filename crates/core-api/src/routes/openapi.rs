@@ -163,6 +163,7 @@ use utoipa::OpenApi;
         crate::routes::availability::list_exclusions,
         crate::routes::availability::create_exclusion,
         crate::routes::availability::delete_exclusion,
+        crate::routes::search::search,
     ),
     components(schemas(
         crate::auth::handlers::RegisterRequest,
@@ -336,6 +337,9 @@ use utoipa::OpenApi;
         crate::routes::availability::CreateExclusionRequest,
         crate::routes::availability::RangeParams,
         crate::routes::availability::OwnedDeleteQuery,
+        crate::routes::search::SearchQuery,
+        crate::routes::search::SearchResponse,
+        crate::routes::search::SearchResult,
     ),
     ),
     tags(
@@ -347,6 +351,7 @@ use utoipa::OpenApi;
         (name = "notifications", description = "Notification center"),
         (name = "settings", description = "Typed settings registry: org + user scoped values"),
         (name = "audit", description = "Append-only audit log with filters + cursor pagination (admin)"),
+        (name = "search", description = "Unified FTS search across tickets, comments and clients"),
         (name = "audit", description = "Append-only audit log (admin)"),
         (name = "sla", description = "SLA calendars, policies, escalation ladders (admin)"),
         (name = "automations", description = "Event-triggered automation rules (admin)"),

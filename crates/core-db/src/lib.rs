@@ -22,6 +22,7 @@ pub mod outbox;
 pub mod portal;
 pub mod queue;
 pub mod scheduling;
+pub mod search;
 pub mod settings;
 pub mod sla;
 pub mod tickets;

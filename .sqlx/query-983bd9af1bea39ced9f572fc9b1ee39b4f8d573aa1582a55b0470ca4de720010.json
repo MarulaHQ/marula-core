@@ -1,0 +1,57 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT entity_kind, entity_id, parent_id, title,\n                  left(body, 512) AS body_excerpt,\n                  ts_rank(tsv, websearch_to_tsquery('english', $3)) * 8\n                    + CASE WHEN $4 THEN similarity(title || ' ' || body, $3)\n                           ELSE 0 END AS score\n           FROM search_index\n           WHERE org_id = $1\n             AND entity_kind = ANY($2)\n             AND (\n               tsv @@ websearch_to_tsquery('english', $3)\n               OR ($4 AND title || ' ' || body ILIKE '%' || $3 || '%')\n             )\n           ORDER BY score DESC, indexed_at DESC, entity_id\n           LIMIT $5 OFFSET $6",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "entity_kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "entity_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "parent_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "body_excerpt",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "score",
+        "type_info": "Float8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray",
+        "Text",
+        "Bool",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "983bd9af1bea39ced9f572fc9b1ee39b4f8d573aa1582a55b0470ca4de720010"
+}

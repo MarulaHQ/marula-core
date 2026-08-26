@@ -424,6 +424,34 @@ where
     })
 }
 
+/// Fetches one comment by id — the search indexer's refetch path.
+pub async fn get_comment<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<TicketComment>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query!(
+        r#"SELECT id, org_id, ticket_id, author_id, kind, body, created_at, updated_at
+           FROM ticket_comments WHERE org_id = $1 AND id = $2"#,
+        org_id,
+        id
+    )
+    .fetch_optional(executor)
+    .await?
+    .ok_or(DbError::NotFound)?;
+    Ok(TicketComment {
+        id: row.id,
+        org_id: row.org_id,
+        ticket_id: row.ticket_id,
+        author_id: row.author_id,
+        kind: row.kind.parse().map_err(|e: core_domain::DomainError| {
+            DbError::Sql(sqlx::Error::Configuration(e.to_string().into()))
+        })?,
+        body: row.body,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+    })
+}
+
 pub async fn list_comments<'e, E>(
     executor: E,
     org_id: Uuid,

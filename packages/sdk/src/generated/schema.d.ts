@@ -1552,6 +1552,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/search — unified staff search across tickets, comments and the
+         *     client hierarchy.
+         */
+        get: operations["search_query"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/settings/org": {
         parameters: {
             query?: never;
@@ -3537,6 +3557,53 @@ export interface components {
         };
         ReplaceLadderRequest: {
             steps: components["schemas"]["LadderStepSpec"][];
+        };
+        SearchQuery: {
+            /** Format: int64 */
+            limit?: number;
+            /** Format: int64 */
+            offset?: number;
+            /**
+             * @description Free-text query using websearch syntax: `"exact phrases"`,
+             *     `-excluded`, plain terms AND-ed. Tokens ≥3 chars also match as
+             *     substrings via the trigram fallback.
+             */
+            q: string;
+        };
+        SearchResponse: {
+            /** @description Kinds the principal may see, mirrored into the query filter. */
+            kinds: string[];
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /** @description The trimmed query actually executed. */
+            query: string;
+            results: components["schemas"]["SearchResult"][];
+            /**
+             * Format: int64
+             * @description Total matches across all permitted kinds.
+             */
+            total: number;
+        };
+        SearchResult: {
+            /** Format: uuid */
+            entity_id: string;
+            /** @description `ticket` | `comment` | `client` | `site` | `contact`. */
+            entity_kind: string;
+            /**
+             * Format: uuid
+             * @description comment → its ticket id; NULL otherwise.
+             */
+            parent_id?: string | null;
+            /**
+             * Format: double
+             * @description Blended FTS + trigram relevance score (higher is better).
+             */
+            score: number;
+            /** @description Raw body excerpt for client-side snippet rendering. */
+            snippet: string;
+            title: string;
         };
         /**
          * @description Why a timer segment ended. Preserved forever — the pause reason is
@@ -6632,6 +6699,34 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConflictCheckResponse"];
+                };
+            };
+        };
+    };
+    search_query: {
+        parameters: {
+            query: {
+                /**
+                 * @description Free-text query using websearch syntax: `"exact phrases"`,
+                 *     `-excluded`, plain terms AND-ed. Tokens ≥3 chars also match as
+                 *     substrings via the trigram fallback.
+                 */
+                q: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchResponse"];
                 };
             };
         };
