@@ -77,6 +77,14 @@ pub mod types {
     /// A subscription test-fire from the webhook manager; flows through
     /// the same stream + delivery pipeline as real domain events.
     pub const WEBHOOK_TEST: &str = "webhook.test";
+    /// Scheduling/calendars/availability foundation (TASKLIST 2.12).
+    pub const APPOINTMENT_CREATED: &str = "appointment.created";
+    pub const APPOINTMENT_UPDATED: &str = "appointment.updated";
+    pub const APPOINTMENT_CANCELLED: &str = "appointment.cancelled";
+    /// Lightweight change markers — consumers refetch the user's windows.
+    pub const AVAILABILITY_UPDATED: &str = "availability.updated";
+    pub const ON_CALL_UPDATED: &str = "on_call.updated";
+    pub const CALENDAR_EXCLUSION_UPDATED: &str = "calendar_exclusion.updated";
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -311,6 +319,58 @@ pub struct BoardFavoriteToggled {
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub board_id: crate::ids::BoardId,
     pub favorite: bool,
+}
+
+/// A booking was created on a user's calendar (TASKLIST 2.12).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AppointmentCreated {
+    pub appointment: crate::entities::Appointment,
+}
+
+/// An appointment's editable fields or times changed (`rescheduled` marks
+/// moves so dispatch consumers can re-plan travel).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AppointmentUpdated {
+    pub appointment: crate::entities::Appointment,
+    pub rescheduled: bool,
+}
+
+/// An appointment was cancelled; its slot is freed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AppointmentCancelled {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub appointment_id: crate::ids::AppointmentId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub user_id: crate::ids::UserId,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub cancelled_by: Option<crate::ids::UserId>,
+}
+
+/// Availability templates changed for one user (create/delete).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AvailabilityChanged {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub user_id: crate::ids::UserId,
+}
+
+/// On-call rotations changed for one user.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct OnCallChanged {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub user_id: crate::ids::UserId,
+}
+
+/// Time-off exclusions changed for one user.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct CalendarExclusionChanged {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub user_id: crate::ids::UserId,
 }
 
 /// Extracts @mentions from a note body (`@alice`, `@alice@org` → user ids

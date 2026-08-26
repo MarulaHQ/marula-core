@@ -4711,3 +4711,369 @@ async fn connector_installations_upsert_consent_and_isolation() {
         ));
     }
 }
+
+// --- Scheduling/calendars/availability (TASKLIST 2.12; seed slots 110–119) ---
+
+use chrono::TimeZone;
+use core_db::scheduling;
+use core_domain::entities::{
+    Appointment, AppointmentKind, AppointmentStatus, AvailabilityWindow, CalendarExclusion,
+    OnCallBlock,
+};
+
+fn appt(org: Uuid, user: Uuid, id: u64, from_h: u32, to_h: u32) -> Appointment {
+    let day = |h: u32| {
+        chrono::Utc.with_ymd_and_hms(2026, 6, 1, h, 0, 0).unwrap() // Monday 2026-06-01
+    };
+    Appointment {
+        id: fixed_uuid(id),
+        org_id: org,
+        user_id: user,
+        ticket_id: None,
+        client_id: None,
+        site_id: None,
+        title: format!("appt-{id}"),
+        starts_at: day(from_h),
+        ends_at: day(to_h),
+        kind: AppointmentKind::OnSite,
+        status: AppointmentStatus::Scheduled,
+        travel_minutes: 15,
+        notes: None,
+        created_at: at(1),
+        updated_at: at(1),
+    }
+}
+
+#[tokio::test]
+async fn appointment_exclude_blocks_overlap_and_cancel_frees_slot() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 110).await;
+    let u = seed_user(&db.app, &s, 11200).await;
+    let other = seed_user(&db.app, &s, 11201).await;
+
+    // Base set: Mon 09–11 plus legal neighbours (touching span,
+    // different assignee). One transaction, no violations.
+    let mut tx = org_tx(&db.app, s.org).await;
+    scheduling::create_appointment(&mut *tx, &appt(s.org, u, 1102, 9, 11))
+        .await
+        .expect("base insert");
+    scheduling::create_appointment(&mut *tx, &appt(s.org, u, 1105, 11, 13))
+        .await
+        .expect("back-to-back ok");
+    scheduling::create_appointment(&mut *tx, &appt(s.org, other, 1106, 9, 11))
+        .await
+        .expect("different assignee ok");
+    tx.commit().await.expect("commit base set");
+
+    // Exact overlap rejected by the EXCLUDE constraint (own transaction:
+    // a Postgres error aborts its transaction, so violations go last).
+    let mut tx = org_tx(&db.app, s.org).await;
+    match scheduling::create_appointment(&mut *tx, &appt(s.org, u, 1103, 10, 12)).await {
+        Err(core_db::DbError::Sql(sqlx::Error::Database(d))) => assert_eq!(
+            d.constraint(),
+            Some("appointments_no_double_booking"),
+            "expected the double-booking exclusion"
+        ),
+        other => panic!("expected double-booking violation, got {other:?}"),
+    }
+    drop(tx);
+
+    // …and a nested one is rejected too.
+    let mut tx = org_tx(&db.app, s.org).await;
+    assert!(is_constraint_violation(
+        &scheduling::create_appointment(&mut *tx, &appt(s.org, u, 1104, 10, 11))
+            .await
+            .unwrap_err()
+    ));
+    drop(tx);
+
+    // `done` bookings still occupy history: booking over one is blocked.
+    let mut tx = org_tx(&db.app, s.org).await;
+    let mut done = scheduling::get_appointment(&mut *tx, s.org, fixed_uuid(1102))
+        .await
+        .expect("fetch");
+    done.status = AppointmentStatus::Done;
+    scheduling::update_appointment(&mut *tx, &done)
+        .await
+        .expect("mark done");
+    tx.commit().await.expect("commit done flip");
+
+    let mut tx = org_tx(&db.app, s.org).await;
+    assert!(is_constraint_violation(
+        &scheduling::create_appointment(&mut *tx, &appt(s.org, u, 1107, 10, 12))
+            .await
+            .unwrap_err(),
+    ));
+    drop(tx);
+
+    // Cancelling frees the slot immediately — the rebook lands in the
+    // SAME transaction, proving the predicate reads live state.
+    let mut tx = org_tx(&db.app, s.org).await;
+    let mut cancelled = scheduling::get_appointment(&mut *tx, s.org, fixed_uuid(1105))
+        .await
+        .expect("fetch");
+    cancelled.status = AppointmentStatus::Cancelled;
+    scheduling::update_appointment(&mut *tx, &cancelled)
+        .await
+        .expect("cancel");
+    scheduling::create_appointment(&mut *tx, &appt(s.org, u, 1108, 11, 12))
+        .await
+        .expect("cancelled slot is rebookable");
+    tx.commit().await.expect("commit cancel+rebook");
+
+    // A move onto an occupied slot fails through the same constraint.
+    let mut tx = org_tx(&db.app, s.org).await;
+    let mut mover = scheduling::get_appointment(&mut *tx, s.org, fixed_uuid(1108))
+        .await
+        .expect("fetch");
+    mover.starts_at = chrono::Utc.with_ymd_and_hms(2026, 6, 1, 9, 0, 0).unwrap();
+    mover.ends_at = chrono::Utc.with_ymd_and_hms(2026, 6, 1, 10, 0, 0).unwrap();
+    assert!(is_constraint_violation(
+        &scheduling::update_appointment(&mut *tx, &mover)
+            .await
+            .unwrap_err()
+    ));
+    drop(tx);
+
+    // Range listing returns live rows only (cancelled hidden), ordered.
+    let mut tx = org_tx(&db.app, s.org).await;
+    let from = chrono::Utc.with_ymd_and_hms(2026, 6, 1, 0, 0, 0).unwrap();
+    let to = chrono::Utc.with_ymd_and_hms(2026, 6, 2, 0, 0, 0).unwrap();
+    let mine = scheduling::list_appointments_between(&mut *tx, s.org, &[u], from, to)
+        .await
+        .expect("list mine");
+    assert_eq!(
+        mine.iter().map(|x| x.id).collect::<Vec<_>>(),
+        vec![fixed_uuid(1102), fixed_uuid(1108)],
+        "done visible, cancelled hidden"
+    );
+    tx.commit().await.expect("commit list");
+}
+
+#[tokio::test]
+async fn availability_oncall_exclusion_rules_and_merged_calendar() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 111).await;
+    let u = seed_user(&db.app, &s, 11210).await;
+
+    let window = AvailabilityWindow {
+        id: fixed_uuid(1111),
+        org_id: s.org,
+        user_id: u,
+        weekday: 0, // Monday
+        start_local: chrono::NaiveTime::from_hms_opt(9, 0, 0).unwrap(),
+        end_local: chrono::NaiveTime::from_hms_opt(17, 0, 0).unwrap(),
+        timezone: "UTC".into(),
+        effective_from: None,
+        effective_until: None,
+        created_at: at(1),
+    };
+    let mut tx = org_tx(&db.app, s.org).await;
+    scheduling::create_availability_window(&mut *tx, &window)
+        .await
+        .expect("window insert");
+    tx.commit().await.expect("commit window");
+
+    // Exact duplicate template rejected (expression unique index).
+    let dupe = AvailabilityWindow {
+        id: Uuid::now_v7(),
+        ..window.clone()
+    };
+    let mut tx = org_tx(&db.app, s.org).await;
+    assert!(
+        is_constraint_violation(
+            &scheduling::create_availability_window(&mut *tx, &dupe)
+                .await
+                .unwrap_err()
+        ),
+        "duplicate availability template"
+    );
+    drop(tx);
+
+    // On-call stacking for one person is rejected…
+    let block = OnCallBlock {
+        id: fixed_uuid(1112),
+        org_id: s.org,
+        user_id: u,
+        starts_at: chrono::Utc.with_ymd_and_hms(2026, 6, 1, 18, 0, 0).unwrap(),
+        ends_at: chrono::Utc.with_ymd_and_hms(2026, 6, 2, 8, 0, 0).unwrap(),
+        category: "primary".into(),
+        notes: Some("weeknights".into()),
+        created_at: at(1),
+    };
+    let mut tx = org_tx(&db.app, s.org).await;
+    scheduling::create_on_call_block(&mut *tx, &block)
+        .await
+        .expect("first rotation ok");
+    tx.commit().await.expect("commit rotation");
+
+    let stacked = OnCallBlock {
+        id: Uuid::now_v7(),
+        starts_at: chrono::Utc.with_ymd_and_hms(2026, 6, 2, 6, 0, 0).unwrap(),
+        ..block.clone()
+    };
+    let mut tx = org_tx(&db.app, s.org).await;
+    match scheduling::create_on_call_block(&mut *tx, &stacked).await {
+        Err(core_db::DbError::Sql(sqlx::Error::Database(d))) => {
+            assert_eq!(d.constraint(), Some("on_call_no_overlap"))
+        }
+        other => panic!("expected on_call_no_overlap violation, got {other:?}"),
+    }
+    drop(tx);
+
+    // Time-off exclusion + an appointment share one clean transaction,
+    // then the merged-view readers and scoped deletes run.
+    let exclusion = CalendarExclusion {
+        id: fixed_uuid(1113),
+        org_id: s.org,
+        user_id: u,
+        starts_at: chrono::Utc.with_ymd_and_hms(2026, 6, 3, 0, 0, 0).unwrap(),
+        ends_at: chrono::Utc.with_ymd_and_hms(2026, 6, 5, 0, 0, 0).unwrap(),
+        reason: Some("vacation".into()),
+        created_at: at(1),
+    };
+    let mut tx = org_tx(&db.app, s.org).await;
+    scheduling::create_calendar_exclusion(&mut *tx, &exclusion)
+        .await
+        .expect("exclusion insert");
+    scheduling::create_appointment(&mut *tx, &appt(s.org, u, 1114, 9, 11))
+        .await
+        .expect("appt for merged view");
+    tx.commit().await.expect("commit fixtures");
+
+    let mut tx = org_tx(&db.app, s.org).await;
+    let from = chrono::Utc.with_ymd_and_hms(2026, 6, 1, 0, 0, 0).unwrap();
+    let to = chrono::Utc.with_ymd_and_hms(2026, 6, 8, 0, 0, 0).unwrap();
+    let windows = scheduling::list_availability_windows(&mut *tx, s.org, u)
+        .await
+        .expect("windows list");
+    assert_eq!(windows.len(), 1);
+    assert_eq!(windows[0].weekday, 0);
+    let on_call = scheduling::list_on_call_blocks_between(&mut *tx, s.org, &[u], from, to)
+        .await
+        .expect("on-call list");
+    assert_eq!(on_call.len(), 1);
+    assert_eq!(on_call[0].category, "primary");
+    let exclusions = scheduling::list_calendar_exclusions_between(&mut *tx, s.org, u, from, to)
+        .await
+        .expect("exclusions list");
+    assert_eq!(exclusions.len(), 1);
+    assert_eq!(exclusions[0].reason.as_deref(), Some("vacation"));
+
+    // Deletes round-trip with ownership scoping (org+user must match).
+    scheduling::delete_calendar_exclusion(&mut tx, s.org, fixed_uuid(1113), u)
+        .await
+        .expect("delete own exclusion");
+    assert!(matches!(
+        scheduling::delete_on_call_block(&mut tx, s.org, fixed_uuid(1112), fixed_uuid(11999)).await,
+        Err(core_db::DbError::NotFound),
+    ));
+    tx.commit().await.expect("commit deletes");
+}
+
+#[tokio::test]
+async fn rls_isolates_scheduling_tables() {
+    let db = test_db().await;
+    let sa = seed_org(&db.app, 112).await;
+    let sb = seed_org(&db.app, 113).await;
+    let ua = seed_user(&db.app, &sa, 11220).await;
+
+    let mut tx_a = org_tx(&db.app, sa.org).await;
+    scheduling::create_appointment(&mut *tx_a, &appt(sa.org, ua, 1121, 9, 10))
+        .await
+        .expect("appt A");
+    scheduling::create_availability_window(
+        &mut *tx_a,
+        &AvailabilityWindow {
+            id: fixed_uuid(1122),
+            org_id: sa.org,
+            user_id: ua,
+            weekday: 1,
+            start_local: chrono::NaiveTime::from_hms_opt(8, 0, 0).unwrap(),
+            end_local: chrono::NaiveTime::from_hms_opt(16, 0, 0).unwrap(),
+            timezone: "UTC".into(),
+            effective_from: None,
+            effective_until: None,
+            created_at: at(1),
+        },
+    )
+    .await
+    .expect("window A");
+    scheduling::create_on_call_block(
+        &mut *tx_a,
+        &OnCallBlock {
+            id: fixed_uuid(1123),
+            org_id: sa.org,
+            user_id: ua,
+            starts_at: chrono::Utc.with_ymd_and_hms(2026, 6, 1, 20, 0, 0).unwrap(),
+            ends_at: chrono::Utc.with_ymd_and_hms(2026, 6, 2, 6, 0, 0).unwrap(),
+            category: "secondary".into(),
+            notes: None,
+            created_at: at(1),
+        },
+    )
+    .await
+    .expect("on-call A");
+    scheduling::create_calendar_exclusion(
+        &mut *tx_a,
+        &CalendarExclusion {
+            id: fixed_uuid(1124),
+            org_id: sa.org,
+            user_id: ua,
+            starts_at: chrono::Utc.with_ymd_and_hms(2026, 6, 4, 0, 0, 0).unwrap(),
+            ends_at: chrono::Utc.with_ymd_and_hms(2026, 6, 5, 0, 0, 0).unwrap(),
+            reason: None,
+            created_at: at(1),
+        },
+    )
+    .await
+    .expect("exclusion A");
+    tx_a.commit().await.expect("commit A");
+
+    // Org B sees none of it through every scoped reader.
+    let mut tx_b = org_tx(&db.app, sb.org).await;
+    let from = chrono::Utc.with_ymd_and_hms(2026, 6, 1, 0, 0, 0).unwrap();
+    let to = chrono::Utc.with_ymd_and_hms(2026, 6, 8, 0, 0, 0).unwrap();
+    assert!(
+        scheduling::list_appointments_between(&mut *tx_b, sb.org, &[ua], from, to)
+            .await
+            .expect("appts B")
+            .is_empty()
+    );
+    assert!(
+        scheduling::list_availability_windows(&mut *tx_b, sb.org, ua)
+            .await
+            .expect("windows B")
+            .is_empty()
+    );
+    assert!(
+        scheduling::list_on_call_blocks_between(&mut *tx_b, sb.org, &[ua], from, to)
+            .await
+            .expect("on-call B")
+            .is_empty()
+    );
+    assert!(
+        scheduling::list_calendar_exclusions_between(&mut *tx_b, sb.org, ua, from, to)
+            .await
+            .expect("exclusions B")
+            .is_empty()
+    );
+    drop(tx_b);
+
+    // Unscoped connections default-deny across all four tables.
+    let unscoped = db.fresh_app_pool().await;
+    for table in [
+        "appointments",
+        "availability_windows",
+        "on_call_blocks",
+        "calendar_exclusions",
+    ] {
+        let count: i64 = sqlx::query_scalar(&format!(
+            "SELECT COUNT(*) FROM {table} WHERE id IS NOT NULL"
+        ))
+        .fetch_one(&unscoped)
+        .await
+        .unwrap_or_else(|e| panic!("unscoped count {table}: {e}"));
+        assert_eq!(count, 0, "unscoped reads on {table} are default-deny");
+    }
+}

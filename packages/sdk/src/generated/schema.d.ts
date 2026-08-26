@@ -1,23 +1,5 @@
 export interface paths {
-    "/api/api-keys": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/api-keys — listing without secrets. */
-        get: operations["api_keys_list"];
-        put?: never;
-        /** POST /api/api-keys — creates a key and returns the raw secret ONCE. */
-        post: operations["api_keys_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/api-keys/{id}": {
+    "/api/appointments": {
         parameters: {
             query?: never;
             header?: never;
@@ -26,12 +8,71 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** POST /api/appointments — create a booking (409 on overlap). */
+        post: operations["appointment_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/appointments/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/appointments/{id} — fetch one booking in the caller's org. */
+        get: operations["appointment_get"];
+        put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
         /**
-         * DELETE /api/api-keys/{id} — immediate revocation (rotation story:
-         *     create replacement → revoke old).
+         * PATCH /api/appointments/{id} — edit fields/status (times unchanged;
+         *     moves use the dedicated endpoint so clients get rescheduled events).
          */
-        delete: operations["api_keys_revoke"];
+        patch: operations["appointment_patch"];
+        trace?: never;
+    };
+    "/api/appointments/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/appointments/{id}/cancel — frees the slot (status flip, never
+         *     deletion, so history survives).
+         */
+        post: operations["appointment_cancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/appointments/{id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/appointments/{id}/move — reschedule with re-validation
+         *     (dry-run semantics inline: a conflicting move is rejected atomically
+         *     and emits a `rescheduled` event only when it lands).
+         */
+        post: operations["appointment_move"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -555,6 +596,41 @@ export interface paths {
         patch: operations["automation_rules_update"];
         trace?: never;
     };
+    "/api/availability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/availability — list one user's weekly templates. */
+        get: operations["availability_list"];
+        put?: never;
+        /** POST /api/availability — add a weekly template for a user. */
+        post: operations["availability_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/availability/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** DELETE /api/availability/{id}?user_id= — remove one template. */
+        delete: operations["availability_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/board-groups": {
         parameters: {
             query?: never;
@@ -820,6 +896,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/calendar-exclusions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/calendar-exclusions?user_id=&from=&to= */
+        get: operations["calendar_exclusion_list"];
+        put?: never;
+        /** POST /api/calendar-exclusions — record time-off. */
+        post: operations["calendar_exclusion_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/calendar-exclusions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** DELETE /api/calendar-exclusions/{id}?user_id= */
+        delete: operations["calendar_exclusion_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/calendar/day": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/calendar/day — one local day for one user. */
+        get: operations["calendar_day"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/calendar/team": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/calendar/team — every org member over an absolute UTC range. */
+        get: operations["calendar_team"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/calendar/week": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/calendar/week — Monday-start local week for one user. */
+        get: operations["calendar_week"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/clients": {
         parameters: {
             query?: never;
@@ -873,27 +1035,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/clients/{id}/board-exposures": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * GET /api/clients/{id}/board-exposures — every configured row for the
-         *     client (exposed or not), so admin UI can render toggles.
-         */
-        get: operations["board_exposures_list"];
-        /** PUT /api/clients/{id}/board-exposures — upsert one board×client row. */
-        put: operations["board_exposures_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/clients/{id}/contacts": {
         parameters: {
             query?: never;
@@ -906,24 +1047,6 @@ export interface paths {
         put?: never;
         /** POST /api/clients/{id}/contacts */
         post: operations["clients_create_contact"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/clients/{id}/portal-users": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/clients/{id}/portal-users — directory for one client. */
-        get: operations["portal_users_list"];
-        put?: never;
-        /** POST /api/clients/{id}/portal-users — provision (invite) one identity. */
-        post: operations["portal_users_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1128,6 +1251,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/on-call-blocks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/on-call-blocks?user_id=&from=&to= */
+        get: operations["on_call_list"];
+        put?: never;
+        /** POST /api/on-call-blocks — add a rotation segment (409 when stacking). */
+        post: operations["on_call_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/on-call-blocks/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** DELETE /api/on-call-blocks/{id}?user_id= */
+        delete: operations["on_call_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/org": {
         parameters: {
             query?: never;
@@ -1149,31 +1307,7 @@ export interface paths {
         patch: operations["org_profile_patch"];
         trace?: never;
     };
-    "/api/portal-users/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * DELETE /api/portal-users/{id} — hard removal (sessions cascade). Prefer
-         *     PATCH status=disabled to preserve history.
-         */
-        delete: operations["portal_users_delete"];
-        options?: never;
-        head?: never;
-        /**
-         * PATCH /api/portal-users/{id} — rename / re-tier / enable / disable /
-         *     reset password.
-         */
-        patch: operations["portal_users_patch"];
-        trace?: never;
-    };
-    "/api/portal/login": {
+    "/api/scheduling/conflict-check": {
         parameters: {
             query?: never;
             header?: never;
@@ -1183,114 +1317,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * POST /api/portal/login — argon2 verify against `portal_users`. No MFA in
-         *     portal v1 (documented deferral). Disabled accounts resolve to nothing →
-         *     uniform 401, never revealing which half failed.
+         * POST /api/scheduling/conflict-check — dry-run overlap probe that writes
+         *     nothing: returns every blocking booking for the candidate slot.
          */
-        post: operations["portal_login"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/portal/me": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/portal/me — the signed-in portal identity. */
-        get: operations["portal_me"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/portal/refresh": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * POST /api/portal/refresh — rotation within the portal session family.
-         *     A presented token resolves ONLY via its live session row; rotation
-         *     revokes that row, so replaying an old refresh token fails.
-         */
-        post: operations["portal_refresh"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/portal/tickets": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * GET /api/portal/tickets — the caller's client's tickets across EXPOSED
-         *     boards only. Unexposed boards are invisible, not empty-filtered.
-         */
-        get: operations["portal_list_tickets"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/portal/tickets/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * GET /api/portal/tickets/{id} — detail plus comments through the
-         *     notes-taxonomy whitelist for the caller's tier. A ticket from another
-         *     client (or an unexposed board) is a 404, indistinguishable from absent.
-         */
-        get: operations["portal_get_ticket"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/portal/tickets/{id}/reply": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * POST /api/portal/tickets/{id}/reply — ALWAYS creates a `client_visible`
-         *     comment regardless of tier, authored under portal audit provenance
-         *     (`actor_kind = portal_contact | portal_approver | portal_it_manager`;
-         *     `author_id` stays NULL because portal identities are not staff rows).
-         *     Emits the SAME `ticket.comment_added` event as staff replies so every
-         *     downstream notification path works unchanged.
-         */
-        post: operations["portal_reply"];
+        post: operations["scheduling_conflict_check"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1844,99 +1874,11 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/webhooks": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/webhooks — the org's subscriptions (never includes secrets). */
-        get: operations["webhooks_list"];
-        put?: never;
-        /**
-         * POST /api/webhooks — create a subscription; responds with the signing
-         *     secret once. Emits an audit record in the same transaction.
-         */
-        post: operations["webhooks_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/webhooks/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * DELETE /api/webhooks/{id} — removes the subscription; deliveries
-         *     cascade (history is intentionally scoped to the subscription's life).
-         */
-        delete: operations["webhooks_delete"];
-        options?: never;
-        head?: never;
-        /** PATCH /api/webhooks/{id} — mutate URL / filter / enabled flag. */
-        patch: operations["webhooks_update"];
-        trace?: never;
-    };
-    "/api/webhooks/{id}/deliveries": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * GET /api/webhooks/{id}/deliveries — the in-app delivery log, newest
-         *     first, keyset-cursor paged.
-         */
-        get: operations["webhooks_deliveries_list"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/webhooks/{id}/test": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * POST /api/webhooks/{id}/test — fires one `webhook.test` envelope into
-         *     the real pipeline (outbox → relay → stream → signed delivery), then
-         *     returns 202; poll the deliveries endpoint to watch attempts land.
-         */
-        post: operations["webhooks_test_fire"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /**
-         * @description Who performed the audited action. Append-only provenance record.
-         *     Portal variants carry the client-side tier so audit trails distinguish
-         *     staff actions from client-portal actions at the storage layer
-         *     (actor_kind portal_contact / portal_approver / portal_it_manager).
-         */
+        /** @description Who performed the audited action. Append-only provenance record. */
         Actor: {
             /** Format: uuid */
             id: string;
@@ -1957,21 +1899,6 @@ export interface components {
         } | {
             /** @enum {string} */
             kind: "system";
-        } | {
-            /** Format: uuid */
-            id: string;
-            /** @enum {string} */
-            kind: "portal_contact";
-        } | {
-            /** Format: uuid */
-            id: string;
-            /** @enum {string} */
-            kind: "portal_approver";
-        } | {
-            /** Format: uuid */
-            id: string;
-            /** @enum {string} */
-            kind: "portal_it_manager";
         };
         AddChecklistItemRequest: {
             text: string;
@@ -1981,31 +1908,50 @@ export interface components {
             kind: components["schemas"]["NoteKind"];
         };
         /**
-         * @description The ONLY response carrying raw key material. Lost keys are rotated by
-         *     creating a new key and revoking this one — never recovered.
+         * @description A booked slot on one user's calendar, optionally tied to a ticket and
+         *     client/site. `travel_minutes` is a dispatch-board placeholder — never
+         *     interpreted by scheduling rules in this stage.
          */
-        ApiKeyCreatedResponse: {
-            key: components["schemas"]["ApiKeyView"];
-            /** @description Raw bearer material: `mrd_<32 hex>`. */
-            raw_key: string;
-        };
-        ApiKeyList: {
-            keys: components["schemas"]["ApiKeyView"][];
-        };
-        ApiKeyView: {
+        Appointment: {
+            /** Format: uuid */
+            client_id?: string | null;
             /** Format: date-time */
             created_at: string;
+            /** Format: date-time */
+            ends_at: string;
             /** Format: uuid */
             id: string;
+            kind: components["schemas"]["AppointmentKind"];
+            notes?: string | null;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            site_id?: string | null;
             /** Format: date-time */
-            last_used_at?: string | null;
-            name: string;
-            /** @description Non-secret display prefix, e.g. "mrd_ab12cd34". */
-            prefix: string;
+            starts_at: string;
+            status: components["schemas"]["AppointmentStatus"];
+            /** Format: uuid */
+            ticket_id?: string | null;
+            title: string;
+            /** Format: int32 */
+            travel_minutes: number;
             /** Format: date-time */
-            revoked_at?: string | null;
-            scopes: string[];
+            updated_at: string;
+            /** Format: uuid */
+            user_id: string;
         };
+        /**
+         * @description What an appointment is physically for. Drives rendering color-coding on
+         *     calendars and future travel-time logic (on_site only).
+         * @enum {string}
+         */
+        AppointmentKind: "on_site" | "remote" | "internal" | "personal";
+        /**
+         * @description Lifecycle of a booking. `cancelled` frees the slot (the DB exclusion
+         *     constraint's partial predicate); `done` still occupies it.
+         * @enum {string}
+         */
+        AppointmentStatus: "scheduled" | "in_progress" | "done" | "cancelled";
         AssignGroupRequest: {
             /**
              * Format: uuid
@@ -2076,6 +2022,42 @@ export interface components {
             /** @enum {string} */
             type: "unassigned";
         };
+        AvailabilityListResponse: {
+            /** Format: uuid */
+            user_id: string;
+            windows: components["schemas"]["AvailabilityWindow"][];
+        };
+        AvailabilityQuery: {
+            /**
+             * Format: uuid
+             * @description Whose windows. Defaults to the caller; another user requires owner/admin.
+             */
+            user_id?: string | null;
+        };
+        /**
+         * @description One recurring weekly availability template: `weekday` (0 = Monday …
+         *     6 = Sunday), local wall-clock `[start_local, end_local)` in `timezone`,
+         *     optionally bounded by an effective date range. This is a TEMPLATE —
+         *     occurrences are computed, never stored.
+         */
+        AvailabilityWindow: {
+            /** Format: date-time */
+            created_at: string;
+            effective_from?: string | null;
+            effective_until?: string | null;
+            end_local: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            start_local: string;
+            /** @description IANA timezone the wall-clock bounds live in. */
+            timezone: string;
+            /** Format: uuid */
+            user_id: string;
+            /** Format: int32 */
+            weekday: number;
+        };
         Board: {
             /**
              * Format: date-time
@@ -2095,16 +2077,6 @@ export interface components {
              *     defaults-first doctrine, migration 0016).
              */
             require_checklist_close: boolean;
-        };
-        BoardExposureView: {
-            /** Format: uuid */
-            board_id: string;
-            /** Format: uuid */
-            client_id: string;
-            exposed: boolean;
-            /** Format: uuid */
-            id: string;
-            visible_status_ids: string[];
         };
         /**
          * @description A named, ordered nav grouping of boards within one org (TASKLIST 2.11).
@@ -2221,6 +2193,62 @@ export interface components {
                 string,
                 string
             ] | null)[];
+        };
+        /** @description Absolute UTC time-off punching holes in availability. */
+        CalendarExclusion: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            ends_at: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            reason?: string | null;
+            /** Format: date-time */
+            starts_at: string;
+            /** Format: uuid */
+            user_id: string;
+        };
+        /**
+         * @description Flat merged entry so calendars render one ordered list without caring
+         *     which table produced it.
+         */
+        CalendarItem: {
+            /** @description On-call-only field. */
+            category?: string | null;
+            /** Format: date-time */
+            ends_at: string;
+            /** Format: uuid */
+            id: string;
+            /** @description "appointment" | "on_call" */
+            item_type: string;
+            kind?: null | components["schemas"]["AppointmentKind"];
+            /** Format: date-time */
+            starts_at: string;
+            status?: null | components["schemas"]["AppointmentStatus"];
+            /** Format: uuid */
+            ticket_id?: string | null;
+            title?: string | null;
+            /** Format: uuid */
+            user_id: string;
+        };
+        CalendarViewResponse: {
+            /** @description Present on personal views only (templates are per-user). */
+            availability_windows: components["schemas"]["AvailabilityWindow"][];
+            exclusions: components["schemas"]["CalendarExclusion"][];
+            /** Format: date-time */
+            from: string;
+            /** @description Merged appointments + on-call, ordered by starts_at then id. */
+            items: components["schemas"]["CalendarItem"][];
+            timezone: string;
+            /** Format: date-time */
+            to: string;
+            /**
+             * Format: uuid
+             * @description None on team-wide views.
+             */
+            user_id?: string | null;
         };
         ChangeStatusRequest: {
             /** Format: uuid */
@@ -2339,6 +2367,33 @@ export interface components {
         CommentListQuery: {
             kind?: null | components["schemas"]["NoteKind"];
         };
+        ConflictCheckRequest: {
+            /** Format: date-time */
+            ends_at: string;
+            /**
+             * Format: uuid
+             * @description Appointment excluded from the check (its own id when rescheduling).
+             */
+            exclude_appointment_id?: string | null;
+            /** Format: date-time */
+            starts_at: string;
+            /** Format: uuid */
+            user_id: string;
+        };
+        ConflictCheckResponse: {
+            conflicts: components["schemas"]["ConflictView"][];
+            has_conflict: boolean;
+        };
+        /** @description One blocking booking named by the dry-run. */
+        ConflictView: {
+            /** Format: uuid */
+            appointment_id: string;
+            /** Format: date-time */
+            ends_at: string;
+            /** Format: date-time */
+            starts_at: string;
+            title: string;
+        };
         Contact: {
             /** Format: uuid */
             client_id: string;
@@ -2356,15 +2411,56 @@ export interface components {
             site_id?: string | null;
             title?: string | null;
         };
-        CreateApiKeyRequest: {
-            name: string;
-            /** @description Capability scopes from [`KNOWN_SCOPES`]. */
-            scopes: string[];
+        CreateAppointmentRequest: {
+            /** Format: uuid */
+            client_id?: string | null;
+            /** Format: date-time */
+            ends_at: string;
+            kind?: null | components["schemas"]["AppointmentKind"];
+            notes?: string | null;
+            /** Format: uuid */
+            site_id?: string | null;
+            /** Format: date-time */
+            starts_at: string;
+            /** Format: uuid */
+            ticket_id?: string | null;
+            title: string;
+            /**
+             * Format: int32
+             * @description Dispatch placeholder, stored verbatim (RoutingProvider comes later).
+             */
+            travel_minutes?: number;
+            /**
+             * Format: uuid
+             * @description Assignee whose calendar holds the slot. Defaults to the caller;
+             *     booking for someone else requires owner/admin.
+             */
+            user_id?: string | null;
         };
         CreateAssetRequest: {
             kind?: string | null;
             name: string;
             tag: string;
+        };
+        CreateAvailabilityRequest: {
+            effective_from?: string | null;
+            effective_until?: string | null;
+            end_local: string;
+            /** @description Local wall-clock "HH:MM" (window is `[start, end)`). */
+            start_local: string;
+            /** @description IANA timezone the wall-clock bounds live in. */
+            timezone: string;
+            /**
+             * Format: uuid
+             * @description Whose calendar. Defaults to the caller; another user requires
+             *     owner/admin.
+             */
+            user_id?: string | null;
+            /**
+             * Format: int32
+             * @description 0 = Monday … 6 = Sunday.
+             */
+            weekday: number;
         };
         CreateBoardRequest: {
             description?: string | null;
@@ -2386,20 +2482,30 @@ export interface components {
             phone?: string | null;
             title?: string | null;
         };
+        CreateExclusionRequest: {
+            /** Format: date-time */
+            ends_at: string;
+            reason?: string | null;
+            /** Format: date-time */
+            starts_at: string;
+            /** Format: uuid */
+            user_id?: string | null;
+        };
         CreateGroupRequest: {
             name: string;
             /** Format: int32 */
             position?: number | null;
         };
-        CreatePortalUserRequest: {
-            display_name: string;
-            email: string;
-            /**
-             * @description Initial credential, hashed with argon2id before storage. The admin
-             *     delivers it to the contact out-of-band (v1 has no invite email).
-             */
-            password: string;
-            role: components["schemas"]["PortalRole"];
+        CreateOnCallRequest: {
+            /** @description Rotation label ('primary', 'secondary', 'escalation', …). */
+            category: string;
+            /** Format: date-time */
+            ends_at: string;
+            notes?: string | null;
+            /** Format: date-time */
+            starts_at: string;
+            /** Format: uuid */
+            user_id?: string | null;
         };
         CreateRuleRequest: {
             /** @description Action documents (see AutomationAction schema). */
@@ -2464,11 +2570,19 @@ export interface components {
             ticket_id: string;
             work_type?: string | null;
         };
-        CreateWebhookRequest: {
-            /** @description Exact event types to subscribe; empty subscribes to everything. */
-            event_types?: string[];
-            /** @description HTTPS endpoint receiving `POST`s. (http:// allowed for local dev.) */
-            url: string;
+        DayWeekQuery: {
+            /**
+             * @description Local date in the TARGET user's timezone. Day view: the day itself.
+             *     Week view: any date inside the week (Monday-start). Defaults to
+             *     today in that timezone.
+             */
+            date?: string | null;
+            /**
+             * Format: uuid
+             * @description Whose calendar. Defaults to the caller; another user requires
+             *     owner/admin.
+             */
+            user_id?: string | null;
         };
         /**
          * @description Wire shape of one declaration. Kinds/options are flattened so generated
@@ -2488,37 +2602,6 @@ export interface components {
             section: string;
             /** @description "ui" renders an editable row; "hidden" is state readable via values. */
             visibility: string;
-        };
-        DeliveryAttemptView: {
-            /** Format: int32 */
-            attempt: number;
-            /** Format: date-time */
-            created_at: string;
-            /** Format: date-time */
-            delivered_at?: string | null;
-            /** Format: uuid */
-            event_id: string;
-            event_type: string;
-            /** Format: uuid */
-            id: string;
-            last_error?: string | null;
-            /** Format: date-time */
-            next_retry_at?: string | null;
-            /**
-             * Format: int32
-             * @description HTTP status when a response arrived; null for transport failures.
-             */
-            response_status?: number | null;
-        };
-        DeliveryPage: {
-            deliveries: components["schemas"]["DeliveryAttemptView"][];
-            /** @description Opaque keyset cursor for the next page; absent when exhausted. */
-            next_cursor?: string | null;
-        };
-        DeliveryQuery: {
-            cursor?: string | null;
-            /** Format: int64 */
-            limit?: number;
         };
         DeviceAsset: {
             /** Format: uuid */
@@ -2698,6 +2781,12 @@ export interface components {
             /** @description The `mfa_token` from POST /api/auth/login when mfa_required was set. */
             mfa_token: string;
         };
+        MoveAppointmentRequest: {
+            /** Format: date-time */
+            ends_at: string;
+            /** Format: date-time */
+            starts_at: string;
+        };
         /**
          * @description One cross-board my-work queue row (TASKLIST 2.11): the ticket plus the
          *     annotations the Today screen renders per the mockup.
@@ -2774,6 +2863,24 @@ export interface components {
             /** @description URL path segment used by login/link routes. */
             name: string;
         };
+        /** @description An absolute UTC on-call rotation segment for one user. */
+        OnCallBlock: {
+            /** @description Free-form rotation label ('primary', 'secondary', 'escalation', …). */
+            category: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            ends_at: string;
+            /** Format: uuid */
+            id: string;
+            notes?: string | null;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: date-time */
+            starts_at: string;
+            /** Format: uuid */
+            user_id: string;
+        };
         OrgProfileResponse: {
             /** Format: uuid */
             id: string;
@@ -2781,16 +2888,26 @@ export interface components {
             slug: string;
             ticket_prefix: string;
         };
+        OwnedDeleteQuery: {
+            /**
+             * Format: uuid
+             * @description Owner of the row being deleted (must match self-or-admin rule).
+             */
+            user_id: string;
+        };
+        PatchAppointmentRequest: {
+            kind?: null | components["schemas"]["AppointmentKind"];
+            notes?: string | null;
+            status?: null | components["schemas"]["AppointmentStatus"];
+            /** Format: uuid */
+            ticket_id?: string | null;
+            title?: string | null;
+            /** Format: int32 */
+            travel_minutes?: number | null;
+        };
         PatchOrgRequest: {
             name?: string | null;
             ticket_prefix?: string | null;
-        };
-        PatchPortalUserRequest: {
-            display_name?: string | null;
-            /** @description Optional credential reset (hashed before storage). */
-            password?: string | null;
-            role?: null | components["schemas"]["PortalRole"];
-            status?: null | components["schemas"]["PortalUserStatus"];
         };
         PatchTicketRequest: {
             /**
@@ -2831,89 +2948,6 @@ export interface components {
             /** @description True while the policy governs itself via its embedded calendar. */
             uses_embedded_calendar: boolean;
         };
-        PortalLoginRequest: {
-            email: string;
-            password: string;
-        };
-        PortalLoginResponse: {
-            access_token: string;
-            /** Format: int64 */
-            expires_in: number;
-            portal_user: components["schemas"]["PortalProfile"];
-            refresh_token: string;
-            /** Format: uuid */
-            session_id: string;
-        };
-        /** @description The signed-in portal identity (also served by GET /api/portal/me). */
-        PortalProfile: {
-            /** Format: uuid */
-            client_id: string;
-            display_name: string;
-            email: string;
-            /** Format: uuid */
-            id: string;
-            /** Format: uuid */
-            org_id: string;
-            role: components["schemas"]["PortalRole"];
-        };
-        PortalRefreshRequest: {
-            refresh_token: string;
-            /** Format: uuid */
-            session_id: string;
-        };
-        PortalReplyRequest: {
-            body: string;
-        };
-        /**
-         * @description Portal role tiers. `contact` is the default read/reply tier;
-         *     `approver` is behaviorally identical in v1 but exists so approval
-         *     grants (Stage 3 quote approval / Stage 4 optional client approvals)
-         *     can be layered on without re-provisioning identities; `it_manager`
-         *     ADDITIONALLY reads `in_house_update` notes. NO tier ever reads
-         *     `internal` notes — enforced by `notes::visible_kinds`, tested in
-         *     `policy` and `notes`.
-         * @enum {string}
-         */
-        PortalRole: "contact" | "approver" | "it_manager";
-        PortalTicketDetail: {
-            can_view_in_house_updates: boolean;
-            /** @description Only the kinds this tier may read, filtered by the domain policy. */
-            comments: components["schemas"]["TicketComment"][];
-            ticket: components["schemas"]["Ticket"];
-        };
-        PortalTicketListQuery: {
-            /** Format: uuid */
-            board_id?: string | null;
-            category?: null | components["schemas"]["TicketStatusCategory"];
-            /** Format: int64 */
-            limit?: number;
-            /** Format: int64 */
-            offset?: number;
-        };
-        PortalUser: {
-            /** Format: uuid */
-            client_id: string;
-            /** Format: date-time */
-            created_at: string;
-            display_name: string;
-            email: string;
-            /** Format: uuid */
-            id: string;
-            /** Format: uuid */
-            org_id: string;
-            role: components["schemas"]["PortalRole"];
-            status: components["schemas"]["PortalUserStatus"];
-            /** Format: date-time */
-            updated_at: string;
-        };
-        /**
-         * @description Lifecycle of a portal identity. `invited` = admin-provisioned, has not
-         *     logged in yet; first successful login flips to `active`. `disabled`
-         *     blocks login AND every authenticated portal request (checked per
-         *     request, never cached in the token).
-         * @enum {string}
-         */
-        PortalUserStatus: "invited" | "active" | "disabled";
         /**
          * @description One resolved preference row: which chain link supplied it (`user`,
          *     `org_default`, or `builtin`), the channel toggles, and the quiet-hours
@@ -2945,15 +2979,13 @@ export interface components {
             /** @description Enforcement toggle (defaults-first: OFF until explicitly enabled). */
             require_checklist_close?: boolean;
         };
-        PutExposureRequest: {
+        RangeParams: {
+            /** Format: date-time */
+            from?: string | null;
+            /** Format: date-time */
+            to?: string | null;
             /** Format: uuid */
-            board_id: string;
-            exposed: boolean;
-            /**
-             * @description Empty = all statuses visible (v1 default). Non-empty narrows to
-             *     statuses OF THAT BOARD — unknown ids are rejected, not silently kept.
-             */
-            visible_status_ids: string[];
+            user_id?: string | null;
         };
         RecoveryCodesResponse: {
             /** @description Plaintext codes — displayed once, stored only as argon2id hashes. */
@@ -3136,12 +3168,17 @@ export interface components {
              */
             session_id?: string | null;
         };
-        TestFireResponse: {
+        TeamRangeQuery: {
             /**
-             * Format: uuid
-             * @description The envelope id to look for in the delivery log.
+             * Format: date-time
+             * @description Inclusive window start (default: today's UTC midnight minus 1 day).
              */
-            event_id: string;
+            from?: string | null;
+            /**
+             * Format: date-time
+             * @description Exclusive window end (default: `from` + 8 days).
+             */
+            to?: string | null;
         };
         Ticket: {
             /** Format: uuid */
@@ -3448,11 +3485,6 @@ export interface components {
             /** Format: int32 */
             time_gap_min_minutes: number;
         };
-        UpdateWebhookRequest: {
-            enabled?: boolean | null;
-            event_types?: string[] | null;
-            url?: string | null;
-        };
         UpsertMemberRequest: {
             role: components["schemas"]["BoardRole"];
             /** Format: uuid */
@@ -3513,29 +3545,6 @@ export interface components {
         WebauthnRemoveRequest: {
             password: string;
         };
-        WebhookList: {
-            webhooks: components["schemas"]["WebhookView"][];
-        };
-        /**
-         * @description Returned by create ONLY — carries the signing secret in plaintext one
-         *     final time. There is deliberately no read-back path.
-         */
-        WebhookSecretResponse: {
-            secret: string;
-            webhook: components["schemas"]["WebhookView"];
-        };
-        WebhookView: {
-            /** Format: date-time */
-            created_at: string;
-            /** Format: uuid */
-            created_by?: string | null;
-            enabled: boolean;
-            /** @description Empty array = wildcard (all event types). */
-            event_types: string[];
-            /** Format: uuid */
-            id: string;
-            url: string;
-        };
     };
     responses: never;
     parameters: never;
@@ -3545,26 +3554,7 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    api_keys_list: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiKeyList"];
-                };
-            };
-        };
-    };
-    api_keys_create: {
+    appointment_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -3573,7 +3563,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateApiKeyRequest"];
+                "application/json": components["schemas"]["CreateAppointmentRequest"];
             };
         };
         responses: {
@@ -3582,12 +3572,19 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiKeyCreatedResponse"];
+                    "application/json": components["schemas"]["Appointment"];
                 };
+            };
+            /** @description slot already booked */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
-    api_keys_revoke: {
+    appointment_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -3598,7 +3595,111 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            204: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Appointment"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    appointment_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchAppointmentRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Appointment"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    appointment_cancel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Appointment"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    appointment_move: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveAppointmentRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Appointment"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description target slot already booked */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4328,6 +4429,79 @@ export interface operations {
             };
         };
     };
+    availability_list: {
+        parameters: {
+            query?: {
+                /** @description Whose windows. Defaults to the caller; another user requires owner/admin. */
+                user_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AvailabilityListResponse"];
+                };
+            };
+        };
+    };
+    availability_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAvailabilityRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AvailabilityWindow"];
+                };
+            };
+        };
+    };
+    availability_delete: {
+        parameters: {
+            query: {
+                /** @description Owner of the row being deleted (must match self-or-admin rule). */
+                user_id: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     board_groups_list: {
         parameters: {
             query?: never;
@@ -4788,6 +4962,166 @@ export interface operations {
             };
         };
     };
+    calendar_exclusion_list: {
+        parameters: {
+            query?: {
+                user_id?: string | null;
+                from?: string | null;
+                to?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarExclusion"][];
+                };
+            };
+        };
+    };
+    calendar_exclusion_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateExclusionRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarExclusion"];
+                };
+            };
+        };
+    };
+    calendar_exclusion_delete: {
+        parameters: {
+            query: {
+                /** @description Owner of the row being deleted (must match self-or-admin rule). */
+                user_id: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    calendar_day: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Whose calendar. Defaults to the caller; another user requires
+                 *     owner/admin.
+                 */
+                user_id?: string | null;
+                /**
+                 * @description Local date in the TARGET user's timezone. Day view: the day itself.
+                 *     Week view: any date inside the week (Monday-start). Defaults to
+                 *     today in that timezone.
+                 */
+                date?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarViewResponse"];
+                };
+            };
+        };
+    };
+    calendar_team: {
+        parameters: {
+            query?: {
+                /** @description Inclusive window start (default: today's UTC midnight minus 1 day). */
+                from?: string | null;
+                /** @description Exclusive window end (default: `from` + 8 days). */
+                to?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarViewResponse"];
+                };
+            };
+        };
+    };
+    calendar_week: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Whose calendar. Defaults to the caller; another user requires
+                 *     owner/admin.
+                 */
+                user_id?: string | null;
+                /**
+                 * @description Local date in the TARGET user's timezone. Day view: the day itself.
+                 *     Week view: any date inside the week (Monday-start). Defaults to
+                 *     today in that timezone.
+                 */
+                date?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarViewResponse"];
+                };
+            };
+        };
+    };
     clients_list: {
         parameters: {
             query?: never;
@@ -4897,59 +5231,6 @@ export interface operations {
             };
         };
     };
-    board_exposures_list: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BoardExposureView"][];
-                };
-            };
-        };
-    };
-    board_exposures_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PutExposureRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BoardExposureView"];
-                };
-            };
-            /** @description board or client missing */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
     clients_list_contacts: {
         parameters: {
             query?: never;
@@ -4993,59 +5274,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Contact"];
                 };
-            };
-        };
-    };
-    portal_users_list: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PortalUser"][];
-                };
-            };
-        };
-    };
-    portal_users_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreatePortalUserRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PortalUser"];
-                };
-            };
-            /** @description email already provisioned */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
         };
     };
@@ -5320,6 +5548,95 @@ export interface operations {
             };
         };
     };
+    on_call_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Whose calendar. Defaults to the caller; another user requires
+                 *     owner/admin.
+                 */
+                user_id: string | null;
+                /**
+                 * @description Local date in the TARGET user's timezone. Day view: the day itself.
+                 *     Week view: any date inside the week (Monday-start). Defaults to
+                 *     today in that timezone.
+                 */
+                date: string | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnCallBlock"][];
+                };
+            };
+        };
+    };
+    on_call_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateOnCallRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnCallBlock"];
+                };
+            };
+            /** @description overlapping rotation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    on_call_delete: {
+        parameters: {
+            query: {
+                /** @description Owner of the row being deleted (must match self-or-admin rule). */
+                user_id: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     org_profile_get: {
         parameters: {
             query?: never;
@@ -5368,63 +5685,7 @@ export interface operations {
             };
         };
     };
-    portal_users_delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    portal_users_patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PatchPortalUserRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PortalUser"];
-                };
-            };
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    portal_login: {
+    scheduling_conflict_check: {
         parameters: {
             query?: never;
             header?: never;
@@ -5433,7 +5694,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["PortalLoginRequest"];
+                "application/json": components["schemas"]["ConflictCheckRequest"];
             };
         };
         responses: {
@@ -5442,139 +5703,8 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PortalLoginResponse"];
+                    "application/json": components["schemas"]["ConflictCheckResponse"];
                 };
-            };
-            /** @description bad credentials */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    portal_me: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PortalProfile"];
-                };
-            };
-        };
-    };
-    portal_refresh: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PortalRefreshRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PortalLoginResponse"];
-                };
-            };
-        };
-    };
-    portal_list_tickets: {
-        parameters: {
-            query?: {
-                board_id?: string | null;
-                category?: null | components["schemas"]["TicketStatusCategory"];
-                limit?: number;
-                offset?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Ticket"][];
-                };
-            };
-        };
-    };
-    portal_get_ticket: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PortalTicketDetail"];
-                };
-            };
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    portal_reply: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PortalReplyRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TicketComment"];
-                };
-            };
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
         };
     };
@@ -6470,137 +6600,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TimerSession"][];
-                };
-            };
-        };
-    };
-    webhooks_list: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WebhookList"];
-                };
-            };
-        };
-    };
-    webhooks_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateWebhookRequest"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WebhookSecretResponse"];
-                };
-            };
-        };
-    };
-    webhooks_delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    webhooks_update: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateWebhookRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WebhookView"];
-                };
-            };
-        };
-    };
-    webhooks_deliveries_list: {
-        parameters: {
-            query?: {
-                cursor?: string | null;
-                limit?: number;
-            };
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DeliveryPage"];
-                };
-            };
-        };
-    };
-    webhooks_test_fire: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TestFireResponse"];
                 };
             };
         };

@@ -16,6 +16,7 @@ pub mod money;
 pub mod notes;
 pub mod notifications;
 pub mod policy;
+pub mod scheduling;
 pub mod settings;
 pub mod sla_engine;
 pub mod status;
