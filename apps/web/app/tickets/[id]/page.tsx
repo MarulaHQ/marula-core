@@ -27,8 +27,12 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { AppHeader } from "../../../components/app-header";
 import { TicketCustomFields } from "../../../components/ticket-custom-fields";
-import { api, useRequireAuth } from "../../../lib/api";
-import { api, downloadAttachment, uploadAttachment, useRequireAuth } from "../../../lib/api";
+import {
+  api,
+  downloadAttachment,
+  uploadAttachment,
+  useRequireAuth,
+} from "../../../lib/api";
 
 type Ticket = components["schemas"]["TicketWithFields"];
 type MyWorkItem = components["schemas"]["MyWorkItem"];
