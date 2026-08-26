@@ -3111,221 +3111,12 @@ async fn day_activity_detects_comments_and_overlapping_timer_sessions() {
 
     // A comment inside the window counts.
     let ticket = {
-// --- client portal v1 (TASKLIST 2.13) ----------------------------------------
-//
-// Slots 100–109 are this lane's exclusive seed range. The matrix below pins:
-// RLS on all three new tables, per-CLIENT scoping on top of org RLS (the
-// cross-client isolation contract), exposure gating + status narrowing,
-// the portal session family, and portal-tier audit provenance.
-
-/// Seeds one client in an already-seeded org.
-async fn seed_client(app: &PgPool, s: &Seeded, n: u64, name: &str) -> Uuid {
-    let id = fixed_uuid(n);
-    let mut tx = org_tx(app, s.org).await;
-    core_db::clients::create_client(&mut *tx, s.org, id, name, None)
-        .await
-        .expect("client insert");
-    tx.commit().await.expect("commit client");
-    id
-}
-
-async fn create_portal_user(
-    conn: &mut PgConnection,
-    s: &Seeded,
-    client_id: Uuid,
-    n: u64,
-    email: &str,
-    role: PortalRole,
-) -> DbResult<PortalUser> {
-    portal::create_portal_user(
-        conn,
-        portal::NewPortalUser {
-            id: fixed_uuid(n),
-            org_id: s.org,
-            client_id,
-            email,
-            display_name: "Portal Person",
-            password_hash: "argon2hash",
-            role,
-        },
-    )
-    .await
-}
-
-#[tokio::test]
-async fn portal_users_lifecycle_rls_and_client_scoping() {
-    let db = test_db().await;
-    let s = seed_org(&db.app, 100).await;
-    let client_a = seed_client(&db.app, &s, 1010, "Client A").await;
-    let client_b = seed_client(&db.app, &s, 1011, "Client B").await;
-
-    let ua = {
-        let mut tx = org_tx(&db.app, s.org).await;
-        let u = create_portal_user(
-            &mut tx,
-            &s,
-            client_a,
-            1012,
-            "a@client.test",
-            PortalRole::Contact,
-        )
-        .await
-        .expect("insert");
-        tx.commit().await.expect("commit");
-        u
-    };
-    assert_eq!(ua.status, PortalUserStatus::Invited);
-    assert_eq!(ua.role, PortalRole::Contact);
-    assert_eq!(ua.client_id, client_a);
-
-    // Same email under the SAME org → unique violation. Runs in its OWN
-    // transaction: a violated constraint aborts its transaction in
-    // Postgres, and we still need this one afterwards.
-    {
-        let mut dup_tx = org_tx(&db.app, s.org).await;
-        assert!(create_portal_user(
-            &mut dup_tx,
-            &s,
-            client_b,
-            1013,
-            "a@client.test",
-            PortalRole::ItManager
-        )
-        .await
-        .is_err());
-        dup_tx.rollback().await.expect("rollback dup probe");
-    }
-    {
-        let mut tx = org_tx(&db.app, s.org).await;
-        let it = create_portal_user(
-            &mut tx,
-            &s,
-            client_b,
-            1014,
-            "it@client.test",
-            PortalRole::ItManager,
-        )
-        .await
-        .expect("second identity");
-
-        // Client-scoped directory listing.
-        let for_a = portal::list_portal_users(&mut *tx, s.org, Some(client_a))
-            .await
-            .expect("list A");
-        assert_eq!(for_a.len(), 1);
-        assert_eq!(for_a[0].id, ua.id);
-        let for_b = portal::list_portal_users(&mut *tx, s.org, Some(client_b))
-            .await
-            .expect("list B");
-        assert_eq!(for_b.len(), 1);
-        assert_eq!(for_b[0].role, PortalRole::ItManager);
-
-        // Patch: re-tier + activate + password reset.
-        let patched = portal::update_portal_user(
-            &mut *tx,
-            s.org,
-            ua.id,
-            portal::PortalUserPatch {
-                display_name: None,
-                role: Some(PortalRole::Approver),
-                status: Some(PortalUserStatus::Active),
-                password_hash: Some("new-hash".into()),
-            },
-        )
-        .await
-        .expect("patch");
-        assert_eq!(patched.role, PortalRole::Approver);
-        assert_eq!(patched.status, PortalUserStatus::Active);
-
-        // Credentials lookup is case-insensitive and org-scoped.
-        let creds = portal::find_portal_credentials_by_email(&mut *tx, s.org, "IT@CLIENT.TEST")
-            .await
-            .expect("creds")
-            .expect("found");
-        assert_eq!(creds.id, it.id);
-        assert!(
-            portal::find_portal_credentials_by_email(&mut *tx, s.org, "nobody@x.test")
-                .await
-                .expect("creds")
-                .is_none()
-        );
-
-        // First-login activation only flips invited rows.
-        portal::activate_on_first_login(&mut *tx, s.org, it.id)
-            .await
-            .expect("activate");
-        portal::activate_on_first_login(&mut *tx, s.org, it.id)
-            .await
-            .expect("re-activate noop");
-        let active = portal::get_portal_user(&mut *tx, s.org, it.id)
-            .await
-            .expect("get");
-        assert_eq!(active.status, PortalUserStatus::Active);
-        tx.commit().await.expect("commit lifecycle tx");
-    }
-
-    // Foreign org: zero visibility (RLS), even with the exact uuid.
-    let sb = seed_org(&db.app, 105).await;
-    {
-        let mut foreign = org_tx(&db.app, sb.org).await;
-        assert!(matches!(
-            portal::get_portal_user(&mut *foreign, s.org, ua.id).await,
-            Err(DbError::NotFound)
-        ));
-        assert_eq!(
-            count_rows(&mut foreign, "portal_users", ua.id).await,
-            0,
-            "cross-org portal users hidden"
-        );
-        assert_eq!(
-            count_rows(&mut foreign, "board_portal_exposure", fixed_uuid(1020)).await,
-            0
-        );
-        assert_eq!(
-            count_rows(&mut foreign, "portal_sessions", fixed_uuid(1030)).await,
-            0
-        );
-    }
-
-    // Unscoped (virgin pool): default-deny across ALL new tables.
-    {
-        let fresh = db.fresh_app_pool().await;
-        let mut tx = fresh.begin().await.expect("begin unscoped");
-        assert_eq!(count_rows(&mut tx, "portal_users", ua.id).await, 0);
-        assert_eq!(
-            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM board_portal_exposure")
-                .fetch_one(&mut *tx)
-                .await
-                .expect("count"),
-            0
-        );
-        assert_eq!(
-            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM portal_sessions")
-                .fetch_one(&mut *tx)
-                .await
-                .expect("count"),
-            0
-        );
-    }
-}
-
-#[tokio::test]
-async fn portal_ticket_reads_never_cross_clients_and_honor_exposure() {
-    let db = test_db().await;
-    let s = seed_org(&db.app, 106).await;
-    let client_a = seed_client(&db.app, &s, 1040, "Cross-check Co").await;
-    let client_b = seed_client(&db.app, &s, 1041, "Other Co").await;
-
-    // Two tickets on the SAME board, one per client.
-    let ticket_a = {
         let mut tx = org_tx(&db.app, s.org).await;
         let t = create_ticket(
             &mut tx,
             &s,
             fixed_uuid(6201),
             "Activity probe",
-            fixed_uuid(1042),
-            "Client A issue",
             Priority::P2,
             s.entry_status,
             None,
@@ -3953,6 +3744,226 @@ async fn my_work_annotated_orders_priority_then_sla_due() {
     assert!(!rows
         .iter()
         .any(|r| r.ticket.category == TicketStatusCategory::Closed));
+}
+
+// --- client portal v1 (TASKLIST 2.13) ----------------------------------------
+//
+// Slots 100–109 are this lane's exclusive seed range. The matrix below pins:
+// RLS on all three new tables, per-CLIENT scoping on top of org RLS (the
+// cross-client isolation contract), exposure gating + status narrowing,
+// the portal session family, and portal-tier audit provenance.
+
+/// Seeds one client in an already-seeded org.
+async fn seed_client(app: &PgPool, s: &Seeded, n: u64, name: &str) -> Uuid {
+    let id = fixed_uuid(n);
+    let mut tx = org_tx(app, s.org).await;
+    core_db::clients::create_client(&mut *tx, s.org, id, name, None)
+        .await
+        .expect("client insert");
+    tx.commit().await.expect("commit client");
+    id
+}
+
+async fn create_portal_user(
+    conn: &mut PgConnection,
+    s: &Seeded,
+    client_id: Uuid,
+    n: u64,
+    email: &str,
+    role: PortalRole,
+) -> DbResult<PortalUser> {
+    portal::create_portal_user(
+        conn,
+        portal::NewPortalUser {
+            id: fixed_uuid(n),
+            org_id: s.org,
+            client_id,
+            email,
+            display_name: "Portal Person",
+            password_hash: "argon2hash",
+            role,
+        },
+    )
+    .await
+}
+
+#[tokio::test]
+async fn portal_users_lifecycle_rls_and_client_scoping() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 100).await;
+    let client_a = seed_client(&db.app, &s, 1010, "Client A").await;
+    let client_b = seed_client(&db.app, &s, 1011, "Client B").await;
+
+    let ua = {
+        let mut tx = org_tx(&db.app, s.org).await;
+        let u = create_portal_user(
+            &mut tx,
+            &s,
+            client_a,
+            1012,
+            "a@client.test",
+            PortalRole::Contact,
+        )
+        .await
+        .expect("insert");
+        tx.commit().await.expect("commit");
+        u
+    };
+    assert_eq!(ua.status, PortalUserStatus::Invited);
+    assert_eq!(ua.role, PortalRole::Contact);
+    assert_eq!(ua.client_id, client_a);
+
+    // Same email under the SAME org → unique violation. Runs in its OWN
+    // transaction: a violated constraint aborts its transaction in
+    // Postgres, and we still need this one afterwards.
+    {
+        let mut dup_tx = org_tx(&db.app, s.org).await;
+        assert!(create_portal_user(
+            &mut dup_tx,
+            &s,
+            client_b,
+            1013,
+            "a@client.test",
+            PortalRole::ItManager
+        )
+        .await
+        .is_err());
+        dup_tx.rollback().await.expect("rollback dup probe");
+    }
+    {
+        let mut tx = org_tx(&db.app, s.org).await;
+        let it = create_portal_user(
+            &mut tx,
+            &s,
+            client_b,
+            1014,
+            "it@client.test",
+            PortalRole::ItManager,
+        )
+        .await
+        .expect("second identity");
+
+        // Client-scoped directory listing.
+        let for_a = portal::list_portal_users(&mut *tx, s.org, Some(client_a))
+            .await
+            .expect("list A");
+        assert_eq!(for_a.len(), 1);
+        assert_eq!(for_a[0].id, ua.id);
+        let for_b = portal::list_portal_users(&mut *tx, s.org, Some(client_b))
+            .await
+            .expect("list B");
+        assert_eq!(for_b.len(), 1);
+        assert_eq!(for_b[0].role, PortalRole::ItManager);
+
+        // Patch: re-tier + activate + password reset.
+        let patched = portal::update_portal_user(
+            &mut *tx,
+            s.org,
+            ua.id,
+            portal::PortalUserPatch {
+                display_name: None,
+                role: Some(PortalRole::Approver),
+                status: Some(PortalUserStatus::Active),
+                password_hash: Some("new-hash".into()),
+            },
+        )
+        .await
+        .expect("patch");
+        assert_eq!(patched.role, PortalRole::Approver);
+        assert_eq!(patched.status, PortalUserStatus::Active);
+
+        // Credentials lookup is case-insensitive and org-scoped.
+        let creds = portal::find_portal_credentials_by_email(&mut *tx, s.org, "IT@CLIENT.TEST")
+            .await
+            .expect("creds")
+            .expect("found");
+        assert_eq!(creds.id, it.id);
+        assert!(
+            portal::find_portal_credentials_by_email(&mut *tx, s.org, "nobody@x.test")
+                .await
+                .expect("creds")
+                .is_none()
+        );
+
+        // First-login activation only flips invited rows.
+        portal::activate_on_first_login(&mut *tx, s.org, it.id)
+            .await
+            .expect("activate");
+        portal::activate_on_first_login(&mut *tx, s.org, it.id)
+            .await
+            .expect("re-activate noop");
+        let active = portal::get_portal_user(&mut *tx, s.org, it.id)
+            .await
+            .expect("get");
+        assert_eq!(active.status, PortalUserStatus::Active);
+        tx.commit().await.expect("commit lifecycle tx");
+    }
+
+    // Foreign org: zero visibility (RLS), even with the exact uuid.
+    let sb = seed_org(&db.app, 105).await;
+    {
+        let mut foreign = org_tx(&db.app, sb.org).await;
+        assert!(matches!(
+            portal::get_portal_user(&mut *foreign, s.org, ua.id).await,
+            Err(DbError::NotFound)
+        ));
+        assert_eq!(
+            count_rows(&mut foreign, "portal_users", ua.id).await,
+            0,
+            "cross-org portal users hidden"
+        );
+        assert_eq!(
+            count_rows(&mut foreign, "board_portal_exposure", fixed_uuid(1020)).await,
+            0
+        );
+        assert_eq!(
+            count_rows(&mut foreign, "portal_sessions", fixed_uuid(1030)).await,
+            0
+        );
+    }
+
+    // Unscoped (virgin pool): default-deny across ALL new tables.
+    {
+        let fresh = db.fresh_app_pool().await;
+        let mut tx = fresh.begin().await.expect("begin unscoped");
+        assert_eq!(count_rows(&mut tx, "portal_users", ua.id).await, 0);
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM board_portal_exposure")
+                .fetch_one(&mut *tx)
+                .await
+                .expect("count"),
+            0
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM portal_sessions")
+                .fetch_one(&mut *tx)
+                .await
+                .expect("count"),
+            0
+        );
+    }
+}
+
+#[tokio::test]
+async fn portal_ticket_reads_never_cross_clients_and_honor_exposure() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 106).await;
+    let client_a = seed_client(&db.app, &s, 1040, "Cross-check Co").await;
+    let client_b = seed_client(&db.app, &s, 1041, "Other Co").await;
+
+    // Two tickets on the SAME board, one per client.
+    let ticket_a = {
+        let mut tx = org_tx(&db.app, s.org).await;
+        let t = create_ticket(
+            &mut tx,
+            &s,
+            fixed_uuid(1042),
+            "Client A issue",
+            Priority::P2,
+            s.entry_status,
+            None,
+        )
+        .await;
         // Attach client A via direct update (helper leaves client NULL).
         sqlx::query("UPDATE tickets SET client_id = $1 WHERE id = $2 AND org_id = $3")
             .bind(client_a)

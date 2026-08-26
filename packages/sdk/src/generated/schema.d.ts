@@ -835,6 +835,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/clients/{id}/board-exposures": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/clients/{id}/board-exposures — every configured row for the
+         *     client (exposed or not), so admin UI can render toggles.
+         */
+        get: operations["board_exposures_list"];
+        /** PUT /api/clients/{id}/board-exposures — upsert one board×client row. */
+        put: operations["board_exposures_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/clients/{id}/contacts": {
         parameters: {
             query?: never;
@@ -847,6 +868,24 @@ export interface paths {
         put?: never;
         /** POST /api/clients/{id}/contacts */
         post: operations["clients_create_contact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/clients/{id}/portal-users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/clients/{id}/portal-users — directory for one client. */
+        get: operations["portal_users_list"];
+        put?: never;
+        /** POST /api/clients/{id}/portal-users — provision (invite) one identity. */
+        post: operations["portal_users_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1070,6 +1109,154 @@ export interface paths {
          *     Idempotent; emits `org.updated` + audit row.
          */
         patch: operations["org_profile_patch"];
+        trace?: never;
+    };
+    "/api/portal-users/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/portal-users/{id} — hard removal (sessions cascade). Prefer
+         *     PATCH status=disabled to preserve history.
+         */
+        delete: operations["portal_users_delete"];
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/portal-users/{id} — rename / re-tier / enable / disable /
+         *     reset password.
+         */
+        patch: operations["portal_users_patch"];
+        trace?: never;
+    };
+    "/api/portal/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/portal/login — argon2 verify against `portal_users`. No MFA in
+         *     portal v1 (documented deferral). Disabled accounts resolve to nothing →
+         *     uniform 401, never revealing which half failed.
+         */
+        post: operations["portal_login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/portal/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/portal/me — the signed-in portal identity. */
+        get: operations["portal_me"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/portal/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/portal/refresh — rotation within the portal session family.
+         *     A presented token resolves ONLY via its live session row; rotation
+         *     revokes that row, so replaying an old refresh token fails.
+         */
+        post: operations["portal_refresh"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/portal/tickets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/portal/tickets — the caller's client's tickets across EXPOSED
+         *     boards only. Unexposed boards are invisible, not empty-filtered.
+         */
+        get: operations["portal_list_tickets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/portal/tickets/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/portal/tickets/{id} — detail plus comments through the
+         *     notes-taxonomy whitelist for the caller's tier. A ticket from another
+         *     client (or an unexposed board) is a 404, indistinguishable from absent.
+         */
+        get: operations["portal_get_ticket"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/portal/tickets/{id}/reply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/portal/tickets/{id}/reply — ALWAYS creates a `client_visible`
+         *     comment regardless of tier, authored under portal audit provenance
+         *     (`actor_kind = portal_contact | portal_approver | portal_it_manager`;
+         *     `author_id` stays NULL because portal identities are not staff rows).
+         *     Emits the SAME `ticket.comment_added` event as staff replies so every
+         *     downstream notification path works unchanged.
+         */
+        post: operations["portal_reply"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/settings/org": {
@@ -1623,7 +1810,12 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** @description Who performed the audited action. Append-only provenance record. */
+        /**
+         * @description Who performed the audited action. Append-only provenance record.
+         *     Portal variants carry the client-side tier so audit trails distinguish
+         *     staff actions from client-portal actions at the storage layer
+         *     (actor_kind portal_contact / portal_approver / portal_it_manager).
+         */
         Actor: {
             /** Format: uuid */
             id: string;
@@ -1644,6 +1836,21 @@ export interface components {
         } | {
             /** @enum {string} */
             kind: "system";
+        } | {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "portal_contact";
+        } | {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "portal_approver";
+        } | {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "portal_it_manager";
         };
         AddChecklistItemRequest: {
             text: string;
@@ -1741,6 +1948,16 @@ export interface components {
              *     defaults-first doctrine, migration 0016).
              */
             require_checklist_close: boolean;
+        };
+        BoardExposureView: {
+            /** Format: uuid */
+            board_id: string;
+            /** Format: uuid */
+            client_id: string;
+            exposed: boolean;
+            /** Format: uuid */
+            id: string;
+            visible_status_ids: string[];
         };
         /**
          * @description A named, ordered nav grouping of boards within one org (TASKLIST 2.11).
@@ -2021,6 +2238,16 @@ export interface components {
             name: string;
             /** Format: int32 */
             position?: number | null;
+        };
+        CreatePortalUserRequest: {
+            display_name: string;
+            email: string;
+            /**
+             * @description Initial credential, hashed with argon2id before storage. The admin
+             *     delivers it to the contact out-of-band (v1 has no invite email).
+             */
+            password: string;
+            role: components["schemas"]["PortalRole"];
         };
         CreateRuleRequest: {
             /** @description Action documents (see AutomationAction schema). */
@@ -2369,6 +2596,13 @@ export interface components {
             name?: string | null;
             ticket_prefix?: string | null;
         };
+        PatchPortalUserRequest: {
+            display_name?: string | null;
+            /** @description Optional credential reset (hashed before storage). */
+            password?: string | null;
+            role?: null | components["schemas"]["PortalRole"];
+            status?: null | components["schemas"]["PortalUserStatus"];
+        };
         PatchTicketRequest: {
             /**
              * Format: uuid
@@ -2408,6 +2642,89 @@ export interface components {
             /** @description True while the policy governs itself via its embedded calendar. */
             uses_embedded_calendar: boolean;
         };
+        PortalLoginRequest: {
+            email: string;
+            password: string;
+        };
+        PortalLoginResponse: {
+            access_token: string;
+            /** Format: int64 */
+            expires_in: number;
+            portal_user: components["schemas"]["PortalProfile"];
+            refresh_token: string;
+            /** Format: uuid */
+            session_id: string;
+        };
+        /** @description The signed-in portal identity (also served by GET /api/portal/me). */
+        PortalProfile: {
+            /** Format: uuid */
+            client_id: string;
+            display_name: string;
+            email: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            role: components["schemas"]["PortalRole"];
+        };
+        PortalRefreshRequest: {
+            refresh_token: string;
+            /** Format: uuid */
+            session_id: string;
+        };
+        PortalReplyRequest: {
+            body: string;
+        };
+        /**
+         * @description Portal role tiers. `contact` is the default read/reply tier;
+         *     `approver` is behaviorally identical in v1 but exists so approval
+         *     grants (Stage 3 quote approval / Stage 4 optional client approvals)
+         *     can be layered on without re-provisioning identities; `it_manager`
+         *     ADDITIONALLY reads `in_house_update` notes. NO tier ever reads
+         *     `internal` notes — enforced by `notes::visible_kinds`, tested in
+         *     `policy` and `notes`.
+         * @enum {string}
+         */
+        PortalRole: "contact" | "approver" | "it_manager";
+        PortalTicketDetail: {
+            can_view_in_house_updates: boolean;
+            /** @description Only the kinds this tier may read, filtered by the domain policy. */
+            comments: components["schemas"]["TicketComment"][];
+            ticket: components["schemas"]["Ticket"];
+        };
+        PortalTicketListQuery: {
+            /** Format: uuid */
+            board_id?: string | null;
+            category?: null | components["schemas"]["TicketStatusCategory"];
+            /** Format: int64 */
+            limit?: number;
+            /** Format: int64 */
+            offset?: number;
+        };
+        PortalUser: {
+            /** Format: uuid */
+            client_id: string;
+            /** Format: date-time */
+            created_at: string;
+            display_name: string;
+            email: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            role: components["schemas"]["PortalRole"];
+            status: components["schemas"]["PortalUserStatus"];
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /**
+         * @description Lifecycle of a portal identity. `invited` = admin-provisioned, has not
+         *     logged in yet; first successful login flips to `active`. `disabled`
+         *     blocks login AND every authenticated portal request (checked per
+         *     request, never cached in the token).
+         * @enum {string}
+         */
+        PortalUserStatus: "invited" | "active" | "disabled";
         /**
          * @description One resolved preference row: which chain link supplied it (`user`,
          *     `org_default`, or `builtin`), the channel toggles, and the quiet-hours
@@ -2438,6 +2755,16 @@ export interface components {
             name: string;
             /** @description Enforcement toggle (defaults-first: OFF until explicitly enabled). */
             require_checklist_close?: boolean;
+        };
+        PutExposureRequest: {
+            /** Format: uuid */
+            board_id: string;
+            exposed: boolean;
+            /**
+             * @description Empty = all statuses visible (v1 default). Non-empty narrows to
+             *     statuses OF THAT BOARD — unknown ids are rejected, not silently kept.
+             */
+            visible_status_ids: string[];
         };
         RecoveryCodesResponse: {
             /** @description Plaintext codes — displayed once, stored only as argon2id hashes. */
@@ -4285,6 +4612,59 @@ export interface operations {
             };
         };
     };
+    board_exposures_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardExposureView"][];
+                };
+            };
+        };
+    };
+    board_exposures_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutExposureRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardExposureView"];
+                };
+            };
+            /** @description board or client missing */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     clients_list_contacts: {
         parameters: {
             query?: never;
@@ -4328,6 +4708,59 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Contact"];
                 };
+            };
+        };
+    };
+    portal_users_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalUser"][];
+                };
+            };
+        };
+    };
+    portal_users_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePortalUserRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalUser"];
+                };
+            };
+            /** @description email already provisioned */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -4643,6 +5076,216 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    portal_users_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    portal_users_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchPortalUserRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalUser"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    portal_login: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PortalLoginRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLoginResponse"];
+                };
+            };
+            /** @description bad credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    portal_me: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalProfile"];
+                };
+            };
+        };
+    };
+    portal_refresh: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PortalRefreshRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLoginResponse"];
+                };
+            };
+        };
+    };
+    portal_list_tickets: {
+        parameters: {
+            query?: {
+                board_id?: string | null;
+                category?: null | components["schemas"]["TicketStatusCategory"];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ticket"][];
+                };
+            };
+        };
+    };
+    portal_get_ticket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalTicketDetail"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    portal_reply: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PortalReplyRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketComment"];
+                };
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
