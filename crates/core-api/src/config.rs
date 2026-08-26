@@ -11,6 +11,10 @@ pub struct Config {
     /// Refresh token TTL in seconds (default 30 days).
     pub refresh_ttl_secs: i64,
     pub cors_origin: Option<String>,
+    /// Shared secret for the machine-to-machine internal effect surface
+    /// (`MERIDIAN_INTERNAL_TOKEN`). When unset the internal routes fail
+    /// closed: they answer 503 and the worker's indexer stays disabled.
+    pub internal_token: Option<String>,
 }
 
 impl Config {
@@ -35,6 +39,7 @@ impl Config {
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(60 * 60 * 24 * 30),
             cors_origin: std::env::var("CORS_ORIGIN").ok(),
+            internal_token: std::env::var("MERIDIAN_INTERNAL_TOKEN").ok(),
         }
     }
 }

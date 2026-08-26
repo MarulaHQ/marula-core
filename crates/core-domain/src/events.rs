@@ -132,6 +132,29 @@ pub struct TicketCommentAdded {
     pub mentioned_user_ids: Vec<UserId>,
 }
 
+/// A client company was created (payload for `client.created`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientCreated {
+    pub client_id: ClientId,
+    pub name: String,
+}
+
+/// A site was created under a client (payload for `site.created`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SiteCreated {
+    pub site_id: SiteId,
+    pub client_id: ClientId,
+    pub name: String,
+}
+
+/// A contact was created under a client (payload for `contact.created`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContactCreated {
+    pub contact_id: ContactId,
+    pub client_id: ClientId,
+    pub name: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TicketChecklistUpdated {

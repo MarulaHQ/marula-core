@@ -63,6 +63,7 @@ use utoipa::OpenApi;
         crate::routes::notifications::prefs_get,
         crate::routes::notifications::prefs_update,
         crate::routes::audit::list,
+        crate::routes::search::search,
     ),
     components(schemas(
         crate::auth::handlers::RegisterRequest,
@@ -120,6 +121,9 @@ use utoipa::OpenApi;
         core_domain::status::Priority,
         core_domain::status::NoteKind,
         core_domain::workflow::TransitionEdge,
+        crate::routes::search::SearchQuery,
+        crate::routes::search::SearchResponse,
+        crate::routes::search::SearchResult,
     ),
     ),
     tags(
@@ -129,6 +133,7 @@ use utoipa::OpenApi;
         (name = "tickets", description = "Ticketing: lifecycle, notes, checklists"),
         (name = "timers", description = "Single-active-timer workflow + time entries"),
         (name = "notifications", description = "Notification center"),
+        (name = "search", description = "Unified FTS search across tickets, comments and clients"),
         (name = "audit", description = "Append-only audit log (admin)"),
     )
 )]

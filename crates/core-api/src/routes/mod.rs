@@ -4,8 +4,10 @@
 pub mod audit;
 pub mod boards;
 pub mod clients;
+pub mod internal;
 pub mod notifications;
 pub mod openapi;
+pub mod search;
 pub mod tickets;
 pub mod timers;
 
@@ -116,15 +118,24 @@ pub fn build_router(state: AppState) -> Router {
             "/api/notification-preferences",
             get(notifications::prefs_get).put(notifications::prefs_update),
         )
+        // unified search (TASKLIST 2.16)
+        .route("/api/search", get(search::search))
         // audit (admin)
         .route("/api/audit-events", get(audit::list))
         .layer(middleware::from_fn_with_state(state.clone(), require_auth));
+
+    // Machine-to-machine effect surface (§4.1): token-guarded, NOT behind
+    // the JWT middleware, and deliberately absent from OpenAPI/the SDK.
+    let internal = Router::new()
+        .route("/internal/search/upsert", post(internal::upsert))
+        .route("/internal/search/delete", post(internal::delete));
 
     let docs = openapi::scalar_router();
 
     Router::new()
         .merge(public)
         .merge(protected)
+        .merge(internal)
         .merge(docs)
         .with_state(state)
 }

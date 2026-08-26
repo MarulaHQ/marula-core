@@ -17,6 +17,10 @@ pub enum ApiError {
     Validation(String),
     #[error("conflict: {0}")]
     Conflict(String),
+    /// Capability present but disabled by configuration (fail-closed
+    /// surfaces such as the internal effect surface without its token).
+    #[error("service unavailable: {0}")]
+    Unavailable(String),
     #[error("internal error")]
     Internal(#[from] anyhow::Error),
 }
@@ -63,6 +67,7 @@ impl IntoResponse for ApiError {
             ApiError::Forbidden(m) => (StatusCode::FORBIDDEN, m.clone()),
             ApiError::Validation(m) => (StatusCode::UNPROCESSABLE_ENTITY, m.clone()),
             ApiError::Conflict(m) => (StatusCode::CONFLICT, m.clone()),
+            ApiError::Unavailable(m) => (StatusCode::SERVICE_UNAVAILABLE, m.clone()),
             ApiError::Internal(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "internal error".to_string(),
