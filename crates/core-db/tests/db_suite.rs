@@ -5135,7 +5135,7 @@ async fn attachments_dedup_link_and_refcounted_delete() {
     )
     .await;
     let c1 = tickets::insert_comment(
-        &mut tx,
+        &mut *tx,
         fixed_uuid(13002),
         sa.org,
         t1.id,
