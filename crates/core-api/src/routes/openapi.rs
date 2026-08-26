@@ -108,6 +108,15 @@ use utoipa::OpenApi;
         crate::routes::settings::user_value_put,
         crate::routes::settings::org_profile_get,
         crate::routes::settings::org_profile_patch,
+        crate::routes::webhook_admin::list,
+        crate::routes::webhook_admin::create,
+        crate::routes::webhook_admin::update,
+        crate::routes::webhook_admin::remove,
+        crate::routes::webhook_admin::deliveries,
+        crate::routes::webhook_admin::test_fire,
+        crate::routes::api_keys::list,
+        crate::routes::api_keys::create,
+        crate::routes::api_keys::revoke,
     ),
     components(schemas(
         crate::auth::handlers::RegisterRequest,
@@ -215,6 +224,19 @@ use utoipa::OpenApi;
         crate::routes::settings::PatchOrgRequest,
         core_domain::settings::SettingKind,
         core_domain::settings::SettingValue,
+        crate::routes::webhook_admin::WebhookView,
+        crate::routes::webhook_admin::WebhookList,
+        crate::routes::webhook_admin::WebhookSecretResponse,
+        crate::routes::webhook_admin::CreateWebhookRequest,
+        crate::routes::webhook_admin::UpdateWebhookRequest,
+        crate::routes::webhook_admin::DeliveryAttemptView,
+        crate::routes::webhook_admin::DeliveryPage,
+        crate::routes::webhook_admin::DeliveryQuery,
+        crate::routes::webhook_admin::TestFireResponse,
+        crate::routes::api_keys::ApiKeyView,
+        crate::routes::api_keys::ApiKeyList,
+        crate::routes::api_keys::CreateApiKeyRequest,
+        crate::routes::api_keys::ApiKeyCreatedResponse,
     ),
     ),
     tags(
@@ -229,6 +251,7 @@ use utoipa::OpenApi;
         (name = "audit", description = "Append-only audit log (admin)"),
         (name = "sla", description = "SLA calendars, policies, escalation ladders (admin)"),
         (name = "automations", description = "Event-triggered automation rules (admin)"),
+        (name = "integrations", description = "Signed webhooks OUT + scoped API keys (plugin runtime v1)"),
     )
 )]
 pub struct ApiDoc;

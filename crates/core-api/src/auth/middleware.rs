@@ -51,12 +51,69 @@ pub fn resolve_permissions(roles: &[core_domain::entities::Role]) -> Vec<Permiss
     out
 }
 
-/// Axum middleware: `Authorization: Bearer <jwt>`.
+/// Axum middleware: `Authorization: Bearer <jwt>` for humans, with a
+/// scoped machine path via `x-api-key` (TASKLIST 2.15).
+///
+/// The API-key branch is deliberately NARROW: only read-only public data
+/// prefixes accept keys, scopes are enforced against plugin capability
+/// names, and the synthesized principal is read-only by construction
+/// (`is_machine` + empty roles). Self-scoped surfaces (notifications,
+/// timers) reject keys outright — a key id is not a user id.
 pub async fn require_auth(
     State(state): State<crate::state::AppState>,
     mut request: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
+    if let Some(raw_key) = request
+        .headers()
+        .get("x-api-key")
+        .and_then(|v| v.to_str().ok())
+        .filter(|v| !v.is_empty())
+    {
+        let path = request.uri().path();
+        let allowed = API_KEY_PATHS.iter().any(|p| {
+            path == *p
+                || path
+                    .strip_prefix(p)
+                    .is_some_and(|rest| rest.starts_with('/'))
+        });
+        if !allowed {
+            return Err(ApiError::Unauthorized(
+                "api keys are not accepted on this endpoint".into(),
+            ));
+        }
+        // Constant-time-ish compare happens at the DB index; the hash
+        // itself never leaves the process and raw keys are never logged.
+        let hash = crate::routes::api_keys::hash_raw_key(&state, raw_key);
+        let row = core_db::webhooks::find_active_api_key_by_hash(&state.pool, &hash)
+            .await
+            .map_err(|_| ApiError::Unauthorized("invalid api key".into()))?
+            .ok_or_else(|| ApiError::Unauthorized("invalid api key".into()))?;
+
+        // Throttled last-used stamp: at most one write per minute per key.
+        if let Err(error) =
+            core_db::webhooks::touch_api_key_last_used(&state.pool, row.id, 60).await
+        {
+            tracing::warn!(%error, "api key last-used touch failed");
+        }
+
+        let permissions = permissions_from_scopes(&row.scopes);
+        if permissions.is_empty() {
+            return Err(ApiError::Forbidden(
+                "api key carries no usable scopes".into(),
+            ));
+        }
+        request.extensions_mut().insert(AuthedUser {
+            principal: core_domain::entities::Principal {
+                user: machine_user(row.id, row.org_id),
+                roles: vec![],
+                permissions,
+            },
+            session_id: None,
+        });
+        return Ok(next.run(request).await);
+    }
+
     let token = request
         .headers()
         .get(AUTHORIZATION)
@@ -89,6 +146,59 @@ pub async fn require_auth(
     });
 
     Ok(next.run(request).await)
+}
+
+/// Read-only prefixes where `x-api-key` auth is accepted. Everything else
+/// (mutations, admin surfaces, self-scoped endpoints) is JWT-only.
+const API_KEY_PATHS: &[&str] = &["/api/tickets", "/api/clients"];
+
+/// Maps capability scopes onto the permission matrix. Unknown scopes are
+/// ignored here (they cannot be created — validated at key creation).
+fn permissions_from_scopes(scopes: &[String]) -> Vec<core_domain::policy::Permission> {
+    use core_domain::policy::{Action, Module, Permission};
+    let mut out = Vec::new();
+    let mut push = |module: Module, actions: &[Action]| {
+        for a in actions {
+            let p = Permission::Matrix { module, action: *a };
+            if !out.contains(&p) {
+                out.push(p);
+            }
+        }
+    };
+    for scope in scopes {
+        match scope.as_str() {
+            "tickets:read" => push(Module::Tickets, &[Action::View]),
+            "tickets:write" => push(
+                Module::Tickets,
+                &[Action::View, Action::Create, Action::Edit],
+            ),
+            "clients:read" => push(Module::Clients, &[Action::View]),
+            "clients:write" => push(
+                Module::Clients,
+                &[Action::View, Action::Create, Action::Edit],
+            ),
+            "timers:read" => push(Module::Time, &[Action::View]),
+            "timers:write" => push(Module::Time, &[Action::View, Action::Create, Action::Edit]),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Synthetic principal user for machine keys: the key id stands in as the
+/// actor id (audit rows attribute to it); no email/timezone exist.
+fn machine_user(key_id: uuid::Uuid, org_id: uuid::Uuid) -> core_domain::entities::User {
+    core_domain::entities::User {
+        id: key_id,
+        org_id,
+        email: String::new(),
+        display_name: "api-key".into(),
+        timezone: "UTC".into(),
+        is_active: true,
+        mfa_totp_secret: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    }
 }
 
 /// Helper for handlers: extract the AuthedUser extension.

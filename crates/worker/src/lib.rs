@@ -19,6 +19,7 @@ pub mod email;
 pub mod notifier;
 pub mod queue_runner;
 pub mod sla_sweep;
+pub mod webhook_out;
 
 use axum::extract::State;
 use axum::routing::get;
@@ -82,7 +83,7 @@ pub async fn run(
     }
 
     // General job queue: claims durable jobs and applies them through
-    // core-api's internal machine surface.
+    // core-api's internal machine surface (plus signed webhook delivery).
     let queue_alive = Arc::new(AtomicBool::new(true));
     let counters = Arc::new(queue_runner::QueueCounters::default());
     {
@@ -96,8 +97,19 @@ pub async fn run(
         let shutdown = shutdown.clone();
         let batch = config.queue_batch;
         let stale = config.queue_stale_after_secs;
+        let secret_key = config.webhook_secret_key;
         tokio::spawn(async move {
-            queue_runner::run_queue(pool, effect_api, batch, stale, counters, shutdown).await;
+            queue_runner::run_queue(
+                pool,
+                effect_api,
+                webhook_out::ReqwestSink::new(),
+                secret_key,
+                batch,
+                stale,
+                counters,
+                shutdown,
+            )
+            .await;
             alive.store(false, Ordering::Relaxed);
             tracing::error!("queue loop exited; reporting unhealthy");
         });
@@ -118,6 +130,8 @@ pub async fn run(
 
     // Automations consumer: event stream → matched rules → effect jobs.
     let auto_alive = Arc::new(AtomicBool::new(true));
+    let webhook_pool = pool.clone();
+    let webhook_redis = config.redis_url.clone();
     {
         let alive = Arc::clone(&auto_alive);
         let shutdown = shutdown.clone();
@@ -128,12 +142,27 @@ pub async fn run(
         });
     }
 
+    // Signed-webhook delivery consumer: event stream → matched
+    // subscriptions → durable webhook.deliver jobs (processed by the
+    // queue runner above).
+    let webhooks_alive = Arc::new(AtomicBool::new(true));
+    {
+        let alive = Arc::clone(&webhooks_alive);
+        let shutdown = shutdown.clone();
+        tokio::spawn(async move {
+            webhook_out::run_webhook_out(webhook_pool, webhook_redis, shutdown).await;
+            alive.store(false, Ordering::Relaxed);
+            tracing::error!("webhooks-out loop exited; reporting unhealthy");
+        });
+    }
+
     let health = HealthFlags {
         relay_alive,
         email_alive,
         queue_alive,
         sla_alive,
         automations_alive: auto_alive,
+        webhooks_alive,
     };
     let app = Router::new()
         .route("/healthz", get(healthz))
@@ -153,6 +182,7 @@ struct HealthFlags {
     queue_alive: Arc<AtomicBool>,
     sla_alive: Arc<AtomicBool>,
     automations_alive: Arc<AtomicBool>,
+    webhooks_alive: Arc<AtomicBool>,
 }
 
 async fn healthz(State(flags): State<Arc<HealthFlags>>) -> Json<serde_json::Value> {
@@ -160,10 +190,11 @@ async fn healthz(State(flags): State<Arc<HealthFlags>>) -> Json<serde_json::Valu
         && flags.email_alive.load(Ordering::Relaxed)
         && flags.queue_alive.load(Ordering::Relaxed)
         && flags.sla_alive.load(Ordering::Relaxed)
-        && flags.automations_alive.load(Ordering::Relaxed);
+        && flags.automations_alive.load(Ordering::Relaxed)
+        && flags.webhooks_alive.load(Ordering::Relaxed);
     if ok {
         Json(
-            json!({ "status": "ok", "relay": "alive", "email": "alive", "queue": "alive", "sla": "alive", "automations": "alive" }),
+            json!({ "status": "ok", "relay": "alive", "email": "alive", "queue": "alive", "sla": "alive", "automations": "alive", "webhooks": "alive" }),
         )
     } else {
         Json(json!({ "status": "unhealthy" }))
@@ -191,10 +222,12 @@ mod tests {
             queue_alive: Arc::new(AtomicBool::new(true)),
             sla_alive: Arc::new(AtomicBool::new(true)),
             automations_alive: Arc::new(AtomicBool::new(true)),
+            webhooks_alive: Arc::new(AtomicBool::new(true)),
         };
         let healthy = healthz(State(Arc::new(flags.clone()))).await;
         assert_eq!(healthy.0["relay"], "alive");
         assert_eq!(healthy.0["email"], "alive");
+        assert_eq!(healthy.0["webhooks"], "alive");
         assert_eq!(healthy.0["status"], "ok");
 
         flags.queue_alive.store(false, Ordering::Relaxed);
