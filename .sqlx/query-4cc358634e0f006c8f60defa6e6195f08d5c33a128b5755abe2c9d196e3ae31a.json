@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) AS total\n           FROM search_index\n           WHERE org_id = $1\n             AND entity_kind = ANY($2)\n             AND (\n               tsv @@ websearch_to_tsquery('english', $3)\n               OR ($4 AND title || ' ' || body ILIKE '%' || $3 || '%')\n             )",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "total",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "4cc358634e0f006c8f60defa6e6195f08d5c33a128b5755abe2c9d196e3ae31a"
+}

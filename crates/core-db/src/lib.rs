@@ -14,6 +14,7 @@ pub mod clients;
 pub mod notifications;
 pub mod orgs;
 pub mod outbox;
+pub mod search;
 pub mod sla;
 pub mod tickets;
 pub mod timers;

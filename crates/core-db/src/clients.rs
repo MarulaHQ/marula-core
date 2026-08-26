@@ -125,6 +125,37 @@ where
     })
 }
 
+pub async fn get_site<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<Site>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query!(
+        r#"SELECT id, org_id, client_id, name, address, city, region, postal_code,
+                  country, latitude, longitude, timezone, created_at
+           FROM sites WHERE org_id = $1 AND id = $2"#,
+        org_id,
+        id
+    )
+    .fetch_optional(executor)
+    .await?
+    .ok_or(DbError::NotFound)?;
+    Ok(Site {
+        id: row.id,
+        org_id: row.org_id,
+        client_id: row.client_id,
+        name: row.name,
+        address: row.address,
+        city: row.city,
+        region: row.region,
+        postal_code: row.postal_code,
+        country: row.country,
+        latitude: row.latitude,
+        longitude: row.longitude,
+        timezone: row.timezone,
+        created_at: row.created_at,
+    })
+}
+
 pub async fn list_sites<'e, E>(executor: E, org_id: Uuid, client_id: Uuid) -> DbResult<Vec<Site>>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
@@ -184,6 +215,34 @@ where
     )
     .fetch_one(executor)
     .await?;
+    Ok(Contact {
+        id: row.id,
+        org_id: row.org_id,
+        client_id: row.client_id,
+        site_id: row.site_id,
+        name: row.name,
+        email: row.email,
+        phone: row.phone,
+        title: row.title,
+        is_primary: row.is_primary,
+        created_at: row.created_at,
+    })
+}
+
+pub async fn get_contact<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<Contact>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query!(
+        r#"SELECT id, org_id, client_id, site_id, name, email, phone, title,
+                  is_primary, created_at
+           FROM contacts WHERE org_id = $1 AND id = $2"#,
+        org_id,
+        id
+    )
+    .fetch_optional(executor)
+    .await?
+    .ok_or(DbError::NotFound)?;
     Ok(Contact {
         id: row.id,
         org_id: row.org_id,
