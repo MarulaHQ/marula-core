@@ -2,12 +2,18 @@
 resolver = "2"
 members = [
     "crates/core-api",
+    "crates/core-billing",
     "crates/core-db",
+    "crates/core-documents",
     "crates/core-domain",
     "crates/core-events",
+    "crates/core-kb",
     "crates/core-mail",
     "crates/core-otel",
+    "crates/core-projects",
+    "crates/core-reports",
     "crates/core-store",
+    "crates/mcp-server",
     "crates/realtime",
     "crates/worker",
     "crates/plugin-host",

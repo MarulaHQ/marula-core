@@ -1,0 +1,5 @@
+[package]
+name = "core-projects"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
