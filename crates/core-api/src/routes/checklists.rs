@@ -108,8 +108,14 @@ pub async fn put_template(
     }
 
     let view = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        // RLS proves same-org; explicit check keeps the path honest.
-        core_db::boards::get_board(&mut *ctx.tx, org_id, id).await?;
+        // Board-level RBAC (deny wins) + RLS proves same-org.
+        super::board_access::authorize_board_op(
+            &mut ctx.tx,
+            &authed.principal,
+            id,
+            core_domain::policy::BoardOp::ConfigureBoard,
+        )
+        .await?;
         let (template, items) = core_db::checklists::upsert_template(
             &mut ctx.tx,
             org_id,
@@ -190,6 +196,13 @@ pub async fn delete_template(
     let user_id = authed.principal.user.id;
 
     org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        super::board_access::authorize_board_op(
+            &mut ctx.tx,
+            &authed.principal,
+            id,
+            core_domain::policy::BoardOp::ConfigureBoard,
+        )
+        .await?;
         core_db::checklists::delete_template(&mut *ctx.tx, org_id, id).await?;
         ctx.emit(
             types::BOARD_CHECKLIST_TEMPLATE_UPDATED,

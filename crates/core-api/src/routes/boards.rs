@@ -13,12 +13,14 @@ use axum::{
 };
 use core_domain::entities::Actor;
 use core_domain::events::{self, types};
-use core_domain::policy::{Module, Permission};
+use core_domain::policy::{BoardOp, Module, Permission};
 use core_domain::status::TicketStatusCategory;
 use core_domain::workflow::{self, TransitionEdge};
 use serde::Deserialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
+
+use super::board_access::authorize_board_op;
 
 fn board_view() -> Permission {
     Permission::Matrix {
@@ -154,6 +156,7 @@ pub async fn add_status(
         return Err(ApiError::Validation("status name is required".into()));
     }
     let status = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        authorize_board_op(&mut ctx.tx, &authed.principal, id, BoardOp::ConfigureBoard).await?;
         let status = core_db::boards::add_status(
             &mut ctx.tx,
             org_id,
@@ -215,6 +218,7 @@ pub async fn update_status(
         }
     }
     let status = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        authorize_board_op(&mut ctx.tx, &authed.principal, id, BoardOp::ConfigureBoard).await?;
         let status = core_db::boards::update_status(
             &mut ctx.tx,
             status_id,
@@ -266,6 +270,7 @@ pub async fn delete_status(
     let user_id = authed.principal.user.id;
 
     org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        authorize_board_op(&mut ctx.tx, &authed.principal, id, BoardOp::ConfigureBoard).await?;
         let statuses = core_db::boards::list_statuses(&mut *ctx.tx, id).await?;
         let target = statuses
             .iter()
@@ -363,6 +368,7 @@ pub async fn set_transitions(
     let user_id = authed.principal.user.id;
 
     let response = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        authorize_board_op(&mut ctx.tx, &authed.principal, id, BoardOp::ConfigureBoard).await?;
         // Validate every edge endpoint against this board's statuses before
         // writing; storage FKs are only the backstop.
         let statuses = core_db::boards::list_statuses(&mut *ctx.tx, id).await?;
@@ -427,7 +433,9 @@ pub struct FavoriteRequest {
     pub favorite: bool,
 }
 
-/// POST /api/boards/favorite — toggles a board favorite for the current user.
+/// POST /api/boards/favorite — toggles a board favorite for the current
+/// user (user-scoped; any authenticated member may star boards they can
+/// see). Emits `board.favorite_toggled` in-tx.
 #[utoipa::path(operation_id = "boards_toggle_favorite", post, path = "/api/boards/favorite", tag = "boards", security(("bearer" = [])),
     request_body = FavoriteRequest, responses((status = 204)))]
 pub async fn toggle_favorite(
@@ -436,11 +444,45 @@ pub async fn toggle_favorite(
     Json(req): Json<FavoriteRequest>,
 ) -> ApiResult<axum::http::StatusCode> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
+
+    // The starred board must exist in the caller's org — the favorites
+    // table's own RLS cannot see cross-org board ids.
+    core_db::boards::get_board(&state.pool, org_id, req.board_id).await?;
+
     if req.favorite {
         core_db::boards::add_favorite(&state.pool, user_id, req.board_id, 0).await?;
     } else {
         core_db::boards::remove_favorite(&state.pool, user_id, req.board_id).await?;
     }
+    // Favorites are per-user presentation state; a dedicated event keeps
+    // nav clients consistent without them polling (§4.2 every-mutation).
+    let mut tx = state
+        .pool
+        .begin()
+        .await
+        .map_err(|e| ApiError::Internal(e.into()))?;
+    core_db::set_org(&mut tx, org_id)
+        .await
+        .map_err(ApiError::from)?;
+    core_db::outbox::insert(
+        &mut tx,
+        Uuid::now_v7(),
+        org_id,
+        types::BOARD_FAVORITE_TOGGLED,
+        "board_favorite",
+        Some(req.board_id.to_string().as_str()),
+        &serde_json::to_value(events::BoardFavoriteToggled {
+            user_id,
+            board_id: req.board_id,
+            favorite: req.favorite,
+        })
+        .unwrap_or_default(),
+    )
+    .await?;
+    tx.commit()
+        .await
+        .map_err(|e| ApiError::Internal(e.into()))?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

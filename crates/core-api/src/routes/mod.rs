@@ -2,6 +2,7 @@
 //! the spec from the handlers; Scalar serves interactive docs from it).
 
 pub mod audit;
+pub mod board_access;
 pub mod boards;
 pub mod checklists;
 pub mod clients;
@@ -122,8 +123,26 @@ pub fn build_router(state: AppState) -> Router {
             "/api/clients/{id}/assets",
             get(clients::list_assets).post(clients::create_asset),
         )
-        // boards + statuses + workflow customization
+        // boards + statuses + workflow customization + organization/RBAC
         .route("/api/boards", get(boards::list).post(boards::create))
+        .route("/api/boards/nav", get(board_access::nav))
+        .route(
+            "/api/board-groups",
+            get(board_access::list_groups).post(board_access::create_group),
+        )
+        .route(
+            "/api/board-groups/{id}",
+            axum::routing::patch(board_access::update_group).delete(board_access::delete_group),
+        )
+        .route("/api/boards/{id}/group", put(board_access::assign_group))
+        .route(
+            "/api/boards/{id}/members",
+            get(board_access::list_members).put(board_access::upsert_member),
+        )
+        .route(
+            "/api/boards/{id}/members/{user_id}",
+            axum::routing::delete(board_access::remove_member),
+        )
         .route(
             "/api/boards/{id}/statuses",
             get(boards::list_statuses).post(boards::add_status),

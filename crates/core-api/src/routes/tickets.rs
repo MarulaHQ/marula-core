@@ -20,6 +20,9 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+use super::board_access::authorize_board_op;
+use core_domain::policy::BoardOp;
+
 fn tickets(action: core_domain::policy::Action) -> Permission {
     Permission::Matrix {
         module: Module::Tickets,
@@ -141,26 +144,70 @@ pub async fn list(
 }
 
 /// GET /api/tickets/my-work — everything assigned to me, not closed,
-/// across all boards (the unified cross-board view from §1).
+/// across all boards, priority-then-SLA-due ordered (the unified
+/// cross-board view from §1; TASKLIST 2.11 adds client/board annotations).
 #[utoipa::path(operation_id = "tickets_my_work", get, path = "/api/tickets/my-work", tag = "tickets", security(("bearer" = [])),
-    responses((status = 200, body = [core_domain::entities::Ticket])))]
+    responses((status = 200, body = [MyWorkItem])))]
 pub async fn my_work(
     State(state): State<AppState>,
     extensions: Extensions,
-) -> ApiResult<Json<Vec<core_domain::entities::Ticket>>> {
+) -> ApiResult<Json<Vec<MyWorkItem>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(
         &authed.principal,
         tickets(core_domain::policy::Action::View),
     )?;
-    let rows = core_db::tickets::my_work(
+    let rows = core_db::tickets::my_work_annotated(
         &state.pool,
         authed.principal.user.org_id,
         authed.principal.user.id,
         100,
     )
     .await?;
-    Ok(Json(rows))
+    Ok(Json(rows.into_iter().map(MyWorkItem::from_row).collect()))
+}
+
+/// One cross-board my-work queue row (TASKLIST 2.11): the ticket plus the
+/// annotations the Today screen renders per the mockup.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct MyWorkItem {
+    pub id: Uuid,
+    pub number: String,
+    pub title: String,
+    pub priority: Priority,
+    pub category: TicketStatusCategory,
+    pub status_name: String,
+    /// The source board of this cross-board row.
+    pub board_id: Uuid,
+    pub board_name: String,
+    /// Client short label for the squared tag (`None` = internal ticket).
+    pub client_name: Option<String>,
+    /// Manual deadline set on the ticket itself.
+    pub due_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// SLA resolution deadline when state exists; the UI prefers this over
+    /// `due_at` for the right-aligned countdown column.
+    pub sla_resolution_due: Option<chrono::DateTime<chrono::Utc>>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl MyWorkItem {
+    fn from_row(row: core_db::tickets::MyWorkRow) -> Self {
+        let t = row.ticket;
+        MyWorkItem {
+            id: t.id,
+            number: t.number.0,
+            title: t.title,
+            priority: t.priority,
+            category: t.category,
+            status_name: row.status_name,
+            board_id: t.board_id,
+            board_name: row.board_name,
+            client_name: row.client_name,
+            due_at: t.due_at,
+            sla_resolution_due: row.sla_resolution_due,
+            updated_at: t.updated_at,
+        }
+    }
 }
 
 /// POST /api/tickets — allocates the human ticket number, initializes SLA
@@ -185,6 +232,15 @@ pub async fn create(
     let user_id = authed.principal.user.id;
 
     let ticket = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        // Board-level RBAC first (deny wins): a viewer-role membership row
+        // blocks creation even when the org matrix would allow it.
+        authorize_board_op(
+            &mut ctx.tx,
+            &authed.principal,
+            req.board_id,
+            BoardOp::CreateTicket,
+        )
+        .await?;
         let status = core_db::boards::default_status_for_board(&mut *ctx.tx, req.board_id).await?;
         let (prefix, seq) = core_db::orgs::next_ticket_number(&mut *ctx.tx, org_id).await?;
         let number = format!("{prefix}-{seq}");
@@ -292,6 +348,13 @@ pub async fn patch(
 
     let ticket = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         let before = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id).await?;
+        authorize_board_op(
+            &mut ctx.tx,
+            &authed.principal,
+            before.board_id,
+            BoardOp::WorkTicket,
+        )
+        .await?;
         core_db::tickets::update_ticket(
             &mut *ctx.tx,
             org_id,
@@ -378,6 +441,22 @@ pub async fn change_status(
             .find(|s| s.id == req.status_id)
             .ok_or(ApiError::NotFound)?
             .clone();
+
+        // Board-level RBAC (deny wins): closing is a distinct board-scoped
+        // operation from ordinary work, so the role matrix can forbid
+        // closure while still allowing edits.
+        let close_op = target.category == TicketStatusCategory::Closed;
+        authorize_board_op(
+            &mut ctx.tx,
+            &authed.principal,
+            ticket.board_id,
+            if close_op {
+                BoardOp::CloseTicket
+            } else {
+                BoardOp::WorkTicket
+            },
+        )
+        .await?;
 
         // Pre-close checklist gate (defaults-first): lazy-instantiate any
         // template items this ticket has not picked up yet — both so older
@@ -553,6 +632,13 @@ pub async fn add_comment(
 
     let comment = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id).await?;
+        authorize_board_op(
+            &mut ctx.tx,
+            &authed.principal,
+            ticket.board_id,
+            BoardOp::WorkTicket,
+        )
+        .await?;
         let comment = core_db::tickets::insert_comment(
             &mut *ctx.tx,
             Uuid::now_v7(),
@@ -788,6 +874,13 @@ pub async fn add_checklist_item(
 
     let view = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id).await?;
+        authorize_board_op(
+            &mut ctx.tx,
+            &authed.principal,
+            ticket.board_id,
+            BoardOp::WorkTicket,
+        )
+        .await?;
         let existing = core_db::tickets::list_checklist(&mut *ctx.tx, org_id, id).await?;
         core_db::tickets::add_checklist_item(
             &mut *ctx.tx,
@@ -851,6 +944,13 @@ pub async fn set_checklist_item(
 
     let view = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id).await?;
+        authorize_board_op(
+            &mut ctx.tx,
+            &authed.principal,
+            ticket.board_id,
+            BoardOp::WorkTicket,
+        )
+        .await?;
         core_db::tickets::set_checklist_item(
             &mut *ctx.tx,
             org_id,
