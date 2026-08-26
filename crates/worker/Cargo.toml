@@ -12,6 +12,7 @@ core-mail = { path = "../core-mail" }
 anyhow = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }
+chrono-tz = { workspace = true }
 redis = { workspace = true }
 reqwest = { workspace = true }
 async-trait = { workspace = true }

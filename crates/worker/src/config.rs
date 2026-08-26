@@ -32,6 +32,18 @@ pub struct EmailLoopConfig {
     pub lease_secs: i64,
 }
 
+/// Settings for the missing-time nudge scheduler (TASKLIST 2.10).
+#[derive(Debug, Clone)]
+pub struct TimeLoopConfig {
+    /// core-api base URL the loop submits due audit batches to.
+    pub core_api_url: String,
+    /// Shared internal token (`EMAIL_INTERNAL_TOKEN` — the worker↔api
+    /// secret; the env name is historical). Unset ⇒ the loop stays idle.
+    pub internal_token: Option<String>,
+    /// Seconds between due-item sweeps.
+    pub poll_secs: u64,
+}
+
 /// Runtime settings for the worker process.
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
@@ -46,6 +58,8 @@ pub struct WorkerConfig {
     pub relay_batch: i64,
     /// Outbound email send loop (Stage 2).
     pub email: EmailLoopConfig,
+    /// Missing-time EOD nudge scheduler (Stage 2).
+    pub time: TimeLoopConfig,
 }
 
 impl WorkerConfig {
@@ -106,6 +120,14 @@ impl WorkerConfig {
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(300),
             },
+            time: TimeLoopConfig {
+                core_api_url: env("CORE_API_URL")
+                    .unwrap_or_else(|| "http://localhost:8080".to_string()),
+                internal_token: env("EMAIL_INTERNAL_TOKEN"),
+                poll_secs: env("TIME_AUDIT_POLL_SECS")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(60),
+            },
         }
     }
 }
@@ -131,6 +153,11 @@ mod tests {
         assert!(cfg.email.internal_token.is_none());
         assert_eq!(cfg.email.transport_kind, TransportKind::None);
         assert_eq!(cfg.email.core_api_url, "http://localhost:8080");
+        // Nudge scheduler shares the token; 60s sweeps so a restarted
+        // worker never misses a local EOD window.
+        assert!(cfg.time.internal_token.is_none());
+        assert_eq!(cfg.time.poll_secs, 60);
+        assert_eq!(cfg.time.core_api_url, "http://localhost:8080");
     }
 
     #[test]
@@ -145,12 +172,15 @@ mod tests {
         vars.insert("EMAIL_TRANSPORT", "smtp".into());
         vars.insert("SMTP_HOST", "mailpit".into());
         vars.insert("SMTP_PORT", "1025".into());
+        vars.insert("TIME_AUDIT_POLL_SECS", "300".into());
         let cfg = WorkerConfig::from_lookup(|k| vars.get(k).cloned());
         assert_eq!(cfg.database_url, "postgres://db");
         assert_eq!(cfg.redis_url, "redis://r");
         assert_eq!(cfg.bind_addr, "127.0.0.1:1");
         assert_eq!(cfg.relay_batch, 7);
         assert_eq!(cfg.email.core_api_url, "http://api:9000");
+        assert_eq!(cfg.time.poll_secs, 300);
+        assert_eq!(cfg.time.core_api_url, "http://api:9000");
         assert_eq!(
             cfg.email.transport_kind,
             TransportKind::Smtp {
