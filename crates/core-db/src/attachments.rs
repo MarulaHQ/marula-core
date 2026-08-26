@@ -1,8 +1,9 @@
 //! Attachment metadata queries (TASKLIST 2.14).
 //!
 //! Purpose: persistence for `attachments` rows — insert, org-scoped
-//! reads, comment linking, deletion with content-address refcounting, and
-//! the dedup lookup that lets N rows share one stored object.
+//! reads, comment linking, deletion with content-address refcounting,
+//! portal visibility filtering, and the dedup lookup that lets N rows
+//! share one stored object.
 //!
 //! Non-purpose: no byte movement (callers go through
 //! `core_store::ObjectStore`), no admission rules (core-domain), no
@@ -16,6 +17,13 @@ use uuid::Uuid;
 const COLS: &str = "id, org_id, kind::text AS kind, ticket_id, ticket_comment_id, \
                     email_message_id, filename, content_type, size_bytes, sha256, \
                     storage_key, uploaded_by_user_id, uploaded_by_portal_user_id, created_at";
+
+/// Same projection, qualified for queries that JOIN ticket_comments
+/// (unqualified columns are ambiguous once both tables are in scope).
+const QUALIFIED_COLS: &str = "a.id, a.org_id, a.kind::text AS kind, a.ticket_id, \
+                    a.ticket_comment_id, a.email_message_id, a.filename, a.content_type, \
+                    a.size_bytes, a.sha256, a.storage_key, a.uploaded_by_user_id, \
+                    a.uploaded_by_portal_user_id, a.created_at";
 
 fn row_to_attachment(row: sqlx::postgres::PgRow) -> Result<Attachment, sqlx::Error> {
     use sqlx::Row;
@@ -196,7 +204,7 @@ pub async fn link_to_comment(
     let row = sqlx::query(&format!(
         r#"UPDATE attachments SET ticket_comment_id = $3
            WHERE org_id = $1 AND id = $2 AND ticket_id = $4
-             AND kind = 'ticket_comment' AND ticket_comment_id IS NULL
+             AND kind::text = 'ticket_comment' AND ticket_comment_id IS NULL
            RETURNING {COLS}"#
     ))
     .bind(org_id)
@@ -246,40 +254,7 @@ pub async fn count_other_refs(
     Ok(n)
 }
 
-/// Same projection, qualified for queries that JOIN ticket_comments.
-const QUALIFIED_COLS: &str = "a.id, a.org_id, a.kind::text AS kind, a.ticket_id, \
-                    a.ticket_comment_id, a.email_message_id, a.filename, a.content_type, \
-                    a.size_bytes, a.sha256, a.storage_key, a.uploaded_by_user_id, \
-                    a.uploaded_by_portal_user_id, a.created_at";
-
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn cols_cover_every_entity_field() {
-        // Guard against silent column drift between COLS and the entity.
-        for col in [
-            "id",
-            "org_id",
-            "kind",
-            "ticket_id",
-            "ticket_comment_id",
-            "email_message_id",
-            "filename",
-            "content_type",
-            "size_bytes",
-            "sha256",
-            "storage_key",
-            "uploaded_by_user_id",
-            "uploaded_by_portal_user_id",
-            "created_at",
-        ] {
-            assert!(COLS.contains(col), "COLS missing {col}");
-        }
-    }
-}
+// --- portal visibility (TASKLIST 2.13 exposure × TASKLIST 2.14 files) -------
 
 /// Portal-visible attachments for one exposed ticket: kind=ticket rows
 /// always, comment rows only when their note kind is in the visible set.
@@ -336,4 +311,43 @@ where
     .fetch_optional(executor)
     .await?;
     Ok(row)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cols_cover_every_entity_field() {
+        // Guard against silent column drift between COLS and the entity.
+        for col in [
+            "id",
+            "org_id",
+            "kind",
+            "ticket_id",
+            "ticket_comment_id",
+            "email_message_id",
+            "filename",
+            "content_type",
+            "size_bytes",
+            "sha256",
+            "storage_key",
+            "uploaded_by_user_id",
+            "uploaded_by_portal_user_id",
+            "created_at",
+        ] {
+            assert!(COLS.contains(col), "COLS missing {col}");
+        }
+    }
+
+    #[test]
+    fn qualified_cols_qualify_every_column() {
+        for col in COLS.split(',') {
+            let bare = col.trim().split(' ').next().unwrap_or("");
+            assert!(
+                QUALIFIED_COLS.contains(&format!("a.{bare}")),
+                "QUALIFIED_COLS missing a.{bare}"
+            );
+        }
+    }
 }
