@@ -9,11 +9,8 @@
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
+    // Shared telemetry (TASKLIST 2.18): none-mode unless
+    // OTEL_EXPORTER_OTLP_ENDPOINT is set; guard lives for `main`.
+    let _telemetry = core_otel::init("realtime");
     realtime::run(realtime::config::RealtimeConfig::from_env()).await
 }
