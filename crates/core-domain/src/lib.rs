@@ -12,6 +12,7 @@ pub mod events;
 pub mod ids;
 pub mod mentions;
 pub mod money;
+pub mod notes;
 pub mod notifications;
 pub mod policy;
 pub mod status;

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO checklist_items (id, org_id, ticket_id, text, sort_order, template_item_id)\n           SELECT gen_random_uuid(), $2, $3, t.text, t.sort_order, t.id\n           FROM checklist_template_items t\n           JOIN board_checklist_templates bct ON bct.id = t.template_id\n           WHERE bct.org_id = $2 AND bct.board_id = $1\n             AND NOT EXISTS (\n               SELECT 1 FROM checklist_items ci\n               WHERE ci.ticket_id = $3 AND ci.template_item_id = t.id\n             )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d5a55e73ac25ef9f7534fd54f4ab2c7a1bf83ed9027846d82f0848de126af247"
+}

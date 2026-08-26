@@ -17,8 +17,6 @@ pub enum DomainError {
     CurrencyMismatch(String, String),
     #[error("invalid duration: {0} seconds")]
     InvalidDuration(i64),
-    #[error("checklist incomplete: {0} unchecked item(s)")]
-    ChecklistIncomplete(usize),
     #[error("transition not allowed: {0} → {1}")]
     InvalidTransition(String, String),
     #[error("validation failed: {0}")]

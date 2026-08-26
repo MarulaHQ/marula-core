@@ -70,8 +70,10 @@ pub struct TicketComment {
     pub updated_at: Option<DateTime<Utc>>,
 }
 
-/// One line of a ticket's pre-close checklist. Closing a ticket whose
-/// category target requires a checklist fails while any item is unchecked.
+/// One line of a ticket's pre-close checklist. Items instantiated from the
+/// board's template carry `template_item_id`; those are REQUIRED when the
+/// board enforces pre-close checklists (see `crate::notes`). Ad-hoc items
+/// (`template_item_id == None`) never block closure.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ChecklistItem {
@@ -87,23 +89,9 @@ pub struct ChecklistItem {
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub checked_by: Option<UserId>,
     pub checked_at: Option<DateTime<Utc>>,
-}
-
-/// Enforces the pre-close checklist rule (§1): a ticket may only enter a
-/// status whose category `requires_checklist()` when every item is checked.
-/// Tickets with no checklist items are unconstrained.
-pub fn validate_pre_close(
-    items: &[ChecklistItem],
-    target: &BoardStatus,
-) -> Result<(), crate::error::DomainError> {
-    if !target.category.requires_checklist() {
-        return Ok(());
-    }
-    let unchecked = items.iter().filter(|i| !i.checked).count();
-    if unchecked > 0 {
-        return Err(crate::error::DomainError::ChecklistIncomplete(unchecked));
-    }
-    Ok(())
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    /// Template provenance: `Some` ⇒ required under enforcement.
+    pub template_item_id: Option<uuid::Uuid>,
 }
 
 #[cfg(test)]
@@ -111,19 +99,6 @@ mod tests {
     use super::*;
     use crate::status::TicketStatusCategory;
     use uuid::Uuid;
-
-    fn item(checked: bool) -> ChecklistItem {
-        ChecklistItem {
-            id: Uuid::now_v7(),
-            org_id: Uuid::now_v7(),
-            ticket_id: Uuid::now_v7(),
-            text: "root cause documented".into(),
-            checked,
-            sort_order: 0,
-            checked_by: None,
-            checked_at: None,
-        }
-    }
 
     fn status(board: Uuid, cat: TicketStatusCategory) -> BoardStatus {
         BoardStatus {
@@ -136,19 +111,6 @@ mod tests {
             is_entry: false,
             color: None,
         }
-    }
-
-    #[test]
-    fn close_blocked_while_checklist_unchecked() {
-        let target = status(Uuid::now_v7(), TicketStatusCategory::Closed);
-        assert!(validate_pre_close(&[item(true), item(false)], &target).is_err());
-        assert!(validate_pre_close(&[item(true), item(true)], &target).is_ok());
-    }
-
-    #[test]
-    fn waiting_transition_ignores_checklist() {
-        let target = status(Uuid::now_v7(), TicketStatusCategory::Waiting);
-        assert!(validate_pre_close(&[item(false)], &target).is_ok());
     }
 
     #[test]

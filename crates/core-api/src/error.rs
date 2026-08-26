@@ -17,6 +17,11 @@ pub enum ApiError {
     Validation(String),
     #[error("conflict: {0}")]
     Conflict(String),
+    /// Typed 409 for a close attempt blocked by the pre-close checklist:
+    /// carries the unchecked REQUIRED item texts so clients can render the
+    /// exact blockers without a second round-trip.
+    #[error("pre-close checklist incomplete")]
+    ChecklistBlocked { missing: Vec<String> },
     #[error("internal error")]
     Internal(#[from] anyhow::Error),
 }
@@ -45,34 +50,38 @@ impl From<sqlx::Error> for ApiError {
 
 impl From<core_domain::DomainError> for ApiError {
     fn from(e: core_domain::DomainError) -> Self {
-        use core_domain::DomainError as D;
-        match e {
-            D::ChecklistIncomplete(n) => ApiError::Validation(format!(
-                "pre-close checklist incomplete: {n} unchecked item(s)"
-            )),
-            other => ApiError::Validation(other.to_string()),
-        }
+        ApiError::Validation(e.to_string())
     }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let (status, message) = match &self {
-            ApiError::NotFound => (StatusCode::NOT_FOUND, "not found".to_string()),
-            ApiError::Unauthorized(m) => (StatusCode::UNAUTHORIZED, m.clone()),
-            ApiError::Forbidden(m) => (StatusCode::FORBIDDEN, m.clone()),
-            ApiError::Validation(m) => (StatusCode::UNPROCESSABLE_ENTITY, m.clone()),
-            ApiError::Conflict(m) => (StatusCode::CONFLICT, m.clone()),
+        let (status, message, extra) = match &self {
+            ApiError::NotFound => (StatusCode::NOT_FOUND, "not found".to_string(), None),
+            ApiError::Unauthorized(m) => (StatusCode::UNAUTHORIZED, m.clone(), None),
+            ApiError::Forbidden(m) => (StatusCode::FORBIDDEN, m.clone(), None),
+            ApiError::Validation(m) => (StatusCode::UNPROCESSABLE_ENTITY, m.clone(), None),
+            ApiError::Conflict(m) => (StatusCode::CONFLICT, m.clone(), None),
+            ApiError::ChecklistBlocked { missing } => (
+                StatusCode::CONFLICT,
+                "pre-close checklist incomplete".to_string(),
+                Some(json!({ "missing": missing })),
+            ),
             ApiError::Internal(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "internal error".to_string(),
+                None,
             ),
         };
-        (
-            status,
-            Json(json!({ "error": { "code": status.as_u16(), "message": message } })),
-        )
-            .into_response()
+        let mut error = json!({ "code": status.as_u16(), "message": message });
+        if let Some(extra) = extra {
+            if let (Some(base), Some(ext)) = (error.as_object_mut(), extra.as_object()) {
+                for (k, v) in ext {
+                    base.insert(k.clone(), v.clone());
+                }
+            }
+        }
+        (status, Json(json!({ "error": error }))).into_response()
     }
 }
 

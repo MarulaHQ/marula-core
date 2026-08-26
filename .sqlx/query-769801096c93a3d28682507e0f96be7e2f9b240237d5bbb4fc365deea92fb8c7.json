@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE boards SET require_checklist_close = $3\n           WHERE org_id = $1 AND id = $2\n           RETURNING require_checklist_close",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "require_checklist_close",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "769801096c93a3d28682507e0f96be7e2f9b240237d5bbb4fc365deea92fb8c7"
+}

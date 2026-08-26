@@ -379,6 +379,29 @@ where
         .collect()
 }
 
+/// Client-facing comment read (portal v1 will consume this): the kind
+/// whitelist comes from the pure domain policy (`notes::visible_kinds`),
+/// so the query layer and the policy layer cannot drift apart. There is no
+/// parameter that can widen this to staff-only kinds.
+pub async fn list_client_visible_comments<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    ticket_id: Uuid,
+) -> DbResult<Vec<TicketComment>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    list_comments(
+        executor,
+        org_id,
+        ticket_id,
+        Some(core_domain::notes::visible_kinds(
+            core_domain::notes::NoteAudience::Portal,
+        )),
+    )
+    .await
+}
+
 // --- checklist -------------------------------------------------------------
 
 pub async fn add_checklist_item<'e, E>(
@@ -442,7 +465,8 @@ where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     let rows = sqlx::query!(
-        r#"SELECT id, org_id, ticket_id, text, checked, sort_order, checked_by, checked_at
+        r#"SELECT id, org_id, ticket_id, text, checked, sort_order, checked_by, checked_at,
+                  template_item_id
            FROM checklist_items WHERE org_id = $1 AND ticket_id = $2 ORDER BY sort_order"#,
         org_id,
         ticket_id
@@ -460,6 +484,7 @@ where
             sort_order: row.sort_order,
             checked_by: row.checked_by,
             checked_at: row.checked_at,
+            template_item_id: row.template_item_id,
         })
         .collect())
 }

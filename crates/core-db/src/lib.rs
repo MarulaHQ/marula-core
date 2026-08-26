@@ -10,6 +10,7 @@
 
 pub mod audit;
 pub mod boards;
+pub mod checklists;
 pub mod clients;
 pub mod notifications;
 pub mod orgs;

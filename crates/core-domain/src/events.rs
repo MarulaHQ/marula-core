@@ -21,6 +21,9 @@ pub mod types {
     pub const BOARD_STATUS_UPDATED: &str = "board.status_updated";
     pub const BOARD_STATUS_REMOVED: &str = "board.status_removed";
     pub const BOARD_TRANSITIONS_UPDATED: &str = "board.transitions_updated";
+    /// Emitted when a board's pre-close checklist template or enforcement
+    /// toggle changes (TASKLIST 2.8).
+    pub const BOARD_CHECKLIST_TEMPLATE_UPDATED: &str = "board.checklist_template_updated";
     pub const TICKET_CREATED: &str = "ticket.created";
     pub const TICKET_UPDATED: &str = "ticket.updated";
     pub const TICKET_STATUS_CHANGED: &str = "ticket.status_changed";

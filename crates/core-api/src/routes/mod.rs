@@ -3,6 +3,7 @@
 
 pub mod audit;
 pub mod boards;
+pub mod checklists;
 pub mod clients;
 pub mod notifications;
 pub mod openapi;
@@ -58,6 +59,12 @@ pub fn build_router(state: AppState) -> Router {
             get(boards::list_transitions).put(boards::set_transitions),
         )
         .route("/api/boards/{id}/favorite", post(boards::toggle_favorite))
+        .route(
+            "/api/boards/{id}/checklist-template",
+            get(checklists::get_template)
+                .put(checklists::put_template)
+                .delete(checklists::delete_template),
+        )
         // tickets
         .route("/api/tickets", get(tickets::list).post(tickets::create))
         .route("/api/tickets/my-work", get(tickets::my_work))

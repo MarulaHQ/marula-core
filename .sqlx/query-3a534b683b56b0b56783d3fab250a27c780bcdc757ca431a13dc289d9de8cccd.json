@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM board_checklist_templates WHERE org_id = $1 AND board_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3a534b683b56b0b56783d3fab250a27c780bcdc757ca431a13dc289d9de8cccd"
+}

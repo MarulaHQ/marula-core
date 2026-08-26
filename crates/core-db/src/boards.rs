@@ -50,7 +50,7 @@ where
     let row = sqlx::query!(
         r#"INSERT INTO boards (id, org_id, name, description, is_default)
            VALUES ($1, $2, $3, $4, $5)
-           RETURNING id, org_id, name, description, is_default, created_at"#,
+           RETURNING id, org_id, name, description, is_default, require_checklist_close, created_at"#,
         id,
         org_id,
         name,
@@ -65,6 +65,7 @@ where
         name: row.name,
         description: row.description,
         is_default: row.is_default,
+        require_checklist_close: row.require_checklist_close,
         created_at: row.created_at,
     })
 }
@@ -74,7 +75,7 @@ where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     let rows = sqlx::query!(
-        r#"SELECT id, org_id, name, description, is_default, created_at
+        r#"SELECT id, org_id, name, description, is_default, require_checklist_close, created_at
            FROM boards WHERE org_id = $1 ORDER BY is_default DESC, name"#,
         org_id
     )
@@ -88,6 +89,7 @@ where
             name: row.name,
             description: row.description,
             is_default: row.is_default,
+            require_checklist_close: row.require_checklist_close,
             created_at: row.created_at,
         })
         .collect())
@@ -98,7 +100,7 @@ where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     let row = sqlx::query!(
-        r#"SELECT id, org_id, name, description, is_default, created_at
+        r#"SELECT id, org_id, name, description, is_default, require_checklist_close, created_at
            FROM boards WHERE org_id = $1 AND id = $2"#,
         org_id,
         id
@@ -112,6 +114,7 @@ where
         name: row.name,
         description: row.description,
         is_default: row.is_default,
+        require_checklist_close: row.require_checklist_close,
         created_at: row.created_at,
     })
 }
