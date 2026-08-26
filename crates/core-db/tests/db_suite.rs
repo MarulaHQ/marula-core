@@ -815,11 +815,25 @@ async fn timer_enforces_single_active_session_per_user() {
         .expect("save pause");
     tx.commit().await.expect("commit pause");
 
-    // Second active timer for the SAME user violates the partial unique
-    // index. Run in its own transaction: the expected failure aborts it.
+    // 0017 semantics: `is_running` (last segment open) owns the unique slot,
+    // so a PAUSED timer no longer blocks a new one — pausing s1 then
+    // starting s2 is exactly the auto-pause switch flow and must succeed.
+    let mut tx = org_tx(&db.app, s.org).await;
     let s2 = TimerSession::start(s.org, u, t.id, at(11));
+    timers::insert_session(&mut *tx, &s2)
+        .await
+        .expect("paused timer frees the running slot");
+    tx.commit().await.expect("commit switch");
+
+    let mut tx = org_tx(&db.app, s.org).await;
+    let active = timers::active_session(&mut *tx, u).await.expect("active 2");
+    assert_eq!(active.expect("running s2").id, s2.id);
+
+    // Two RUNNING sessions for one user still violate the partial unique
+    // index. Run in its own transaction: the expected failure aborts it.
+    let s3 = TimerSession::start(s.org, u, t.id, at(13));
     let mut violating = org_tx(&db.app, s.org).await;
-    let err = timers::insert_session(&mut *violating, &s2)
+    let err = timers::insert_session(&mut *violating, &s3)
         .await
         .expect_err("must violate");
     drop(violating); // roll back the aborted transaction
@@ -828,27 +842,14 @@ async fn timer_enforces_single_active_session_per_user() {
         "expected unique violation, got {err:?}"
     );
 
-    // Stopping the first frees the slot; the second then starts cleanly.
-    let mut tx = org_tx(&db.app, s.org).await;
-    s1.stop(at(12), None).expect("stop domain rule");
-    timers::update_session(&mut *tx, &s1)
-        .await
-        .expect("save stop");
-    timers::insert_session(&mut *tx, &s2)
-        .await
-        .expect("start timer 2");
-    tx.commit().await.expect("commit switch");
-
-    let mut tx = org_tx(&db.app, s.org).await;
-    let active = timers::active_session(&mut *tx, u).await.expect("active 2");
-    assert_eq!(active.expect("running s2").id, s2.id);
-
     let recent = timers::recent_sessions(&mut *tx, u, 10)
         .await
         .expect("recent");
     assert_eq!(recent.len(), 2);
     assert_eq!(recent[0].id, s2.id, "running session docks first");
-    assert_eq!(recent[1].stopped_at, Some(at(12)));
+    assert_eq!(recent[1].id, s1.id);
+    assert_eq!(recent[1].stopped_at, None, "paused, not stopped");
+    assert!(!recent[1].is_running());
 
     // Segment history survives the JSONB round-trip.
     let stored = timers::get_session(&mut *tx, s1.id)
