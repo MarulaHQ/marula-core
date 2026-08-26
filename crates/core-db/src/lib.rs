@@ -23,6 +23,7 @@ pub mod queue;
 pub mod settings;
 pub mod sla;
 pub mod tickets;
+pub mod time_audit;
 pub mod timers;
 pub mod users;
 

@@ -1310,6 +1310,64 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/time-gaps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/time-gaps?user_id= — manager-scoped report for one member.
+         *     Owner/admin only; everyone else uses `/api/time-gaps/me`.
+         */
+        get: operations["time_gaps_user"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/time-gaps/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/time-gaps/me — the caller's day-level gap report (defaults to
+         *     yesterday in the caller's timezone).
+         */
+        get: operations["time_gaps_me"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/time-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/time-settings — org time-discipline knobs (admin). */
+        get: operations["time_settings_get"];
+        /** PUT /api/time-settings — update the org's time-discipline knobs (admin). */
+        put: operations["time_settings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/timers/active": {
         parameters: {
             query?: never;
@@ -1885,6 +1943,48 @@ export interface components {
             board_id: string;
             favorite: boolean;
         };
+        GapDayView: {
+            activity: boolean;
+            /** @description Local calendar day (YYYY-MM-DD). */
+            day: string;
+            /** Format: int64 */
+            expected_minutes: number;
+            has_gap: boolean;
+            /** Format: int64 */
+            logged_minutes: number;
+            /**
+             * Format: date-time
+             * @description When the EOD run nudged for this day, if it did.
+             */
+            nudge_sent_at?: string | null;
+            /** Format: int64 */
+            unaccounted_minutes: number;
+        };
+        GapReportQuery: {
+            /**
+             * Format: date
+             * @description Inclusive local-day start (YYYY-MM-DD). Defaults to yesterday.
+             */
+            from?: string | null;
+            /**
+             * Format: date
+             * @description Inclusive local-day end (YYYY-MM-DD). Defaults to `from`.
+             */
+            to?: string | null;
+            /**
+             * Format: uuid
+             * @description Manager report only: whose days. Requires owner/admin.
+             */
+            user_id?: string | null;
+        };
+        GapReportResponse: {
+            days: components["schemas"]["GapDayView"][];
+            /** Format: int64 */
+            expected_minutes: number;
+            timezone: string;
+            /** Format: uuid */
+            user_id: string;
+        };
         HealthResponse: {
             status: string;
         };
@@ -2439,6 +2539,19 @@ export interface components {
             user_id: string;
             work_type?: string | null;
         };
+        TimeSettingsResponse: {
+            /**
+             * Format: int32
+             * @description Local hour (member timezones) the EOD audit fires at.
+             */
+            eod_nudge_hour: number;
+            eod_nudges_enabled: boolean;
+            /**
+             * Format: int32
+             * @description Active days logging under this many minutes are gap days.
+             */
+            time_gap_min_minutes: number;
+        };
         /** @description A contiguous running interval within a timer session. */
         TimerSegment: {
             end_kind?: null | components["schemas"]["SegmentEnd"];
@@ -2552,6 +2665,13 @@ export interface components {
             name?: string | null;
             /** Format: int32 */
             sort_order?: number | null;
+        };
+        UpdateTimeSettingsRequest: {
+            /** Format: int32 */
+            eod_nudge_hour: number;
+            eod_nudges_enabled: boolean;
+            /** Format: int32 */
+            time_gap_min_minutes: number;
         };
         UpsertProviderRequest: {
             client_id: string;
@@ -4747,6 +4867,100 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TimeEntry"];
+                };
+            };
+        };
+    };
+    time_gaps_user: {
+        parameters: {
+            query?: {
+                /** @description Inclusive local-day start (YYYY-MM-DD). Defaults to yesterday. */
+                from?: string | null;
+                /** @description Inclusive local-day end (YYYY-MM-DD). Defaults to `from`. */
+                to?: string | null;
+                /** @description Manager report only: whose days. Requires owner/admin. */
+                user_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GapReportResponse"];
+                };
+            };
+        };
+    };
+    time_gaps_me: {
+        parameters: {
+            query?: {
+                /** @description Inclusive local-day start (YYYY-MM-DD). Defaults to yesterday. */
+                from?: string | null;
+                /** @description Inclusive local-day end (YYYY-MM-DD). Defaults to `from`. */
+                to?: string | null;
+                /** @description Manager report only: whose days. Requires owner/admin. */
+                user_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GapReportResponse"];
+                };
+            };
+        };
+    };
+    time_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimeSettingsResponse"];
+                };
+            };
+        };
+    };
+    time_settings_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateTimeSettingsRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimeSettingsResponse"];
                 };
             };
         };

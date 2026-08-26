@@ -13,6 +13,7 @@ pub mod openapi;
 pub mod settings;
 pub mod sla_admin;
 pub mod tickets;
+pub mod time;
 pub mod timers;
 pub mod webhooks;
 
@@ -67,6 +68,10 @@ pub fn build_router(state: AppState) -> Router {
         // through core-api, never direct DB writes).
         .route("/api/internal/sla/verdict", post(internal::sla_verdict))
         .route("/api/internal/effects", post(internal::effects));
+        .route(
+            "/api/internal/time/gap-audit/run",
+            post(internal::run_gap_audit),
+        );
 
     let protected = Router::new()
         .route("/api/me", get(auth_handlers::me))
@@ -210,6 +215,13 @@ pub fn build_router(state: AppState) -> Router {
             "/api/time-entries",
             get(timers::list_entries).post(timers::create_entry),
         )
+        // time discipline (settings + missing-time gap reports)
+        .route(
+            "/api/time-settings",
+            get(time::get_settings).put(time::put_settings),
+        )
+        .route("/api/time-gaps/me", get(time::my_gaps))
+        .route("/api/time-gaps", get(time::user_gaps))
         // notifications
         .route("/api/notifications", get(notifications::list))
         .route(

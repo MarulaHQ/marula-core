@@ -19,6 +19,7 @@ pub mod policy;
 pub mod settings;
 pub mod sla_engine;
 pub mod status;
+pub mod time_audit;
 pub mod workflow;
 
 pub use entities::*;

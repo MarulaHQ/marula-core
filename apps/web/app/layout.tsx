@@ -2,12 +2,14 @@
 //
 // Purpose: the only place global CSS and providers are attached; an inline
 // pre-hydration script applies the persisted theme before first paint so
-// neither mode ever flashes.
+// neither mode ever flashes. Hosts the docked active-timer bar (TASKLIST
+// 2.9) so it spans every surface.
 // Non-purpose: no page chrome — headers live in pages that need them.
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "../lib/api";
+import { TimerDock } from "../components/timer-dock";
 
 const inter = Inter({ subsets: ["latin"], variable: "--m-font-sans" });
 
@@ -25,7 +27,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
       </head>
       <body className={inter.variable}>
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          {children}
+          <TimerDock />
+        </AuthProvider>
       </body>
     </html>
   );

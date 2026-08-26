@@ -57,14 +57,16 @@ where
     Ok(())
 }
 
-/// The user's running session, if any (at most one — DB-enforced).
+/// The user's RUNNING session, if any (at most one — DB-enforced via the
+/// `is_running` generated column: paused sessions stay in the docked
+/// working set but are not active).
 pub async fn active_session<'e, E>(executor: E, user_id: Uuid) -> DbResult<Option<TimerSession>>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     let row = sqlx::query!(
         r#"SELECT id, org_id, user_id, ticket_id, started_at, stopped_at, segments
-           FROM timer_sessions WHERE user_id = $1 AND stopped_at IS NULL"#,
+           FROM timer_sessions WHERE user_id = $1 AND is_running"#,
         user_id
     )
     .fetch_optional(executor)
@@ -115,7 +117,7 @@ where
     let rows = sqlx::query!(
         r#"SELECT id, org_id, user_id, ticket_id, started_at, stopped_at, segments
            FROM timer_sessions WHERE user_id = $1
-           ORDER BY stopped_at IS NULL DESC, started_at DESC LIMIT $2"#,
+           ORDER BY is_running DESC, started_at DESC LIMIT $2"#,
         user_id,
         limit
     )

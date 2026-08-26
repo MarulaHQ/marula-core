@@ -808,15 +808,10 @@ async fn timer_enforces_single_active_session_per_user() {
     let active = timers::active_session(&mut *tx, u).await.expect("active");
     assert_eq!(active.expect("one running").id, s1.id);
 
-    // Pausing records the reason in the segment history.
-    s1.pause(at(10), Some("vendor call".into())).expect("pause");
-    timers::update_session(&mut *tx, &s1)
-        .await
-        .expect("save pause");
-    tx.commit().await.expect("commit pause");
-
-    // Second active timer for the SAME user violates the partial unique
-    // index. Run in its own transaction: the expected failure aborts it.
+    // Two RUNNING timers for the SAME user violate the partial unique
+    // index (keyed on the `is_running` generated column, not merely
+    // stopped_at). Run in its own transaction: the expected failure
+    // aborts it.
     let s2 = TimerSession::start(s.org, u, t.id, at(11));
     let mut violating = org_tx(&db.app, s.org).await;
     let err = timers::insert_session(&mut *violating, &s2)
@@ -828,38 +823,82 @@ async fn timer_enforces_single_active_session_per_user() {
         "expected unique violation, got {err:?}"
     );
 
-    // Stopping the first frees the slot; the second then starts cleanly.
-    let mut tx = org_tx(&db.app, s.org).await;
-    s1.stop(at(12), None).expect("stop domain rule");
+    // Pausing records the reason in the segment history.
+    s1.pause(at(10), Some("vendor call".into())).expect("pause");
     timers::update_session(&mut *tx, &s1)
         .await
-        .expect("save stop");
-    timers::insert_session(&mut *tx, &s2)
-        .await
-        .expect("start timer 2");
-    tx.commit().await.expect("commit switch");
+        .expect("save pause");
+    tx.commit().await.expect("commit pause");
 
+    // A PAUSED session no longer holds the active slot: starting a second
+    // timer after a pause is exactly the switch flow (docked working set)
+    // and must succeed. s1 stays in the set, resumable, not stopped.
+    {
+        let mut switch_tx = org_tx(&db.app, s.org).await;
+        timers::insert_session(&mut *switch_tx, &s2)
+            .await
+            .expect("switch: paused session freed the slot");
+        switch_tx.commit().await.expect("commit switch");
+    }
+
+    // The running session is s2; s1 is paused but present.
     let mut tx = org_tx(&db.app, s.org).await;
     let active = timers::active_session(&mut *tx, u).await.expect("active 2");
     assert_eq!(active.expect("running s2").id, s2.id);
+
+    // Resuming the paused session while s2 runs would make TWO running
+    // rows — the index rejects it even through UPDATE (the API layer
+    // checks first; the DB is the backstop).
+    s1.resume(at(12)).expect("resume domain rule");
+    let mut violating_resume = org_tx(&db.app, s.org).await;
+    let err = timers::update_session(&mut *violating_resume, &s1)
+        .await
+        .expect_err("resume while another runs must violate");
+    drop(violating_resume);
+    assert!(
+        is_unique_violation(&err),
+        "expected unique violation, got {err:?}"
+    );
+
+    // Stopping s2 frees the slot for real: s1 can run again.
+    let mut tx = org_tx(&db.app, s.org).await;
+    let mut s2_stored = timers::get_session(&mut *tx, s2.id).await.expect("s2");
+    s2_stored.stop(at(12), None).expect("stop domain rule");
+    timers::update_session(&mut *tx, &s2_stored)
+        .await
+        .expect("save stop");
+    timers::update_session(&mut *tx, &s1)
+        .await
+        .expect("resume s1 after s2 stopped");
+    tx.commit().await.expect("commit stop + resume");
+
+    let mut tx = org_tx(&db.app, s.org).await;
+    let active = timers::active_session(&mut *tx, u).await.expect("active 3");
+    assert_eq!(active.expect("running s1 again").id, s1.id);
 
     let recent = timers::recent_sessions(&mut *tx, u, 10)
         .await
         .expect("recent");
     assert_eq!(recent.len(), 2);
-    assert_eq!(recent[0].id, s2.id, "running session docks first");
-    assert_eq!(recent[1].stopped_at, Some(at(12)));
+    assert_eq!(recent[0].id, s1.id, "running session docks first");
 
     // Segment history survives the JSONB round-trip.
-    let stored = timers::get_session(&mut *tx, s1.id)
+    let stored = timers::get_session(&mut *tx, s2.id)
         .await
-        .expect("stored s1");
+        .expect("stored s2");
     assert_eq!(stored.segments.len(), 1);
     assert_eq!(
         stored.segments[0].end_kind,
+        Some(core_domain::entities::SegmentEnd::Stopped)
+    );
+    let stored_s1 = timers::get_session(&mut *tx, s1.id)
+        .await
+        .expect("stored s1");
+    assert_eq!(
+        stored_s1.segments[0].end_kind,
         Some(core_domain::entities::SegmentEnd::Paused)
     );
-    assert_eq!(stored.segments[0].reason.as_deref(), Some("vendor call"));
+    assert_eq!(stored_s1.segments[0].reason.as_deref(), Some("vendor call"));
 }
 
 #[tokio::test]
@@ -2852,6 +2891,155 @@ async fn evaluation_candidates_resolve_open_tickets_and_calendars() {
             &s,
             Uuid::now_v7(),
             "open candidate",
+// --- time discipline: missing-time gap audit (slots 60-69) ---------------------
+
+use core_db::time_audit;
+
+#[tokio::test]
+async fn gap_audit_upsert_updates_and_claims_nudge_exactly_once() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 60).await;
+    let u = seed_user(&db.app, &s, 6000).await;
+    let day = chrono::NaiveDate::from_ymd_opt(2026, 1, 15).expect("day");
+
+    let first = {
+        let mut tx = org_tx(&db.app, s.org).await;
+        let row = time_audit::upsert_gap_audit(
+            &mut *tx,
+            &time_audit::GapAuditFacts {
+                org_id: s.org,
+                user_id: u,
+                day,
+                activity: true,
+                logged_minutes: 10,
+                expected_minutes: 60,
+                has_gap: true,
+            },
+        )
+        .await
+        .expect("upsert");
+        tx.commit().await.expect("commit");
+        row
+    };
+    assert!(first.has_gap);
+    assert!(first.nudge_sent_at.is_none(), "fresh row has not nudged");
+
+    // Exactly one concurrent-style claim wins.
+    {
+        let mut tx = org_tx(&db.app, s.org).await;
+        assert!(time_audit::claim_nudge(&mut *tx, first.id)
+            .await
+            .expect("claim"));
+        assert!(
+            !time_audit::claim_nudge(&mut *tx, first.id)
+                .await
+                .expect("reclaim"),
+            "second claim on the same day must lose"
+        );
+        tx.commit().await.expect("commit");
+    }
+
+    // A later re-run refreshes the facts but never resurrects the nudge.
+    let second = {
+        let mut tx = org_tx(&db.app, s.org).await;
+        let row = time_audit::upsert_gap_audit(
+            &mut *tx,
+            &time_audit::GapAuditFacts {
+                org_id: s.org,
+                user_id: u,
+                day,
+                activity: true,
+                logged_minutes: 25,
+                expected_minutes: 60,
+                has_gap: true,
+            },
+        )
+        .await
+        .expect("re-upsert");
+        tx.commit().await.expect("commit");
+        row
+    };
+    assert_eq!(second.id, first.id, "same (org, user, day) ⇒ same row");
+    assert_eq!(second.logged_minutes, 25, "facts refreshed");
+    assert!(second.nudge_sent_at.is_some(), "nudge timestamp preserved");
+
+    // The ledger stays one-row-per-day even after many runs.
+    {
+        let mut tx = org_tx(&db.app, s.org).await;
+        let rows = time_audit::list_gap_audits(&mut *tx, s.org, u, day, day)
+            .await
+            .expect("list");
+        assert_eq!(rows.len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn org_time_settings_default_and_roundtrip() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 61).await;
+
+    let defaults = {
+        let mut tx = org_tx(&db.app, s.org).await;
+        time_audit::org_time_settings(&mut *tx, s.org)
+            .await
+            .expect("settings")
+    };
+    assert!(defaults.eod_nudges_enabled, "defaults-first: nudges on");
+    assert_eq!(defaults.eod_nudge_hour, 18);
+    assert_eq!(defaults.time_gap_min_minutes, 60);
+
+    let updated = time_audit::OrgTimeSettings {
+        eod_nudges_enabled: false,
+        eod_nudge_hour: 17,
+        time_gap_min_minutes: 30,
+    };
+    {
+        let mut tx = org_tx(&db.app, s.org).await;
+        time_audit::update_org_time_settings(&mut *tx, s.org, &updated)
+            .await
+            .expect("update");
+        let reread = time_audit::org_time_settings(&mut *tx, s.org)
+            .await
+            .expect("reread");
+        assert_eq!(reread, updated);
+    }
+    // Unknown org ⇒ NotFound, never a silent default (admin pool: no RLS
+    // noise — the app pool's reused sessions carry a defined-but-empty
+    // app.org_id that raises 22P02 instead of filtering).
+    assert!(matches!(
+        time_audit::org_time_settings(&db.admin, fixed_uuid(6199)).await,
+        Err(DbError::NotFound)
+    ));
+}
+
+#[tokio::test]
+async fn day_activity_detects_comments_and_overlapping_timer_sessions() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 62).await;
+    let u = seed_user(&db.app, &s, 6200).await;
+    // The comment insert stamps created_at = now(), so the audited window
+    // is "the last hour" — the far-past window at the bottom proves quiet
+    // days stay quiet.
+    let now = chrono::Utc::now();
+    let start = now - chrono::Duration::minutes(30);
+    let end = now + chrono::Duration::minutes(30);
+
+    let none = {
+        let mut tx = org_tx(&db.app, s.org).await;
+        time_audit::day_activity(&mut *tx, s.org, u, start, end)
+            .await
+            .expect("probe")
+    };
+    assert!(!none, "quiet day has no activity");
+
+    // A comment inside the window counts.
+    let ticket = {
+        let mut tx = org_tx(&db.app, s.org).await;
+        let t = create_ticket(
+            &mut tx,
+            &s,
+            fixed_uuid(6201),
+            "Activity probe",
             Priority::P2,
             s.entry_status,
             None,
@@ -2961,4 +3149,131 @@ async fn evaluation_candidates_resolve_open_tickets_and_calendars() {
         mine.calendar.timezone, "Europe/Berlin",
         "attached calendar wins"
     );
+        tickets::insert_comment(
+            &mut *tx,
+            fixed_uuid(6202),
+            s.org,
+            t.id,
+            Some(u),
+            NoteKind::Internal,
+            "worked on this",
+        )
+        .await
+        .expect("comment");
+        tx.commit().await.expect("commit");
+        t
+    };
+    let via_comment = {
+        let mut tx = org_tx(&db.app, s.org).await;
+        time_audit::day_activity(&mut *tx, s.org, u, start, end)
+            .await
+            .expect("probe")
+    };
+    assert!(via_comment, "comment authored in window ⇒ activity");
+
+    // A session that STARTED the previous evening and is still running
+    // overlaps today's window (spans-midnight work is activity).
+    let mut overnight =
+        TimerSession::start(s.org, u, ticket.id, start - chrono::Duration::hours(2));
+    {
+        let mut tx = org_tx(&db.app, s.org).await;
+        timers::insert_session(&mut *tx, &overnight)
+            .await
+            .expect("session");
+        tx.commit().await.expect("commit");
+    }
+    let via_timer = {
+        let mut tx = org_tx(&db.app, s.org).await;
+        time_audit::day_activity(&mut *tx, s.org, u, start, end)
+            .await
+            .expect("probe")
+    };
+    assert!(
+        via_timer,
+        "running session overlapping the window ⇒ activity"
+    );
+
+    // Stopped well before the window and far from it ⇒ no overlap.
+    overnight
+        .stop(start - chrono::Duration::minutes(25), None)
+        .expect("stop");
+    {
+        let mut tx = org_tx(&db.app, s.org).await;
+        timers::update_session(&mut *tx, &overnight)
+            .await
+            .expect("update session");
+        tx.commit().await.expect("commit");
+    }
+    let far_past = chrono::NaiveDate::from_ymd_opt(2020, 2, 1).expect("day");
+    let (s2, e2) = core_domain::time_audit::local_day_window(far_past, chrono_tz::UTC);
+    let quiet = {
+        let mut tx = org_tx(&db.app, s.org).await;
+        time_audit::day_activity(&mut *tx, s.org, u, s2, e2)
+            .await
+            .expect("probe")
+    };
+    assert!(!quiet, "no activity on untouched days");
+}
+
+#[tokio::test]
+async fn rls_hides_time_gap_audits_across_orgs_and_unscoped() {
+    let db = test_db().await;
+    let sa = seed_org(&db.app, 63).await;
+    let ua = seed_user(&db.app, &sa, 6300).await;
+    let day = chrono::NaiveDate::from_ymd_opt(2026, 1, 20).expect("day");
+    {
+        let mut tx = org_tx(&db.app, sa.org).await;
+        time_audit::upsert_gap_audit(
+            &mut *tx,
+            &time_audit::GapAuditFacts {
+                org_id: sa.org,
+                user_id: ua,
+                day,
+                activity: true,
+                logged_minutes: 5,
+                expected_minutes: 60,
+                has_gap: true,
+            },
+        )
+        .await
+        .expect("upsert");
+        tx.commit().await.expect("commit");
+    }
+
+    let sb = seed_org(&db.app, 64).await;
+    // Foreign scope sees nothing…
+    {
+        let mut tx = org_tx(&db.app, sb.org).await;
+        assert_eq!(
+            count_rows(&mut tx, "time_gap_audits", fixed_uuid(6399)).await,
+            0,
+            "placeholder id never visible"
+        );
+        let rows = time_audit::list_gap_audits(&mut *tx, sa.org, ua, day, day)
+            .await
+            .expect("foreign list");
+        assert!(
+            rows.is_empty(),
+            "cross-org ledger hidden by RLS + org param"
+        );
+    }
+    // …unscoped (virgin pool) sees nothing…
+    {
+        let fresh = db.fresh_app_pool().await;
+        let mut tx = fresh.begin().await.expect("unscoped begin");
+        let rows = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM time_gap_audits")
+            .fetch_one(&mut *tx)
+            .await
+            .expect("count");
+        assert_eq!(rows, 0, "default-deny without app.org_id");
+    }
+    // …and own scope sees exactly its row.
+    {
+        let mut tx = org_tx(&db.app, sa.org).await;
+        let rows = time_audit::list_gap_audits(&mut *tx, sa.org, ua, day, day)
+            .await
+            .expect("own list");
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].has_gap);
+    }
 }

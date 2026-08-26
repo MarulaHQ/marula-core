@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS(\n               SELECT 1 FROM ticket_comments\n                WHERE org_id = $1 AND author_id = $2\n                  AND created_at >= $3 AND created_at < $4\n           ) OR EXISTS(\n               SELECT 1 FROM timer_sessions\n                WHERE org_id = $1 AND user_id = $2\n                  AND started_at < $4\n                  AND COALESCE(stopped_at, now()) >= $3\n           ) AS activity",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "activity",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "82a3e77f2914052cdd206800cc059a56928f3f9ad06a6a678f5c336737dbfff1"
+}
