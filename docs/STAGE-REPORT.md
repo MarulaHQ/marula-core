@@ -66,3 +66,39 @@ including the full push chain and the latency budget.
 
 1. SLA clock evaluation loop (engine math shipped + tested in domain; scheduler lands with job queue).
 2. Custom-field UI surfaces (schema + queries exist).
+
+## Stage 2 — wave 3 (first four daily-driver items)
+
+**Status:** COMPLETE and merged to main (`06d5f53`). Built by four parallel
+Agent Manager lanes with disjoint migration windows / test-seed ranges /
+private dev ports; each lane shipped its tests with the implementation.
+
+### What shipped
+
+| Item | Lane | Highlights |
+|---|---|---|
+| 2.1 Workflow statuses/transitions | `stage2-statuses` | `0011_board_statuses.sql` — per-board status adjacency, composite FKs make cross-board edges impossible, defaults-first seeding of 4 category statuses, defensive non-destructive backfill; pure transition policy in `core-domain/workflow.rs` + proptest; workflow-enforced status changes; web status control grouped by semantic category |
+| 2.2 Notifications + @mentions | `stage2-notifications` | `0012_notification_prefs.sql` — per-channel prefs, tz-aware quiet hours (paired-bound constraint), org defaults rows, partial unread index; mention parser + member resolution in comments; REST inbox/unread/mark-read; worker email fan-out honoring prefs behind a MailTransport seam (noop until transports merged); notification dock + prefs screen |
+| 2.3 Auth hardening | `stage2-auth-mfa` | `0013_auth_hardening.sql` — TOTP (totp-rs) + WebAuthn (webauthn-rs) MFA w/ hashed single-use recovery codes, mfa_pending challenge step, generic OIDC SSO (signed state binding nonce+PKCE, conservative link/JIT), refresh-token reuse detection revoking chains, AES-GCM at-rest secret encryption, audit coverage + filtered admin query API, security/MFA/SSO UI |
+| 2.4 Email-in/out v1 | `stage2-email` | new `core-mail` crate: `MailTransport` (Postmark/SMTP-mailpit/noop) + `ScanProvider` (clamd/noop) traits, none-mode documented; HMAC-authenticated inbound webhook → scan → thread (References/In-Reply-To → subject token → routed new ticket), message-id idempotency; outbound send loop in worker claiming via core-api (single-writer preserved); deterministic two-simulated-weeks zero-loss CI harness |
+
+### Criteria status
+
+- [x] Per-board custom statuses bound to semantic categories; behavior binds to category only
+- [x] @mentions + notification center with per-channel prefs + quiet hours
+- [x] Audit log coverage for auth events + query surface
+- [x] TOTP **and** WebAuthn MFA; OIDC SSO; refresh reuse detection
+- [x] Email-in/out end-to-end; zero-loss mail harness green in CI-style run
+
+### Integration notes (coordinator)
+
+- Shared-file merges resolved additively (`routes/mod.rs`, `openapi.rs`, worker loop wiring); SDK snapshot regenerated from the live merged API (**58 paths**, up from 43)
+- One real integration bug found & fixed: two lanes drew the same db_suite seed slot (21) → org-PK collision under parallel tests; slot ranges are now pre-assigned per lane (`ec8a84c`)
+- Testcontainer name made env-overridable so concurrent lanes never collide (`855f886`, `MERIDIAN_TEST_PG_NAME`)
+
+### Known gaps / deferred
+
+1. WebAuthn state serialization uses `danger-allow-state-serialisation`; verify server-side-only storage during security pass.
+2. OIDC discovery/JWKS plumbing is hand-rolled on reqwest+jsonwebtoken; consider `openidconnect` crate during hardening.
+3. Notification email fan-out runs on noop transport until settings-hub wires real transport config.
+4. Inbound email malware scanning is clamd-optional (noop default) — document operator runbook when attachments land.
