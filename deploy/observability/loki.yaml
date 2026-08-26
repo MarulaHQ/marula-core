@@ -1,0 +1,38 @@
+# Grafana Loki — local logs backend for Meridian (TASKLIST 2.18).
+#
+# Purpose: single-binary filesystem store that accepts the collector's
+# OTLP log pipeline at /otlp/v1/logs. Retention: none — dev volume only.
+#
+# Non-purpose: not a production topology (no replication, no S3, no
+# ingestion hardening); prod operators should bring their own Loki config.
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: "2024-01-01"
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+# Native OpenTelemetry ingestion (matches the collector's otlphttp/loki).
+limits_config:
+  allow_structured_metadata: true

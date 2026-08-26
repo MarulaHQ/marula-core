@@ -80,7 +80,27 @@ fn token_from_query(raw: &str) -> Option<String> {
 
 /// One connected client: registers presence, auto-subscribes its own user
 /// channel, then multiplexes client frames against the event broadcast.
+///
+/// Telemetry (TASKLIST 2.18): the whole session runs inside one
+/// `ws.session` span carrying `org_id`/`user_id` (identified, not PII) and
+/// the `meridian.ws.sessions` gauge is moved by exactly one open/close
+/// pair per session. No message CONTENT is ever recorded.
 async fn run_session(socket: WebSocket, hub: Hub, claims: WsClaims) {
+    use tracing::Instrument as _;
+    core_otel::metrics::ws_session_opened();
+    let session = tracing::info_span!(
+        "ws.session",
+        org_id = %claims.org,
+        user_id = %claims.sub,
+    );
+    // Instrument, not enter: the span stays current for the loop's whole
+    // future without holding an invalid-guard across await points.
+    session_loop(socket, hub, claims).instrument(session).await;
+    core_otel::metrics::ws_session_closed();
+}
+
+/// The per-session pump: presence join → hello → select loop → leave.
+async fn session_loop(socket: WebSocket, hub: Hub, claims: WsClaims) {
     let (mut sink, mut stream) = socket.split();
     let mut events = hub.subscribe();
     hub.presence().join(claims.org, claims.sub);

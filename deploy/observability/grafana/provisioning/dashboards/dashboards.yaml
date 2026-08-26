@@ -1,0 +1,12 @@
+# Grafana dashboard provisioning: load the Meridian starter dashboard.
+apiVersion: 1
+
+providers:
+  - name: Meridian
+    orgId: 1
+    folder: Meridian
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards

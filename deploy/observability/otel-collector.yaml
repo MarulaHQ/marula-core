@@ -1,0 +1,49 @@
+# OpenTelemetry Collector — the single ingest point for Meridian telemetry.
+#
+# Purpose: receive OTLP from core-api / realtime / worker and route each
+# signal to its store:
+#   traces  → Tempo   (OTLP/HTTP, http://tempo:4318)
+#   metrics → Prometheus exposition on :18899, scraped by Grafana's
+#             provisioned Prometheus datasource (keeps Mimir/Prometheus
+#             containers out of the dev stack)
+#   logs    → Loki    (native OTLP endpoint, http://loki:3100/otlp)
+#
+# Non-purpose: no sampling/PII policy here — redaction happens at the
+# source (crates/core-otel); no TLS, this is local development only.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  batch:
+    timeout: 2s
+
+exporters:
+  otlphttp/tempo:
+    endpoint: http://tempo:4318
+
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+
+  # Grafana scrapes meridian.* metrics from here (PromQL datasource).
+  prometheus:
+    endpoint: 0.0.0.0:18899
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/tempo]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/loki]

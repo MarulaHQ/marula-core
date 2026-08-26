@@ -16,7 +16,30 @@ use std::collections::{HashMap, HashSet};
 use tokio::sync::watch;
 
 /// One sweep over all due candidates; returns verdict jobs enqueued.
+///
+/// Telemetry (TASKLIST 2.18): a `sla.sweep` span per pass (candidate +
+/// enqueued counts), a `meridian.sla.sweep.duration` histogram sample, and
+/// `meridian.sla.verdicts` counters classified by trigger class
+/// (risk/breach/escalation).
 pub async fn sweep_once(pool: &PgPool, batch_limit: i64) -> anyhow::Result<usize> {
+    use tracing::Instrument as _;
+    let started = std::time::Instant::now();
+    let span = tracing::info_span!("sla.sweep");
+    let result = sweep_inner(pool, batch_limit)
+        .instrument(span.clone())
+        .await;
+    if let Ok((candidates, enqueued)) = &result {
+        span.record("candidates", *candidates);
+        span.record("enqueued", *enqueued);
+    } else {
+        span.record("failed", true);
+    }
+    core_otel::metrics::sla_sweep(started.elapsed().as_secs_f64() * 1000.0);
+    result.map(|(_candidates, enqueued)| enqueued)
+}
+
+/// Returns `(candidates_seen, verdict_jobs_enqueued)`.
+async fn sweep_inner(pool: &PgPool, batch_limit: i64) -> anyhow::Result<(usize, usize)> {
     // THE clock for this entire sweep: Postgres, read exactly once per pass.
     let db_now: chrono::DateTime<chrono::Utc> =
         sqlx::query_scalar("SELECT now()").fetch_one(pool).await?;
@@ -28,7 +51,7 @@ pub async fn sweep_once(pool: &PgPool, batch_limit: i64) -> anyhow::Result<usize
         rows
     };
     if candidates.is_empty() {
-        return Ok(0);
+        return Ok((0, 0));
     }
 
     let policy_ids: Vec<uuid::Uuid> = candidates
@@ -80,6 +103,7 @@ pub async fn sweep_once(pool: &PgPool, batch_limit: i64) -> anyhow::Result<usize
         }
     }
 
+    let candidates_seen = candidates.len();
     let mut enqueued = 0usize;
     for candidate in candidates {
         let Some(ladder) = ladders.get(&candidate.policy_id) else {
@@ -137,14 +161,26 @@ pub async fn sweep_once(pool: &PgPool, batch_limit: i64) -> anyhow::Result<usize
                 max_attempts: 5,
             };
             match core_db::queue::enqueue(pool, &job).await {
-                Ok(_) => enqueued += 1,
+                Ok(_) => {
+                    enqueued += 1;
+                    // SLA breach counter (TASKLIST 2.18): classify by the
+                    // ladder trigger's notification kind — "breach" is the
+                    // SLA-breach counter, "risk" risk warnings, everything
+                    // else is escalation.
+                    let trigger_class = match verdict.trigger.notification_kind() {
+                        core_domain::entities::NotificationKind::SlaBreach => "breach",
+                        core_domain::entities::NotificationKind::SlaRisk => "risk",
+                        _ => "escalation",
+                    };
+                    core_otel::metrics::sla_verdict(trigger_class);
+                }
                 Err(error) => {
                     tracing::error!(%error, ticket_id = %candidate.ticket_id, "failed to enqueue verdict")
                 }
             }
         }
     }
-    Ok(enqueued)
+    Ok((candidates_seen, enqueued))
 }
 
 /// Host-paced loop; every DECISION still reads the DB clock.

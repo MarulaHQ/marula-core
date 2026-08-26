@@ -2,10 +2,11 @@
 resolver = "2"
 members = [
     "crates/core-api",
-    "crates/core-domain",
     "crates/core-db",
+    "crates/core-domain",
     "crates/core-events",
     "crates/core-mail",
+    "crates/core-otel",
     "crates/core-store",
     "crates/realtime",
     "crates/worker",
@@ -32,6 +33,16 @@ thiserror = "2"
 anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+opentelemetry = { version = "0.32", default-features = false, features = ["trace", "metrics", "logs"] }
+opentelemetry_sdk = { version = "0.32", default-features = false, features = ["trace", "metrics", "logs"] }
+# NOTE: `reqwest-blocking-client`, not `reqwest-client` — the SDK's default
+# batch processors export via futures_executor::block_on on their own
+# threads, where the ASYNC reqwest client panics ("no reactor running").
+# The blocking client is the documented pairing for BatchSpanProcessor /
+# PeriodicReader (open-telemetry-rust#2673, #3125).
+opentelemetry-otlp = { version = "0.32", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace", "metrics", "logs"] }
+opentelemetry-appender-tracing = "0.32"
+tracing-opentelemetry = "0.33"
 uuid = { version = "1", features = ["v7", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"

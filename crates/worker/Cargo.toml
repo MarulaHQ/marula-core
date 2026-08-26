@@ -9,6 +9,7 @@ core-db = { path = "../core-db" }
 core-domain = { path = "../core-domain" }
 core-events = { path = "../core-events" }
 core-mail = { path = "../core-mail" }
+core-otel = { path = "../core-otel" }
 anyhow = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }

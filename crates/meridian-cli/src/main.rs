@@ -35,7 +35,8 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    init_tracing();
+    // Held for the process lifetime; drop flushes/shuts down telemetry.
+    let _telemetry = init_tracing();
     match Cli::parse().command {
         Command::Migrate => migrate().await,
         Command::ServeWorker => serve_worker().await,
@@ -73,13 +74,10 @@ fn shutdown_watch() -> watch::Receiver<bool> {
     shutdown_rx
 }
 
-fn init_tracing() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
+/// Shared telemetry bootstrap (TASKLIST 2.18): none-mode unless
+/// OTEL_EXPORTER_OTLP_ENDPOINT is set; the guard lives for `main`.
+fn init_tracing() -> core_otel::TelemetryGuard {
+    core_otel::init("meridian-cli")
 }
 
 #[cfg(test)]
