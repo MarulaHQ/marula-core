@@ -85,6 +85,7 @@ pub async fn require_auth(
             roles,
             permissions,
         },
+        session_id: Some(claims.sid),
     });
 
     Ok(next.run(request).await)

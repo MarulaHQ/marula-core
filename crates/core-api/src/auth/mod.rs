@@ -1,10 +1,15 @@
 //! Authentication: password hashing (argon2id), JWT access tokens, rotating
-//! refresh sessions, and the request middleware that resolves a Principal.
+//! refresh sessions with chain reuse detection, TOTP + WebAuthn MFA, and
+//! the request middleware that resolves a Principal.
 
 pub mod handlers;
 pub mod jwt;
+pub mod mfa_handlers;
 pub mod middleware;
+pub mod oidc_client;
 pub mod password;
+pub mod totp_service;
+pub mod webauthn_service;
 
 use core_domain::entities::Principal;
 use uuid::Uuid;
@@ -28,6 +33,8 @@ pub struct AccessClaims {
 #[derive(Debug, Clone)]
 pub struct AuthedUser {
     pub principal: Principal,
+    /// Session id from the access token (`sid`) when present.
+    pub session_id: Option<Uuid>,
 }
 
 impl std::ops::Deref for AuthedUser {
