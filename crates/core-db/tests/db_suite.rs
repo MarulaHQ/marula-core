@@ -17,7 +17,10 @@
 mod common;
 
 use common::{fixed_uuid, org_tx, test_db, FUTURE, PAST};
-use core_db::{audit, automations, notifications as notif, orgs, outbox, queue, sla, tickets, timers, users, DbError};
+use core_db::{
+    audit, automations, notifications as notif, orgs, outbox, queue, sla, tickets, timers, users,
+    DbError,
+};
 use core_domain::entities::{
     Actor, AuditEvent, BusinessCalendar, NotificationPreference, SlaCalendar, Ticket, TimeEntry,
     TimerSession,
