@@ -53,3 +53,4 @@ url = { workspace = true }
 data-encoding = { workspace = true }
 base32 = "0.5"
 base64 = "0.22"
+bytes = { workspace = true }

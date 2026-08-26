@@ -56,8 +56,11 @@ CREATE TABLE attachments (
     ticket_comment_id IS NULL
     OR (ticket_id IS NOT NULL AND email_message_id IS NULL)
   ),
+  -- At-most-one actor: staff uploads set the user, portal uploads (later)
+  -- would set the portal actor, INBOUND EMAIL attachments have neither —
+  -- they are system-created on behalf of the sender.
   CONSTRAINT attachments_uploader_shape CHECK (
-    (uploaded_by_user_id IS NULL) <> (uploaded_by_portal_user_id IS NULL)
+    uploaded_by_user_id IS NULL OR uploaded_by_portal_user_id IS NULL
   )
 );
 

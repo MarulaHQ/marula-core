@@ -182,6 +182,7 @@ impl Scenario {
             text: Some("still broken, adding detail".into()),
             html: None,
             received_at: None,
+            attachments: vec![],
         };
         self.templates.insert(rfc.to_string(), msg.clone());
         self.inbound_ids.push(rfc.to_string());
@@ -241,6 +242,9 @@ pub struct MailHarness {
     pub admin: PgPool,
     pub app: PgPool,
     pub state: AppState,
+    /// The SAME memory store `state.store` points at, typed for
+    /// interaction assertions (put counts, op log) in attachment tests.
+    pub store: Arc<core_store::memory::MemoryStore>,
     pub recording: Arc<RecordingTransport>,
     pub flaky: Arc<FlakyTransport<Arc<RecordingTransport>>>,
     pub org: HarnessOrg,
@@ -259,18 +263,18 @@ impl MailHarness {
         config.email_from_address = "support@acme.test".into();
         config.email_from_name = Some("Acme Support".into());
 
+        let store = Arc::new(core_store::memory::MemoryStore::new());
         let mail_stack = Arc::new(MailStack {
             transport: Arc::clone(&flaky) as Arc<dyn MailTransport>,
             scanner: Arc::new(ScriptedScan),
             from_address: config.email_from_address.clone(),
             from_name: config.email_from_name.clone(),
         });
-
         let state = AppState {
             pool: app.clone(),
             config: Arc::new(config),
             mail: mail_stack,
-            store: std::sync::Arc::new(core_store::memory::MemoryStore::new()),
+            store: std::sync::Arc::clone(&store) as std::sync::Arc<dyn core_store::ObjectStore>,
             oidc: core_api::auth::oidc_client::OidcHttpClient::new(),
         };
 
@@ -304,6 +308,7 @@ impl MailHarness {
             admin,
             app,
             state,
+            store,
             recording,
             flaky,
             org: HarnessOrg {
@@ -365,6 +370,7 @@ impl MailHarness {
                         text: Some("replying by keeping the bracket tag".into()),
                         html: None,
                         received_at: None,
+                        attachments: vec![],
                     };
                     match email::process_inbound(&self.state, msg).await {
                         Ok(InboundStatus::Commented) => counters.commented += 1,

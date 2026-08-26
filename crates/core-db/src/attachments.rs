@@ -254,10 +254,27 @@ pub async fn count_other_refs(
     Ok(n)
 }
 
+/// Routing targets of an inbound message (for authz on its attachments).
+pub async fn email_targets(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    email_message_id: Uuid,
+) -> DbResult<Option<(Option<Uuid>, Option<Uuid>)>> {
+    let row: Option<(Option<Uuid>, Option<Uuid>)> = sqlx::query_as(
+        "SELECT ticket_id, comment_id FROM email_messages WHERE org_id = $1 AND id = $2",
+    )
+    .bind(org_id)
+    .bind(email_message_id)
+    .fetch_optional(conn)
+    .await?;
+    Ok(row)
+}
+
 // --- portal visibility (TASKLIST 2.13 exposure × TASKLIST 2.14 files) -------
 
 /// Portal-visible attachments for one exposed ticket: kind=ticket rows
-/// always, comment rows only when their note kind is in the visible set.
+/// always, comment rows when their note kind is in the visible set, and
+/// email rows always (inbound mail creates client-visible notes only).
 /// Invisible rows are indistinguishable from absent ones (no existence
 /// leak through 404s).
 pub async fn list_portal_visible<'e, E>(
@@ -273,7 +290,9 @@ where
         r#"SELECT {QUALIFIED_COLS} FROM attachments a
            LEFT JOIN ticket_comments c ON c.id = a.ticket_comment_id
            WHERE a.org_id = $1 AND a.ticket_id = $2
-             AND (a.kind::text = 'ticket' OR c.kind = ANY($3))
+             AND (a.kind::text = 'ticket'
+                  OR c.kind = ANY($3)
+                  OR a.kind::text = 'email_message')
            ORDER BY a.created_at, a.id"#
     ))
     .bind(org_id)
@@ -301,7 +320,9 @@ where
         r#"SELECT {QUALIFIED_COLS} FROM attachments a
            LEFT JOIN ticket_comments c ON c.id = a.ticket_comment_id
            WHERE a.org_id = $1 AND a.ticket_id = $2 AND a.id = $3
-             AND (a.kind::text = 'ticket' OR c.kind = ANY($4))"#
+             AND (a.kind::text = 'ticket'
+                  OR c.kind = ANY($4)
+                  OR a.kind::text = 'email_message')"#
     ))
     .bind(org_id)
     .bind(ticket_id)
