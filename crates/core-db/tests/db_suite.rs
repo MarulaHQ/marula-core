@@ -1820,12 +1820,11 @@ async fn search_upsert_is_exactly_once_and_updates_in_place() {
     )
     .await;
 
-    let count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM search_index WHERE org_id = $1")
-            .bind(s.org)
-            .fetch_one(&mut *tx)
-            .await
-            .expect("count");
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM search_index WHERE org_id = $1")
+        .bind(s.org)
+        .fetch_one(&mut *tx)
+        .await
+        .expect("count");
     assert_eq!(count, 1, "replayed upserts must not duplicate rows");
 
     let hits = search::search_page(
@@ -1945,17 +1944,9 @@ async fn search_websearch_phrases_exclusions_and_prefix_tokens() {
     assert!(excluded[0].title.contains("queue"));
 
     // Partial token via the trigram leg: no lexeme "net" exists anywhere.
-    let prefix = search::search_page(
-        &mut *tx,
-        s.org,
-        &["ticket".to_string()],
-        "net",
-        true,
-        10,
-        0,
-    )
-    .await
-    .expect("prefix query");
+    let prefix = search::search_page(&mut *tx, s.org, &["ticket".to_string()], "net", true, 10, 0)
+        .await
+        .expect("prefix query");
     assert_eq!(prefix.len(), 2, "'net' finds 'network' rows");
     // With the trigram leg off, the same query is a no-op (FTS-only).
     let fts_only = search::search_page(
@@ -2047,15 +2038,10 @@ async fn search_kind_filter_and_pagination() {
     )
     .await;
 
-    let tickets_only = search::search_count(
-        &mut *tx,
-        s.org,
-        &["ticket".to_string()],
-        "alpha",
-        false,
-    )
-    .await
-    .expect("kind-filtered count");
+    let tickets_only =
+        search::search_count(&mut *tx, s.org, &["ticket".to_string()], "alpha", false)
+            .await
+            .expect("kind-filtered count");
     assert_eq!(tickets_only, 3);
 
     let all_kinds = search::search_count(
@@ -2190,7 +2176,10 @@ async fn search_unscoped_app_role_cannot_read_or_write() {
     )
     .await
     .expect("unscoped read");
-    assert!(hits.is_empty(), "default-deny: unset org scope reads nothing");
+    assert!(
+        hits.is_empty(),
+        "default-deny: unset org scope reads nothing"
+    );
     // …and the write path is equally denied by the policy's implicit WITH CHECK.
     let result = search::upsert_row(
         &mut *unscoped,

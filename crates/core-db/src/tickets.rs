@@ -339,11 +339,7 @@ where
 }
 
 /// Fetches one comment by id — the search indexer's refetch path.
-pub async fn get_comment<'e, E>(
-    executor: E,
-    org_id: Uuid,
-    id: Uuid,
-) -> DbResult<TicketComment>
+pub async fn get_comment<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<TicketComment>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
