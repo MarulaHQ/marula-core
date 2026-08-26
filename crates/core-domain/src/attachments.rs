@@ -260,22 +260,18 @@ mod tests {
         assert!(validate_upload("x.bin", "", &[0, 159, 146, 150], 4, 1000).is_err());
     }
 
-    /// Property: whatever arrives, an accepted upload's persisted name is
-    /// sanitized and its declared type matches its family.
-    #[test]
-    fn prop_sanitize_output_is_always_safe() {
-        use proptest::prelude::*;
-        proptest::proptest! {
-            #![proptest_config(proptest::prelude::ProptestConfig::with_cases(64))]
-            #[test]
-            fn safe_names(raw in "\\PC*{0,60}") {
-                let name = sanitize_filename(&raw);
-                proptest::prop_assert!(!name.contains('/'));
-                proptest::prop_assert!(!name.contains('\\'));
-                proptest::prop_assert!(!name.chars().any(|c| c.is_control()));
-                proptest::prop_assert!(!name.trim().is_empty());
-                proptest::prop_assert!(name.len() <= MAX_FILENAME_LEN);
-            }
+    // Property: whatever filename arrives, the sanitized output never
+    // carries separators/control characters and stays bounded.
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(64))]
+        #[test]
+        fn prop_sanitize_output_is_always_safe(raw in "\\PC*{0,60}") {
+            let name = sanitize_filename(&raw);
+            proptest::prop_assert!(!name.contains('/'));
+            proptest::prop_assert!(!name.contains('\\'));
+            proptest::prop_assert!(!name.chars().any(|c| c.is_control()));
+            proptest::prop_assert!(!name.trim().is_empty());
+            proptest::prop_assert!(name.len() <= MAX_FILENAME_LEN);
         }
     }
 }
