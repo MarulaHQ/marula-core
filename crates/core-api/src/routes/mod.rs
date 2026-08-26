@@ -67,7 +67,7 @@ pub fn build_router(state: AppState) -> Router {
         // NOT behind the JWT middleware — §4.1: worker effects enter
         // through core-api, never direct DB writes).
         .route("/api/internal/sla/verdict", post(internal::sla_verdict))
-        .route("/api/internal/effects", post(internal::effects));
+        .route("/api/internal/effects", post(internal::effects))
         .route(
             "/api/internal/time/gap-audit/run",
             post(internal::run_gap_audit),

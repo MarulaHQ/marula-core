@@ -1,6 +1,5 @@
 //! worker — the background process host.
 //!
-<<<<<<< HEAD
 //! Purpose: run every background loop Meridian needs: the outbox→Redis
 //! relay (`core_events::run_relay`), the notification email fan-out
 //! consumer (noop transport until a real MailTransport is configured),
@@ -12,34 +11,15 @@
 //! Non-purpose: no domain writes — effects flow back through core-api's
 //! internal surface (§4.1); the worker touches only its own queue tables,
 //! and the email loop never touches Postgres at all.
-=======
-//! Purpose: run four loops — the outbox→Redis relay
-//! (`core_events::run_relay`), the notification email fan-out consumer
-//! (noop transport until a real MailTransport is configured), the outbound
-//! email send loop that transports claimed messages and reports results
-//! through core-api, and the missing-time EOD nudge scheduler that submits
-//! due (org, user, day) audits to core-api — plus a `/healthz` endpoint
-//! reflecting all loops' liveness. `meridian-cli` hosts this same library
-//! via `meridian serve-worker`.
-//!
-//! Non-purpose: no general job scheduler and no direct database writes of
-//! its own beyond what the relay's mark-published step performs; the email
-//! loop never touches Postgres (it talks to core-api exclusively) and the
-//! nudge scheduler only READS orgs/users to decide what is due.
->>>>>>> stage2-timer
 
 pub mod automations;
 pub mod config;
 pub mod effects;
 pub mod email;
 pub mod notifier;
-<<<<<<< HEAD
 pub mod queue_runner;
 pub mod sla_sweep;
 pub mod time;
-=======
-pub mod time;
->>>>>>> stage2-timer
 
 use axum::extract::State;
 use axum::routing::get;
@@ -82,24 +62,12 @@ pub async fn run(
     // Notification email fan-out: noop transport until a real MailTransport
     // adapter is configured (standalone-first "none" mode). Best-effort
     // consumer; liveness is reported by the relay.
-<<<<<<< HEAD
     tokio::spawn(notifier::run_notifier(
         pool.clone(),
         config.redis_url.clone(),
         NoopMailTransport,
         shutdown.clone(),
     ));
-=======
-    {
-        let notifier_pool = pool.clone();
-        tokio::spawn(notifier::run_notifier(
-            notifier_pool,
-            config.redis_url.clone(),
-            NoopMailTransport,
-            shutdown.clone(),
-        ));
-    }
->>>>>>> stage2-timer
 
     // Outbound email send loop (disabled cleanly when unconfigured).
     let email_alive = Arc::new(AtomicBool::new(true));
@@ -114,7 +82,6 @@ pub async fn run(
         });
     }
 
-<<<<<<< HEAD
     // Missing-time EOD nudge scheduler (disabled cleanly when the shared
     // internal token is unset — same none-mode as the email loop).
     let time_alive = Arc::new(AtomicBool::new(true));
@@ -187,27 +154,6 @@ pub async fn run(
     let app = Router::new()
         .route("/healthz", get(healthz))
         .with_state(Arc::new(health));
-=======
-    // Missing-time EOD nudge scheduler (disabled cleanly when the shared
-    // internal token is unset — same none-mode as the email loop).
-    let time_alive = Arc::new(AtomicBool::new(true));
-    {
-        let time_alive = Arc::clone(&time_alive);
-        let time_config = config.time.clone();
-        let time_pool = pool.clone();
-        let time_shutdown = shutdown.clone();
-        tokio::spawn(async move {
-            time::run_time_loop(time_pool, time_config, time_shutdown).await;
-            time_alive.store(false, Ordering::Relaxed);
-        });
-    }
-
-    let app = Router::new().route("/healthz", get(healthz)).with_state((
-        relay_alive,
-        email_alive,
-        time_alive,
-    ));
->>>>>>> stage2-timer
     let listener = tokio::net::TcpListener::bind(&config.bind_addr).await?;
     tracing::info!(addr = %config.bind_addr, "worker health endpoint listening");
     axum::serve(listener, app)
@@ -216,7 +162,6 @@ pub async fn run(
     Ok(())
 }
 
-<<<<<<< HEAD
 #[derive(Clone)]
 struct HealthFlags {
     relay_alive: Arc<AtomicBool>,
@@ -240,23 +185,6 @@ async fn healthz(State(flags): State<Arc<HealthFlags>>) -> Json<serde_json::Valu
         )
     } else {
         Json(json!({ "status": "unhealthy" }))
-=======
-async fn healthz(
-    State((relay, email, time)): State<(Arc<AtomicBool>, Arc<AtomicBool>, Arc<AtomicBool>)>,
-) -> Json<serde_json::Value> {
-    let relay_ok = relay.load(Ordering::Relaxed);
-    let email_ok = email.load(Ordering::Relaxed);
-    let time_ok = time.load(Ordering::Relaxed);
-    if relay_ok && email_ok && time_ok {
-        Json(json!({ "status": "ok", "relay": "alive", "email": "alive", "time": "alive" }))
-    } else {
-        Json(json!({
-            "status": "unhealthy",
-            "relay": if relay_ok { "alive" } else { "stopped" },
-            "email": if email_ok { "alive" } else { "stopped" },
-            "time": if time_ok { "alive" } else { "stopped" },
-        }))
->>>>>>> stage2-timer
     }
 }
 
@@ -274,11 +202,11 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-<<<<<<< HEAD
     async fn healthz_reflects_the_liveness_flags() {
         let flags = HealthFlags {
             relay_alive: Arc::new(AtomicBool::new(true)),
             email_alive: Arc::new(AtomicBool::new(true)),
+            time_alive: Arc::new(AtomicBool::new(true)),
             queue_alive: Arc::new(AtomicBool::new(true)),
             sla_alive: Arc::new(AtomicBool::new(true)),
             automations_alive: Arc::new(AtomicBool::new(true)),
@@ -287,33 +215,6 @@ mod tests {
         assert_eq!(healthy.0["relay"], "alive");
         assert_eq!(healthy.0["email"], "alive");
         assert_eq!(healthy.0["status"], "ok");
-=======
-    async fn healthz_reflects_both_loops() {
-        let relay = Arc::new(AtomicBool::new(true));
-        let email = Arc::new(AtomicBool::new(true));
-        let time = Arc::new(AtomicBool::new(true));
-        let healthy = healthz(State((
-            Arc::clone(&relay),
-            Arc::clone(&email),
-            Arc::clone(&time),
-        )))
-        .await;
-        assert_eq!(healthy.0["relay"], "alive");
-        assert_eq!(healthy.0["email"], "alive");
-        assert_eq!(healthy.0["time"], "alive");
-        email.store(false, Ordering::Relaxed);
-        let degraded = healthz(State((
-            Arc::clone(&relay),
-            Arc::clone(&email),
-            Arc::clone(&time),
-        )))
-        .await;
-        assert_eq!(degraded.0["status"], "unhealthy");
-        assert_eq!(degraded.0["email"], "stopped");
-        assert_eq!(degraded.0["relay"], "alive");
-        assert_eq!(degraded.0["time"], "alive");
-    }
->>>>>>> stage2-timer
 
         flags.queue_alive.store(false, Ordering::Relaxed);
         let unhealthy = healthz(State(Arc::new(flags))).await;

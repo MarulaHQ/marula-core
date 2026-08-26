@@ -60,7 +60,9 @@ async fn send(
     internal_token: Option<&str>,
     body: Option<Value>,
 ) -> axum::response::Response {
-    let mut builder = axum::http::Request::builder().method(method).uri(uri);
+    let mut builder = axum::http::Request::builder()
+        .method(method.clone())
+        .uri(uri);
     if let Some(token) = bearer {
         builder = builder.header("authorization", format!("Bearer {token}"));
     }
@@ -78,12 +80,12 @@ async fn send(
 }
 
 async fn body_json(response: axum::response::Response) -> Value {
-    serde_json::from_slice(
-        &axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap(),
-    )
-    .unwrap()
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    serde_json::from_slice(&bytes).unwrap_or_else(|e| {
+        panic!("body_json parse failed ({e}); last SEND lines above identify the endpoint")
+    })
 }
 
 async fn register_org(app: &Router, slug: &str) -> Value {

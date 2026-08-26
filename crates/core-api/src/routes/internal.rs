@@ -303,7 +303,6 @@ mod tests {
 use crate::org_tx;
 
 use core_domain::entities::{Actor, AuditEvent};
-use core_domain::events::types;
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
 use uuid::Uuid;

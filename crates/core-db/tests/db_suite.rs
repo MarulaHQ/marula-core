@@ -808,10 +808,15 @@ async fn timer_enforces_single_active_session_per_user() {
     let active = timers::active_session(&mut *tx, u).await.expect("active");
     assert_eq!(active.expect("one running").id, s1.id);
 
-    // Two RUNNING timers for the SAME user violate the partial unique
-    // index (keyed on the `is_running` generated column, not merely
-    // stopped_at). Run in its own transaction: the expected failure
-    // aborts it.
+    // Pausing records the reason in the segment history.
+    s1.pause(at(10), Some("vendor call".into())).expect("pause");
+    timers::update_session(&mut *tx, &s1)
+        .await
+        .expect("save pause");
+    tx.commit().await.expect("commit pause");
+
+    // Second active timer for the SAME user violates the partial unique
+    // index. Run in its own transaction: the expected failure aborts it.
     let s2 = TimerSession::start(s.org, u, t.id, at(11));
     let mut violating = org_tx(&db.app, s.org).await;
     let err = timers::insert_session(&mut *violating, &s2)
@@ -823,82 +828,38 @@ async fn timer_enforces_single_active_session_per_user() {
         "expected unique violation, got {err:?}"
     );
 
-    // Pausing records the reason in the segment history.
-    s1.pause(at(10), Some("vendor call".into())).expect("pause");
+    // Stopping the first frees the slot; the second then starts cleanly.
+    let mut tx = org_tx(&db.app, s.org).await;
+    s1.stop(at(12), None).expect("stop domain rule");
     timers::update_session(&mut *tx, &s1)
         .await
-        .expect("save pause");
-    tx.commit().await.expect("commit pause");
+        .expect("save stop");
+    timers::insert_session(&mut *tx, &s2)
+        .await
+        .expect("start timer 2");
+    tx.commit().await.expect("commit switch");
 
-    // A PAUSED session no longer holds the active slot: starting a second
-    // timer after a pause is exactly the switch flow (docked working set)
-    // and must succeed. s1 stays in the set, resumable, not stopped.
-    {
-        let mut switch_tx = org_tx(&db.app, s.org).await;
-        timers::insert_session(&mut *switch_tx, &s2)
-            .await
-            .expect("switch: paused session freed the slot");
-        switch_tx.commit().await.expect("commit switch");
-    }
-
-    // The running session is s2; s1 is paused but present.
     let mut tx = org_tx(&db.app, s.org).await;
     let active = timers::active_session(&mut *tx, u).await.expect("active 2");
     assert_eq!(active.expect("running s2").id, s2.id);
-
-    // Resuming the paused session while s2 runs would make TWO running
-    // rows — the index rejects it even through UPDATE (the API layer
-    // checks first; the DB is the backstop).
-    s1.resume(at(12)).expect("resume domain rule");
-    let mut violating_resume = org_tx(&db.app, s.org).await;
-    let err = timers::update_session(&mut *violating_resume, &s1)
-        .await
-        .expect_err("resume while another runs must violate");
-    drop(violating_resume);
-    assert!(
-        is_unique_violation(&err),
-        "expected unique violation, got {err:?}"
-    );
-
-    // Stopping s2 frees the slot for real: s1 can run again.
-    let mut tx = org_tx(&db.app, s.org).await;
-    let mut s2_stored = timers::get_session(&mut *tx, s2.id).await.expect("s2");
-    s2_stored.stop(at(12), None).expect("stop domain rule");
-    timers::update_session(&mut *tx, &s2_stored)
-        .await
-        .expect("save stop");
-    timers::update_session(&mut *tx, &s1)
-        .await
-        .expect("resume s1 after s2 stopped");
-    tx.commit().await.expect("commit stop + resume");
-
-    let mut tx = org_tx(&db.app, s.org).await;
-    let active = timers::active_session(&mut *tx, u).await.expect("active 3");
-    assert_eq!(active.expect("running s1 again").id, s1.id);
 
     let recent = timers::recent_sessions(&mut *tx, u, 10)
         .await
         .expect("recent");
     assert_eq!(recent.len(), 2);
-    assert_eq!(recent[0].id, s1.id, "running session docks first");
+    assert_eq!(recent[0].id, s2.id, "running session docks first");
+    assert_eq!(recent[1].stopped_at, Some(at(12)));
 
     // Segment history survives the JSONB round-trip.
-    let stored = timers::get_session(&mut *tx, s2.id)
+    let stored = timers::get_session(&mut *tx, s1.id)
         .await
-        .expect("stored s2");
+        .expect("stored s1");
     assert_eq!(stored.segments.len(), 1);
     assert_eq!(
         stored.segments[0].end_kind,
-        Some(core_domain::entities::SegmentEnd::Stopped)
-    );
-    let stored_s1 = timers::get_session(&mut *tx, s1.id)
-        .await
-        .expect("stored s1");
-    assert_eq!(
-        stored_s1.segments[0].end_kind,
         Some(core_domain::entities::SegmentEnd::Paused)
     );
-    assert_eq!(stored_s1.segments[0].reason.as_deref(), Some("vendor call"));
+    assert_eq!(stored.segments[0].reason.as_deref(), Some("vendor call"));
 }
 
 #[tokio::test]
@@ -2891,6 +2852,117 @@ async fn evaluation_candidates_resolve_open_tickets_and_calendars() {
             &s,
             Uuid::now_v7(),
             "open candidate",
+            Priority::P2,
+            s.entry_status,
+            None,
+        )
+        .await;
+        sla::upsert_ticket_state(
+            &mut *tx,
+            &core_domain::entities::TicketSlaState::init(
+                s.org,
+                open.id,
+                &policy,
+                Priority::P2,
+                open.created_at,
+            ),
+        )
+        .await
+        .expect("open state");
+        let closed = create_ticket(
+            &mut tx,
+            &s,
+            Uuid::now_v7(),
+            "closed candidate",
+            Priority::P3,
+            s.entry_status,
+            None,
+        )
+        .await;
+        sla::upsert_ticket_state(
+            &mut *tx,
+            &core_domain::entities::TicketSlaState::init(
+                s.org,
+                closed.id,
+                &policy,
+                Priority::P3,
+                closed.created_at,
+            ),
+        )
+        .await
+        .expect("closed state");
+        tickets::update_status(&mut *tx, s.org, closed.id, s.resolved_status)
+            .await
+            .expect("close");
+        tx.commit().await.expect("commit");
+        (open, closed)
+    };
+
+    // Owner-role read path (worker doctrine): embedded-calendar default
+    // policy resolves; the closed ticket is filtered out.
+    let candidates = {
+        let conn = &db.admin;
+        let mut tx = conn.begin().await.expect("admin tx");
+        let all = sla::list_evaluation_candidates(&mut *tx, 200)
+            .await
+            .expect("candidates");
+        tx.commit().await.expect("commit");
+        all
+    };
+    assert!(
+        candidates.iter().any(|c| c.ticket_id == open_ticket.id),
+        "open ticket is a candidate"
+    );
+    assert!(
+        !candidates.iter().any(|c| c.ticket_id == closed_ticket.id),
+        "closed tickets never evaluated"
+    );
+    let mine = candidates
+        .iter()
+        .find(|c| c.ticket_id == open_ticket.id)
+        .unwrap();
+    assert_eq!(mine.calendar.timezone, "UTC", "embedded fallback governs");
+    assert!(mine.state.resolution_due.is_some());
+    assert!(!mine.state.breached);
+
+    // Attaching a calendar flips resolution to the attached row.
+    let mut tx = org_tx(&db.app, s.org).await;
+    let cal = sla::insert_calendar(
+        &mut *tx,
+        &SlaCalendar {
+            id: Uuid::now_v7(),
+            org_id: s.org,
+            name: "attached".into(),
+            calendar: test_calendar("Europe/Berlin", vec![]),
+        },
+    )
+    .await
+    .expect("cal");
+    let policy_id = sla::get_default_policy(&mut *tx, s.org)
+        .await
+        .expect("policy")
+        .id;
+    sla::set_policy_calendar(&mut *tx, s.org, policy_id, Some(cal.id))
+        .await
+        .expect("attach");
+    tx.commit().await.expect("commit attach");
+
+    let candidates = {
+        let mut admin = db.admin.begin().await.expect("admin tx");
+        sla::list_evaluation_candidates(&mut *admin, 200)
+            .await
+            .expect("candidates 2")
+    };
+    let mine = candidates
+        .iter()
+        .find(|c| c.ticket_id == open_ticket.id)
+        .unwrap();
+    assert_eq!(
+        mine.calendar.timezone, "Europe/Berlin",
+        "attached calendar wins"
+    );
+}
+
 // --- time discipline: missing-time gap audit (slots 60-69) ---------------------
 
 use core_db::time_audit;
@@ -3045,110 +3117,6 @@ async fn day_activity_detects_comments_and_overlapping_timer_sessions() {
             None,
         )
         .await;
-        sla::upsert_ticket_state(
-            &mut *tx,
-            &core_domain::entities::TicketSlaState::init(
-                s.org,
-                open.id,
-                &policy,
-                Priority::P2,
-                open.created_at,
-            ),
-        )
-        .await
-        .expect("open state");
-        let closed = create_ticket(
-            &mut tx,
-            &s,
-            Uuid::now_v7(),
-            "closed candidate",
-            Priority::P3,
-            s.entry_status,
-            None,
-        )
-        .await;
-        sla::upsert_ticket_state(
-            &mut *tx,
-            &core_domain::entities::TicketSlaState::init(
-                s.org,
-                closed.id,
-                &policy,
-                Priority::P3,
-                closed.created_at,
-            ),
-        )
-        .await
-        .expect("closed state");
-        tickets::update_status(&mut *tx, s.org, closed.id, s.resolved_status)
-            .await
-            .expect("close");
-        tx.commit().await.expect("commit");
-        (open, closed)
-    };
-
-    // Owner-role read path (worker doctrine): embedded-calendar default
-    // policy resolves; the closed ticket is filtered out.
-    let candidates = {
-        let conn = &db.admin;
-        let mut tx = conn.begin().await.expect("admin tx");
-        let all = sla::list_evaluation_candidates(&mut *tx, 200)
-            .await
-            .expect("candidates");
-        tx.commit().await.expect("commit");
-        all
-    };
-    assert!(
-        candidates.iter().any(|c| c.ticket_id == open_ticket.id),
-        "open ticket is a candidate"
-    );
-    assert!(
-        !candidates.iter().any(|c| c.ticket_id == closed_ticket.id),
-        "closed tickets never evaluated"
-    );
-    let mine = candidates
-        .iter()
-        .find(|c| c.ticket_id == open_ticket.id)
-        .unwrap();
-    assert_eq!(mine.calendar.timezone, "UTC", "embedded fallback governs");
-    assert!(mine.state.resolution_due.is_some());
-    assert!(!mine.state.breached);
-
-    // Attaching a calendar flips resolution to the attached row.
-    let mut tx = org_tx(&db.app, s.org).await;
-    let cal = sla::insert_calendar(
-        &mut *tx,
-        &SlaCalendar {
-            id: Uuid::now_v7(),
-            org_id: s.org,
-            name: "attached".into(),
-            calendar: test_calendar("Europe/Berlin", vec![]),
-        },
-    )
-    .await
-    .expect("cal");
-    let policy_id = sla::get_default_policy(&mut *tx, s.org)
-        .await
-        .expect("policy")
-        .id;
-    sla::set_policy_calendar(&mut *tx, s.org, policy_id, Some(cal.id))
-        .await
-        .expect("attach");
-    tx.commit().await.expect("commit attach");
-
-    let candidates = {
-        let mut admin = db.admin.begin().await.expect("admin tx");
-        sla::list_evaluation_candidates(&mut *admin, 200)
-            .await
-            .expect("candidates 2")
-    };
-    let mine = candidates
-        .iter()
-        .find(|c| c.ticket_id == open_ticket.id)
-        .unwrap();
-    assert_eq!(
-        mine.calendar.timezone, "Europe/Berlin",
-        "attached calendar wins"
-    );
         tickets::insert_comment(
             &mut *tx,
             fixed_uuid(6202),

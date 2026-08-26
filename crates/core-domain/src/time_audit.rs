@@ -308,7 +308,7 @@ mod tests {
             let (start, end) = local_day_window(day, tz);
             prop_assert!(start < end);
             let hours = (end - start).num_hours();
-            prop_assert!(hours >= 23 && hours <= 25, "window {}h for {} on {}", hours, zones[tz_idx], day);
+            prop_assert!((23..=25).contains(&hours), "window {hours}h for {} on {day}", zones[tz_idx]);
 
             let below = evaluate_day(day, true, logged, expected);
             let more = evaluate_day(day, true, logged + 1, expected);
