@@ -116,6 +116,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/attachments/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/attachments/{id} — author-gated (the uploader, or an org
+         *     owner/admin). The stored object is reclaimed only when no sibling row
+         *     still references the same content-addressed key.
+         */
+        delete: operations["attachments_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/attachments/{id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/attachments/{id}/download — streams the stored bytes through
+         *     the API behind board-view authz (no public URLs in v1). Integrity is
+         *     verifiable against the recorded sha256 (`x-meridian-sha256` header).
+         */
+        get: operations["attachments_download"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/audit-events": {
         parameters: {
             query?: never;
@@ -1197,6 +1239,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/dispatch/assign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/dispatch/assign — place an unassigned ticket on a
+         *     technician's board: creates the booking AND flips the ticket
+         *     assignee in one transaction.
+         */
+        post: operations["dispatch_assign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dispatch/bulk-move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/dispatch/bulk-move — atomic batch reschedule.
+         * @description Every move is re-validated against the TARGET user's live bookings
+         *     in the union window (each moved booking vacates its old slot, so
+         *     swaps are legal); the first violating move rejects the WHOLE batch
+         *     with a typed 409 naming the move index and blocking booking.
+         */
+        post: operations["dispatch_bulk_move"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dispatch/day": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/dispatch/day — the whole board for one day. */
+        get: operations["dispatch_day"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/internal/effects": {
         parameters: {
             query?: never;
@@ -1557,6 +1660,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/portal/tickets/{id}/attachments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/portal/tickets/{id}/attachments — attachments the portal
+         *     caller may see: ticket-level files always; comment files only when the
+         *     owning note kind is visible to this tier.
+         */
+        get: operations["portal_list_attachments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/portal/tickets/{id}/attachments/{attachment_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/portal/tickets/{id}/attachments/{attachment_id}/download —
+         *     streams one visible attachment through the API. Hidden or foreign
+         *     attachments are plain 404s (no existence leak).
+         */
+        get: operations["portal_download_attachment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/portal/tickets/{id}/reply": {
         parameters: {
             query?: never;
@@ -1852,6 +1997,30 @@ export interface paths {
         patch: operations["tickets_patch"];
         trace?: never;
     };
+    "/api/tickets/{id}/attachments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/tickets/{id}/attachments — every attachment on one ticket. */
+        get: operations["attachments_list_for_ticket"];
+        put?: never;
+        /**
+         * POST /api/tickets/{id}/attachments — stores one file against a ticket
+         *     (linked to a comment later by the composer submit).
+         * @description Headers: `x-filename` (required), `content-type` (declared; verified
+         *     against sniffed magic bytes). Body: raw bytes, capped by
+         *     `MERIDIAN_MAX_UPLOAD_MB` (default 25 MB).
+         */
+        post: operations["attachments_upload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tickets/{id}/checklist": {
         parameters: {
             query?: never;
@@ -1914,6 +2083,26 @@ export interface paths {
          *     fan out into the notification center.
          */
         post: operations["tickets_add_comment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tickets/{id}/comments/{comment_id}/attachments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/tickets/{id}/comments/{comment_id}/attachments — one comment's
+         *     attachments.
+         */
+        get: operations["attachments_list_for_comment"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2332,6 +2521,12 @@ export interface components {
             text: string;
         };
         AddCommentRequest: {
+            /**
+             * @description Attachments uploaded earlier against this ticket (composer flow:
+             *     upload first, link when the comment is created). Absent/empty in
+             *     older clients — purely additive.
+             */
+            attachment_ids?: string[];
             body: string;
             kind: components["schemas"]["NoteKind"];
         };
@@ -2413,6 +2608,80 @@ export interface components {
              */
             group_id?: string | null;
         };
+        AssignRequest: {
+            /** Format: date-time */
+            ends_at: string;
+            /** Format: date-time */
+            starts_at: string;
+            /** Format: uuid */
+            ticket_id: string;
+            /** Format: int32 */
+            travel_minutes?: number;
+            /** Format: uuid */
+            user_id: string;
+        };
+        /** @description One uploaded file's metadata row; the payload lives behind `storage_key`. */
+        Attachment: {
+            /** @description Declared + magic-byte-verified content type. */
+            content_type: string;
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * Format: uuid
+             * @description Set only when kind is email_message.
+             */
+            email_message_id?: string | null;
+            /** @description Original filename, sanitized (no path components/control chars). */
+            filename: string;
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["AttachmentKind"];
+            /** Format: uuid */
+            org_id: string;
+            /** @description Lowercase hex sha256 of the exact bytes; dedup + integrity anchor. */
+            sha256: string;
+            /** Format: int64 */
+            size_bytes: number;
+            /** @description Object-store key (`org/<id>/attachments/<sha256>`). */
+            storage_key: string;
+            /**
+             * Format: uuid
+             * @description Set only when kind is ticket_comment.
+             */
+            ticket_comment_id?: string | null;
+            /**
+             * Format: uuid
+             * @description Set when kind is ticket_comment or ticket.
+             */
+            ticket_id?: string | null;
+            /**
+             * Format: uuid
+             * @description Portal actor when uploaded through a portal surface (v1: none —
+             *     reserved so portal uploads need no schema change).
+             */
+            uploaded_by_portal_user_id?: string | null;
+            /**
+             * Format: uuid
+             * @description Staff uploader when uploaded through the API.
+             */
+            uploaded_by_user_id?: string | null;
+        };
+        /**
+         * @description attachment.deleted — the metadata row went away; `object_removed`
+         *     reports whether the backing bytes were reclaimed too (refcount hit 0).
+         */
+        AttachmentDeleted: {
+            /** Format: uuid */
+            attachment_id: string;
+            object_removed: boolean;
+            /** Format: uuid */
+            ticket_id?: string | null;
+        };
+        /**
+         * @description What an attachment belongs to. The enum value is persisted verbatim.
+         * @enum {string}
+         */
+        AttachmentKind: "ticket_comment" | "email_message" | "ticket";
         AuditEvent: {
             /** @description Dot-path of the action, e.g. "auth.login", "ticket.status_change". */
             action: string;
@@ -2637,6 +2906,12 @@ export interface components {
              *     the semantic-category default governs (any→any except closed→open).
              */
             mode: string;
+        };
+        BulkMoveRequest: {
+            moves: components["schemas"]["MoveSpec"][];
+        };
+        BulkMoveResponse: {
+            moved: components["schemas"]["DispatchAppointment"][];
         };
         /**
          * @description Weekly business hours in a named IANA timezone, plus holiday dates.
@@ -3151,6 +3426,57 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        /**
+         * @description One booking block on the dispatch board: the appointment plus the
+         *     ticket number and client name the block face renders.
+         */
+        DispatchAppointment: {
+            /** Format: uuid */
+            client_id?: string | null;
+            client_name?: string | null;
+            /** Format: date-time */
+            ends_at: string;
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["AppointmentKind"];
+            /** Format: date-time */
+            starts_at: string;
+            status: components["schemas"]["AppointmentStatus"];
+            /** Format: uuid */
+            ticket_id?: string | null;
+            ticket_number?: string | null;
+            title: string;
+            /** Format: int32 */
+            travel_minutes: number;
+            /** Format: uuid */
+            user_id: string;
+        };
+        /**
+         * @description One dispatch-path query: `date` is a LOCAL date interpreted as the
+         *     UTC day window (documented UTC scope).
+         */
+        DispatchDayQuery: {
+            /**
+             * Format: date
+             * @description The day to assemble; defaults to today (UTC).
+             */
+            date?: string | null;
+        };
+        /** @description The assembled day-view payload: one request, one render. */
+        DispatchDayView: {
+            /** Format: date */
+            date: string;
+            /** Format: date-time */
+            from: string;
+            technicians: components["schemas"]["TechnicianView"][];
+            /** Format: date-time */
+            to: string;
+            /**
+             * @description Unassigned, non-closed tickets in dispatch order (priority rank,
+             *     then effective SLA/due deadline).
+             */
+            unassigned: components["schemas"]["MyWorkItem"][];
+        };
         EffectsRequest: {
             /** @description AutomationAction documents, parsed and validated via core-domain. */
             actions: unknown;
@@ -3345,6 +3671,17 @@ export interface components {
             /** Format: date-time */
             starts_at: string;
         };
+        /** @description One move in a batch: the booking's new user and slot. */
+        MoveSpec: {
+            /** Format: uuid */
+            appointment_id: string;
+            /** Format: date-time */
+            ends_at: string;
+            /** Format: date-time */
+            starts_at: string;
+            /** Format: uuid */
+            user_id: string;
+        };
         /**
          * @description One cross-board my-work queue row (TASKLIST 2.11): the ticket plus the
          *     annotations the Today screen renders per the mockup.
@@ -3517,6 +3854,18 @@ export interface components {
             targets: unknown;
             /** @description True while the policy governs itself via its embedded calendar. */
             uses_embedded_calendar: boolean;
+        };
+        /** @description Portal attachment view: metadata only (bytes stream on download). */
+        PortalAttachmentView: {
+            content_type: string;
+            /** Format: date-time */
+            created_at: string;
+            filename: string;
+            /** Format: uuid */
+            id: string;
+            sha256: string;
+            /** Format: int64 */
+            size_bytes: number;
         };
         PortalLoginRequest: {
             email: string;
@@ -3892,6 +4241,36 @@ export interface components {
              * @description Exclusive window end (default: `from` + 8 days).
              */
             to?: string | null;
+        };
+        /**
+         * @description One technician column: capacity stats plus everything the board draws
+         *     in the column (bookings, on-call, exclusions, availability windows).
+         */
+        TechnicianView: {
+            appointments: components["schemas"]["DispatchAppointment"][];
+            availability_windows: components["schemas"]["AvailabilityWindow"][];
+            /**
+             * Format: int64
+             * @description Working minutes covered by availability windows minus exclusions
+             *     over the day window (`core_domain::scheduling::covered_minutes`).
+             */
+            available_minutes: number;
+            /**
+             * Format: int64
+             * @description Union of live booking minutes clipped to the day window.
+             */
+            booked_minutes: number;
+            display_name: string;
+            exclusions: components["schemas"]["CalendarExclusion"][];
+            on_call: components["schemas"]["OnCallBlock"][];
+            timezone: string;
+            /** Format: uuid */
+            user_id: string;
+            /**
+             * Format: int64
+             * @description 0–100+, where >100 is over-capacity (the Ember warning state).
+             */
+            utilization_percent: number;
         };
         TestFireResponse: {
             /**
@@ -4545,6 +4924,48 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    attachments_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachmentDeleted"];
+                };
+            };
+        };
+    };
+    attachments_download: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": number[];
+                };
             };
         };
     };
@@ -6369,6 +6790,88 @@ export interface operations {
             };
         };
     };
+    dispatch_assign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssignRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DispatchAppointment"];
+                };
+            };
+            /** @description slot already booked */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    dispatch_bulk_move: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkMoveRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkMoveResponse"];
+                };
+            };
+            /** @description target slot already booked (typed conflict) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    dispatch_day: {
+        parameters: {
+            query?: {
+                /** @description The day to assemble; defaults to today (UTC). */
+                date?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DispatchDayView"];
+                };
+            };
+        };
+    };
     internal_effects: {
         parameters: {
             query?: never;
@@ -6910,6 +7413,61 @@ export interface operations {
             };
         };
     };
+    portal_list_attachments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalAttachmentView"][];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    portal_download_attachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                attachment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": number[];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     portal_reply: {
         parameters: {
             query?: never;
@@ -7426,6 +7984,52 @@ export interface operations {
             };
         };
     };
+    attachments_list_for_ticket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Attachment"][];
+                };
+            };
+        };
+    };
+    attachments_upload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": number[];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Attachment"];
+                };
+            };
+        };
+    };
     tickets_get_checklist: {
         parameters: {
             query?: never;
@@ -7546,6 +8150,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TicketComment"];
+                };
+            };
+        };
+    };
+    attachments_list_for_comment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                comment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Attachment"][];
                 };
             };
         };

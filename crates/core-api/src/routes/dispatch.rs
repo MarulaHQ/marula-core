@@ -384,7 +384,7 @@ pub async fn bulk_move(
             updated.push(appt);
         }
         let mut moved_views = Vec::with_capacity(updated.len());
-        for mut appt in updated {
+        for appt in updated {
             core_db::scheduling::create_appointment(&mut *tx.tx, &appt).await?;
             tx.emit(
                 types::APPOINTMENT_UPDATED,
