@@ -10,6 +10,7 @@ pub mod notifications;
 pub mod oidc;
 pub mod openapi;
 pub mod tickets;
+pub mod time;
 pub mod timers;
 pub mod webhooks;
 
@@ -58,6 +59,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/internal/email/outbound/results",
             post(internal::report_results),
+        )
+        .route(
+            "/api/internal/time/gap-audit/run",
+            post(internal::run_gap_audit),
         );
 
     let protected = Router::new()
@@ -172,6 +177,13 @@ pub fn build_router(state: AppState) -> Router {
             "/api/time-entries",
             get(timers::list_entries).post(timers::create_entry),
         )
+        // time discipline (settings + missing-time gap reports)
+        .route(
+            "/api/time-settings",
+            get(time::get_settings).put(time::put_settings),
+        )
+        .route("/api/time-gaps/me", get(time::my_gaps))
+        .route("/api/time-gaps", get(time::user_gaps))
         // notifications
         .route("/api/notifications", get(notifications::list))
         .route(
