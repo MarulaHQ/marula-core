@@ -477,6 +477,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/automation-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/automation-rules */
+        get: operations["automation_rules_list"];
+        put?: never;
+        /**
+         * POST /api/automation-rules — documents are validated through core-domain
+         *     BEFORE storage, so stored rules are always well-formed (malformed rules
+         *     can only arrive out-of-band and are skipped at evaluation time).
+         */
+        post: operations["automation_rules_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/automation-rules/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** DELETE /api/automation-rules/{id} */
+        delete: operations["automation_rules_delete"];
+        options?: never;
+        head?: never;
+        /** PATCH /api/automation-rules/{id} */
+        patch: operations["automation_rules_update"];
+        trace?: never;
+    };
     "/api/boards": {
         parameters: {
             query?: never;
@@ -507,6 +547,33 @@ export interface paths {
         /** POST /api/boards/favorite — toggles a board favorite for the current user. */
         post: operations["boards_toggle_favorite"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/boards/{id}/checklist-template": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/boards/{id}/checklist-template */
+        get: operations["boards_get_checklist_template"];
+        /**
+         * PUT /api/boards/{id}/checklist-template — creates or replaces the
+         *     board's template wholesale and sets the enforcement toggle; emits
+         *     `board.checklist_template_updated` and audits the change.
+         */
+        put: operations["boards_put_checklist_template"];
+        post?: never;
+        /**
+         * DELETE /api/boards/{id}/checklist-template — removes the template.
+         *     Ticket instances demote to ad-hoc items; with no template left,
+         *     close-time enforcement is off by construction regardless of the toggle.
+         */
+        delete: operations["boards_delete_checklist_template"];
         options?: never;
         head?: never;
         patch?: never;
@@ -663,6 +730,49 @@ export interface paths {
         put?: never;
         /** POST /api/clients/{id}/sites */
         post: operations["clients_create_site"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/internal/effects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/internal/effects — applies automation-rule effects to one
+         *     ticket through the SAME write paths users go through (ticket patch,
+         *     comment insert, notification fan-out), emitting every corresponding
+         *     domain event tagged `via_automation` so evaluators never loop.
+         */
+        post: operations["internal_effects"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/internal/sla/verdict": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/internal/sla/verdict — fire-once application of one ladder
+         *     step: ledger insert (PK-guarded), breach flip, notification fan-out with
+         *     preference gates, events + audit, all in ONE transaction.
+         */
+        post: operations["internal_sla_verdict"];
         delete?: never;
         options?: never;
         head?: never;
@@ -892,6 +1002,83 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sla/calendars": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/sla/calendars */
+        get: operations["sla_calendars_list"];
+        put?: never;
+        /** POST /api/sla/calendars */
+        post: operations["sla_calendars_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sla/calendars/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/sla/calendars/{id} — detaches policies (FK SET NULL); their
+         *     embedded calendars keep governing.
+         */
+        delete: operations["sla_calendars_delete"];
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/sla/calendars/{id} — partial update; validates the merged
+         *     result by re-reading and running domain validation.
+         */
+        patch: operations["sla_calendars_update"];
+        trace?: never;
+    };
+    "/api/sla/policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/sla/policies */
+        get: operations["sla_policies_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sla/policies/{id}/ladder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/sla/policies/{id}/ladder — enabled + disabled steps, ordered. */
+        get: operations["sla_ladder_get"];
+        /** PUT /api/sla/policies/{id}/ladder — replaces the whole ladder in one tx. */
+        put: operations["sla_ladder_replace"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sso/exchange": {
         parameters: {
             query?: never;
@@ -981,10 +1168,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** GET /api/tickets/{id}/checklist */
+        /**
+         * GET /api/tickets/{id}/checklist — lazily instantiates any template items
+         *     the ticket has not picked up yet, then returns the full view.
+         */
         get: operations["tickets_get_checklist"];
         put?: never;
-        /** POST /api/tickets/{id}/checklist — appends a pre-close checklist item. */
+        /**
+         * POST /api/tickets/{id}/checklist — appends an ad-hoc checklist item.
+         *     Ad-hoc items never block closure; emits `ticket.checklist_updated`.
+         */
         post: operations["tickets_add_checklist_item"];
         delete?: never;
         options?: never;
@@ -1001,7 +1194,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** POST /api/tickets/{id}/checklist/{item_id} — toggles one checklist item. */
+        /**
+         * POST /api/tickets/{id}/checklist/{item_id} — toggles one checklist item;
+         *     emits `ticket.checklist_updated` in the same transaction.
+         */
         post: operations["tickets_set_checklist_item"];
         delete?: never;
         options?: never;
@@ -1033,6 +1229,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tickets/{id}/sla": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/tickets/{id}/comments — optional kind filter; internal notes
+         *     require ticket view. The portal surface must consume the dedicated
+         *     client-visible read (`core-db::tickets::list_client_visible_comments`),
+         *     never this staff endpoint.
+         *     GET /api/tickets/{id}/sla — clock state plus a live business-time
+         *     remaining estimate for the resolution budget (drives the UI badge).
+         */
+        get: operations["tickets_sla_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tickets/{id}/status": {
         parameters: {
             query?: never;
@@ -1044,8 +1264,9 @@ export interface paths {
         put?: never;
         /**
          * POST /api/tickets/{id}/status — the guarded lifecycle transition:
-         *     domain transition rules, pre-close checklist enforcement, SLA pause
-         *     bookkeeping, and the `ticket.status_changed` event, all in one tx.
+         *     domain transition rules, pre-close checklist enforcement (typed 409
+         *     listing the incomplete required items when the board enforces), SLA
+         *     pause bookkeeping, and the `ticket.status_changed` event, all in one tx.
          */
         post: operations["tickets_change_status"];
         delete?: never;
@@ -1259,6 +1480,47 @@ export interface components {
             /** @description Opaque cursor for the next page; absent when exhausted. */
             next_cursor?: string | null;
         };
+        /**
+         * @description Effects a rule may request. Every variant maps onto an existing core-api
+         *     write path — automations never gain private write routes.
+         */
+        AutomationAction: {
+            /** @enum {string} */
+            type: "assign_user";
+            /** Format: uuid */
+            user_id: string;
+        } | {
+            priority: components["schemas"]["Priority"];
+            /** @enum {string} */
+            type: "set_priority";
+        } | {
+            body: string;
+            /** @enum {string} */
+            type: "add_internal_comment";
+        } | {
+            kind: components["schemas"]["NotificationKind"];
+            title: string;
+            /** @enum {string} */
+            type: "notify_users";
+            user_ids: string[];
+        };
+        /** @description One predicate; a rule matches only when EVERY condition holds. */
+        AutomationCondition: {
+            priority: components["schemas"]["Priority"];
+            /** @enum {string} */
+            type: "priority_is";
+        } | {
+            category: components["schemas"]["TicketStatusCategory"];
+            /** @enum {string} */
+            type: "category_is";
+        } | {
+            needle: string;
+            /** @enum {string} */
+            type: "title_contains";
+        } | {
+            /** @enum {string} */
+            type: "unassigned";
+        };
         Board: {
             /**
              * Format: date-time
@@ -1272,6 +1534,12 @@ export interface components {
             name: string;
             /** Format: uuid */
             org_id: string;
+            /**
+             * @description Pre-close checklist enforcement toggle (defaults OFF; closing is
+             *     gated only when this AND a checklist template are both present —
+             *     defaults-first doctrine, migration 0016).
+             */
+            require_checklist_close: boolean;
         };
         /**
          * @description A per-board status. `category` is the binding contract — labels are
@@ -1304,13 +1572,35 @@ export interface components {
              */
             mode: string;
         };
+        /**
+         * @description Weekly business hours in a named IANA timezone, plus holiday dates.
+         *     `None` window = non-business day.
+         */
+        BusinessCalendar: {
+            /** @description Local dates (YYYY-MM-DD) with no business hours. */
+            holidays: string[];
+            /**
+             * @description Downtime stretches subtracted from every measurement. Absent in
+             *     legacy documents (`default`) so stored policies keep deserializing.
+             */
+            maintenance?: components["schemas"]["MaintenanceWindow"][];
+            name: string;
+            timezone: string;
+            /** @description [Mon..Sun] open/close in local wall-clock "HH:MM". */
+            windows: ([
+                string,
+                string
+            ] | null)[];
+        };
         ChangeStatusRequest: {
             /** Format: uuid */
             status_id: string;
         };
         /**
-         * @description One line of a ticket's pre-close checklist. Closing a ticket whose
-         *     category target requires a checklist fails while any item is unchecked.
+         * @description One line of a ticket's pre-close checklist. Items instantiated from the
+         *     board's template carry `template_item_id`; those are REQUIRED when the
+         *     board enforces pre-close checklists (see `crate::notes`). Ad-hoc items
+         *     (`template_item_id == None`) never block closure.
          */
         ChecklistItem: {
             checked: boolean;
@@ -1324,9 +1614,80 @@ export interface components {
             org_id: string;
             /** Format: int32 */
             sort_order: number;
+            /**
+             * Format: uuid
+             * @description Template provenance: `Some` ⇒ required under enforcement.
+             */
+            template_item_id?: string | null;
             text: string;
             /** Format: uuid */
             ticket_id: string;
+        };
+        /**
+         * @description Derived-at-read-time checklist progress (never materialized — see the
+         *     0016 migration header for the justification). `required_open` counts
+         *     unchecked template-derived instances: the close-blocking set when the
+         *     board enforces.
+         */
+        ChecklistProgress: {
+            /**
+             * Format: int64
+             * @description Checked rows across both classes.
+             */
+            checked: number;
+            /**
+             * Format: int64
+             * @description Unchecked REQUIRED (template-derived) rows.
+             */
+            required_open: number;
+            /**
+             * Format: int64
+             * @description All instance rows (template-derived + ad-hoc).
+             */
+            total: number;
+        };
+        /**
+         * @description A board's pre-close checklist template. Exactly one per board
+         *     (UNIQUE in storage): the deterministic gate consulted at close time.
+         */
+        ChecklistTemplate: {
+            /** Format: uuid */
+            board_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /**
+         * @description One required step in a template. Instances on tickets link back to this
+         *     id (`checklist_items.template_item_id`), so enforcement follows identity,
+         *     never fragile text matching.
+         */
+        ChecklistTemplateItem: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: int32 */
+            sort_order: number;
+            /** Format: uuid */
+            template_id: string;
+            text: string;
+        };
+        /**
+         * @description GET /api/boards/{id}/checklist-template response: the template (if any),
+         *     its items, and the enforcement posture actually applied at close time.
+         */
+        ChecklistTemplateView: {
+            items: components["schemas"]["ChecklistTemplateItem"][];
+            /** @description Mirrors `boards.require_checklist_close`. */
+            require_checklist_close: boolean;
+            template?: null | components["schemas"]["ChecklistTemplate"];
         };
         Client: {
             /** Format: date-time */
@@ -1344,6 +1705,9 @@ export interface components {
             restricted_to: string[];
             /** Format: date-time */
             updated_at: string;
+        };
+        CommentListQuery: {
+            kind?: null | components["schemas"]["NoteKind"];
         };
         Contact: {
             /** Format: uuid */
@@ -1372,6 +1736,11 @@ export interface components {
             is_default: boolean;
             name: string;
         };
+        CreateCalendarRequest: {
+            /** @description Timezone/windows/holidays/maintenance document. */
+            calendar: components["schemas"]["BusinessCalendar"];
+            name: string;
+        };
         CreateClientRequest: {
             name: string;
             notes?: string | null;
@@ -1381,6 +1750,17 @@ export interface components {
             name: string;
             phone?: string | null;
             title?: string | null;
+        };
+        CreateRuleRequest: {
+            /** @description Action documents (see AutomationAction schema). */
+            actions: unknown;
+            /** Format: uuid */
+            board_id?: string | null;
+            /** @description Condition documents (see AutomationCondition schema). */
+            conditions: unknown;
+            name: string;
+            /** @description Domain event type, e.g. "ticket.created". */
+            trigger_event: string;
         };
         CreateSiteRequest: {
             address?: string | null;
@@ -1472,6 +1852,34 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        EffectsRequest: {
+            /** @description AutomationAction documents, parsed and validated via core-domain. */
+            actions: unknown;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            rule_id?: string | null;
+            /** Format: uuid */
+            ticket_id: string;
+        };
+        /** @description One escalation ladder step as stored (`sla_escalation_steps`). */
+        EscalationStep: {
+            /** Format: int64 */
+            at_pct: number;
+            enabled: boolean;
+            /** Format: uuid */
+            id: string;
+            /** @description Extra recipients beyond the ticket assignee. */
+            notify_user_ids: string[];
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            policy_id: string;
+            /** Format: int32 */
+            step_index: number;
+            /** @description 'risk' | 'breach' | 'escalate' — bound to existing notification kinds. */
+            trigger_kind: string;
+        };
         FavoriteRequest: {
             /** Format: uuid */
             board_id: string;
@@ -1479,6 +1887,19 @@ export interface components {
         };
         HealthResponse: {
             status: string;
+        };
+        LadderStepSpec: {
+            /**
+             * Format: int64
+             * @description Fires when consumed budget reaches this percent (1..=500).
+             */
+            at_pct: number;
+            enabled?: boolean;
+            notify_user_ids: string[];
+            /** Format: int32 */
+            step_index: number;
+            /** @description 'risk' | 'breach' | 'escalate' (notification-center kinds). */
+            trigger_kind: string;
         };
         LinkBeginResponse: {
             authorize_url: string;
@@ -1507,6 +1928,17 @@ export interface components {
             methods: string[];
             mfa_required: boolean;
             mfa_token: string;
+        };
+        /**
+         * @description Planned downtime: an absolute UTC interval during which SLA clocks do
+         *     not consume business-time budget (vendor maintenance, change freezes).
+         */
+        MaintenanceWindow: {
+            /** Format: date-time */
+            ends_at: string;
+            name: string;
+            /** Format: date-time */
+            starts_at: string;
         };
         MarkReadBulkRequest: {
             ids: string[];
@@ -1617,6 +2049,18 @@ export interface components {
              */
             session_id?: string | null;
         };
+        PolicyView: {
+            /** Format: uuid */
+            calendar_id?: string | null;
+            /** Format: uuid */
+            id: string;
+            is_default: boolean;
+            name: string;
+            /** @description Targets keyed by priority ("p1".."p4"), business minutes. */
+            targets: unknown;
+            /** @description True while the policy governs itself via its embedded calendar. */
+            uses_embedded_calendar: boolean;
+        };
         /**
          * @description One resolved preference row: which chain link supplied it (`user`,
          *     `org_default`, or `builtin`), the channel toggles, and the quiet-hours
@@ -1640,6 +2084,13 @@ export interface components {
             display_name: string;
             /** @description URL path segment for /api/auth/oidc/{name}/login. */
             name: string;
+        };
+        PutChecklistTemplateRequest: {
+            /** @description The complete required-step list; replaces any previous items. */
+            items: string[];
+            name: string;
+            /** @description Enforcement toggle (defaults-first: OFF until explicitly enabled). */
+            require_checklist_close?: boolean;
         };
         RecoveryCodesResponse: {
             /** @description Plaintext codes — displayed once, stored only as argon2id hashes. */
@@ -1672,6 +2123,9 @@ export interface components {
         };
         RegistryResponse: {
             settings: components["schemas"]["DeclarationView"][];
+        };
+        ReplaceLadderRequest: {
+            steps: components["schemas"]["LadderStepSpec"][];
         };
         /**
          * @description Why a timer segment ended. Preserved forever — the pause reason is
@@ -1759,6 +2213,45 @@ export interface components {
             region?: string | null;
             timezone?: string | null;
         };
+        /**
+         * @description An org-level business-hours calendar row (`sla_calendars`). The math
+         *     type is [`BusinessCalendar`]; this carries its identity.
+         */
+        SlaCalendar: {
+            /**
+             * @description Flattened calendar body (timezone/windows/holidays/maintenance);
+             *     `calendar.name` mirrors `name` on write.
+             */
+            calendar: Record<string, never>;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: uuid */
+            org_id: string;
+        };
+        SlaVerdictRequest: {
+            body?: string | null;
+            /**
+             * @description Extra recipients from the ladder step; the assignee is added
+             *     server-side.
+             */
+            notify_user_ids: string[];
+            /** Format: uuid */
+            org_id: string;
+            /**
+             * Format: uuid
+             * @description Ladder step that fired (ledger key).
+             */
+            step_id: string;
+            /** @description 'first_response' | 'resolution' */
+            target: string;
+            /** Format: uuid */
+            ticket_id: string;
+            /** @description Human-facing headline, e.g. "[MER-12] SLA risk on resolution". */
+            title: string;
+            /** @description 'risk' | 'breach' | 'escalate' */
+            trigger: string;
+        };
         SsoExchangeRequest: {
             /** Format: uuid */
             code: string;
@@ -1813,6 +2306,17 @@ export interface components {
             title: string;
             /** Format: date-time */
             updated_at: string;
+        };
+        /**
+         * @description GET response for a ticket's checklist: instances, derived progress,
+         *     and the board's live enforcement posture. `blocking` lists the unchecked
+         *     REQUIRED items when enforcement is active (empty otherwise).
+         */
+        TicketChecklistView: {
+            blocking: string[];
+            enforcement_active: boolean;
+            items: components["schemas"]["ChecklistItem"][];
+            progress: components["schemas"]["ChecklistProgress"];
         };
         /**
          * @description A structured ticket note. Taxonomy: internal / client-visible /
@@ -1881,6 +2385,18 @@ export interface components {
             resolution_due?: string | null;
             /** Format: uuid */
             ticket_id: string;
+        };
+        /** @description Live SLA clock readout for one ticket (badge + countdown surfaces). */
+        TicketSlaStatus: {
+            breached: boolean;
+            /**
+             * Format: int64
+             * @description Business minutes left on the resolution budget (negative = over).
+             */
+            minutes_remaining?: number | null;
+            /** @description True while a Waiting-category pause is open. */
+            paused: boolean;
+            state: components["schemas"]["TicketSlaState"];
         };
         /**
          * @description The four semantic categories every ticket status maps to (§5).
@@ -1996,6 +2512,13 @@ export interface components {
             /** Format: int64 */
             count: number;
         };
+        UpdateCalendarRequest: {
+            holidays?: unknown;
+            maintenance?: unknown;
+            name?: string | null;
+            timezone?: string | null;
+            windows?: unknown;
+        };
         UpdatePreferenceRequest: {
             email: boolean;
             in_app: boolean;
@@ -2005,6 +2528,18 @@ export interface components {
             quiet_until?: string | null;
             /** @description IANA timezone for the window; defaults to UTC. */
             timezone?: string | null;
+        };
+        UpdateRuleRequest: {
+            actions?: unknown;
+            /**
+             * Format: uuid
+             * @description `Some(Some(id))` scopes; `Some(None)` clears to all boards.
+             */
+            board_id?: string | null;
+            conditions?: unknown;
+            enabled?: boolean | null;
+            name?: string | null;
+            trigger_event?: string | null;
         };
         UpdateSettingRequest: {
             key: string;
@@ -2034,6 +2569,14 @@ export interface components {
             key: string;
             /** @description JSON payload typed by the declaration's kind. */
             value: unknown;
+        };
+        VerdictResponse: {
+            /**
+             * @description False when the ledger had already recorded this fire (idempotent
+             *     replay after a worker retry) — nothing was written or notified.
+             */
+            applied: boolean;
+            reason?: string | null;
         };
         WebauthnBeginResponse: {
             /** @description Opaque ceremony binding — pass back to finish. */
@@ -2708,6 +3251,94 @@ export interface operations {
             };
         };
     };
+    automation_rules_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>[];
+                };
+            };
+        };
+    };
+    automation_rules_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRuleRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    automation_rules_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    automation_rules_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateRuleRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
     boards_list: {
         parameters: {
             query?: never;
@@ -2762,6 +3393,71 @@ export interface operations {
                 "application/json": components["schemas"]["FavoriteRequest"];
             };
         };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    boards_get_checklist_template: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChecklistTemplateView"];
+                };
+            };
+        };
+    };
+    boards_put_checklist_template: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutChecklistTemplateRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChecklistTemplateView"];
+                };
+            };
+        };
+    };
+    boards_delete_checklist_template: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             204: {
                 headers: {
@@ -3106,6 +3802,52 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Site"];
+                };
+            };
+        };
+    };
+    internal_effects: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EffectsRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    internal_sla_verdict: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SlaVerdictRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerdictResponse"];
                 };
             };
         };
@@ -3460,6 +4202,159 @@ export interface operations {
             };
         };
     };
+    sla_calendars_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlaCalendar"][];
+                };
+            };
+        };
+    };
+    sla_calendars_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCalendarRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlaCalendar"];
+                };
+            };
+        };
+    };
+    sla_calendars_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    sla_calendars_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateCalendarRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlaCalendar"];
+                };
+            };
+        };
+    };
+    sla_policies_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyView"][];
+                };
+            };
+        };
+    };
+    sla_ladder_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EscalationStep"][];
+                };
+            };
+        };
+    };
+    sla_ladder_replace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplaceLadderRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EscalationStep"][];
+                };
+            };
+        };
+    };
     sso_exchange: {
         parameters: {
             query?: never;
@@ -3620,7 +4515,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChecklistItem"][];
+                    "application/json": components["schemas"]["TicketChecklistView"];
                 };
             };
         };
@@ -3645,7 +4540,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChecklistItem"][];
+                    "application/json": components["schemas"]["TicketChecklistView"];
                 };
             };
         };
@@ -3671,14 +4566,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChecklistItem"][];
+                    "application/json": components["schemas"]["TicketChecklistView"];
                 };
             };
         };
     };
     tickets_list_comments: {
         parameters: {
-            query?: never;
+            query?: {
+                /**
+                 * @description Optional taxonomy filter (`internal`, `client_visible`,
+                 *     `in_house_update`). Omit for all kinds (staff view).
+                 */
+                kind?: null | components["schemas"]["NoteKind"];
+            };
             header?: never;
             path: {
                 id: string;
@@ -3722,6 +4623,27 @@ export interface operations {
             };
         };
     };
+    tickets_sla_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketSlaStatus"];
+                };
+            };
+        };
+    };
     tickets_change_status: {
         parameters: {
             query?: never;
@@ -3745,7 +4667,14 @@ export interface operations {
                     "application/json": components["schemas"]["Ticket"];
                 };
             };
-            /** @description checklist incomplete or invalid transition */
+            /** @description pre-close checklist incomplete (board enforces) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid transition */
             422: {
                 headers: {
                     [name: string]: unknown;
