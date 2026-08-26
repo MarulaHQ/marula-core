@@ -222,6 +222,25 @@ where
     Ok(())
 }
 
+/// Removes one booking (dispatch bulk-move phase 1): the caller's
+/// transaction reinserts moved bookings at their targets via
+/// [`create_appointment`], so every statement boundary stays
+/// constraint-clean while the batch remains atomic.
+pub async fn delete_appointment(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    id: Uuid,
+) -> DbResult<()> {
+    let deleted =
+        sqlx::query!("DELETE FROM appointments WHERE org_id = $1 AND id = $2", org_id, id)
+            .execute(conn)
+            .await?;
+    if deleted.rows_affected() == 0 {
+        return Err(DbError::NotFound);
+    }
+    Ok(())
+}
+
 // --- availability windows ----------------------------------------------------
 
 pub async fn create_availability_window<'e, E>(executor: E, w: &AvailabilityWindow) -> DbResult<()>

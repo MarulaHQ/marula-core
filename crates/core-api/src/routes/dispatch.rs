@@ -370,27 +370,29 @@ pub async fn bulk_move(
             }
         }
 
-        // Apply: identity stays, slot/user change; events carry the new
-        // user_id so the realtime router fans out to the right channel.
-        let mut moved_views = Vec::with_capacity(req.moves.len());
-        for (spec, mut appt) in req
-            .moves
-            .iter()
-            .zip(moved_appointments.into_iter())
-        {
-            let rescheduled =
-                appt.starts_at != spec.starts_at || appt.ends_at != spec.ends_at;
+        // Apply, two-phase so swaps are constraint-safe mid-batch: first
+        // vacate EVERY moved slot (a forward move would otherwise collide
+        // with a booking vacated later in the same batch), then reinsert
+        // at targets. Identity stays; events carry the new user_id so the
+        // realtime router fans out to the right channel.
+        let mut updated = Vec::with_capacity(req.moves.len());
+        for (spec, mut appt) in req.moves.iter().zip(moved_appointments.into_iter()) {
             appt.user_id = spec.user_id;
             appt.starts_at = spec.starts_at;
             appt.ends_at = spec.ends_at;
-            core_db::scheduling::update_appointment(&mut *tx.tx, &appt).await?;
+            core_db::scheduling::delete_appointment(&mut *tx.tx, org_id, appt.id).await?;
+            updated.push(appt);
+        }
+        let mut moved_views = Vec::with_capacity(updated.len());
+        for mut appt in updated {
+            core_db::scheduling::create_appointment(&mut *tx.tx, &appt).await?;
             tx.emit(
                 types::APPOINTMENT_UPDATED,
                 "appointment",
                 Some(&appt.id.to_string()),
                 &serde_json::to_value(AppointmentUpdated {
+                    rescheduled: true,
                     appointment: appt.clone(),
-                    rescheduled,
                 })
                 .map_err(|e| ApiError::Internal(e.into()))?,
             )
