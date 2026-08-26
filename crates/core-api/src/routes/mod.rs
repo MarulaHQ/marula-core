@@ -93,8 +93,20 @@ pub fn build_router(state: AppState) -> Router {
             get(notifications::unread_count),
         )
         .route(
+            "/api/notifications/mark-read",
+            post(notifications::mark_read_bulk),
+        )
+        .route(
+            "/api/notifications/read-all",
+            post(notifications::mark_all_read),
+        )
+        .route(
             "/api/notifications/{id}/read",
             post(notifications::mark_read),
+        )
+        .route(
+            "/api/notification-preferences",
+            get(notifications::prefs_get).put(notifications::prefs_update),
         )
         // audit (admin)
         .route("/api/audit-events", get(audit::list))

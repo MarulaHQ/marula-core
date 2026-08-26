@@ -12,7 +12,7 @@ use axum::{
     Json,
 };
 use core_domain::entities::{Actor, AuditEvent};
-use core_domain::events::{self, types};
+use core_domain::events::types;
 use core_domain::policy::{Module, Permission};
 use core_domain::status::{NoteKind, Priority, TicketStatusCategory};
 use serde::Deserialize;
@@ -454,8 +454,10 @@ pub async fn add_comment(
     }
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
+    let author_name = authed.principal.user.display_name.clone();
 
     let comment = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id).await?;
         let comment = core_db::tickets::insert_comment(
             &mut *ctx.tx,
             Uuid::now_v7(),
@@ -467,28 +469,67 @@ pub async fn add_comment(
         )
         .await?;
 
-        // Resolve @mentions to org users → notifications.
-        let handles = events::extract_mentions(req.body.trim());
-        let mut mentioned = Vec::new();
-        if !handles.is_empty() {
-            let users = core_db::users::list_users(&mut *ctx.tx, org_id).await?;
-            for u in users {
-                let handle = u.email.split('@').next().unwrap_or_default().to_lowercase();
-                if handles.iter().any(|h| h.eq_ignore_ascii_case(&handle)) && u.id != user_id {
-                    mentioned.push(u.id);
-                }
-            }
-        }
+        // Resolve @mentions against active org members (visibility is the
+        // member directory itself until board RBAC lands), ignoring the
+        // author's own handle and unknown handles. Notifications are
+        // created in THIS transaction and each emits its own
+        // `notification.created` so the Redis→hub chain fans out per-user.
+        let tokens = core_domain::mentions::parse(req.body.trim());
+        let mentioned = if tokens.is_empty() {
+            Vec::new()
+        } else {
+            let directory: Vec<core_domain::mentions::MemberHandles> =
+                core_db::users::list_users(&mut *ctx.tx, org_id)
+                    .await?
+                    .into_iter()
+                    .filter(|u| u.is_active)
+                    .map(|u| {
+                        core_domain::mentions::MemberHandles::from_identity(
+                            u.id,
+                            &u.email,
+                            &u.display_name,
+                        )
+                    })
+                    .collect();
+            core_domain::mentions::resolve(&tokens, &directory, user_id)
+        };
+
         for mentioned_user in &mentioned {
-            core_db::notifications::insert(
+            // The in-app channel toggle gates whether the inbox row exists
+            // at all (defaults-first chain); email fan-out happens later in
+            // the worker against the same preference chain.
+            let pref = core_db::notifications::effective_preference(
+                &mut *ctx.tx,
+                org_id,
+                *mentioned_user,
+                core_domain::entities::NotificationKind::Mention.as_str(),
+            )
+            .await?;
+            if !pref.in_app {
+                continue;
+            }
+            let notification = core_db::notifications::insert(
                 &mut *ctx.tx,
                 Uuid::now_v7(),
                 org_id,
                 *mentioned_user,
                 "mention",
                 Some(id),
-                &format!("mentioned on {}", comment.ticket_id),
-                Some(req.body.trim()),
+                &format!("{} mentioned you on {}", author_name, ticket.number.0),
+                Some(comment_excerpt(req.body.trim())),
+            )
+            .await?;
+            ctx.emit(
+                types::NOTIFICATION_CREATED,
+                "notification",
+                Some(notification.id.to_string().as_str()),
+                &serde_json::to_value(core_domain::events::NotificationCreated {
+                    user_id: *mentioned_user,
+                    kind: notification.kind.as_str().to_string(),
+                    ticket_id: Some(id),
+                    title: notification.title.clone(),
+                })
+                .unwrap_or_default(),
             )
             .await?;
         }
@@ -509,6 +550,14 @@ pub async fn add_comment(
     .await?;
 
     Ok(Json(comment))
+}
+
+/// First ~140 characters of a note body for notification previews.
+fn comment_excerpt(body: &str) -> &str {
+    match body.char_indices().nth(140) {
+        Some((idx, _)) => body[..idx].trim_end(),
+        None => body,
+    }
 }
 
 /// GET /api/tickets/{id}/checklist
