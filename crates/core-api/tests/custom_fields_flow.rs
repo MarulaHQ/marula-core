@@ -38,6 +38,7 @@ async fn test_state() -> (AppState, Router) {
         config: Arc::new(config),
         oidc: OidcHttpClient::new(),
         mail: Arc::new(core_api::email::MailStack::from_config(&Config::from_env())),
+        store: Arc::new(core_store::memory::MemoryStore::new()),
     };
     let app = core_api::routes::build_router(state.clone());
     (state, app)
