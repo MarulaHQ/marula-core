@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM connector_installations WHERE org_id = $1 AND connector_type = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "64ab9880052aa3277a5479e5a808d2dbc3a73bc8842a675558f13ee5f2408138"
+}

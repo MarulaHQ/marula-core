@@ -59,6 +59,9 @@ pub mod types {
     /// Emitted when the org profile (name/ticket prefix) is edited from
     /// General settings or the first-run wizard.
     pub const ORG_UPDATED: &str = "org.updated";
+    /// A subscription test-fire from the webhook manager; flows through
+    /// the same stream + delivery pipeline as real domain events.
+    pub const WEBHOOK_TEST: &str = "webhook.test";
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

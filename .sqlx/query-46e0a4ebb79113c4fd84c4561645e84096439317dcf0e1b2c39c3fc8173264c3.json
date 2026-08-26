@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id AS \"id!\", org_id AS \"org_id!\", name AS \"name!\",\n                  key_hash AS \"key_hash!\", prefix AS \"prefix!\",\n                  scopes AS \"scopes!\", created_by, last_used_at, revoked_at,\n                  created_at AS \"created_at!\"\n           FROM api_key_auth_lookup($1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "key_hash!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "prefix!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "scopes!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 7,
+        "name": "last_used_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "revoked_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_at!",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "46e0a4ebb79113c4fd84c4561645e84096439317dcf0e1b2c39c3fc8173264c3"
+}

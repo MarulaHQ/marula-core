@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, org_id, connector_type, config_encrypted, capability_scopes,\n                  consented_by, created_at, updated_at\n           FROM connector_installations WHERE org_id = $1 ORDER BY connector_type",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "connector_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "config_encrypted",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 4,
+        "name": "capability_scopes",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 5,
+        "name": "consented_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "5f3f5e97764f6002e5701fdb7e9d02ba13aec90ad73de1fb7fc45945ca2ec6f0"
+}
