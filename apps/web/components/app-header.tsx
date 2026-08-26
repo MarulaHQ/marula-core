@@ -8,6 +8,7 @@
 import { useTheme } from "@meridian/ui";
 import type { Theme } from "@meridian/ui";
 import { Button } from "@meridian/ui";
+import { useRouter } from "next/navigation";
 import { useAuth } from "../lib/api";
 import { NotificationDock } from "./notification-dock";
 
@@ -27,6 +28,7 @@ function ThemeToggle() {
 
 export function AppHeader() {
   const { me, logout } = useAuth();
+  const router = useRouter();
   return (
     <header
       className="flex h-12 shrink-0 items-center justify-between border-b px-4"
@@ -40,6 +42,13 @@ export function AppHeader() {
       </div>
       <div className="flex items-center gap-2">
         <NotificationDock />
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => router.push("/settings/general")}
+        >
+          Settings
+        </Button>
         <ThemeToggle />
         <span className="text-xs" style={{ color: "var(--m-text-secondary)" }}>
           {me?.display_name ?? ""}

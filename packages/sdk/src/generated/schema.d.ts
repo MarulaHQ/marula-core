@@ -806,6 +806,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/org": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/org — profile fields shown on General settings / the wizard. */
+        get: operations["org_profile_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/org — updates name and/or ticket prefix (Admin:edit).
+         *     Idempotent; emits `org.updated` + audit row.
+         */
+        patch: operations["org_profile_patch"];
+        trace?: never;
+    };
+    "/api/settings/org": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/settings/org — effective org settings (defaults overlaid by
+         *     stored overrides). Visible to every member.
+         */
+        get: operations["settings_org_get"];
+        /**
+         * PUT /api/settings/org — upserts one org-scope override after registry
+         *     validation (Admin:edit required). Emits `setting.updated` + audit row.
+         */
+        put: operations["settings_org_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/registry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/settings/registry — every declared setting with kind, default,
+         *     scope and validation shape. Any authenticated member may read it.
+         */
+        get: operations["settings_registry"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/user": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/settings/user — the caller's effective personal settings. */
+        get: operations["settings_user_get"];
+        /**
+         * PUT /api/settings/user — upserts one of the CALLER's own user-scope
+         *     overrides. No role requirement: everyone may tune their own preferences.
+         */
+        put: operations["settings_user_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sso/exchange": {
         parameters: {
             query?: never;
@@ -1348,6 +1434,25 @@ export interface components {
             ticket_id: string;
             work_type?: string | null;
         };
+        /**
+         * @description Wire shape of one declaration. Kinds/options are flattened so generated
+         *     clients can render editors directly from this payload.
+         */
+        DeclarationView: {
+            default: components["schemas"]["SettingValue"];
+            description: string;
+            key: string;
+            kind: components["schemas"]["SettingKind"];
+            label: string;
+            /** @description Closed option set for enumerations; empty otherwise. */
+            options: string[];
+            /** @description "org" | "user" */
+            scope: string;
+            /** @description Settings-hub section this declaration renders under. */
+            section: string;
+            /** @description "ui" renders an editable row; "hidden" is state readable via values. */
+            visibility: string;
+        };
         DeviceAsset: {
             /** Format: uuid */
             client_id: string;
@@ -1474,6 +1579,17 @@ export interface components {
             /** @description URL path segment used by login/link routes. */
             name: string;
         };
+        OrgProfileResponse: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            slug: string;
+            ticket_prefix: string;
+        };
+        PatchOrgRequest: {
+            name?: string | null;
+            ticket_prefix?: string | null;
+        };
         PatchTicketRequest: {
             /**
              * Format: uuid
@@ -1554,6 +1670,9 @@ export interface components {
             /** @default UTC */
             timezone: string | null;
         };
+        RegistryResponse: {
+            settings: components["schemas"]["DeclarationView"][];
+        };
         /**
          * @description Why a timer segment ended. Preserved forever — the pause reason is
          *     billable-work metadata, not a transient UI state.
@@ -1582,6 +1701,40 @@ export interface components {
              */
             edges: components["schemas"]["TransitionEdge"][];
         };
+        /**
+         * @description The value shapes the registry understands. A stored value must satisfy
+         *     its declaration's kind or the write is rejected (validation is applied
+         *     before persistence, never after).
+         */
+        SettingKind: {
+            /** @enum {string} */
+            type: "boolean";
+        } | {
+            /** @enum {string} */
+            type: "integer";
+            /** @description Inclusive integer range. */
+            value: {
+                /** Format: int64 */
+                max: number;
+                /** Format: int64 */
+                min: number;
+            };
+        } | {
+            /** @enum {string} */
+            type: "text";
+            /** @description Free text with a hard length cap. */
+            value: {
+                max_len: number;
+            };
+        } | {
+            /** @enum {string} */
+            type: "enumeration";
+        };
+        /**
+         * @description A concrete setting value. Only three payload types exist by design —
+         *     richer structures are entities, not settings.
+         */
+        SettingValue: boolean | number | string;
         Site: {
             address?: string | null;
             city?: string | null;
@@ -1853,6 +2006,11 @@ export interface components {
             /** @description IANA timezone for the window; defaults to UTC. */
             timezone?: string | null;
         };
+        UpdateSettingRequest: {
+            key: string;
+            /** @description Must satisfy the declaration's kind or the request is rejected 422. */
+            value: unknown;
+        };
         UpdateStatusRequest: {
             category?: null | components["schemas"]["TicketStatusCategory"];
             is_entry?: boolean | null;
@@ -1870,6 +2028,12 @@ export interface components {
             enabled?: boolean;
             issuer: string;
             jit_provisioning?: boolean;
+        };
+        /** @description One effective value: registry default overlaid by any stored override. */
+        ValueView: {
+            key: string;
+            /** @description JSON payload typed by the declaration's kind. */
+            value: unknown;
         };
         WebauthnBeginResponse: {
             /** @description Opaque ceremony binding — pass back to finish. */
@@ -3118,6 +3282,177 @@ export interface operations {
         requestBody?: never;
         responses: {
             204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    org_profile_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgProfileResponse"];
+                };
+            };
+        };
+    };
+    org_profile_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchOrgRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgProfileResponse"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    settings_org_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValueView"][];
+                };
+            };
+        };
+    };
+    settings_org_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSettingRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValueView"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unknown key or invalid value */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    settings_registry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistryResponse"];
+                };
+            };
+        };
+    };
+    settings_user_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValueView"][];
+                };
+            };
+        };
+    };
+    settings_user_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSettingRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValueView"];
+                };
+            };
+            /** @description unknown key or invalid value */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

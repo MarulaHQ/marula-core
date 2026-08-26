@@ -1,14 +1,17 @@
-// /settings/security — MFA enrollment and session management.
+// /settings/security — MFA enrollment, session management, SSO accounts.
 //
 // Purpose: TOTP setup wizard (secret shown once → confirm → recovery codes
 // shown once), disable flow (password + current code), passkey
-// registration/removal, and live refresh-session list with revocation.
-// Non-purpose: org-wide SSO provider administration.
+// registration/removal, live refresh-session list with revocation, and
+// OIDC SSO administration riding the EXISTING provider CRUD APIs verbatim.
+// Non-purpose: no new auth logic here — every action calls an /api/auth/*
+// endpoint owned by the auth-hardening lane.
 
 "use client";
 
 import { Button, Card, FieldHint, Input, Label } from "@meridian/ui";
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useAuth, useRequireAuth } from "../../../lib/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
@@ -28,6 +31,14 @@ interface SessionRow {
   current: boolean;
 }
 
+interface OidcProvider {
+  id: string;
+  name: string;
+  display_name: string;
+  issuer: string;
+  enabled: boolean;
+}
+
 function b64urlToBuffer(value: string): ArrayBuffer {
   const pad = value.length % 4 === 0 ? "" : "=".repeat(4 - (value.length % 4));
   const binary = atob(value.replace(/-/g, "+").replace(/_/g, "/") + pad);
@@ -40,7 +51,10 @@ function bufferToB64url(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
 
 async function apiCall<T>(
@@ -48,7 +62,9 @@ async function apiCall<T>(
   method: "POST" | "GET",
   body?: unknown,
 ): Promise<T> {
-  const tokens = JSON.parse(window.localStorage.getItem("meridian-tokens") ?? "{}");
+  const tokens = JSON.parse(
+    window.localStorage.getItem("meridian-tokens") ?? "{}",
+  );
   const response = await fetch(`${API_BASE}${path}`, {
     method,
     headers: {
@@ -71,6 +87,8 @@ export default function SecuritySettingsPage() {
   // status flags
   const [credentials, setCredentials] = useState<CredentialInfo[]>([]);
   const [sessions, setSessions] = useState<SessionRow[]>([]);
+  // SSO providers (admin view; list may 403 for non-admins — rendered as "hidden")
+  const [providers, setProviders] = useState<OidcProvider[] | null>(null);
 
   // totp wizard state
   const [setupSecret, setSetupSecret] = useState<string | null>(null);
@@ -90,12 +108,27 @@ export default function SecuritySettingsPage() {
 
   const refreshStatus = useCallback(async () => {
     try {
-      const creds = await apiCall<CredentialInfo[]>("/api/auth/mfa/webauthn/credentials", "GET");
+      const creds = await apiCall<CredentialInfo[]>(
+        "/api/auth/mfa/webauthn/credentials",
+        "GET",
+      );
       setCredentials(creds);
       const list = await apiCall<SessionRow[]>("/api/auth/sessions", "GET");
       setSessions(list);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load security state");
+      setError(
+        err instanceof Error ? err.message : "Failed to load security state",
+      );
+    }
+    // Providers are admin-scoped; a 403 simply hides the section.
+    try {
+      const providerList = await apiCall<OidcProvider[]>(
+        "/api/auth/oidc/providers",
+        "GET",
+      );
+      setProviders(providerList);
+    } catch {
+      setProviders(null);
     }
   }, []);
 
@@ -164,11 +197,16 @@ export default function SecuritySettingsPage() {
 
   const registerPasskey = guard(async () => {
     const begin = await apiCall<{
-      public_key: { publicKey?: Record<string, unknown> } & Record<string, unknown>;
+      public_key: { publicKey?: Record<string, unknown> } & Record<
+        string,
+        unknown
+      >;
       challenge_token: string;
     }>("/api/auth/mfa/webauthn/register/begin", "POST");
 
-    const envelope = begin.public_key as { publicKey?: Record<string, unknown> };
+    const envelope = begin.public_key as {
+      publicKey?: Record<string, unknown>;
+    };
     const raw = (envelope.publicKey ?? begin.public_key) as {
       challenge: string;
       excludeCredentials?: Array<{ id: string } & Record<string, unknown>>;
@@ -186,7 +224,10 @@ export default function SecuritySettingsPage() {
     })) as PublicKeyCredential | null;
     if (!credential) throw new Error("no credential returned by authenticator");
 
-    const serialized = JSON.parse(JSON.stringify(credential)) as Record<string, unknown>;
+    const serialized = JSON.parse(JSON.stringify(credential)) as Record<
+      string,
+      unknown
+    >;
     const response = serialized.response as Record<string, unknown>;
     const attestation = credential.response as AuthenticatorAttestationResponse;
     response.clientDataJSON = bufferToB64url(attestation.clientDataJSON);
@@ -203,11 +244,15 @@ export default function SecuritySettingsPage() {
   });
 
   return (
-    <main className="mx-auto grid max-w-2xl gap-6 p-6" style={{ background: "var(--m-canvas)" }}>
+    <div className="grid gap-6 max-w-2xl">
       <header>
         <h1 className="text-lg font-semibold">Security</h1>
-        <p className="mt-1 text-xs" style={{ color: "var(--m-text-secondary)" }}>
-          Signed in as {me?.email}. Manage two-factor authentication and devices.
+        <p
+          className="mt-1 text-xs"
+          style={{ color: "var(--m-text-secondary)" }}
+        >
+          Signed in as {me?.email}. Manage two-factor authentication and
+          devices.
         </p>
       </header>
 
@@ -215,7 +260,11 @@ export default function SecuritySettingsPage() {
         <p
           className="text-xs"
           role={error ? "alert" : "status"}
-          style={{ color: error ? "var(--m-status-danger-fg)" : "var(--m-status-success-fg)" }}
+          style={{
+            color: error
+              ? "var(--m-status-danger-fg)"
+              : "var(--m-status-success-fg)",
+          }}
         >
           {error ?? notice}
         </p>
@@ -224,8 +273,12 @@ export default function SecuritySettingsPage() {
       {/* --- TOTP -------------------------------------------------------- */}
       <Card className="p-5">
         <h2 className="text-sm font-semibold">Authenticator app (TOTP)</h2>
-        <p className="mt-1 mb-3 text-xs" style={{ color: "var(--m-text-secondary)" }}>
-          Require a rotating six-digit code from an authenticator app at sign-in.
+        <p
+          className="mt-1 mb-3 text-xs"
+          style={{ color: "var(--m-text-secondary)" }}
+        >
+          Require a rotating six-digit code from an authenticator app at
+          sign-in.
         </p>
 
         {setupSecret === null ? (
@@ -238,7 +291,10 @@ export default function SecuritySettingsPage() {
               <Label>Secret (enter manually in your app)</Label>
               <code
                 className="rounded-[2px] px-2 py-1 text-xs"
-                style={{ background: "var(--m-surface-raised)", wordBreak: "break-all" }}
+                style={{
+                  background: "var(--m-surface-raised)",
+                  wordBreak: "break-all",
+                }}
               >
                 {setupSecret}
               </code>
@@ -247,11 +303,16 @@ export default function SecuritySettingsPage() {
               <Label>otpauth URI</Label>
               <code
                 className="rounded-[2px] px-2 py-1 text-xs"
-                style={{ background: "var(--m-surface-raised)", wordBreak: "break-all" }}
+                style={{
+                  background: "var(--m-surface-raised)",
+                  wordBreak: "break-all",
+                }}
               >
                 {setupUrl}
               </code>
-              <FieldHint>Shown once. Confirm below with the first generated code.</FieldHint>
+              <FieldHint>
+                Shown once. Confirm below with the first generated code.
+              </FieldHint>
             </div>
             <label className="grid gap-1">
               <Label>Confirmation code</Label>
@@ -262,7 +323,10 @@ export default function SecuritySettingsPage() {
                 inputMode="numeric"
               />
             </label>
-            <Button onClick={confirmTotp} disabled={busy || confirmCode.trim().length !== 6}>
+            <Button
+              onClick={confirmTotp}
+              disabled={busy || confirmCode.trim().length !== 6}
+            >
               Confirm and enable
             </Button>
           </div>
@@ -273,15 +337,23 @@ export default function SecuritySettingsPage() {
       {recoveryCodes && (
         <Card className="p-5">
           <h2 className="text-sm font-semibold">Recovery codes</h2>
-          <p className="mt-1 mb-3 text-xs" style={{ color: "var(--m-status-danger-fg)" }}>
-            Shown once — store them somewhere safe. Each code works exactly once.
+          <p
+            className="mt-1 mb-3 text-xs"
+            style={{ color: "var(--m-status-danger-fg)" }}
+          >
+            Shown once — store them somewhere safe. Each code works exactly
+            once.
           </p>
           <ul className="grid grid-cols-2 gap-1 font-mono text-xs">
             {recoveryCodes.map((c) => (
               <li key={c}>{c}</li>
             ))}
           </ul>
-          <Button variant="ghost" className="mt-3" onClick={() => setRecoveryCodes(null)}>
+          <Button
+            variant="ghost"
+            className="mt-3"
+            onClick={() => setRecoveryCodes(null)}
+          >
             I&apos;ve saved them
           </Button>
         </Card>
@@ -289,14 +361,21 @@ export default function SecuritySettingsPage() {
 
       <Card className="p-5">
         <h2 className="text-sm font-semibold">Sensitive changes</h2>
-        <p className="mt-1 mb-3 text-xs" style={{ color: "var(--m-text-secondary)" }}>
+        <p
+          className="mt-1 mb-3 text-xs"
+          style={{ color: "var(--m-text-secondary)" }}
+        >
           Disabling TOTP or regenerating codes requires your password plus a
           current second factor.
         </p>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="grid gap-1">
             <Label>Password</Label>
-            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+            <Input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
           </label>
           <label className="grid gap-1">
             <Label>Current code</Label>
@@ -308,10 +387,18 @@ export default function SecuritySettingsPage() {
           </label>
         </div>
         <div className="mt-3 flex gap-2">
-          <Button variant="secondary" onClick={disableTotp} disabled={busy || !password || !disableCode}>
+          <Button
+            variant="secondary"
+            onClick={disableTotp}
+            disabled={busy || !password || !disableCode}
+          >
             Disable TOTP
           </Button>
-          <Button variant="secondary" onClick={regenerateCodes} disabled={busy || !password || !disableCode}>
+          <Button
+            variant="secondary"
+            onClick={regenerateCodes}
+            disabled={busy || !password || !disableCode}
+          >
             Regenerate recovery codes
           </Button>
         </div>
@@ -320,20 +407,30 @@ export default function SecuritySettingsPage() {
       {/* --- passkeys ------------------------------------------------------ */}
       <Card className="p-5">
         <h2 className="text-sm font-semibold">Passkeys</h2>
-        <p className="mt-1 mb-3 text-xs" style={{ color: "var(--m-text-secondary)" }}>
+        <p
+          className="mt-1 mb-3 text-xs"
+          style={{ color: "var(--m-text-secondary)" }}
+        >
           Platform authenticators (Touch ID, Windows Hello, security keys).
         </p>
         {credentials.length > 0 && (
           <ul className="mb-3 grid gap-1 text-xs">
             {credentials.map((c) => (
-              <li key={c.id} className="flex items-center justify-between gap-2">
+              <li
+                key={c.id}
+                className="flex items-center justify-between gap-2"
+              >
                 <span>{c.label}</span>
                 <Button
                   variant="ghost"
                   onClick={guard(async () => {
-                    await apiCall(`/api/auth/mfa/webauthn/credentials/${c.id}/remove`, "POST", {
-                      password,
-                    });
+                    await apiCall(
+                      `/api/auth/mfa/webauthn/credentials/${c.id}/remove`,
+                      "POST",
+                      {
+                        password,
+                      },
+                    );
                     await refreshStatus();
                   })}
                   disabled={busy || !password}
@@ -360,7 +457,10 @@ export default function SecuritySettingsPage() {
       {/* --- sessions ------------------------------------------------------ */}
       <Card className="p-5">
         <h2 className="text-sm font-semibold">Sessions</h2>
-        <p className="mt-1 mb-3 text-xs" style={{ color: "var(--m-text-secondary)" }}>
+        <p
+          className="mt-1 mb-3 text-xs"
+          style={{ color: "var(--m-text-secondary)" }}
+        >
           Live refresh-token chains bound to this account.
         </p>
         <ul className="grid gap-1 text-xs">
@@ -387,6 +487,61 @@ export default function SecuritySettingsPage() {
           ))}
         </ul>
       </Card>
-    </main>
+
+      {/* --- SSO ----------------------------------------------------------- */}
+      <Card className="p-5 grid gap-2">
+        <h2 className="text-sm font-semibold">Single sign-on (SSO)</h2>
+        <p
+          className="mt-1 text-xs"
+          style={{ color: "var(--m-text-secondary)" }}
+        >
+          Sign in with an external identity provider through OIDC. Account
+          linking is confirmed on the SSO landing screen.
+        </p>
+        {providers !== null && (
+          <ul className="grid gap-1 text-xs">
+            {providers.length === 0 && (
+              <li style={{ color: "var(--m-text-muted)" }}>
+                No providers configured yet.
+              </li>
+            )}
+            {providers.map((p) => (
+              <li
+                key={p.id}
+                className="flex items-center justify-between gap-2"
+              >
+                <span>
+                  {p.display_name}{" "}
+                  <span style={{ color: "var(--m-text-muted)" }}>
+                    ({p.issuer})
+                  </span>
+                </span>
+                <span
+                  aria-label={`${p.display_name} ${p.enabled ? "enabled" : "disabled"}`}
+                  style={{
+                    color: p.enabled
+                      ? "var(--m-status-success-fg)"
+                      : "var(--m-text-muted)",
+                  }}
+                >
+                  {p.enabled ? "enabled" : "disabled"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <Link
+          href="/sso"
+          className="text-xs underline underline-offset-2"
+          style={{ color: "var(--m-accent)" }}
+        >
+          Open the SSO account-link screen →
+        </Link>
+        <FieldHint>
+          Provider management (create/rotate/delete) uses the same admin API and
+          ships its full editor with the admin-configuration wave.
+        </FieldHint>
+      </Card>
+    </div>
   );
 }

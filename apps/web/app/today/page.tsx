@@ -8,10 +8,20 @@
 "use client";
 
 import type { components } from "@meridian/sdk";
-import { Button, EmptyState, Spinner, StatusTag, Table, Td, Th, Tr } from "@meridian/ui";
+import {
+  Button,
+  EmptyState,
+  Spinner,
+  StatusTag,
+  Table,
+  Td,
+  Th,
+  Tr,
+} from "@meridian/ui";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AppHeader } from "../../components/app-header";
+import { SetupBanner } from "../../components/setup-banner";
 import { api, useRequireAuth } from "../../lib/api";
 
 type Ticket = components["schemas"]["Ticket"];
@@ -44,9 +54,13 @@ export default function TodayPage() {
       const ws = await api.api.GET("/api/timers/working-set");
       if (mine.error !== undefined) throw new Error("failed to load tickets");
       if (ws.error !== undefined) throw new Error("failed to load timers");
-      setTickets([...mine.data].sort((a, b) =>
-        (PRIORITY_ORDER[a.priority] ?? 9) - (PRIORITY_ORDER[b.priority] ?? 9),
-      ));
+      setTickets(
+        [...mine.data].sort(
+          (a, b) =>
+            (PRIORITY_ORDER[a.priority] ?? 9) -
+            (PRIORITY_ORDER[b.priority] ?? 9),
+        ),
+      );
       setWorkingSet(ws.data);
       setError(null);
     } catch (err) {
@@ -85,11 +99,16 @@ export default function TodayPage() {
           </span>
         </div>
 
+        <SetupBanner />
+
         {/* Docked timer working-set */}
         {workingSet !== null && workingSet.length > 0 && (
           <section
             className="flex flex-wrap items-center gap-2 rounded-[2px] border p-2"
-            style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
+            style={{
+              borderColor: "var(--m-border)",
+              background: "var(--m-surface)",
+            }}
             aria-label="Timer working set"
           >
             {workingSet.map((s) => (
@@ -97,7 +116,10 @@ export default function TodayPage() {
                 key={s.id}
                 className="flex items-center gap-2 rounded-[2px] border px-2 py-1"
                 style={{
-                  borderColor: s.stopped_at === null ? "var(--m-accent)" : "var(--m-border)",
+                  borderColor:
+                    s.stopped_at === null
+                      ? "var(--m-accent)"
+                      : "var(--m-border)",
                 }}
               >
                 <StatusTag tone={s.stopped_at === null ? "warning" : "neutral"}>
@@ -110,7 +132,11 @@ export default function TodayPage() {
                   session {s.id.slice(0, 8)}
                 </button>
                 {s.stopped_at === null && (
-                  <Button size="sm" variant="ghost" onClick={() => void stopTimer(s.id)}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void stopTimer(s.id)}
+                  >
                     Stop
                   </Button>
                 )}
@@ -120,7 +146,11 @@ export default function TodayPage() {
         )}
 
         {error !== null && (
-          <p className="text-xs" style={{ color: "var(--m-status-danger-fg)" }} role="alert">
+          <p
+            className="text-xs"
+            style={{ color: "var(--m-status-danger-fg)" }}
+            role="alert"
+          >
             {error}
           </p>
         )}
@@ -146,10 +176,20 @@ export default function TodayPage() {
               {tickets.map((t) => (
                 <Tr key={t.id} onClick={() => router.push(`/tickets/${t.id}`)}>
                   <Td>{t.number}</Td>
-                  <Td><PriorityTag priority={t.priority} /></Td>
+                  <Td>
+                    <PriorityTag priority={t.priority} />
+                  </Td>
                   <Td>{t.title}</Td>
-                  <Td><StatusTag tone={categoryTone(t.category)}>{t.category}</StatusTag></Td>
-                  <Td>{t.due_at !== null && t.due_at !== undefined ? new Date(t.due_at).toLocaleDateString() : "—"}</Td>
+                  <Td>
+                    <StatusTag tone={categoryTone(t.category)}>
+                      {t.category}
+                    </StatusTag>
+                  </Td>
+                  <Td>
+                    {t.due_at !== null && t.due_at !== undefined
+                      ? new Date(t.due_at).toLocaleDateString()
+                      : "—"}
+                  </Td>
                 </Tr>
               ))}
             </tbody>

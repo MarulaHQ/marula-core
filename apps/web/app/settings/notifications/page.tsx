@@ -10,11 +10,19 @@
 // same chain at fan-out time.
 "use client";
 
-import { Button, Checkbox, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@meridian/ui";
+import {
+  Button,
+  Checkbox,
+  Input,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@meridian/ui";
 import type { components } from "@meridian/sdk";
 import { useEffect, useMemo, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
-import { AppHeader } from "../../../components/app-header";
 import { kindLabel } from "../../../lib/use-notifications";
 
 type PreferenceRow = components["schemas"]["PreferenceView"];
@@ -160,129 +168,167 @@ export default function NotificationPreferencesPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: "var(--m-canvas)" }}>
-      <AppHeader />
-      <main className="flex-1 w-full max-w-4xl mx-auto px-6 py-8">
-        <div className="flex items-baseline justify-between gap-4 mb-1">
-          <h1 className="text-lg font-semibold" style={{ color: "var(--m-text)" }}>
-            Notification settings
-          </h1>
-          <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
-            Times shown in each row&apos;s timezone
-          </span>
-        </div>
-        <p className="text-[13px] mb-6" style={{ color: "var(--m-text-secondary)" }}>
-          Quiet hours hold non-critical email during the window; SLA breaches and
-          escalations always break through. Rows without your override follow the org
-          default or the built-in.
-        </p>
-
-        <div
-          className="rounded-md border overflow-hidden"
-          style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
+    <div className="grid gap-4">
+      <div className="flex items-baseline justify-between gap-4 mb-1">
+        <h1
+          className="text-lg font-semibold"
+          style={{ color: "var(--m-text)" }}
         >
-          <table className="w-full text-[13px]" style={{ color: "var(--m-text)" }}>
-            <thead>
-              <tr
-                className="text-left text-[11px] uppercase tracking-wide"
-                style={{ color: "var(--m-text-muted)", background: "var(--m-canvas)" }}
-              >
-                <th className="px-3 py-2 font-medium">Event</th>
-                <th className="px-3 py-2 font-medium">In-app</th>
-                <th className="px-3 py-2 font-medium">Email</th>
-                <th className="px-3 py-2 font-medium">Quiet from</th>
-                <th className="px-3 py-2 font-medium">Until</th>
-                <th className="px-3 py-2 font-medium">Timezone</th>
-              </tr>
-            </thead>
-            <tbody>
-              {prefs.map((p) => {
-                const d = drafts[p.kind];
-                if (!d) return null;
-                return (
-                  <tr key={p.kind} className="border-t" style={{ borderColor: "var(--m-border)" }}>
-                    <td className="px-3 py-2.5">
-                      <div>{kindLabel(p.kind)}</div>
-                      <div className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
-                        {SOURCE_LABELS[p.source] ?? p.source}
-                        {changedKinds.includes(p.kind) ? " · edited" : ""}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <Checkbox
-                        checked={d.in_app}
-                        onCheckedChange={(v) => patch(p.kind, { in_app: v === true })}
-                        aria-label={`${kindLabel(p.kind)} in-app`}
-                      />
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <Checkbox
-                        checked={d.email}
-                        onCheckedChange={(v) => patch(p.kind, { email: v === true })}
-                        aria-label={`${kindLabel(p.kind)} email`}
-                      />
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <Input
-                        type="time"
-                        value={d.quiet_from}
-                        onChange={(e) => patch(p.kind, { quiet_from: e.target.value })}
-                        aria-label={`${kindLabel(p.kind)} quiet from`}
-                        className="w-[110px]"
-                      />
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <Input
-                        type="time"
-                        value={d.quiet_until}
-                        onChange={(e) => patch(p.kind, { quiet_until: e.target.value })}
-                        aria-label={`${kindLabel(p.kind)} quiet until`}
-                        className="w-[110px]"
-                      />
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <Select
-                        value={d.timezone}
-                        onValueChange={(v) => patch(p.kind, { timezone: v })}
-                      >
-                        <SelectTrigger
-                          className="w-[180px]"
-                          aria-label={`${kindLabel(p.kind)} timezone`}
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {TIMEZONES.map((tz) => (
-                            <SelectItem key={tz} value={tz}>
-                              {tz}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+          Notification settings
+        </h1>
+        <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+          Times shown in each row&apos;s timezone
+        </span>
+      </div>
+      <p
+        className="text-[13px] mb-6"
+        style={{ color: "var(--m-text-secondary)" }}
+      >
+        Quiet hours hold non-critical email during the window; SLA breaches and
+        escalations always break through. Rows without your override follow the
+        org default or the built-in.
+      </p>
 
-        <div className="flex items-center gap-3 mt-4">
-          <Button variant="primary" disabled={changedKinds.length === 0 || saving} onClick={() => void save()}>
-            {saving ? "Saving…" : "Save changes"}
-          </Button>
-          {savedAt && !error && (
-            <span className="text-[12px]" style={{ color: "var(--m-status-neutral-fg)" }}>
-              Saved.
-            </span>
-          )}
-          {error && (
-            <span className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }} role="alert">
-              {error}
-            </span>
-          )}
-        </div>
-      </main>
+      <div
+        className="rounded-md border overflow-hidden"
+        style={{
+          borderColor: "var(--m-border)",
+          background: "var(--m-surface)",
+        }}
+      >
+        <table
+          className="w-full text-[13px]"
+          style={{ color: "var(--m-text)" }}
+        >
+          <thead>
+            <tr
+              className="text-left text-[11px] uppercase tracking-wide"
+              style={{
+                color: "var(--m-text-muted)",
+                background: "var(--m-canvas)",
+              }}
+            >
+              <th className="px-3 py-2 font-medium">Event</th>
+              <th className="px-3 py-2 font-medium">In-app</th>
+              <th className="px-3 py-2 font-medium">Email</th>
+              <th className="px-3 py-2 font-medium">Quiet from</th>
+              <th className="px-3 py-2 font-medium">Until</th>
+              <th className="px-3 py-2 font-medium">Timezone</th>
+            </tr>
+          </thead>
+          <tbody>
+            {prefs.map((p) => {
+              const d = drafts[p.kind];
+              if (!d) return null;
+              return (
+                <tr
+                  key={p.kind}
+                  className="border-t"
+                  style={{ borderColor: "var(--m-border)" }}
+                >
+                  <td className="px-3 py-2.5">
+                    <div>{kindLabel(p.kind)}</div>
+                    <div
+                      className="text-[11px]"
+                      style={{ color: "var(--m-text-muted)" }}
+                    >
+                      {SOURCE_LABELS[p.source] ?? p.source}
+                      {changedKinds.includes(p.kind) ? " · edited" : ""}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <Checkbox
+                      checked={d.in_app}
+                      onCheckedChange={(v) =>
+                        patch(p.kind, { in_app: v === true })
+                      }
+                      aria-label={`${kindLabel(p.kind)} in-app`}
+                    />
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <Checkbox
+                      checked={d.email}
+                      onCheckedChange={(v) =>
+                        patch(p.kind, { email: v === true })
+                      }
+                      aria-label={`${kindLabel(p.kind)} email`}
+                    />
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <Input
+                      type="time"
+                      value={d.quiet_from}
+                      onChange={(e) =>
+                        patch(p.kind, { quiet_from: e.target.value })
+                      }
+                      aria-label={`${kindLabel(p.kind)} quiet from`}
+                      className="w-[110px]"
+                    />
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <Input
+                      type="time"
+                      value={d.quiet_until}
+                      onChange={(e) =>
+                        patch(p.kind, { quiet_until: e.target.value })
+                      }
+                      aria-label={`${kindLabel(p.kind)} quiet until`}
+                      className="w-[110px]"
+                    />
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <Select
+                      value={d.timezone}
+                      onValueChange={(v) => patch(p.kind, { timezone: v })}
+                    >
+                      <SelectTrigger
+                        className="w-[180px]"
+                        aria-label={`${kindLabel(p.kind)} timezone`}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TIMEZONES.map((tz) => (
+                          <SelectItem key={tz} value={tz}>
+                            {tz}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="flex items-center gap-3 mt-4">
+        <Button
+          variant="primary"
+          disabled={changedKinds.length === 0 || saving}
+          onClick={() => void save()}
+        >
+          {saving ? "Saving…" : "Save changes"}
+        </Button>
+        {savedAt && !error && (
+          <span
+            className="text-[12px]"
+            style={{ color: "var(--m-status-neutral-fg)" }}
+          >
+            Saved.
+          </span>
+        )}
+        {error && (
+          <span
+            className="text-[12px]"
+            style={{ color: "var(--m-status-danger-fg)" }}
+            role="alert"
+          >
+            {error}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
