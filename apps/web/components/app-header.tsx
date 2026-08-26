@@ -8,8 +8,6 @@
 
 import { useTheme } from "@meridian/ui";
 import type { Theme } from "@meridian/ui";
-import { Button } from "@meridian/ui";
-import { useRouter } from "next/navigation";
 import { Button, Kbd } from "@meridian/ui";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
