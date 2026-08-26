@@ -218,7 +218,7 @@ pub struct MyWorkItem {
 }
 
 impl MyWorkItem {
-    fn from_row(row: core_db::tickets::MyWorkRow) -> Self {
+    pub(crate) fn from_row(row: core_db::tickets::MyWorkRow) -> Self {
         let t = row.ticket;
         MyWorkItem {
             id: t.id,
