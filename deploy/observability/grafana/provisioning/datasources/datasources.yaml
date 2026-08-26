@@ -1,0 +1,45 @@
+# Preprovisioned Grafana datasources for the Meridian observability profile.
+#
+# Purpose: zero-click wiring so `--profile observability up` yields working
+# trace/log/metric views: Tempo for traces (trace→logs link), Loki for
+# logs (derived-fields deep-link back to Tempo by trace id), and a
+# Prometheus datasource pointed at the collector's exposition port for
+# meridian.* metrics.
+apiVersion: 1
+
+datasources:
+  - name: Tempo
+    uid: meridian-tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    isDefault: false
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: meridian-loki
+        spanStartTimeShift: -5m
+        spanEndTimeShift: 5m
+        filterByTraceID: true
+
+  - name: Loki
+    uid: meridian-loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: false
+    jsonData:
+      derivedFields:
+        # "trace_id=<hex>" in any log line links straight to Tempo.
+        - name: TraceID
+          matcherRegex: 'trace_id=(\w+)'
+          datasourceUid: meridian-tempo
+          url: '$${__value.raw}'
+
+  - name: MeridianMetrics
+    uid: meridian-metrics
+    type: prometheus
+    access: proxy
+    url: http://otel-collector:18899
+    isDefault: true
+    jsonData:
+      httpMethod: POST

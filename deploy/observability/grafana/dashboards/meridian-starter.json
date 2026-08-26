@@ -1,0 +1,173 @@
+{
+  "uid": "meridian-starter",
+  "title": "Meridian Starter",
+  "description": "TASKLIST 2.18 baseline: charts every instrument from crates/core-otel/src/metrics.rs against the collector's Prometheus exposition. Metric selectors use __name__ regexes so OTLP→Prometheus unit-suffixing cannot break panels.",
+  "tags": ["meridian", "starter"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "HTTP request rate by route",
+      "description": "meridian.http.requests counter, summed per route template.",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "meridian-metrics" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (route) (rate({__name__=~\"meridian_http_requests.*\"}[5m]))",
+          "legendFormat": "{{route}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "HTTP error ratio (%)",
+      "description": "5xx share of all requests (SLO guard).",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "meridian-metrics" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 * sum(rate({__name__=~\"meridian_http_requests.*\", status=~\"5..\"}[5m])) / clamp_min(sum(rate({__name__=~\"meridian_http_requests.*\"}[5m])), 0.001)",
+          "legendFormat": "error %"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "HTTP latency p50/p95/p99",
+      "description": "meridian.http.request.duration histogram per route.",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "meridian-metrics" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate({__name__=~\"meridian_http_request_duration.*bucket\"}[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate({__name__=~\"meridian_http_request_duration.*bucket\"}[5m])))",
+          "legendFormat": "p95"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate({__name__=~\"meridian_http_request_duration.*bucket\"}[5m])))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "WebSocket sessions",
+      "description": "meridian.ws.sessions up-down counter (current open sessions).",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "meridian-metrics" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max({__name__=~\"meridian_ws_sessions.*\"})",
+          "legendFormat": "sessions"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Outbox lag (ms)",
+      "description": "Age of oldest unpublished outbox row at last relay pass.",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "meridian-metrics" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max({__name__=~\"meridian_outbox_lag.*\"})",
+          "legendFormat": "lag ms"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Queue depth by state",
+      "description": "pending vs running vs dead jobs (alert: dead > 0 sustained).",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "meridian-metrics" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (state) ({__name__=~\"meridian_queue_depth.*\"})",
+          "legendFormat": "{{state}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Job settle rate by outcome",
+      "description": "meridian.queue.jobs counter split done/retried/dead.",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "meridian-metrics" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (outcome) (rate({__name__=~\"meridian_queue_jobs.*\"}[5m]))",
+          "legendFormat": "{{outcome}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Job claim→apply p95 by kind",
+      "description": "meridian.queue.claim_to_apply histogram per job kind.",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "meridian-metrics" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, kind) (rate({__name__=~\"meridian_queue_claim_to_apply.*bucket\"}[5m])))",
+          "legendFormat": "{{kind}} p95"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "SLA verdicts by trigger class",
+      "description": "risk / breach / escalation counters; breach is the SLA-breach metric.",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "meridian-metrics" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (trigger) (increase({__name__=~\"meridian_sla_verdicts.*\"}[1h]))",
+          "legendFormat": "{{trigger}} (1h)"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "SLA sweep duration p95",
+      "description": "meridian.sla.sweep.duration histogram.",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "meridian-metrics" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate({__name__=~\"meridian_sla_sweep.*bucket\"}[5m])))",
+          "legendFormat": "sweep p95"
+        }
+      ]
+    }
+  ]
+}
