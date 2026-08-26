@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE board_groups SET\n             name = COALESCE($3, name),\n             position = COALESCE($4, position)\n           WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "30e21ef98b37cce6ed52e9c9fa77b419dd327dacc70e825783729302e18f523e"
+}

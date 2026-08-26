@@ -59,6 +59,13 @@ pub mod types {
     /// Emitted when the org profile (name/ticket prefix) is edited from
     /// General settings or the first-run wizard.
     pub const ORG_UPDATED: &str = "org.updated";
+    /// Board organization + board-level RBAC (TASKLIST 2.11).
+    pub const BOARD_GROUP_CREATED: &str = "board.group_created";
+    pub const BOARD_GROUP_UPDATED: &str = "board.group_updated";
+    pub const BOARD_GROUP_REMOVED: &str = "board.group_removed";
+    pub const BOARD_MEMBERSHIP_UPDATED: &str = "board.membership_updated";
+    pub const BOARD_MEMBERSHIP_REMOVED: &str = "board.membership_removed";
+    pub const BOARD_FAVORITE_TOGGLED: &str = "board.favorite_toggled";
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -236,6 +243,63 @@ pub struct EmailMessageRecorded {
     pub ticket_id: Option<TicketId>,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub comment_id: Option<uuid::Uuid>,
+}
+
+/// A board group was created (TASKLIST 2.11).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct BoardGroupCreated {
+    pub group: crate::entities::BoardGroup,
+}
+
+/// A board group's name/position changed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct BoardGroupUpdated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub group_id: crate::ids::OrgId,
+    pub name: String,
+    pub position: i32,
+}
+
+/// A board group was deleted; member boards became ungrouped.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct BoardGroupRemoved {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub group_id: crate::ids::OrgId,
+}
+
+/// A user's board membership was created or re-roled.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct BoardMembershipUpdated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub board_id: crate::ids::BoardId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub user_id: crate::ids::UserId,
+    pub role: crate::policy::BoardRole,
+}
+
+/// A user's board membership was removed (back to org-governed access).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct BoardMembershipRemoved {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub board_id: crate::ids::BoardId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub user_id: crate::ids::UserId,
+}
+
+/// A user toggled a board favorite for the nav tree.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct BoardFavoriteToggled {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub user_id: crate::ids::UserId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub board_id: crate::ids::BoardId,
+    pub favorite: bool,
 }
 
 /// Extracts @mentions from a note body (`@alice`, `@alice@org` → user ids

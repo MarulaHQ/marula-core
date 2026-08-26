@@ -210,6 +210,90 @@ where
         .collect::<Result<_, _>>()?)
 }
 
+/// One cross-board my-work row (TASKLIST 2.11): the ticket plus the
+/// annotations the Today queue renders — client name (squared tag), source
+/// board/status labels, and the effective due instant.
+#[derive(Debug, Clone)]
+pub struct MyWorkRow {
+    pub ticket: Ticket,
+    pub client_name: Option<String>,
+    pub board_name: String,
+    pub status_name: String,
+    /// SLA resolution deadline when a state row exists; `None` means the
+    /// seam is open for that ticket (no policy/state yet) and only
+    /// `ticket.due_at` carries a deadline.
+    pub sla_resolution_due: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+fn my_work_row_from(row: sqlx::postgres::PgRow) -> DbResult<MyWorkRow> {
+    use sqlx::Row;
+    let client_name: Option<String> = row.try_get("client_name").ok();
+    let board_name: String = row.try_get("board_name").map_err(|_| {
+        DbError::Sql(sqlx::Error::ColumnDecode {
+            index: "board_name".into(),
+            source: "missing board name join".into(),
+        })
+    })?;
+    let status_name: String = row.try_get("status_name").map_err(|_| {
+        DbError::Sql(sqlx::Error::ColumnDecode {
+            index: "status_name".into(),
+            source: "missing status name join".into(),
+        })
+    })?;
+    let sla_resolution_due: Option<chrono::DateTime<chrono::Utc>> =
+        row.try_get("sla_resolution_due").ok();
+    Ok(MyWorkRow {
+        ticket: row_to_ticket(row)?,
+        client_name,
+        board_name,
+        status_name,
+        sla_resolution_due,
+    })
+}
+
+/// Cross-board my-work queue: assigned to me, not closed, across ALL org
+/// boards. Ordering contract: priority rank first, then the earliest of
+/// SLA `resolution_due` / manual `due_at` (NULLS LAST), then creation.
+/// The SLA join is a LEFT JOIN — tickets without state rows still appear,
+/// ordered by priority + due_at alone (the seam stays honest if the
+/// sla-engine lane reshapes `ticket_sla_state`).
+pub async fn my_work_annotated<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    user_id: Uuid,
+    limit: i64,
+) -> DbResult<Vec<MyWorkRow>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let cols = TICKET_COLS.replace(", ", ", t.");
+    let sql = format!(
+        r#"SELECT t.{cols},
+                  c.name  AS client_name,
+                  b.name  AS board_name,
+                  st.name AS status_name,
+                  s.resolution_due AS sla_resolution_due
+           FROM tickets t
+           LEFT JOIN clients c ON c.id = t.client_id
+           LEFT JOIN boards b ON b.id = t.board_id
+           LEFT JOIN board_statuses st ON st.id = t.status_id
+           LEFT JOIN ticket_sla_state s ON s.ticket_id = t.id
+           WHERE t.org_id = $1 AND t.assignee_id = $2 AND t.category <> 'closed'
+           ORDER BY
+             CASE t.priority WHEN 'p1' THEN 0 WHEN 'p2' THEN 1 WHEN 'p3' THEN 2 ELSE 3 END,
+             COALESCE(s.resolution_due, t.due_at) NULLS LAST,
+             t.created_at
+           LIMIT $3"#
+    );
+    let rows = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(user_id)
+        .bind(limit)
+        .fetch_all(executor)
+        .await?;
+    rows.into_iter().map(my_work_row_from).collect()
+}
+
 pub async fn update_status<'e, E>(
     executor: E,
     org_id: Uuid,

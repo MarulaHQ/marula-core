@@ -477,29 +477,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/automation-rules": {
+    "/api/board-groups": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** GET /api/automation-rules */
-        get: operations["automation_rules_list"];
+        /**
+         * GET /api/board-groups — the org's groups in nav order (any member may
+         *     read; rendering input for the tree).
+         */
+        get: operations["board_groups_list"];
         put?: never;
         /**
-         * POST /api/automation-rules — documents are validated through core-domain
-         *     BEFORE storage, so stored rules are always well-formed (malformed rules
-         *     can only arrive out-of-band and are skipped at evaluation time).
+         * POST /api/board-groups — creates a nav group (ManageBoards gated);
+         *     emits `board.group_created`.
          */
-        post: operations["automation_rules_create"];
+        post: operations["board_groups_create"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/automation-rules/{id}": {
+    "/api/board-groups/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -509,12 +511,19 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** DELETE /api/automation-rules/{id} */
-        delete: operations["automation_rules_delete"];
+        /**
+         * DELETE /api/board-groups/{id} — removes a group; member boards become
+         *     ungrouped, never deleted. ManageBoards OR the group's owner; emits
+         *     `board.group_removed`.
+         */
+        delete: operations["board_groups_delete"];
         options?: never;
         head?: never;
-        /** PATCH /api/automation-rules/{id} */
-        patch: operations["automation_rules_update"];
+        /**
+         * PATCH /api/board-groups/{id} — renames/reorders a group. ManageBoards
+         *     OR the group's owner may do this; emits `board.group_updated`.
+         */
+        patch: operations["board_groups_update"];
         trace?: never;
     };
     "/api/boards": {
@@ -544,8 +553,32 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** POST /api/boards/favorite — toggles a board favorite for the current user. */
+        /**
+         * POST /api/boards/favorite — toggles a board favorite for the current
+         *     user (user-scoped; any authenticated member may star boards they can
+         *     see). Emits `board.favorite_toggled` in-tx.
+         */
         post: operations["boards_toggle_favorite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/boards/nav": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/boards/nav — every org board annotated with the current
+         *     user's favorite mark, board role, and group assignment.
+         */
+        get: operations["boards_nav"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -574,6 +607,68 @@ export interface paths {
          *     close-time enforcement is off by construction regardless of the toggle.
          */
         delete: operations["boards_delete_checklist_template"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/boards/{id}/group": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * PUT /api/boards/{id}/group — assigns/unassigns the board's nav group.
+         *     Board-admin gated (ConfigureBoard); emits `board.group_updated`.
+         */
+        put: operations["boards_assign_group"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/boards/{id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/boards/{id}/members — the roster (ConfigureBoard gated). */
+        get: operations["boards_list_members"];
+        /**
+         * PUT /api/boards/{id}/members — adds or re-roles one membership.
+         *     ManageMembers gated (board admin); emits `board.membership_updated`.
+         */
+        put: operations["boards_upsert_member"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/boards/{id}/members/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/boards/{id}/members/{user_id} — removes one membership;
+         *     the user falls back to org-governed access. Emits
+         *     `board.membership_removed`.
+         */
+        delete: operations["boards_remove_member"];
         options?: never;
         head?: never;
         patch?: never;
@@ -736,49 +831,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/internal/effects": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * POST /api/internal/effects — applies automation-rule effects to one
-         *     ticket through the SAME write paths users go through (ticket patch,
-         *     comment insert, notification fan-out), emitting every corresponding
-         *     domain event tagged `via_automation` so evaluators never loop.
-         */
-        post: operations["internal_effects"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/internal/sla/verdict": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * POST /api/internal/sla/verdict — fire-once application of one ladder
-         *     step: ledger insert (PK-guarded), breach flip, notification fan-out with
-         *     preference gates, events + audit, all in ONE transaction.
-         */
-        post: operations["internal_sla_verdict"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/me": {
         parameters: {
             query?: never;
@@ -916,169 +968,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/org": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/org — profile fields shown on General settings / the wizard. */
-        get: operations["org_profile_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /**
-         * PATCH /api/org — updates name and/or ticket prefix (Admin:edit).
-         *     Idempotent; emits `org.updated` + audit row.
-         */
-        patch: operations["org_profile_patch"];
-        trace?: never;
-    };
-    "/api/settings/org": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * GET /api/settings/org — effective org settings (defaults overlaid by
-         *     stored overrides). Visible to every member.
-         */
-        get: operations["settings_org_get"];
-        /**
-         * PUT /api/settings/org — upserts one org-scope override after registry
-         *     validation (Admin:edit required). Emits `setting.updated` + audit row.
-         */
-        put: operations["settings_org_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/settings/registry": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * GET /api/settings/registry — every declared setting with kind, default,
-         *     scope and validation shape. Any authenticated member may read it.
-         */
-        get: operations["settings_registry"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/settings/user": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/settings/user — the caller's effective personal settings. */
-        get: operations["settings_user_get"];
-        /**
-         * PUT /api/settings/user — upserts one of the CALLER's own user-scope
-         *     overrides. No role requirement: everyone may tune their own preferences.
-         */
-        put: operations["settings_user_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/sla/calendars": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/sla/calendars */
-        get: operations["sla_calendars_list"];
-        put?: never;
-        /** POST /api/sla/calendars */
-        post: operations["sla_calendars_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/sla/calendars/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * DELETE /api/sla/calendars/{id} — detaches policies (FK SET NULL); their
-         *     embedded calendars keep governing.
-         */
-        delete: operations["sla_calendars_delete"];
-        options?: never;
-        head?: never;
-        /**
-         * PATCH /api/sla/calendars/{id} — partial update; validates the merged
-         *     result by re-reading and running domain validation.
-         */
-        patch: operations["sla_calendars_update"];
-        trace?: never;
-    };
-    "/api/sla/policies": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/sla/policies */
-        get: operations["sla_policies_list"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/sla/policies/{id}/ladder": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/sla/policies/{id}/ladder — enabled + disabled steps, ordered. */
-        get: operations["sla_ladder_get"];
-        /** PUT /api/sla/policies/{id}/ladder — replaces the whole ladder in one tx. */
-        put: operations["sla_ladder_replace"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/sso/exchange": {
         parameters: {
             query?: never;
@@ -1129,7 +1018,8 @@ export interface paths {
         };
         /**
          * GET /api/tickets/my-work — everything assigned to me, not closed,
-         *     across all boards (the unified cross-board view from §1).
+         *     across all boards, priority-then-SLA-due ordered (the unified
+         *     cross-board view from §1; TASKLIST 2.11 adds client/board annotations).
          */
         get: operations["tickets_my_work"];
         put?: never;
@@ -1213,8 +1103,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * GET /api/tickets/{id}/comments — internal notes require ticket view;
-         *     the portal surface filters kinds separately (portal v1).
+         * GET /api/tickets/{id}/comments — optional kind filter; internal notes
+         *     require ticket view. The portal surface must consume the dedicated
+         *     client-visible read (`core-db::tickets::list_client_visible_comments`),
+         *     never this staff endpoint.
          */
         get: operations["tickets_list_comments"];
         put?: never;
@@ -1223,30 +1115,6 @@ export interface paths {
          *     fan out into the notification center.
          */
         post: operations["tickets_add_comment"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/tickets/{id}/sla": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * GET /api/tickets/{id}/comments — optional kind filter; internal notes
-         *     require ticket view. The portal surface must consume the dedicated
-         *     client-visible read (`core-db::tickets::list_client_visible_comments`),
-         *     never this staff endpoint.
-         *     GET /api/tickets/{id}/sla — clock state plus a live business-time
-         *     remaining estimate for the resolution budget (drives the UI badge).
-         */
-        get: operations["tickets_sla_status"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1304,64 +1172,6 @@ export interface paths {
         put?: never;
         /** POST /api/time-entries — manual entry (no timer). */
         post: operations["timers_create_entry"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/time-gaps": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * GET /api/time-gaps?user_id= — manager-scoped report for one member.
-         *     Owner/admin only; everyone else uses `/api/time-gaps/me`.
-         */
-        get: operations["time_gaps_user"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/time-gaps/me": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * GET /api/time-gaps/me — the caller's day-level gap report (defaults to
-         *     yesterday in the caller's timezone).
-         */
-        get: operations["time_gaps_me"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/time-settings": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/time-settings — org time-discipline knobs (admin). */
-        get: operations["time_settings_get"];
-        /** PUT /api/time-settings — update the org's time-discipline knobs (admin). */
-        put: operations["time_settings_put"];
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1516,6 +1326,13 @@ export interface components {
             body: string;
             kind: components["schemas"]["NoteKind"];
         };
+        AssignGroupRequest: {
+            /**
+             * Format: uuid
+             * @description `Some(group)` moves the board into that group; `None` ungroups it.
+             */
+            group_id?: string | null;
+        };
         AuditEvent: {
             /** @description Dot-path of the action, e.g. "auth.login", "ticket.status_change". */
             action: string;
@@ -1538,47 +1355,6 @@ export interface components {
             /** @description Opaque cursor for the next page; absent when exhausted. */
             next_cursor?: string | null;
         };
-        /**
-         * @description Effects a rule may request. Every variant maps onto an existing core-api
-         *     write path — automations never gain private write routes.
-         */
-        AutomationAction: {
-            /** @enum {string} */
-            type: "assign_user";
-            /** Format: uuid */
-            user_id: string;
-        } | {
-            priority: components["schemas"]["Priority"];
-            /** @enum {string} */
-            type: "set_priority";
-        } | {
-            body: string;
-            /** @enum {string} */
-            type: "add_internal_comment";
-        } | {
-            kind: components["schemas"]["NotificationKind"];
-            title: string;
-            /** @enum {string} */
-            type: "notify_users";
-            user_ids: string[];
-        };
-        /** @description One predicate; a rule matches only when EVERY condition holds. */
-        AutomationCondition: {
-            priority: components["schemas"]["Priority"];
-            /** @enum {string} */
-            type: "priority_is";
-        } | {
-            category: components["schemas"]["TicketStatusCategory"];
-            /** @enum {string} */
-            type: "category_is";
-        } | {
-            needle: string;
-            /** @enum {string} */
-            type: "title_contains";
-        } | {
-            /** @enum {string} */
-            type: "unassigned";
-        };
         Board: {
             /**
              * Format: date-time
@@ -1599,6 +1375,71 @@ export interface components {
              */
             require_checklist_close: boolean;
         };
+        /**
+         * @description A named, ordered nav grouping of boards within one org (TASKLIST 2.11).
+         *     Groups are organization-wide; `owner_id` records who controls the group.
+         */
+        BoardGroup: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            owner_id: string;
+            /** Format: int32 */
+            position: number;
+        };
+        /**
+         * @description An explicit per-user membership on one board carrying a board-level
+         *     role tier (§6 board-level RBAC). Rows NARROW org grants; absence of a
+         *     row leaves org-level governance untouched.
+         */
+        BoardMember: {
+            /** Format: uuid */
+            board_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            org_id: string;
+            role: components["schemas"]["BoardRole"];
+            /** Format: uuid */
+            user_id: string;
+        };
+        BoardMemberView: {
+            /** Format: date-time */
+            created_at: string;
+            display_name: string;
+            role: components["schemas"]["BoardRole"];
+            /** Format: uuid */
+            user_id: string;
+        };
+        /** @description One left-nav entry: the board plus the CALLER's annotations. */
+        BoardNavEntry: {
+            description?: string | null;
+            /** @description Whether THIS user favorited the board (star). */
+            favorite: boolean;
+            /**
+             * Format: uuid
+             * @description Group assignment for the collapsible tree (`None` = ungrouped).
+             */
+            group_id?: string | null;
+            group_name?: string | null;
+            /** Format: uuid */
+            id: string;
+            is_default: boolean;
+            my_role?: null | components["schemas"]["BoardRole"];
+            name: string;
+        };
+        /**
+         * @description Per-board role tier stored on `board_members` rows (migration 0019,
+         *     TASKLIST 2.11). Board roles sit BESIDE the org matrix and can only
+         *     narrow it — see `authorize_board_scoped`.
+         * @enum {string}
+         */
+        BoardRole: "viewer" | "member" | "admin";
         /**
          * @description A per-board status. `category` is the binding contract — labels are
          *     presentation, category is behavior.
@@ -1629,26 +1470,6 @@ export interface components {
              *     the semantic-category default governs (any→any except closed→open).
              */
             mode: string;
-        };
-        /**
-         * @description Weekly business hours in a named IANA timezone, plus holiday dates.
-         *     `None` window = non-business day.
-         */
-        BusinessCalendar: {
-            /** @description Local dates (YYYY-MM-DD) with no business hours. */
-            holidays: string[];
-            /**
-             * @description Downtime stretches subtracted from every measurement. Absent in
-             *     legacy documents (`default`) so stored policies keep deserializing.
-             */
-            maintenance?: components["schemas"]["MaintenanceWindow"][];
-            name: string;
-            timezone: string;
-            /** @description [Mon..Sun] open/close in local wall-clock "HH:MM". */
-            windows: ([
-                string,
-                string
-            ] | null)[];
         };
         ChangeStatusRequest: {
             /** Format: uuid */
@@ -1794,11 +1615,6 @@ export interface components {
             is_default: boolean;
             name: string;
         };
-        CreateCalendarRequest: {
-            /** @description Timezone/windows/holidays/maintenance document. */
-            calendar: components["schemas"]["BusinessCalendar"];
-            name: string;
-        };
         CreateClientRequest: {
             name: string;
             notes?: string | null;
@@ -1809,16 +1625,10 @@ export interface components {
             phone?: string | null;
             title?: string | null;
         };
-        CreateRuleRequest: {
-            /** @description Action documents (see AutomationAction schema). */
-            actions: unknown;
-            /** Format: uuid */
-            board_id?: string | null;
-            /** @description Condition documents (see AutomationCondition schema). */
-            conditions: unknown;
+        CreateGroupRequest: {
             name: string;
-            /** @description Domain event type, e.g. "ticket.created". */
-            trigger_event: string;
+            /** Format: int32 */
+            position?: number | null;
         };
         CreateSiteRequest: {
             address?: string | null;
@@ -1872,25 +1682,6 @@ export interface components {
             ticket_id: string;
             work_type?: string | null;
         };
-        /**
-         * @description Wire shape of one declaration. Kinds/options are flattened so generated
-         *     clients can render editors directly from this payload.
-         */
-        DeclarationView: {
-            default: components["schemas"]["SettingValue"];
-            description: string;
-            key: string;
-            kind: components["schemas"]["SettingKind"];
-            label: string;
-            /** @description Closed option set for enumerations; empty otherwise. */
-            options: string[];
-            /** @description "org" | "user" */
-            scope: string;
-            /** @description Settings-hub section this declaration renders under. */
-            section: string;
-            /** @description "ui" renders an editable row; "hidden" is state readable via values. */
-            visibility: string;
-        };
         DeviceAsset: {
             /** Format: uuid */
             client_id: string;
@@ -1910,96 +1701,13 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
-        EffectsRequest: {
-            /** @description AutomationAction documents, parsed and validated via core-domain. */
-            actions: unknown;
-            /** Format: uuid */
-            org_id: string;
-            /** Format: uuid */
-            rule_id?: string | null;
-            /** Format: uuid */
-            ticket_id: string;
-        };
-        /** @description One escalation ladder step as stored (`sla_escalation_steps`). */
-        EscalationStep: {
-            /** Format: int64 */
-            at_pct: number;
-            enabled: boolean;
-            /** Format: uuid */
-            id: string;
-            /** @description Extra recipients beyond the ticket assignee. */
-            notify_user_ids: string[];
-            /** Format: uuid */
-            org_id: string;
-            /** Format: uuid */
-            policy_id: string;
-            /** Format: int32 */
-            step_index: number;
-            /** @description 'risk' | 'breach' | 'escalate' — bound to existing notification kinds. */
-            trigger_kind: string;
-        };
         FavoriteRequest: {
             /** Format: uuid */
             board_id: string;
             favorite: boolean;
         };
-        GapDayView: {
-            activity: boolean;
-            /** @description Local calendar day (YYYY-MM-DD). */
-            day: string;
-            /** Format: int64 */
-            expected_minutes: number;
-            has_gap: boolean;
-            /** Format: int64 */
-            logged_minutes: number;
-            /**
-             * Format: date-time
-             * @description When the EOD run nudged for this day, if it did.
-             */
-            nudge_sent_at?: string | null;
-            /** Format: int64 */
-            unaccounted_minutes: number;
-        };
-        GapReportQuery: {
-            /**
-             * Format: date
-             * @description Inclusive local-day start (YYYY-MM-DD). Defaults to yesterday.
-             */
-            from?: string | null;
-            /**
-             * Format: date
-             * @description Inclusive local-day end (YYYY-MM-DD). Defaults to `from`.
-             */
-            to?: string | null;
-            /**
-             * Format: uuid
-             * @description Manager report only: whose days. Requires owner/admin.
-             */
-            user_id?: string | null;
-        };
-        GapReportResponse: {
-            days: components["schemas"]["GapDayView"][];
-            /** Format: int64 */
-            expected_minutes: number;
-            timezone: string;
-            /** Format: uuid */
-            user_id: string;
-        };
         HealthResponse: {
             status: string;
-        };
-        LadderStepSpec: {
-            /**
-             * Format: int64
-             * @description Fires when consumed budget reaches this percent (1..=500).
-             */
-            at_pct: number;
-            enabled?: boolean;
-            notify_user_ids: string[];
-            /** Format: int32 */
-            step_index: number;
-            /** @description 'risk' | 'breach' | 'escalate' (notification-center kinds). */
-            trigger_kind: string;
         };
         LinkBeginResponse: {
             authorize_url: string;
@@ -2029,17 +1737,6 @@ export interface components {
             mfa_required: boolean;
             mfa_token: string;
         };
-        /**
-         * @description Planned downtime: an absolute UTC interval during which SLA clocks do
-         *     not consume business-time budget (vendor maintenance, change freezes).
-         */
-        MaintenanceWindow: {
-            /** Format: date-time */
-            ends_at: string;
-            name: string;
-            /** Format: date-time */
-            starts_at: string;
-        };
         MarkReadBulkRequest: {
             ids: string[];
         };
@@ -2068,6 +1765,40 @@ export interface components {
             code: string;
             /** @description The `mfa_token` from POST /api/auth/login when mfa_required was set. */
             mfa_token: string;
+        };
+        /**
+         * @description One cross-board my-work queue row (TASKLIST 2.11): the ticket plus the
+         *     annotations the Today screen renders per the mockup.
+         */
+        MyWorkItem: {
+            /**
+             * Format: uuid
+             * @description The source board of this cross-board row.
+             */
+            board_id: string;
+            board_name: string;
+            category: components["schemas"]["TicketStatusCategory"];
+            /** @description Client short label for the squared tag (`None` = internal ticket). */
+            client_name?: string | null;
+            /**
+             * Format: date-time
+             * @description Manual deadline set on the ticket itself.
+             */
+            due_at?: string | null;
+            /** Format: uuid */
+            id: string;
+            number: string;
+            priority: components["schemas"]["Priority"];
+            /**
+             * Format: date-time
+             * @description SLA resolution deadline when state exists; the UI prefers this over
+             *     `due_at` for the right-aligned countdown column.
+             */
+            sla_resolution_due?: string | null;
+            status_name: string;
+            title: string;
+            /** Format: date-time */
+            updated_at: string;
         };
         /**
          * @description Taxonomy of structured ticket notes (§1).
@@ -2111,17 +1842,6 @@ export interface components {
             /** @description URL path segment used by login/link routes. */
             name: string;
         };
-        OrgProfileResponse: {
-            /** Format: uuid */
-            id: string;
-            name: string;
-            slug: string;
-            ticket_prefix: string;
-        };
-        PatchOrgRequest: {
-            name?: string | null;
-            ticket_prefix?: string | null;
-        };
         PatchTicketRequest: {
             /**
              * Format: uuid
@@ -2148,18 +1868,6 @@ export interface components {
              * @description Omit to act on the caller's active timer.
              */
             session_id?: string | null;
-        };
-        PolicyView: {
-            /** Format: uuid */
-            calendar_id?: string | null;
-            /** Format: uuid */
-            id: string;
-            is_default: boolean;
-            name: string;
-            /** @description Targets keyed by priority ("p1".."p4"), business minutes. */
-            targets: unknown;
-            /** @description True while the policy governs itself via its embedded calendar. */
-            uses_embedded_calendar: boolean;
         };
         /**
          * @description One resolved preference row: which chain link supplied it (`user`,
@@ -2221,12 +1929,6 @@ export interface components {
             /** @default UTC */
             timezone: string | null;
         };
-        RegistryResponse: {
-            settings: components["schemas"]["DeclarationView"][];
-        };
-        ReplaceLadderRequest: {
-            steps: components["schemas"]["LadderStepSpec"][];
-        };
         /**
          * @description Why a timer segment ended. Preserved forever — the pause reason is
          *     billable-work metadata, not a transient UI state.
@@ -2255,40 +1957,6 @@ export interface components {
              */
             edges: components["schemas"]["TransitionEdge"][];
         };
-        /**
-         * @description The value shapes the registry understands. A stored value must satisfy
-         *     its declaration's kind or the write is rejected (validation is applied
-         *     before persistence, never after).
-         */
-        SettingKind: {
-            /** @enum {string} */
-            type: "boolean";
-        } | {
-            /** @enum {string} */
-            type: "integer";
-            /** @description Inclusive integer range. */
-            value: {
-                /** Format: int64 */
-                max: number;
-                /** Format: int64 */
-                min: number;
-            };
-        } | {
-            /** @enum {string} */
-            type: "text";
-            /** @description Free text with a hard length cap. */
-            value: {
-                max_len: number;
-            };
-        } | {
-            /** @enum {string} */
-            type: "enumeration";
-        };
-        /**
-         * @description A concrete setting value. Only three payload types exist by design —
-         *     richer structures are entities, not settings.
-         */
-        SettingValue: boolean | number | string;
         Site: {
             address?: string | null;
             city?: string | null;
@@ -2312,45 +1980,6 @@ export interface components {
             postal_code?: string | null;
             region?: string | null;
             timezone?: string | null;
-        };
-        /**
-         * @description An org-level business-hours calendar row (`sla_calendars`). The math
-         *     type is [`BusinessCalendar`]; this carries its identity.
-         */
-        SlaCalendar: {
-            /**
-             * @description Flattened calendar body (timezone/windows/holidays/maintenance);
-             *     `calendar.name` mirrors `name` on write.
-             */
-            calendar: Record<string, never>;
-            /** Format: uuid */
-            id: string;
-            name: string;
-            /** Format: uuid */
-            org_id: string;
-        };
-        SlaVerdictRequest: {
-            body?: string | null;
-            /**
-             * @description Extra recipients from the ladder step; the assignee is added
-             *     server-side.
-             */
-            notify_user_ids: string[];
-            /** Format: uuid */
-            org_id: string;
-            /**
-             * Format: uuid
-             * @description Ladder step that fired (ledger key).
-             */
-            step_id: string;
-            /** @description 'first_response' | 'resolution' */
-            target: string;
-            /** Format: uuid */
-            ticket_id: string;
-            /** @description Human-facing headline, e.g. "[MER-12] SLA risk on resolution". */
-            title: string;
-            /** @description 'risk' | 'breach' | 'escalate' */
-            trigger: string;
         };
         SsoExchangeRequest: {
             /** Format: uuid */
@@ -2486,18 +2115,6 @@ export interface components {
             /** Format: uuid */
             ticket_id: string;
         };
-        /** @description Live SLA clock readout for one ticket (badge + countdown surfaces). */
-        TicketSlaStatus: {
-            breached: boolean;
-            /**
-             * Format: int64
-             * @description Business minutes left on the resolution budget (negative = over).
-             */
-            minutes_remaining?: number | null;
-            /** @description True while a Waiting-category pause is open. */
-            paused: boolean;
-            state: components["schemas"]["TicketSlaState"];
-        };
         /**
          * @description The four semantic categories every ticket status maps to (§5).
          *     Customization (labels, ordering, per-board sets) can never add, remove, or
@@ -2538,19 +2155,6 @@ export interface components {
             /** Format: uuid */
             user_id: string;
             work_type?: string | null;
-        };
-        TimeSettingsResponse: {
-            /**
-             * Format: int32
-             * @description Local hour (member timezones) the EOD audit fires at.
-             */
-            eod_nudge_hour: number;
-            eod_nudges_enabled: boolean;
-            /**
-             * Format: int32
-             * @description Active days logging under this many minutes are gap days.
-             */
-            time_gap_min_minutes: number;
         };
         /** @description A contiguous running interval within a timer session. */
         TimerSegment: {
@@ -2625,12 +2229,10 @@ export interface components {
             /** Format: int64 */
             count: number;
         };
-        UpdateCalendarRequest: {
-            holidays?: unknown;
-            maintenance?: unknown;
+        UpdateGroupRequest: {
             name?: string | null;
-            timezone?: string | null;
-            windows?: unknown;
+            /** Format: int32 */
+            position?: number | null;
         };
         UpdatePreferenceRequest: {
             email: boolean;
@@ -2642,23 +2244,6 @@ export interface components {
             /** @description IANA timezone for the window; defaults to UTC. */
             timezone?: string | null;
         };
-        UpdateRuleRequest: {
-            actions?: unknown;
-            /**
-             * Format: uuid
-             * @description `Some(Some(id))` scopes; `Some(None)` clears to all boards.
-             */
-            board_id?: string | null;
-            conditions?: unknown;
-            enabled?: boolean | null;
-            name?: string | null;
-            trigger_event?: string | null;
-        };
-        UpdateSettingRequest: {
-            key: string;
-            /** @description Must satisfy the declaration's kind or the request is rejected 422. */
-            value: unknown;
-        };
         UpdateStatusRequest: {
             category?: null | components["schemas"]["TicketStatusCategory"];
             is_entry?: boolean | null;
@@ -2666,12 +2251,10 @@ export interface components {
             /** Format: int32 */
             sort_order?: number | null;
         };
-        UpdateTimeSettingsRequest: {
-            /** Format: int32 */
-            eod_nudge_hour: number;
-            eod_nudges_enabled: boolean;
-            /** Format: int32 */
-            time_gap_min_minutes: number;
+        UpsertMemberRequest: {
+            role: components["schemas"]["BoardRole"];
+            /** Format: uuid */
+            user_id: string;
         };
         UpsertProviderRequest: {
             client_id: string;
@@ -2683,20 +2266,6 @@ export interface components {
             enabled?: boolean;
             issuer: string;
             jit_provisioning?: boolean;
-        };
-        /** @description One effective value: registry default overlaid by any stored override. */
-        ValueView: {
-            key: string;
-            /** @description JSON payload typed by the declaration's kind. */
-            value: unknown;
-        };
-        VerdictResponse: {
-            /**
-             * @description False when the ledger had already recorded this fire (idempotent
-             *     replay after a worker retry) — nothing was written or notified.
-             */
-            applied: boolean;
-            reason?: string | null;
         };
         WebauthnBeginResponse: {
             /** @description Opaque ceremony binding — pass back to finish. */
@@ -3371,7 +2940,7 @@ export interface operations {
             };
         };
     };
-    automation_rules_list: {
+    board_groups_list: {
         parameters: {
             query?: never;
             header?: never;
@@ -3385,12 +2954,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>[];
+                    "application/json": components["schemas"]["BoardGroup"][];
                 };
             };
         };
     };
-    automation_rules_create: {
+    board_groups_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -3399,7 +2968,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateRuleRequest"];
+                "application/json": components["schemas"]["CreateGroupRequest"];
             };
         };
         responses: {
@@ -3408,12 +2977,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["BoardGroup"];
                 };
             };
         };
     };
-    automation_rules_delete: {
+    board_groups_delete: {
         parameters: {
             query?: never;
             header?: never;
@@ -3424,17 +2993,15 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            200: {
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": Record<string, never>;
-                };
+                content?: never;
             };
         };
     };
-    automation_rules_update: {
+    board_groups_update: {
         parameters: {
             query?: never;
             header?: never;
@@ -3445,7 +3012,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UpdateRuleRequest"];
+                "application/json": components["schemas"]["UpdateGroupRequest"];
             };
         };
         responses: {
@@ -3454,7 +3021,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["BoardGroup"];
                 };
             };
         };
@@ -3522,6 +3089,25 @@ export interface operations {
             };
         };
     };
+    boards_nav: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardNavEntry"][];
+                };
+            };
+        };
+    };
     boards_get_checklist_template: {
         parameters: {
             query?: never;
@@ -3574,6 +3160,95 @@ export interface operations {
             header?: never;
             path: {
                 id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    boards_assign_group: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssignGroupRequest"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    boards_list_members: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardMemberView"][];
+                };
+            };
+        };
+    };
+    boards_upsert_member: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertMemberRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardMemberView"];
+                };
+            };
+        };
+    };
+    boards_remove_member: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                user_id: string;
             };
             cookie?: never;
         };
@@ -3926,52 +3601,6 @@ export interface operations {
             };
         };
     };
-    internal_effects: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["EffectsRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": Record<string, never>;
-                };
-            };
-        };
-    };
-    internal_sla_verdict: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SlaVerdictRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["VerdictResponse"];
-                };
-            };
-        };
-    };
     handlers_me: {
         parameters: {
             query?: never;
@@ -4151,330 +3780,6 @@ export interface operations {
             };
         };
     };
-    org_profile_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OrgProfileResponse"];
-                };
-            };
-        };
-    };
-    org_profile_patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PatchOrgRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OrgProfileResponse"];
-                };
-            };
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    settings_org_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ValueView"][];
-                };
-            };
-        };
-    };
-    settings_org_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateSettingRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ValueView"];
-                };
-            };
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description unknown key or invalid value */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    settings_registry: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RegistryResponse"];
-                };
-            };
-        };
-    };
-    settings_user_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ValueView"][];
-                };
-            };
-        };
-    };
-    settings_user_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateSettingRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ValueView"];
-                };
-            };
-            /** @description unknown key or invalid value */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    sla_calendars_list: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SlaCalendar"][];
-                };
-            };
-        };
-    };
-    sla_calendars_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateCalendarRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SlaCalendar"];
-                };
-            };
-        };
-    };
-    sla_calendars_delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HealthResponse"];
-                };
-            };
-        };
-    };
-    sla_calendars_update: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateCalendarRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SlaCalendar"];
-                };
-            };
-        };
-    };
-    sla_policies_list: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PolicyView"][];
-                };
-            };
-        };
-    };
-    sla_ladder_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EscalationStep"][];
-                };
-            };
-        };
-    };
-    sla_ladder_replace: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ReplaceLadderRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EscalationStep"][];
-                };
-            };
-        };
-    };
     sso_exchange: {
         parameters: {
             query?: never;
@@ -4568,7 +3873,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Ticket"][];
+                    "application/json": components["schemas"]["MyWorkItem"][];
                 };
             };
         };
@@ -4743,27 +4048,6 @@ export interface operations {
             };
         };
     };
-    tickets_sla_status: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TicketSlaStatus"];
-                };
-            };
-        };
-    };
     tickets_change_status: {
         parameters: {
             query?: never;
@@ -4867,100 +4151,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TimeEntry"];
-                };
-            };
-        };
-    };
-    time_gaps_user: {
-        parameters: {
-            query?: {
-                /** @description Inclusive local-day start (YYYY-MM-DD). Defaults to yesterday. */
-                from?: string | null;
-                /** @description Inclusive local-day end (YYYY-MM-DD). Defaults to `from`. */
-                to?: string | null;
-                /** @description Manager report only: whose days. Requires owner/admin. */
-                user_id?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GapReportResponse"];
-                };
-            };
-        };
-    };
-    time_gaps_me: {
-        parameters: {
-            query?: {
-                /** @description Inclusive local-day start (YYYY-MM-DD). Defaults to yesterday. */
-                from?: string | null;
-                /** @description Inclusive local-day end (YYYY-MM-DD). Defaults to `from`. */
-                to?: string | null;
-                /** @description Manager report only: whose days. Requires owner/admin. */
-                user_id?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GapReportResponse"];
-                };
-            };
-        };
-    };
-    time_settings_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TimeSettingsResponse"];
-                };
-            };
-        };
-    };
-    time_settings_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateTimeSettingsRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TimeSettingsResponse"];
                 };
             };
         };

@@ -3245,4 +3245,497 @@ async fn rls_hides_time_gap_audits_across_orgs_and_unscoped() {
         assert_eq!(rows.len(), 1);
         assert!(rows[0].has_gap);
     }
+// --- TASKLIST 2.11: board groups/favorites, per-board RBAC, my-work -------
+
+/// Board groups: CRUD, ordering, board assignment, ungroup-on-delete, and
+/// cross-org RLS isolation of both groups and the annotated nav list.
+#[tokio::test]
+async fn board_groups_crud_assignment_and_rls() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 80).await;
+    let foreign = seed_org(&db.app, 81).await;
+
+    let mut tx = org_tx(&db.app, s.org).await;
+    let owner_id = fixed_uuid(8500);
+    users::create_user(
+        &mut *tx,
+        owner_id,
+        s.org,
+        "groupowner@acme.test",
+        "G",
+        "argon",
+        "UTC",
+    )
+    .await
+    .expect("group owner user");
+    let g1 = core_db::boards::create_group(&mut tx, s.org, Uuid::now_v7(), owner_id, "Infra", 10)
+        .await
+        .expect("create group");
+    let g2 = core_db::boards::create_group(&mut tx, s.org, Uuid::now_v7(), owner_id, "Apps", 0)
+        .await
+        .expect("create group");
+
+    // Nav order is position-then-name.
+    let listed = core_db::boards::list_groups(&mut *tx, s.org)
+        .await
+        .expect("list");
+    assert_eq!(
+        listed.iter().map(|g| g.name.as_str()).collect::<Vec<_>>(),
+        vec!["Apps", "Infra"]
+    );
+
+    // Rename + reposition.
+    let renamed = core_db::boards::update_group(
+        &mut tx,
+        s.org,
+        g1.id,
+        core_db::boards::GroupPatch {
+            name: Some("Infrastructure"),
+            position: Some(-5),
+        },
+    )
+    .await
+    .expect("update");
+    assert_eq!(renamed.name, "Infrastructure");
+    assert_eq!(renamed.position, -5);
+
+    // Assign + annotated listing; then ungroup; then delete (boards survive).
+    core_db::boards::set_board_group(&mut tx, s.org, s.board, Some(g1.id))
+        .await
+        .expect("assign");
+    let entries = core_db::boards::list_boards_annotated(&mut *tx, s.org, Uuid::now_v7())
+        .await
+        .expect("annotated");
+    let mine = entries
+        .iter()
+        .find(|e| e.board.id == s.board)
+        .expect("board entry");
+    assert_eq!(mine.group_id, Some(g1.id));
+    assert!(!mine.favorite);
+
+    core_db::boards::set_board_group(&mut tx, s.org, s.board, None)
+        .await
+        .expect("ungroup");
+    core_db::boards::delete_group(&mut tx, s.org, g1.id)
+        .await
+        .expect("delete");
+    core_db::boards::get_board(&mut *tx, s.org, s.board)
+        .await
+        .expect("board survives group deletion");
+    assert!(matches!(
+        core_db::boards::delete_group(&mut tx, s.org, g1.id).await,
+        Err(DbError::NotFound)
+    ));
+
+    // Foreign org cannot see or mutate this org's groups (RLS).
+    let mut ftx = org_tx(&db.app, foreign.org).await;
+    assert!(core_db::boards::list_groups(&mut *ftx, foreign.org)
+        .await
+        .expect("foreign list")
+        .is_empty());
+    assert!(matches!(
+        core_db::boards::get_group(&mut *ftx, foreign.org, g2.id).await,
+        Err(DbError::NotFound)
+    ));
+    // Cross-org group assignment is refused by the explicit guard.
+    assert!(matches!(
+        core_db::boards::set_board_group(&mut ftx, foreign.org, foreign.board, Some(g2.id)).await,
+        Err(DbError::NotFound)
+    ));
+}
+
+/// Favorites stay unique per (user, board) and per-board membership roles
+/// round-trip through upsert/remove with RLS isolation.
+#[tokio::test]
+async fn board_favorites_and_member_roles_round_trip() {
+    use core_domain::policy::BoardRole;
+
+    let db = test_db().await;
+    let s = seed_org(&db.app, 82).await;
+    let foreign = seed_org(&db.app, 83).await;
+
+    let mut tx = org_tx(&db.app, s.org).await;
+    let viewer_id = fixed_uuid(8501);
+    users::create_user(
+        &mut *tx,
+        viewer_id,
+        s.org,
+        "viewer@acme.test",
+        "V",
+        "argon",
+        "UTC",
+    )
+    .await
+    .expect("viewer user");
+
+    // Favorite idempotency: re-add updates sort_order without a dup row.
+    core_db::boards::add_favorite(&mut *tx, viewer_id, s.board, 0)
+        .await
+        .expect("fav");
+    core_db::boards::add_favorite(&mut *tx, viewer_id, s.board, 3)
+        .await
+        .expect("fav again");
+    let favs = core_db::boards::favorites_for_user(&mut *tx, viewer_id)
+        .await
+        .expect("favs");
+    assert_eq!(favs.len(), 1);
+    assert_eq!(favs[0].sort_order, 3);
+    let annotated = core_db::boards::list_boards_annotated(&mut *tx, s.org, viewer_id)
+        .await
+        .expect("annotated for user");
+    assert!(
+        annotated
+            .iter()
+            .all(|e| e.favorite == (e.board.id == s.board)),
+        "favorite annotation follows the (user, board) pair"
+    );
+
+    // Role storage: upsert inserts then re-roles in place.
+    core_db::boards::upsert_member(&mut tx, s.org, s.board, viewer_id, BoardRole::Viewer)
+        .await
+        .expect("member insert");
+    assert_eq!(
+        core_db::boards::role_for_user(&mut *tx, s.org, s.board, viewer_id)
+            .await
+            .expect("role lookup"),
+        Some(BoardRole::Viewer)
+    );
+    core_db::boards::upsert_member(&mut tx, s.org, s.board, viewer_id, BoardRole::Admin)
+        .await
+        .expect("re-role");
+    assert_eq!(
+        core_db::boards::role_for_user(&mut *tx, s.org, s.board, viewer_id)
+            .await
+            .expect("role lookup"),
+        Some(BoardRole::Admin)
+    );
+    let roster = core_db::boards::list_members(&mut tx, s.org, s.board)
+        .await
+        .expect("roster");
+    assert_eq!(roster.len(), 1);
+    assert_eq!(roster[0].1, "V");
+
+    // Removal returns the user to org-governed access (no row).
+    core_db::boards::remove_member(&mut tx, s.org, s.board, viewer_id)
+        .await
+        .expect("remove");
+    assert_eq!(
+        core_db::boards::role_for_user(&mut *tx, s.org, s.board, viewer_id)
+            .await
+            .expect("post-remove lookup"),
+        None
+    );
+    assert!(matches!(
+        core_db::boards::remove_member(&mut tx, s.org, s.board, viewer_id).await,
+        Err(DbError::NotFound)
+    ));
+
+    // Foreign org sees none of this roster (RLS), including rows that do
+    // exist in the other org.
+    let mut ftx = org_tx(&db.app, foreign.org).await;
+    assert!(
+        core_db::boards::list_members(&mut ftx, foreign.org, foreign.board)
+            .await
+            .expect("foreign roster empty")
+            .is_empty()
+    );
+    assert_eq!(
+        core_db::boards::role_for_user(&mut *ftx, foreign.org, foreign.board, viewer_id)
+            .await
+            .expect("foreign role lookup"),
+        None,
+        "RLS hides other-org memberships"
+    );
+}
+
+/// The migration's defaults-first backfill (org Owner/Admin holders become
+/// board admins on existing boards) — statement-equivalent replay against a
+/// post-migration org, pinning exactly who becomes a member and who not.
+#[tokio::test]
+async fn board_admin_backfill_defaults_first() {
+    use core_domain::policy::BoardRole;
+
+    let db = test_db().await;
+    let s = seed_org(&db.app, 85).await;
+
+    let mut tx = org_tx(&db.app, s.org).await;
+    let owner_id = fixed_uuid(8502);
+    users::create_user(
+        &mut *tx,
+        owner_id,
+        s.org,
+        "owner@acme.test",
+        "O",
+        "argon",
+        "UTC",
+    )
+    .await
+    .expect("owner user");
+    users::assign_role(&mut *tx, owner_id, s.roles["owner"])
+        .await
+        .expect("owner role");
+    let admin_id = fixed_uuid(8503);
+    users::create_user(
+        &mut *tx,
+        admin_id,
+        s.org,
+        "admin@acme.test",
+        "A",
+        "argon",
+        "UTC",
+    )
+    .await
+    .expect("admin user");
+    users::assign_role(&mut *tx, admin_id, s.roles["admin"])
+        .await
+        .expect("admin role");
+    let tech_id = fixed_uuid(8504);
+    users::create_user(
+        &mut *tx,
+        tech_id,
+        s.org,
+        "tech@acme.test",
+        "T",
+        "argon",
+        "UTC",
+    )
+    .await
+    .expect("tech user");
+    users::assign_role(&mut *tx, tech_id, s.roles["technician"])
+        .await
+        .expect("tech role");
+
+    // Exact backfill statement from 0019_board_organize_rbac.sql: CI's
+    // migration run executes it against pre-existing boards; here we prove
+    // its selection semantics on freshly seeded equivalents.
+    sqlx::query(
+        r#"INSERT INTO board_members (org_id, board_id, user_id, role)
+           SELECT b.org_id, b.id, ur.user_id, 'admin'::board_role
+           FROM boards b
+           JOIN roles r ON r.org_id = b.org_id AND r.builtin IN ('owner', 'admin')
+           JOIN user_roles ur ON ur.role_id = r.id
+           ON CONFLICT (user_id, board_id) DO NOTHING"#,
+    )
+    .execute(&mut *tx)
+    .await
+    .expect("backfill replay");
+
+    assert_eq!(
+        core_db::boards::role_for_user(&mut *tx, s.org, s.board, owner_id)
+            .await
+            .expect("owner lookup"),
+        Some(BoardRole::Admin),
+        "org owners become board admins"
+    );
+    assert_eq!(
+        core_db::boards::role_for_user(&mut *tx, s.org, s.board, admin_id)
+            .await
+            .expect("admin lookup"),
+        Some(BoardRole::Admin),
+        "org admins become board admins"
+    );
+    assert_eq!(
+        core_db::boards::role_for_user(&mut *tx, s.org, s.board, tech_id)
+            .await
+            .expect("tech lookup"),
+        None,
+        "technicians are NOT auto-membered (defaults-first passthrough)"
+    );
+}
+
+/// The cross-board my-work queue: assigned-to-me open tickets only,
+/// priority rank first, then SLA resolution_due falling back to due_at,
+/// with client/board/status annotations populated.
+#[tokio::test]
+async fn my_work_annotated_orders_priority_then_sla_due() {
+    use core_domain::entities::TicketSlaState;
+
+    let db = test_db().await;
+    let s = seed_org(&db.app, 89).await;
+
+    let mut tx = org_tx(&db.app, s.org).await;
+    let me = fixed_uuid(8510);
+    users::create_user(&mut *tx, me, s.org, "me@acme.test", "Me", "argon", "UTC")
+        .await
+        .expect("me user");
+    let other = fixed_uuid(8511);
+    users::create_user(
+        &mut *tx,
+        other,
+        s.org,
+        "other@acme.test",
+        "Other",
+        "argon",
+        "UTC",
+    )
+    .await
+    .expect("other user");
+
+    // One client so the squared-tag annotation has data.
+    let client_id = fixed_uuid(8512);
+    sqlx::query("INSERT INTO clients (id, org_id, name) VALUES ($1, $2, 'Acme Corp')")
+        .bind(client_id)
+        .bind(s.org)
+        .execute(&mut *tx)
+        .await
+        .expect("client insert");
+
+    struct Seed {
+        id: Uuid,
+        title: &'static str,
+        priority: Priority,
+        assignee: Option<Uuid>,
+        client_id: Option<Uuid>,
+        due_at: Option<chrono::DateTime<chrono::Utc>>,
+    }
+    async fn mk_ticket(conn: &mut Transaction<'_, Postgres>, s: &Seeded, seed: Seed) -> Ticket {
+        let (prefix, seq) = orgs::next_ticket_number(&mut **conn, s.org)
+            .await
+            .expect("number alloc");
+        tickets::insert_ticket(
+            conn,
+            tickets::NewTicket {
+                id: seed.id,
+                org_id: s.org,
+                number: &format!("{prefix}-{seq}"),
+                board_id: s.board,
+                status_id: s.entry_status,
+                title: seed.title,
+                body: None,
+                priority: seed.priority,
+                client_id: seed.client_id,
+                site_id: None,
+                contact_id: None,
+                assignee_id: seed.assignee,
+                requester_id: None,
+                due_at: seed.due_at,
+            },
+        )
+        .await
+        .expect("ticket insert")
+    }
+    let me_some = Some(me);
+    // p2, no SLA state, manual due far in the future.
+    let t_p2_manual = mk_ticket(
+        &mut tx,
+        &s,
+        Seed {
+            id: fixed_uuid(8520),
+            title: "p2 manual due",
+            priority: Priority::P2,
+            assignee: me_some,
+            client_id: Some(client_id),
+            due_at: Some(FUTURE),
+        },
+    )
+    .await;
+    // p1 with a LATE SLA deadline — priority must still win the top slot.
+    let t_p1_late = mk_ticket(
+        &mut tx,
+        &s,
+        Seed {
+            id: fixed_uuid(8521),
+            title: "p1 late sla",
+            priority: Priority::P1,
+            assignee: me_some,
+            client_id: None,
+            due_at: None,
+        },
+    )
+    .await;
+    // p2 with an EARLY SLA deadline — beats the manual-due p2 below it.
+    let t_p2_early_sla = mk_ticket(
+        &mut tx,
+        &s,
+        Seed {
+            id: fixed_uuid(8522),
+            title: "p2 early sla",
+            priority: Priority::P2,
+            assignee: me_some,
+            client_id: None,
+            due_at: None,
+        },
+    )
+    .await;
+    // Assigned to someone else entirely — never in my queue.
+    mk_ticket(
+        &mut tx,
+        &s,
+        Seed {
+            id: fixed_uuid(8523),
+            title: "not mine",
+            priority: Priority::P1,
+            assignee: Some(other),
+            client_id: None,
+            due_at: None,
+        },
+    )
+    .await;
+    // Mine but closed — excluded by the open-only contract.
+    let closed = mk_ticket(
+        &mut tx,
+        &s,
+        Seed {
+            id: fixed_uuid(8524),
+            title: "mine closed",
+            priority: Priority::P1,
+            assignee: me_some,
+            client_id: None,
+            due_at: None,
+        },
+    )
+    .await;
+    tickets::update_status(&mut *tx, s.org, closed.id, s.resolved_status)
+        .await
+        .expect("close");
+
+    // SLA state rows come from the org's seeded default policy; only the
+    // deadline is overridden so the ordering fixture stays deterministic.
+    let policy = sla::get_default_policy(&mut *tx, s.org)
+        .await
+        .expect("seeded sla policy");
+    let late_due = FUTURE - chrono::Duration::days(1);
+    let early_due = PAST + chrono::Duration::days(1);
+    for (ticket_id, due) in [(t_p1_late.id, late_due), (t_p2_early_sla.id, early_due)] {
+        let state = TicketSlaState::init(s.org, ticket_id, &policy, Priority::P2, PAST);
+        sla::upsert_ticket_state(&mut *tx, &state)
+            .await
+            .expect("sla state upsert");
+        sqlx::query(
+            "UPDATE ticket_sla_state SET resolution_due = $3 WHERE ticket_id = $1 AND org_id = $2",
+        )
+        .bind(ticket_id)
+        .bind(s.org)
+        .bind(due)
+        .execute(&mut *tx)
+        .await
+        .expect("sla due override");
+    }
+    tx.commit().await.expect("commit seeds");
+
+    let mut app_tx = org_tx(&db.app, s.org).await;
+    let rows = core_db::tickets::my_work_annotated(&mut *app_tx, s.org, me, 100)
+        .await
+        .expect("my-work query");
+    let ids: Vec<Uuid> = rows.iter().map(|r| r.ticket.id).collect();
+    assert_eq!(
+        ids,
+        vec![t_p1_late.id, t_p2_early_sla.id, t_p2_manual.id],
+        "priority rank first; then COALESCE(sla_resolution_due, due_at)"
+    );
+
+    let first = &rows[0];
+    assert_eq!(first.sla_resolution_due, Some(late_due));
+    assert_eq!(first.client_name, None);
+    assert_eq!(first.status_name, "New");
+    let annotated = rows
+        .iter()
+        .find(|r| r.ticket.id == t_p2_manual.id)
+        .expect("manual row");
+    assert_eq!(annotated.client_name.as_deref(), Some("Acme Corp"));
+    assert_eq!(annotated.sla_resolution_due, None);
+    assert!(!rows.iter().any(|r| r.ticket.title == "not mine"));
+    assert!(!rows
+        .iter()
+        .any(|r| r.ticket.category == TicketStatusCategory::Closed));
 }

@@ -264,6 +264,102 @@ impl BuiltinRole {
     }
 }
 
+/// Per-board role tier stored on `board_members` rows (migration 0019,
+/// TASKLIST 2.11). Board roles sit BESIDE the org matrix and can only
+/// narrow it — see `authorize_board_scoped`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum BoardRole {
+    Viewer,
+    Member,
+    Admin,
+}
+
+impl BoardRole {
+    pub const ALL: [BoardRole; 3] = [BoardRole::Viewer, BoardRole::Member, BoardRole::Admin];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            BoardRole::Viewer => "viewer",
+            BoardRole::Member => "member",
+            BoardRole::Admin => "admin",
+        }
+    }
+
+    /// Parses the storage representation (`board_role` enum text).
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "viewer" => Some(BoardRole::Viewer),
+            "member" => Some(BoardRole::Member),
+            "admin" => Some(BoardRole::Admin),
+            _ => None,
+        }
+    }
+}
+
+/// The board-scoped operations gated by `BoardRole` (§6 board-level RBAC).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BoardOp {
+    /// Read tickets, comments, and workflow state on this board.
+    View,
+    /// Open a new ticket on this board.
+    CreateTicket,
+    /// Mutate an existing ticket: patch fields, comment, checklist items,
+    /// and status moves that do not close.
+    WorkTicket,
+    /// Move a ticket into a closed-category status.
+    CloseTicket,
+    /// Configure the board itself: statuses, transitions, checklist
+    /// template, inbound address, group assignment.
+    ConfigureBoard,
+    /// Add, re-role, or remove board members.
+    ManageMembers,
+}
+
+/// Whether a `BoardRole` permits `op` in isolation (ignoring org grants).
+/// This is the single source of the role×operation matrix; the exhaustive
+/// unit test below pins every cell of it.
+pub const fn board_role_allows(role: BoardRole, op: BoardOp) -> bool {
+    match role {
+        BoardRole::Viewer => matches!(op, BoardOp::View),
+        BoardRole::Member => matches!(
+            op,
+            BoardOp::View | BoardOp::CreateTicket | BoardOp::WorkTicket
+        ),
+        BoardRole::Admin => true,
+    }
+}
+
+/// Composes the org-level verdict with the caller's optional board
+/// membership for one board-scoped operation.
+///
+/// Composition rules (deny wins):
+/// 1. No membership row ⇒ defaults-first passthrough: the org-level
+///    verdict stands untouched (pre-RBAC behavior is preserved exactly).
+/// 2. A membership row may only NARROW access: if the role denies `op`,
+///    the operation is denied even when the org level would allow it.
+/// 3. A membership row never EXPANDS access: an org-level denial stays a
+///    denial regardless of role.
+pub fn authorize_board_scoped(
+    org_decision: PolicyDecision,
+    role: Option<BoardRole>,
+    op: BoardOp,
+) -> PolicyDecision {
+    let Some(role) = role else {
+        return org_decision;
+    };
+    if !board_role_allows(role, op) {
+        return PolicyDecision::Denied {
+            reason: format!(
+                "board role '{}' does not permit this operation",
+                role.as_str()
+            ),
+        };
+    }
+    org_decision
+}
+
 /// The result of a policy check. Never a bare bool — denials carry a reason
 /// for the audit log and the UI.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -393,5 +489,142 @@ mod tests {
         fn not(self) -> Self {
             !self
         }
+    }
+
+    // --- board-level RBAC matrix (TASKLIST 2.11) --------------------------
+
+    use BoardOp as Op;
+    use BoardRole as Role;
+
+    fn org(verdict: bool) -> PolicyDecision {
+        if verdict {
+            PolicyDecision::Allowed
+        } else {
+            PolicyDecision::Denied {
+                reason: "org-level denial".into(),
+            }
+        }
+    }
+
+    /// The complete expected role×operation matrix in isolation. Every cell
+    /// is spelled out — no computed shortcuts — so a semantic change to any
+    /// single cell fails this table loudly.
+    fn expected_role_allows(role: Role, op: Op) -> bool {
+        match (role, op) {
+            (Role::Viewer, Op::View) => true,
+            (Role::Viewer, Op::CreateTicket) => false,
+            (Role::Viewer, Op::WorkTicket) => false,
+            (Role::Viewer, Op::CloseTicket) => false,
+            (Role::Viewer, Op::ConfigureBoard) => false,
+            (Role::Viewer, Op::ManageMembers) => false,
+            (Role::Member, Op::View) => true,
+            (Role::Member, Op::CreateTicket) => true,
+            (Role::Member, Op::WorkTicket) => true,
+            (Role::Member, Op::CloseTicket) => false,
+            (Role::Member, Op::ConfigureBoard) => false,
+            (Role::Member, Op::ManageMembers) => false,
+            (Role::Admin, Op::View) => true,
+            (Role::Admin, Op::CreateTicket) => true,
+            (Role::Admin, Op::WorkTicket) => true,
+            (Role::Admin, Op::CloseTicket) => true,
+            (Role::Admin, Op::ConfigureBoard) => true,
+            (Role::Admin, Op::ManageMembers) => true,
+        }
+    }
+
+    /// Exhaustive: 3 roles × 6 operations in isolation.
+    #[test]
+    fn board_role_operation_matrix_is_exhaustive_and_pinned() {
+        for role in Role::ALL {
+            for op in [
+                Op::View,
+                Op::CreateTicket,
+                Op::WorkTicket,
+                Op::CloseTicket,
+                Op::ConfigureBoard,
+                Op::ManageMembers,
+            ] {
+                assert_eq!(
+                    board_role_allows(role, op),
+                    expected_role_allows(role, op),
+                    "{role:?} × {op:?} deviates from the pinned matrix"
+                );
+            }
+        }
+    }
+
+    /// Exhaustive: 4 membership states × 6 ops × 2 org verdicts = 48
+    /// compositions. Pins all three composition rules: passthrough without
+    /// membership, deny-wins narrowing with one, and never-expanding.
+    #[test]
+    fn board_scope_composition_matrix_is_exhaustive() {
+        let memberships: [Option<Role>; 4] = [
+            None,
+            Some(Role::Viewer),
+            Some(Role::Member),
+            Some(Role::Admin),
+        ];
+        for role in memberships {
+            for op in [
+                Op::View,
+                Op::CreateTicket,
+                Op::WorkTicket,
+                Op::CloseTicket,
+                Op::ConfigureBoard,
+                Op::ManageMembers,
+            ] {
+                for org_allows in [true, false] {
+                    let verdict = authorize_board_scoped(org(org_allows), role, op);
+                    let expected = match role {
+                        // Rule 1: no row ⇒ org verdict passes through.
+                        None => org_allows,
+                        // Rules 2+3: allowed only when BOTH layers allow.
+                        Some(r) => org_allows && expected_role_allows(r, op),
+                    };
+                    assert_eq!(
+                        verdict.is_allowed(),
+                        expected,
+                        "membership={role:?} op={op:?} org_allows={org_allows}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Deny wins even against an org superuser: an explicit viewer row on a
+    /// board blocks ticket creation that the org matrix would grant.
+    #[test]
+    fn board_deny_beats_org_allow() {
+        let verdict = authorize_board_scoped(
+            PolicyDecision::Allowed,
+            Some(Role::Viewer),
+            Op::CreateTicket,
+        );
+        match verdict {
+            PolicyDecision::Denied { reason } => assert!(reason.contains("viewer")),
+            other => panic!("expected denial, got {other:?}"),
+        }
+    }
+
+    /// A membership row never grants past an org-level denial.
+    #[test]
+    fn board_allow_never_expands_org_deny() {
+        let verdict = authorize_board_scoped(
+            PolicyDecision::Denied {
+                reason: "missing permission".into(),
+            },
+            Some(Role::Admin),
+            Op::View,
+        );
+        assert!(!verdict.is_allowed());
+    }
+
+    /// Round-trips through the storage representation.
+    #[test]
+    fn board_role_parse_round_trips_as_str() {
+        for role in Role::ALL {
+            assert_eq!(BoardRole::parse(role.as_str()), Some(role));
+        }
+        assert_eq!(BoardRole::parse("superuser"), None);
     }
 }

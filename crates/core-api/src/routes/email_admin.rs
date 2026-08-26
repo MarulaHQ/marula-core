@@ -112,6 +112,26 @@ pub async fn put_board_inbound_address(
             ));
         }
     }
+    // Board-level RBAC (deny wins): a restrictive membership row on this
+    // board blocks even org-level admins.
+    let mut tx = state
+        .pool
+        .begin()
+        .await
+        .map_err(|e| ApiError::Internal(e.into()))?;
+    core_db::set_org(&mut tx, org)
+        .await
+        .map_err(ApiError::from)?;
+    crate::routes::board_access::authorize_board_op(
+        &mut tx,
+        &authed.principal,
+        board_id,
+        core_domain::policy::BoardOp::ConfigureBoard,
+    )
+    .await?;
+    tx.commit()
+        .await
+        .map_err(|e| ApiError::Internal(e.into()))?;
     match core_db::emails::set_board_inbound_address(
         &state.pool,
         org,

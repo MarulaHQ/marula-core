@@ -52,3 +52,35 @@ pub struct BoardFavorite {
     pub board_id: BoardId,
     pub sort_order: i32,
 }
+
+/// A named, ordered nav grouping of boards within one org (TASKLIST 2.11).
+/// Groups are organization-wide; `owner_id` records who controls the group.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct BoardGroup {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub org_id: OrgId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub owner_id: UserId,
+    pub name: String,
+    pub position: i32,
+    pub created_at: DateTime<Utc>,
+}
+
+/// An explicit per-user membership on one board carrying a board-level
+/// role tier (§6 board-level RBAC). Rows NARROW org grants; absence of a
+/// row leaves org-level governance untouched.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct BoardMember {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub org_id: OrgId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub board_id: BoardId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub user_id: UserId,
+    pub role: crate::policy::BoardRole,
+    pub created_at: DateTime<Utc>,
+}
