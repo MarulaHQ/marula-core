@@ -1,0 +1,535 @@
+//! SLA configuration surfaces: calendars, policies + escalation ladders,
+//! and automation rules (TASKLIST 2.7).
+//!
+//! Purpose: admin-gated CRUD over the 0015 configuration tables. Writes
+//! validate through core-domain types where shapes matter (calendars,
+//! automation documents) and emit config-change events in the SAME
+//! transaction, so downstream consumers see one consistent stream.
+//!
+//! Non-purpose: no clock math or rule matching (pure core-domain), no
+//! evaluation loop (worker), no effect application (routes::internal).
+
+use crate::auth::middleware::{authed, require_permission};
+use crate::error::{ApiError, ApiResult};
+use crate::org_tx;
+use crate::state::AppState;
+use axum::{
+    extract::{Path, State},
+    http::Extensions,
+    Json,
+};
+use core_domain::events::types;
+use core_domain::policy::{Action, Module, Permission};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+fn admin(action: Action) -> Permission {
+    Permission::Matrix {
+        module: Module::Admin,
+        action,
+    }
+}
+
+// --- calendars ---------------------------------------------------------------
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct CreateCalendarRequest {
+    pub name: String,
+    /// Timezone/windows/holidays/maintenance document.
+    pub calendar: core_domain::entities::BusinessCalendar,
+}
+
+/// GET /api/sla/calendars
+#[utoipa::path(operation_id = "sla_calendars_list", get, path = "/api/sla/calendars", tag = "sla", security(("bearer" = [])),
+    responses((status = 200, body = [core_domain::entities::SlaCalendar])))]
+pub async fn list_calendars(
+    State(state): State<AppState>,
+    extensions: Extensions,
+) -> ApiResult<Json<Vec<core_domain::entities::SlaCalendar>>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, admin(Action::View))?;
+    let rows = core_db::sla::list_calendars(&state.pool, authed.principal.user.org_id).await?;
+    Ok(Json(rows))
+}
+
+/// POST /api/sla/calendars
+#[utoipa::path(operation_id = "sla_calendars_create", post, path = "/api/sla/calendars", tag = "sla", security(("bearer" = [])),
+    request_body = CreateCalendarRequest,
+    responses((status = 200, body = core_domain::entities::SlaCalendar)))]
+pub async fn create_calendar(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Json(req): Json<CreateCalendarRequest>,
+) -> ApiResult<Json<core_domain::entities::SlaCalendar>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, admin(Action::Create))?;
+    let name = req.name.trim().to_string();
+    if name.is_empty() {
+        return Err(ApiError::Validation("calendar name is required".into()));
+    }
+    let mut cal = req.calendar;
+    cal.name = name.clone();
+    cal.validate()?;
+    let org_id = authed.principal.user.org_id;
+
+    let row = core_domain::entities::SlaCalendar {
+        id: Uuid::now_v7(),
+        org_id,
+        name,
+        calendar: cal,
+    };
+    let saved = org_tx::with_org_tx(
+        &state,
+        org_id,
+        authed.principal.user.id,
+        |mut ctx| async move {
+            let saved = core_db::sla::insert_calendar(&mut *ctx.tx, &row).await?;
+            ctx.emit(
+                types::SLA_CALENDAR_UPDATED,
+                "sla_calendar",
+                Some(saved.id.to_string().as_str()),
+                &serde_json::json!({ "calendar_id": saved.id, "name": saved.name }),
+            )
+            .await?;
+            Ok((ctx, saved))
+        },
+    )
+    .await?;
+    Ok(Json(saved))
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct UpdateCalendarRequest {
+    pub name: Option<String>,
+    pub timezone: Option<String>,
+    pub windows: Option<serde_json::Value>,
+    pub holidays: Option<serde_json::Value>,
+    pub maintenance: Option<serde_json::Value>,
+}
+
+/// PATCH /api/sla/calendars/{id} — partial update; validates the merged
+/// result by re-reading and running domain validation.
+#[utoipa::path(operation_id = "sla_calendars_update", patch, path = "/api/sla/calendars/{id}", tag = "sla", security(("bearer" = [])),
+    params(("id" = Uuid, Path)), request_body = UpdateCalendarRequest,
+    responses((status = 200, body = core_domain::entities::SlaCalendar)))]
+pub async fn update_calendar(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdateCalendarRequest>,
+) -> ApiResult<Json<core_domain::entities::SlaCalendar>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, admin(Action::Edit))?;
+    let org_id = authed.principal.user.org_id;
+
+    let updated = org_tx::with_org_tx(
+        &state,
+        org_id,
+        authed.principal.user.id,
+        |mut ctx| async move {
+            let patched = core_db::sla::update_calendar(
+                &mut *ctx.tx,
+                org_id,
+                id,
+                &core_db::sla::CalendarPatch {
+                    name: req.name.as_deref(),
+                    timezone: req.timezone.as_deref(),
+                    windows: req.windows.clone(),
+                    holidays: req.holidays.clone(),
+                    maintenance: req.maintenance.clone(),
+                },
+            )
+            .await?;
+            // Validate the MERGED document, not just the patch fragment.
+            patched.calendar.validate().map_err(ApiError::from)?;
+            ctx.emit(
+                types::SLA_CALENDAR_UPDATED,
+                "sla_calendar",
+                Some(patched.id.to_string().as_str()),
+                &serde_json::json!({ "calendar_id": patched.id }),
+            )
+            .await?;
+            Ok((ctx, patched))
+        },
+    )
+    .await?;
+    Ok(Json(updated))
+}
+
+/// DELETE /api/sla/calendars/{id} — detaches policies (FK SET NULL); their
+/// embedded calendars keep governing.
+#[utoipa::path(operation_id = "sla_calendars_delete", delete, path = "/api/sla/calendars/{id}", tag = "sla", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    responses((status = 200, body = crate::routes::openapi::HealthResponse)))]
+pub async fn delete_calendar(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, admin(Action::Delete))?;
+    let org_id = authed.principal.user.org_id;
+    org_tx::with_org_tx(
+        &state,
+        org_id,
+        authed.principal.user.id,
+        |mut ctx| async move {
+            core_db::sla::delete_calendar(&mut *ctx.tx, org_id, id).await?;
+            ctx.emit(
+                types::SLA_CALENDAR_UPDATED,
+                "sla_calendar",
+                Some(id.to_string().as_str()),
+                &serde_json::json!({ "deleted": true, "calendar_id": id }),
+            )
+            .await?;
+            Ok((ctx, ()))
+        },
+    )
+    .await?;
+    Ok(Json(serde_json::json!({ "deleted": true })))
+}
+
+// --- policies + ladders --------------------------------------------------------
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct PolicyView {
+    pub id: Uuid,
+    pub name: String,
+    pub is_default: bool,
+    /// Targets keyed by priority ("p1".."p4"), business minutes.
+    pub targets: serde_json::Value,
+    pub calendar_id: Option<Uuid>,
+    /// True while the policy governs itself via its embedded calendar.
+    pub uses_embedded_calendar: bool,
+}
+
+fn policy_view(r: core_db::sla::SlaPolicyRecord) -> PolicyView {
+    PolicyView {
+        id: r.id,
+        name: r.name,
+        is_default: r.is_default,
+        targets: r.targets,
+        calendar_id: r.calendar_id,
+        uses_embedded_calendar: r.calendar_id.is_none(),
+    }
+}
+
+/// GET /api/sla/policies
+#[utoipa::path(operation_id = "sla_policies_list", get, path = "/api/sla/policies", tag = "sla", security(("bearer" = [])),
+    responses((status = 200, body = [PolicyView])))]
+pub async fn list_policies(
+    State(state): State<AppState>,
+    extensions: Extensions,
+) -> ApiResult<Json<Vec<PolicyView>>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, admin(Action::View))?;
+    let rows = core_db::sla::list_policy_records(&state.pool, authed.principal.user.org_id).await?;
+    Ok(Json(rows.into_iter().map(policy_view).collect()))
+}
+
+/// GET /api/sla/policies/{id}/ladder — enabled + disabled steps, ordered.
+#[utoipa::path(operation_id = "sla_ladder_get", get, path = "/api/sla/policies/{id}/ladder", tag = "sla", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    responses((status = 200, body = [core_domain::entities::EscalationStep])))]
+pub async fn get_ladder(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(policy_id): Path<Uuid>,
+) -> ApiResult<Json<Vec<core_domain::entities::EscalationStep>>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, admin(Action::View))?;
+    let org_id = authed.principal.user.org_id;
+    // Existence check stays org-scoped so foreign ids 404 instead of leaking.
+    core_db::sla::get_policy_record(&state.pool, org_id, policy_id).await?;
+    let steps = core_db::sla::list_steps_for_policies(&state.pool, &[policy_id]).await?;
+    Ok(Json(steps))
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct LadderStepSpec {
+    pub step_index: i32,
+    /// 'risk' | 'breach' | 'escalate' (notification-center kinds).
+    pub trigger_kind: String,
+    /// Fires when consumed budget reaches this percent (1..=500).
+    pub at_pct: i64,
+    pub notify_user_ids: Vec<Uuid>,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct ReplaceLadderRequest {
+    pub steps: Vec<LadderStepSpec>,
+}
+
+/// Validates one step spec against the engine's vocabulary.
+fn validate_step(spec: &LadderStepSpec) -> ApiResult<()> {
+    core_domain::sla_engine::StepTrigger::parse(&spec.trigger_kind).ok_or_else(|| {
+        ApiError::Validation(format!("unknown trigger_kind {}", spec.trigger_kind))
+    })?;
+    if !(1..=500).contains(&spec.at_pct) {
+        return Err(ApiError::Validation("at_pct must be within 1..=500".into()));
+    }
+    if spec.step_index < 0 {
+        return Err(ApiError::Validation("step_index must be >= 0".into()));
+    }
+    Ok(())
+}
+
+/// PUT /api/sla/policies/{id}/ladder — replaces the whole ladder in one tx.
+#[utoipa::path(operation_id = "sla_ladder_replace", put, path = "/api/sla/policies/{id}/ladder", tag = "sla", security(("bearer" = [])),
+    params(("id" = Uuid, Path)), request_body = ReplaceLadderRequest,
+    responses((status = 200, body = [core_domain::entities::EscalationStep])))]
+pub async fn replace_ladder(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(policy_id): Path<Uuid>,
+    Json(req): Json<ReplaceLadderRequest>,
+) -> ApiResult<Json<Vec<core_domain::entities::EscalationStep>>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, admin(Action::Edit))?;
+    for s in &req.steps {
+        validate_step(s)?;
+    }
+    let mut indexes: Vec<i32> = req.steps.iter().map(|s| s.step_index).collect();
+    indexes.sort_unstable();
+    indexes.dedup();
+    if indexes.len() != req.steps.len() {
+        return Err(ApiError::Validation(
+            "step_index values must be unique".into(),
+        ));
+    }
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+
+    let steps = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        core_db::sla::get_policy_record(&mut *ctx.tx, org_id, policy_id).await?;
+        let inputs: Vec<core_db::sla::LadderStepInput> = req
+            .steps
+            .iter()
+            .map(|s| core_db::sla::LadderStepInput {
+                step_index: s.step_index,
+                trigger_kind: s.trigger_kind.clone(),
+                at_pct: s.at_pct,
+                notify_user_ids: s.notify_user_ids.clone(),
+                enabled: s.enabled,
+            })
+            .collect();
+        let saved = core_db::sla::replace_ladder(&mut ctx.tx, org_id, policy_id, &inputs).await?;
+        ctx.emit(
+            types::SLA_POLICY_UPDATED,
+            "sla_policy",
+            Some(policy_id.to_string().as_str()),
+            &serde_json::json!({ "ladder_size": saved.len() }),
+        )
+        .await?;
+        Ok((ctx, saved))
+    })
+    .await?;
+    Ok(Json(steps))
+}
+
+// --- automation rules -------------------------------------------------------------
+
+fn rule_row(rec: core_db::automations::AutomationRuleRecord) -> serde_json::Value {
+    serde_json::json!({
+        "id": rec.id,
+        "org_id": rec.org_id,
+        "board_id": rec.board_id,
+        "name": rec.name,
+        "trigger_event": rec.trigger_event,
+        "conditions": rec.conditions,
+        "actions": rec.actions,
+        "enabled": rec.enabled,
+    })
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct CreateRuleRequest {
+    pub name: String,
+    pub board_id: Option<Uuid>,
+    /// Domain event type, e.g. "ticket.created".
+    pub trigger_event: String,
+    /// Condition documents (see AutomationCondition schema).
+    pub conditions: serde_json::Value,
+    /// Action documents (see AutomationAction schema).
+    pub actions: serde_json::Value,
+}
+
+/// GET /api/automation-rules
+#[utoipa::path(operation_id = "automation_rules_list", get, path = "/api/automation-rules", tag = "automations", security(("bearer" = [])),
+    responses((status = 200, body = [Object])))]
+pub async fn list_rules(
+    State(state): State<AppState>,
+    extensions: Extensions,
+) -> ApiResult<Json<Vec<serde_json::Value>>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, admin(Action::View))?;
+    let rows = core_db::automations::list(&state.pool, authed.principal.user.org_id).await?;
+    Ok(Json(rows.into_iter().map(rule_row).collect()))
+}
+
+/// POST /api/automation-rules — documents are validated through core-domain
+/// BEFORE storage, so stored rules are always well-formed (malformed rules
+/// can only arrive out-of-band and are skipped at evaluation time).
+#[utoipa::path(operation_id = "automation_rules_create", post, path = "/api/automation-rules", tag = "automations", security(("bearer" = [])),
+    request_body = CreateRuleRequest,
+    responses((status = 200, body = Object)))]
+pub async fn create_rule(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Json(req): Json<CreateRuleRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, admin(Action::Create))?;
+    let name = req.name.trim().to_string();
+    if name.is_empty() {
+        return Err(ApiError::Validation("rule name is required".into()));
+    }
+    if req.trigger_event.trim().is_empty() {
+        return Err(ApiError::Validation("trigger_event is required".into()));
+    }
+    serde_json::from_value::<Vec<core_domain::automations::AutomationCondition>>(
+        req.conditions.clone(),
+    )
+    .map_err(|e| ApiError::Validation(format!("bad conditions: {e}")))?;
+    let actions: Vec<core_domain::automations::AutomationAction> =
+        serde_json::from_value(req.actions.clone())
+            .map_err(|e| ApiError::Validation(format!("bad actions: {e}")))?;
+    core_domain::automations::validate_actions(&actions)?;
+
+    let org_id = authed.principal.user.org_id;
+    let id = Uuid::now_v7();
+    let saved = org_tx::with_org_tx(
+        &state,
+        org_id,
+        authed.principal.user.id,
+        |mut ctx| async move {
+            let rec = core_db::automations::insert(
+                &mut *ctx.tx,
+                id,
+                org_id,
+                req.board_id,
+                &name,
+                req.trigger_event.trim(),
+                req.conditions.clone(),
+                req.actions.clone(),
+            )
+            .await?;
+            ctx.emit(
+                types::AUTOMATION_RULE_UPDATED,
+                "automation_rule",
+                Some(rec.id.to_string().as_str()),
+                &serde_json::json!({ "rule_id": rec.id, "trigger_event": rec.trigger_event }),
+            )
+            .await?;
+            Ok((ctx, rec))
+        },
+    )
+    .await?;
+    Ok(Json(rule_row(saved)))
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct UpdateRuleRequest {
+    pub name: Option<String>,
+    /// `Some(Some(id))` scopes; `Some(None)` clears to all boards.
+    pub board_id: Option<Option<Uuid>>,
+    pub trigger_event: Option<String>,
+    pub conditions: Option<serde_json::Value>,
+    pub actions: Option<serde_json::Value>,
+    pub enabled: Option<bool>,
+}
+
+/// PATCH /api/automation-rules/{id}
+#[utoipa::path(operation_id = "automation_rules_update", patch, path = "/api/automation-rules/{id}", tag = "automations", security(("bearer" = [])),
+    params(("id" = Uuid, Path)), request_body = UpdateRuleRequest,
+    responses((status = 200, body = Object)))]
+pub async fn update_rule(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdateRuleRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, admin(Action::Edit))?;
+    // Validate replacement documents when present.
+    if let Some(c) = &req.conditions {
+        serde_json::from_value::<Vec<core_domain::automations::AutomationCondition>>(c.clone())
+            .map_err(|e| ApiError::Validation(format!("bad conditions: {e}")))?;
+    }
+    if let Some(a) = &req.actions {
+        let actions: Vec<core_domain::automations::AutomationAction> =
+            serde_json::from_value(a.clone())
+                .map_err(|e| ApiError::Validation(format!("bad actions: {e}")))?;
+        core_domain::automations::validate_actions(&actions)?;
+    }
+    let org_id = authed.principal.user.org_id;
+    let saved = org_tx::with_org_tx(
+        &state,
+        org_id,
+        authed.principal.user.id,
+        |mut ctx| async move {
+            let rec = core_db::automations::update(
+                &mut *ctx.tx,
+                org_id,
+                id,
+                &core_db::automations::RulePatch {
+                    name: req.name.clone(),
+                    board_id: req.board_id,
+                    trigger_event: req.trigger_event.as_ref().map(|s| s.trim().to_string()),
+                    conditions: req.conditions.clone(),
+                    actions: req.actions.clone(),
+                    enabled: req.enabled,
+                },
+            )
+            .await?;
+            ctx.emit(
+                types::AUTOMATION_RULE_UPDATED,
+                "automation_rule",
+                Some(rec.id.to_string().as_str()),
+                &serde_json::json!({ "rule_id": rec.id }),
+            )
+            .await?;
+            Ok((ctx, rec))
+        },
+    )
+    .await?;
+    Ok(Json(rule_row(saved)))
+}
+
+/// DELETE /api/automation-rules/{id}
+#[utoipa::path(operation_id = "automation_rules_delete", delete, path = "/api/automation-rules/{id}", tag = "automations", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    responses((status = 200, body = Object)))]
+pub async fn delete_rule(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, admin(Action::Delete))?;
+    let org_id = authed.principal.user.org_id;
+    org_tx::with_org_tx(
+        &state,
+        org_id,
+        authed.principal.user.id,
+        |mut ctx| async move {
+            core_db::automations::delete(&mut *ctx.tx, org_id, id).await?;
+            ctx.emit(
+                types::AUTOMATION_RULE_UPDATED,
+                "automation_rule",
+                Some(id.to_string().as_str()),
+                &serde_json::json!({ "deleted": true }),
+            )
+            .await?;
+            Ok((ctx, ()))
+        },
+    )
+    .await?;
+    Ok(Json(serde_json::json!({ "deleted": true })))
+}

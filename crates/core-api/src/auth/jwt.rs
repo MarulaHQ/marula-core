@@ -67,6 +67,7 @@ mod tests {
             access_ttl_secs: 900,
             refresh_ttl_secs: 86_400,
             cors_origin: None,
+            internal_token: None,
         }
     }
 

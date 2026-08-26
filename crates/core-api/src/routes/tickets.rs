@@ -16,7 +16,7 @@ use core_domain::events::types;
 use core_domain::policy::{Module, Permission};
 use core_domain::status::{NoteKind, Priority, TicketStatusCategory};
 use core_domain::workflow;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -85,6 +85,17 @@ pub struct TicketListQuery {
     pub limit: i64,
     #[serde(default)]
     pub offset: i64,
+}
+
+/// Live SLA clock readout for one ticket (badge + countdown surfaces).
+#[derive(Debug, Serialize, ToSchema)]
+pub struct TicketSlaStatus {
+    pub state: core_domain::entities::TicketSlaState,
+    /// Business minutes left on the resolution budget (negative = over).
+    pub minutes_remaining: Option<i64>,
+    /// True while a Waiting-category pause is open.
+    pub paused: bool,
+    pub breached: bool,
 }
 
 fn default_limit() -> i64 {
@@ -357,17 +368,22 @@ pub async fn change_status(
         let checklist = core_db::tickets::list_checklist(&mut *ctx.tx, org_id, id).await?;
         core_domain::entities::validate_pre_close(&checklist, &target)?;
 
-        // 3. SLA pause bookkeeping binds to the semantic category.
+        // SLA pause bookkeeping binds to the semantic category, under the
+        // policy the ticket is actually bound to (attached calendar wins
+        // over the embedded default document).
         let now = chrono::Utc::now();
-        if let Ok(mut sla) = core_db::sla::get_ticket_state(&mut *ctx.tx, id).await {
-            if let Some(mut sla_state) = sla.take() {
-                let calendar = {
-                    let policy = core_db::sla::get_default_policy(&mut *ctx.tx, org_id).await?;
-                    policy.calendar
+        if let Ok(Some(mut sla_state)) = core_db::sla::get_ticket_state(&mut *ctx.tx, id).await {
+            let calendar =
+                match core_db::sla::get_policy_record(&mut *ctx.tx, org_id, sla_state.policy_id)
+                    .await
+                {
+                    Ok(record) => core_db::sla::resolve_policy_calendar(&mut *ctx.tx, &record)
+                        .await
+                        .unwrap_or_else(|_| record.calendar.clone()),
+                    Err(_) => return Err(ApiError::NotFound),
                 };
-                sla_state.apply_category(target.category, now, &calendar);
-                core_db::sla::upsert_ticket_state(&mut *ctx.tx, &sla_state).await?;
-            }
+            sla_state.apply_category(target.category, now, &calendar);
+            core_db::sla::upsert_ticket_state(&mut *ctx.tx, &sla_state).await?;
         }
 
         core_db::tickets::update_status(&mut *ctx.tx, org_id, id, req.status_id).await?;
@@ -433,6 +449,65 @@ pub async fn change_status(
     .await?;
 
     Ok(Json(ticket))
+}
+
+/// GET /api/tickets/{id}/sla — clock state plus a live business-time
+/// remaining estimate for the resolution budget (drives the UI badge).
+#[utoipa::path(operation_id = "tickets_sla_status", get, path = "/api/tickets/{id}/sla", tag = "tickets", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    responses((status = 200, body = TicketSlaStatus)))]
+pub async fn sla_status(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<TicketSlaStatus>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(
+        &authed.principal,
+        tickets(core_domain::policy::Action::View),
+    )?;
+    let org_id = authed.principal.user.org_id;
+
+    let status = org_tx::with_org_tx(
+        &state,
+        org_id,
+        authed.principal.user.id,
+        |mut ctx| async move {
+            let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id).await?;
+            let state_row = core_db::sla::get_ticket_state(&mut *ctx.tx, id)
+                .await?
+                .ok_or(ApiError::NotFound)?;
+            // Attached row wins; embedded document keeps governing otherwise.
+            let record = core_db::sla::get_policy_record(&mut *ctx.tx, org_id, state_row.policy_id)
+                .await
+                .map_err(|_| ApiError::NotFound)?;
+            let calendar = core_db::sla::resolve_policy_calendar(&mut *ctx.tx, &record)
+                .await
+                .unwrap_or_else(|_| record.calendar.clone());
+            let now = chrono::Utc::now();
+            let position = core_domain::sla_engine::position(
+                &calendar,
+                ticket.created_at,
+                now,
+                state_row.resolution_due,
+                state_row.paused_business_secs,
+                state_row.paused_since,
+            );
+            let minutes_remaining =
+                position.map(|p| ((p.budget_secs - p.consumed_secs) / 60).max(i64::MIN / 2));
+            Ok((
+                ctx,
+                TicketSlaStatus {
+                    minutes_remaining,
+                    paused: state_row.paused_since.is_some(),
+                    breached: state_row.breached,
+                    state: state_row,
+                },
+            ))
+        },
+    )
+    .await?;
+    Ok(Json(status))
 }
 
 /// GET /api/tickets/{id}/comments — internal notes require ticket view;

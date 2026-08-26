@@ -11,6 +11,9 @@ pub struct Config {
     /// Refresh token TTL in seconds (default 30 days).
     pub refresh_ttl_secs: i64,
     pub cors_origin: Option<String>,
+    /// Bearer token guarding /api/internal/* machine endpoints used by the
+    /// worker (§4.1 single-writer). Unset ⇒ the surface is disabled.
+    pub internal_token: Option<String>,
 }
 
 impl Config {
@@ -35,6 +38,7 @@ impl Config {
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(60 * 60 * 24 * 30),
             cors_origin: std::env::var("CORS_ORIGIN").ok(),
+            internal_token: std::env::var("MERIDIAN_INTERNAL_TOKEN").ok(),
         }
     }
 }
