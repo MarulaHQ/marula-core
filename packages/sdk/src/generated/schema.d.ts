@@ -477,6 +477,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/board-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/board-groups — the org's groups in nav order (any member may
+         *     read; rendering input for the tree).
+         */
+        get: operations["board_groups_list"];
+        put?: never;
+        /**
+         * POST /api/board-groups — creates a nav group (ManageBoards gated);
+         *     emits `board.group_created`.
+         */
+        post: operations["board_groups_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/board-groups/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/board-groups/{id} — removes a group; member boards become
+         *     ungrouped, never deleted. ManageBoards OR the group's owner; emits
+         *     `board.group_removed`.
+         */
+        delete: operations["board_groups_delete"];
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/board-groups/{id} — renames/reorders a group. ManageBoards
+         *     OR the group's owner may do this; emits `board.group_updated`.
+         */
+        patch: operations["board_groups_update"];
+        trace?: never;
+    };
     "/api/boards": {
         parameters: {
             query?: never;
@@ -504,8 +553,32 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** POST /api/boards/favorite — toggles a board favorite for the current user. */
+        /**
+         * POST /api/boards/favorite — toggles a board favorite for the current
+         *     user (user-scoped; any authenticated member may star boards they can
+         *     see). Emits `board.favorite_toggled` in-tx.
+         */
         post: operations["boards_toggle_favorite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/boards/nav": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/boards/nav — every org board annotated with the current
+         *     user's favorite mark, board role, and group assignment.
+         */
+        get: operations["boards_nav"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -534,6 +607,68 @@ export interface paths {
          *     close-time enforcement is off by construction regardless of the toggle.
          */
         delete: operations["boards_delete_checklist_template"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/boards/{id}/group": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * PUT /api/boards/{id}/group — assigns/unassigns the board's nav group.
+         *     Board-admin gated (ConfigureBoard); emits `board.group_updated`.
+         */
+        put: operations["boards_assign_group"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/boards/{id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/boards/{id}/members — the roster (ConfigureBoard gated). */
+        get: operations["boards_list_members"];
+        /**
+         * PUT /api/boards/{id}/members — adds or re-roles one membership.
+         *     ManageMembers gated (board admin); emits `board.membership_updated`.
+         */
+        put: operations["boards_upsert_member"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/boards/{id}/members/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/boards/{id}/members/{user_id} — removes one membership;
+         *     the user falls back to org-governed access. Emits
+         *     `board.membership_removed`.
+         */
+        delete: operations["boards_remove_member"];
         options?: never;
         head?: never;
         patch?: never;
@@ -883,7 +1018,8 @@ export interface paths {
         };
         /**
          * GET /api/tickets/my-work — everything assigned to me, not closed,
-         *     across all boards (the unified cross-board view from §1).
+         *     across all boards, priority-then-SLA-due ordered (the unified
+         *     cross-board view from §1; TASKLIST 2.11 adds client/board annotations).
          */
         get: operations["tickets_my_work"];
         put?: never;
@@ -1190,6 +1326,13 @@ export interface components {
             body: string;
             kind: components["schemas"]["NoteKind"];
         };
+        AssignGroupRequest: {
+            /**
+             * Format: uuid
+             * @description `Some(group)` moves the board into that group; `None` ungroups it.
+             */
+            group_id?: string | null;
+        };
         AuditEvent: {
             /** @description Dot-path of the action, e.g. "auth.login", "ticket.status_change". */
             action: string;
@@ -1232,6 +1375,71 @@ export interface components {
              */
             require_checklist_close: boolean;
         };
+        /**
+         * @description A named, ordered nav grouping of boards within one org (TASKLIST 2.11).
+         *     Groups are organization-wide; `owner_id` records who controls the group.
+         */
+        BoardGroup: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            owner_id: string;
+            /** Format: int32 */
+            position: number;
+        };
+        /**
+         * @description An explicit per-user membership on one board carrying a board-level
+         *     role tier (§6 board-level RBAC). Rows NARROW org grants; absence of a
+         *     row leaves org-level governance untouched.
+         */
+        BoardMember: {
+            /** Format: uuid */
+            board_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            org_id: string;
+            role: components["schemas"]["BoardRole"];
+            /** Format: uuid */
+            user_id: string;
+        };
+        BoardMemberView: {
+            /** Format: date-time */
+            created_at: string;
+            display_name: string;
+            role: components["schemas"]["BoardRole"];
+            /** Format: uuid */
+            user_id: string;
+        };
+        /** @description One left-nav entry: the board plus the CALLER's annotations. */
+        BoardNavEntry: {
+            description?: string | null;
+            /** @description Whether THIS user favorited the board (star). */
+            favorite: boolean;
+            /**
+             * Format: uuid
+             * @description Group assignment for the collapsible tree (`None` = ungrouped).
+             */
+            group_id?: string | null;
+            group_name?: string | null;
+            /** Format: uuid */
+            id: string;
+            is_default: boolean;
+            my_role?: null | components["schemas"]["BoardRole"];
+            name: string;
+        };
+        /**
+         * @description Per-board role tier stored on `board_members` rows (migration 0019,
+         *     TASKLIST 2.11). Board roles sit BESIDE the org matrix and can only
+         *     narrow it — see `authorize_board_scoped`.
+         * @enum {string}
+         */
+        BoardRole: "viewer" | "member" | "admin";
         /**
          * @description A per-board status. `category` is the binding contract — labels are
          *     presentation, category is behavior.
@@ -1417,6 +1625,11 @@ export interface components {
             phone?: string | null;
             title?: string | null;
         };
+        CreateGroupRequest: {
+            name: string;
+            /** Format: int32 */
+            position?: number | null;
+        };
         CreateSiteRequest: {
             address?: string | null;
             city?: string | null;
@@ -1552,6 +1765,40 @@ export interface components {
             code: string;
             /** @description The `mfa_token` from POST /api/auth/login when mfa_required was set. */
             mfa_token: string;
+        };
+        /**
+         * @description One cross-board my-work queue row (TASKLIST 2.11): the ticket plus the
+         *     annotations the Today screen renders per the mockup.
+         */
+        MyWorkItem: {
+            /**
+             * Format: uuid
+             * @description The source board of this cross-board row.
+             */
+            board_id: string;
+            board_name: string;
+            category: components["schemas"]["TicketStatusCategory"];
+            /** @description Client short label for the squared tag (`None` = internal ticket). */
+            client_name?: string | null;
+            /**
+             * Format: date-time
+             * @description Manual deadline set on the ticket itself.
+             */
+            due_at?: string | null;
+            /** Format: uuid */
+            id: string;
+            number: string;
+            priority: components["schemas"]["Priority"];
+            /**
+             * Format: date-time
+             * @description SLA resolution deadline when state exists; the UI prefers this over
+             *     `due_at` for the right-aligned countdown column.
+             */
+            sla_resolution_due?: string | null;
+            status_name: string;
+            title: string;
+            /** Format: date-time */
+            updated_at: string;
         };
         /**
          * @description Taxonomy of structured ticket notes (§1).
@@ -1982,6 +2229,11 @@ export interface components {
             /** Format: int64 */
             count: number;
         };
+        UpdateGroupRequest: {
+            name?: string | null;
+            /** Format: int32 */
+            position?: number | null;
+        };
         UpdatePreferenceRequest: {
             email: boolean;
             in_app: boolean;
@@ -1998,6 +2250,11 @@ export interface components {
             name?: string | null;
             /** Format: int32 */
             sort_order?: number | null;
+        };
+        UpsertMemberRequest: {
+            role: components["schemas"]["BoardRole"];
+            /** Format: uuid */
+            user_id: string;
         };
         UpsertProviderRequest: {
             client_id: string;
@@ -2683,6 +2940,92 @@ export interface operations {
             };
         };
     };
+    board_groups_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardGroup"][];
+                };
+            };
+        };
+    };
+    board_groups_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateGroupRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardGroup"];
+                };
+            };
+        };
+    };
+    board_groups_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    board_groups_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateGroupRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardGroup"];
+                };
+            };
+        };
+    };
     boards_list: {
         parameters: {
             query?: never;
@@ -2746,6 +3089,25 @@ export interface operations {
             };
         };
     };
+    boards_nav: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardNavEntry"][];
+                };
+            };
+        };
+    };
     boards_get_checklist_template: {
         parameters: {
             query?: never;
@@ -2798,6 +3160,95 @@ export interface operations {
             header?: never;
             path: {
                 id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    boards_assign_group: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssignGroupRequest"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    boards_list_members: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardMemberView"][];
+                };
+            };
+        };
+    };
+    boards_upsert_member: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertMemberRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardMemberView"];
+                };
+            };
+        };
+    };
+    boards_remove_member: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                user_id: string;
             };
             cookie?: never;
         };
@@ -3422,7 +3873,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Ticket"][];
+                    "application/json": components["schemas"]["MyWorkItem"][];
                 };
             };
         };
