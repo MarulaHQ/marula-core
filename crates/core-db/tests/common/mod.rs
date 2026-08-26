@@ -86,8 +86,13 @@ async fn bootstrap() -> &'static Bootstrap {
             // reusable: local reruns attach to the same instance instead of
             // leaking an orphan per run (statics are never dropped at
             // test-process exit, so graceful auto-removal cannot run).
-            // Remove a stale instance with:
+            // Override the name per worktree/agent lane via
+            //   MERIDIAN_TEST_PG_NAME=<unique>
+            // so concurrent suites never fight over one fixed name; remove
+            // a stale instance with:
             //   docker rm -f meridian-core-db-tests-pg17
+            let container_name = std::env::var("MERIDIAN_TEST_PG_NAME")
+                .unwrap_or_else(|_| "meridian-core-db-tests-pg17".to_string());
             let request = ContainerRequest::from(
                 GenericImage::new("pgvector/pgvector", "pg17")
                     .with_wait_for(WaitFor::message_on_stderr(
@@ -95,7 +100,7 @@ async fn bootstrap() -> &'static Bootstrap {
                     ))
                     .with_exposed_port(ContainerPort::Tcp(5432)),
             )
-            .with_container_name("meridian-core-db-tests-pg17")
+            .with_container_name(container_name)
             .with_reuse(ReuseDirective::Always)
             .with_env_var("POSTGRES_USER", "meridian")
             .with_env_var("POSTGRES_PASSWORD", "meridian")
