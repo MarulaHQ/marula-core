@@ -201,10 +201,7 @@ mod tests {
     fn due_only_after_local_nudge_hour() {
         let o = org(1, 18);
         let mut members = HashMap::new();
-        members.insert(
-            o.org_id,
-            vec![(fixed_uuid(2), "America/New_York".into())],
-        );
+        members.insert(o.org_id, vec![(fixed_uuid(2), "America/New_York".into())]);
         // 21:00 UTC == 16:00 EST → not due.
         assert!(due_items(&[o], &members, utc(2026, 1, 15, 21)).is_empty());
         // 23:30 UTC == 18:30 EST → due for Jan 15 local.
