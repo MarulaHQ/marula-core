@@ -92,7 +92,22 @@ impl Publisher {
 
 /// Relay loop: drains unpublished outbox rows and publishes them to the
 /// stream inside one transaction per batch (fetch → publish → mark).
+///
+/// Telemetry (TASKLIST 2.18): one `relay.pass` span per batch carrying the
+/// batch size, plus `meridian.relay.batch_size` and the outbox-lag gauge
+/// (age of the oldest unpublished row, host-clock vs outbox timestamp —
+/// skew caveat documented in core-otel module docs).
 pub async fn relay_once(
+    pool: &sqlx::PgPool,
+    publisher: &mut Publisher,
+    batch: i64,
+) -> Result<usize, EventError> {
+    use tracing::Instrument as _;
+    let span = tracing::info_span!("relay.pass", batch_size = batch);
+    relay_inner(pool, publisher, batch).instrument(span).await
+}
+
+async fn relay_inner(
     pool: &sqlx::PgPool,
     publisher: &mut Publisher,
     batch: i64,
@@ -102,6 +117,14 @@ pub async fn relay_once(
     if rows.is_empty() {
         return Ok(0);
     }
+    // Outbox-lag gauge + batch histogram: computed BEFORE rows are consumed
+    // by the publish loop below.
+    let lag_ms = rows
+        .iter()
+        .map(|r| r.occurred_at)
+        .min()
+        .map(|oldest| (chrono::Utc::now() - oldest).num_milliseconds().max(0) as u64);
+    core_otel::metrics::relay_pass(rows.len() as u64, lag_ms);
     let mut ids = Vec::with_capacity(rows.len());
     for row in rows {
         let envelope = Envelope::from_outbox(row);

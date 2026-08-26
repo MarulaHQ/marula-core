@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 core-db = { path = "../core-db" }
 core-domain = { path = "../core-domain" }
+core-otel = { path = "../core-otel" }
 sqlx = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
