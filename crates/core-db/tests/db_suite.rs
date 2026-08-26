@@ -22,8 +22,8 @@ use core_db::{
     timers, users, DbError, DbResult,
 };
 use core_domain::entities::{
-    Actor, AuditEvent, BusinessCalendar, NotificationPreference, PortalRole, PortalUser,
-    PortalUserStatus, SlaCalendar, Ticket, TimeEntry, TimerSession,
+    Actor, Attachment, AuditEvent, BusinessCalendar, NotificationPreference, PortalRole,
+    PortalUser, PortalUserStatus, SlaCalendar, Ticket, TimeEntry, TimerSession,
 };
 use core_domain::policy::BuiltinRole;
 use core_domain::status::{NoteKind, Priority, TicketStatusCategory};
