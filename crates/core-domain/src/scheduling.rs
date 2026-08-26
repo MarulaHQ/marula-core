@@ -458,13 +458,14 @@ mod tests {
     #[test]
     fn booked_minutes_merges_and_clips_and_skips_cancelled() {
         let day = (utc(2026, 6, 1, 0, 0), utc(2026, 6, 2, 0, 0));
+        let jun1 = |h: u32, m: u32| utc(2026, 6, 1, h, m);
         // Touching 09–10 + 10–11 unions to 120, not 120+; a span poking
         // outside the day clips; zero-length contributes nothing.
         let spans = [
-            (at9(9, 0), at9(10, 0)),
-            (at9(10, 0), at9(11, 0)),
-            (utc(2026, 5, 31, 23, 0), at9(0, 30)),
-            (at9(13, 0), at9(13, 0)),
+            (jun1(9, 0), jun1(10, 0)),
+            (jun1(10, 0), jun1(11, 0)),
+            (utc(2026, 5, 31, 23, 0), jun1(0, 30)),
+            (jun1(13, 0), jun1(13, 0)),
         ];
         assert_eq!(booked_minutes(spans, day.0, day.1), 150);
         assert_eq!(booked_minutes([], day.0, day.1), 0);
