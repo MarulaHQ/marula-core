@@ -1239,6 +1239,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/dispatch/assign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/dispatch/assign — place an unassigned ticket on a
+         *     technician's board: creates the booking AND flips the ticket
+         *     assignee in one transaction.
+         */
+        post: operations["dispatch_assign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dispatch/bulk-move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/dispatch/bulk-move — atomic batch reschedule.
+         * @description Every move is re-validated against the TARGET user's live bookings
+         *     in the union window (each moved booking vacates its old slot, so
+         *     swaps are legal); the first violating move rejects the WHOLE batch
+         *     with a typed 409 naming the move index and blocking booking.
+         */
+        post: operations["dispatch_bulk_move"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dispatch/day": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/dispatch/day — the whole board for one day. */
+        get: operations["dispatch_day"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/internal/effects": {
         parameters: {
             query?: never;
@@ -2547,6 +2608,18 @@ export interface components {
              */
             group_id?: string | null;
         };
+        AssignRequest: {
+            /** Format: date-time */
+            ends_at: string;
+            /** Format: date-time */
+            starts_at: string;
+            /** Format: uuid */
+            ticket_id: string;
+            /** Format: int32 */
+            travel_minutes?: number;
+            /** Format: uuid */
+            user_id: string;
+        };
         /** @description One uploaded file's metadata row; the payload lives behind `storage_key`. */
         Attachment: {
             /** @description Declared + magic-byte-verified content type. */
@@ -2833,6 +2906,12 @@ export interface components {
              *     the semantic-category default governs (any→any except closed→open).
              */
             mode: string;
+        };
+        BulkMoveRequest: {
+            moves: components["schemas"]["MoveSpec"][];
+        };
+        BulkMoveResponse: {
+            moved: components["schemas"]["DispatchAppointment"][];
         };
         /**
          * @description Weekly business hours in a named IANA timezone, plus holiday dates.
@@ -3347,6 +3426,57 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        /**
+         * @description One booking block on the dispatch board: the appointment plus the
+         *     ticket number and client name the block face renders.
+         */
+        DispatchAppointment: {
+            /** Format: uuid */
+            client_id?: string | null;
+            client_name?: string | null;
+            /** Format: date-time */
+            ends_at: string;
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["AppointmentKind"];
+            /** Format: date-time */
+            starts_at: string;
+            status: components["schemas"]["AppointmentStatus"];
+            /** Format: uuid */
+            ticket_id?: string | null;
+            ticket_number?: string | null;
+            title: string;
+            /** Format: int32 */
+            travel_minutes: number;
+            /** Format: uuid */
+            user_id: string;
+        };
+        /**
+         * @description One dispatch-path query: `date` is a LOCAL date interpreted as the
+         *     UTC day window (documented UTC scope).
+         */
+        DispatchDayQuery: {
+            /**
+             * Format: date
+             * @description The day to assemble; defaults to today (UTC).
+             */
+            date?: string | null;
+        };
+        /** @description The assembled day-view payload: one request, one render. */
+        DispatchDayView: {
+            /** Format: date */
+            date: string;
+            /** Format: date-time */
+            from: string;
+            technicians: components["schemas"]["TechnicianView"][];
+            /** Format: date-time */
+            to: string;
+            /**
+             * @description Unassigned, non-closed tickets in dispatch order (priority rank,
+             *     then effective SLA/due deadline).
+             */
+            unassigned: components["schemas"]["MyWorkItem"][];
+        };
         EffectsRequest: {
             /** @description AutomationAction documents, parsed and validated via core-domain. */
             actions: unknown;
@@ -3540,6 +3670,17 @@ export interface components {
             ends_at: string;
             /** Format: date-time */
             starts_at: string;
+        };
+        /** @description One move in a batch: the booking's new user and slot. */
+        MoveSpec: {
+            /** Format: uuid */
+            appointment_id: string;
+            /** Format: date-time */
+            ends_at: string;
+            /** Format: date-time */
+            starts_at: string;
+            /** Format: uuid */
+            user_id: string;
         };
         /**
          * @description One cross-board my-work queue row (TASKLIST 2.11): the ticket plus the
@@ -4100,6 +4241,36 @@ export interface components {
              * @description Exclusive window end (default: `from` + 8 days).
              */
             to?: string | null;
+        };
+        /**
+         * @description One technician column: capacity stats plus everything the board draws
+         *     in the column (bookings, on-call, exclusions, availability windows).
+         */
+        TechnicianView: {
+            appointments: components["schemas"]["DispatchAppointment"][];
+            availability_windows: components["schemas"]["AvailabilityWindow"][];
+            /**
+             * Format: int64
+             * @description Working minutes covered by availability windows minus exclusions
+             *     over the day window (`core_domain::scheduling::covered_minutes`).
+             */
+            available_minutes: number;
+            /**
+             * Format: int64
+             * @description Union of live booking minutes clipped to the day window.
+             */
+            booked_minutes: number;
+            display_name: string;
+            exclusions: components["schemas"]["CalendarExclusion"][];
+            on_call: components["schemas"]["OnCallBlock"][];
+            timezone: string;
+            /** Format: uuid */
+            user_id: string;
+            /**
+             * Format: int64
+             * @description 0–100+, where >100 is over-capacity (the Ember warning state).
+             */
+            utilization_percent: number;
         };
         TestFireResponse: {
             /**
@@ -6615,6 +6786,88 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Site"];
+                };
+            };
+        };
+    };
+    dispatch_assign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssignRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DispatchAppointment"];
+                };
+            };
+            /** @description slot already booked */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    dispatch_bulk_move: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkMoveRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkMoveResponse"];
+                };
+            };
+            /** @description target slot already booked (typed conflict) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    dispatch_day: {
+        parameters: {
+            query?: {
+                /** @description The day to assemble; defaults to today (UTC). */
+                date?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DispatchDayView"];
                 };
             };
         };

@@ -4,6 +4,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde_json::json;
+use uuid::Uuid;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
@@ -22,6 +23,18 @@ pub enum ApiError {
     /// exact blockers without a second round-trip.
     #[error("pre-close checklist incomplete")]
     ChecklistBlocked { missing: Vec<String> },
+    /// Typed 409 for a rejected dispatch bulk-move (TASKLIST 2.19): names
+    /// the offending move index and the blocking booking so the board can
+    /// flag the exact drop target and surface the conflict inline.
+    #[error("dispatch move conflicts with existing booking")]
+    DispatchMoveConflict {
+        /// Index into the request's `moves` array that was rejected.
+        index: usize,
+        appointment_id: Uuid,
+        /// Title of the blocking booking (empty when the rejection is a
+        /// non-overlap failure such as an invalid span).
+        blocker_title: String,
+    },
     /// Capability present but disabled by configuration (fail-closed
     /// surfaces such as the internal effect surface without its token).
     #[error("service unavailable: {0}")]
@@ -70,6 +83,19 @@ impl IntoResponse for ApiError {
                 StatusCode::CONFLICT,
                 "pre-close checklist incomplete".to_string(),
                 Some(json!({ "missing": missing })),
+            ),
+            ApiError::DispatchMoveConflict {
+                index,
+                appointment_id,
+                blocker_title,
+            } => (
+                StatusCode::CONFLICT,
+                "dispatch move conflicts with existing booking".to_string(),
+                Some(json!({
+                    "index": index,
+                    "appointment_id": appointment_id,
+                    "blocker_title": blocker_title,
+                })),
             ),
             ApiError::Unavailable(m) => (StatusCode::SERVICE_UNAVAILABLE, m.clone(), None),
             ApiError::Internal(_) => (

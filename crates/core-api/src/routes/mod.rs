@@ -11,6 +11,7 @@ pub mod calendar;
 pub mod checklists;
 pub mod clients;
 pub mod custom_fields;
+pub mod dispatch;
 pub mod email_admin;
 pub mod internal;
 pub mod notifications;
@@ -448,6 +449,10 @@ pub fn build_router(state: AppState) -> Router {
         // Stamps org_id onto the current request span (telemetry) once the
         // auth middleware below has resolved it.
         .layer(middleware::from_fn(crate::otel_http::record_org))
+        // dispatch board (TASKLIST 2.19)
+        .route("/api/dispatch/day", get(dispatch::dispatch_day))
+        .route("/api/dispatch/bulk-move", post(dispatch::bulk_move))
+        .route("/api/dispatch/assign", post(dispatch::assign))
         .layer(middleware::from_fn_with_state(state.clone(), require_auth));
 
     // Machine-to-machine effect surface (§4.1): token-guarded, NOT behind

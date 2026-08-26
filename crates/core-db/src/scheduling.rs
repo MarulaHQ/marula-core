@@ -130,6 +130,61 @@ where
     rows.iter().map(row_to_appt).collect()
 }
 
+/// One board block with the identifiers the dispatcher needs on the block
+/// face: ticket number and client name when the booking is ticket-bound.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct DispatchAppointmentRow {
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub user_id: Uuid,
+    pub ticket_id: Option<Uuid>,
+    pub client_id: Option<Uuid>,
+    pub title: String,
+    pub starts_at: chrono::DateTime<chrono::Utc>,
+    pub ends_at: chrono::DateTime<chrono::Utc>,
+    pub kind: String,
+    pub status: String,
+    pub travel_minutes: i32,
+    pub ticket_number: Option<String>,
+    pub client_name: Option<String>,
+}
+
+/// Live appointments of `user_ids` intersecting `[from, to)` plus the
+/// joined ticket number and client name (dispatch day-view fuel). Same
+/// predicate as [`list_appointments_between`] — views must agree on what
+/// counts as a visible booking.
+pub async fn list_dispatch_appointments_between<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    user_ids: &[Uuid],
+    from: chrono::DateTime<chrono::Utc>,
+    to: chrono::DateTime<chrono::Utc>,
+) -> DbResult<Vec<DispatchAppointmentRow>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = r#"SELECT a.id, a.org_id, a.user_id, a.ticket_id, a.client_id, a.title,
+                  a.starts_at, a.ends_at, a.kind::text AS kind, a.status::text AS status,
+                  a.travel_minutes,
+                  t.number AS ticket_number,
+                  c.name AS client_name
+           FROM appointments a
+           LEFT JOIN tickets t ON t.id = a.ticket_id
+           LEFT JOIN clients c ON c.id = a.client_id
+           WHERE a.org_id = $1 AND a.user_id = ANY($2)
+             AND a.status <> 'cancelled'
+             AND a.starts_at < $3 AND a.ends_at > $4
+           ORDER BY a.starts_at, a.user_id"#;
+    sqlx::query_as::<_, DispatchAppointmentRow>(sql)
+        .bind(org_id)
+        .bind(user_ids)
+        .bind(to)
+        .bind(from)
+        .fetch_all(executor)
+        .await
+        .map_err(DbError::Sql)
+}
+
 /// Persists editable fields (everything except id/org/user identity and
 /// created_at). Time changes go through the same statement — the DB
 /// EXCLUDE constraint re-validates automatically on UPDATE, so a move onto
@@ -160,6 +215,24 @@ where
     .execute(executor)
     .await?;
     if result.rows_affected() == 0 {
+        return Err(DbError::NotFound);
+    }
+    Ok(())
+}
+
+/// Removes one booking (dispatch bulk-move phase 1): the caller's
+/// transaction reinserts moved bookings at their targets via
+/// [`create_appointment`], so every statement boundary stays
+/// constraint-clean while the batch remains atomic.
+pub async fn delete_appointment(conn: &mut PgConnection, org_id: Uuid, id: Uuid) -> DbResult<()> {
+    let deleted = sqlx::query!(
+        "DELETE FROM appointments WHERE org_id = $1 AND id = $2",
+        org_id,
+        id
+    )
+    .execute(conn)
+    .await?;
+    if deleted.rows_affected() == 0 {
         return Err(DbError::NotFound);
     }
     Ok(())

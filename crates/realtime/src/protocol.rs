@@ -113,11 +113,14 @@ pub fn apply_client_message(
 }
 
 /// Authorization rule for subscribe requests: own-user only for user
-/// channels; boards are org-scoped at delivery time.
+/// channels, own-org only for org channels; boards are org-scoped at
+/// delivery time.
 pub fn authorize_subscribe(claims: &WsClaims, raw: &str) -> Result<Channel, String> {
     match Channel::parse(raw) {
         Some(Channel::User(id)) if id == claims.sub => Ok(Channel::User(id)),
         Some(Channel::User(_)) => Err("forbidden: cannot subscribe to another user".to_string()),
+        Some(Channel::Org(id)) if id == claims.org => Ok(Channel::Org(id)),
+        Some(Channel::Org(_)) => Err("forbidden: cannot subscribe to another org".to_string()),
         Some(board @ Channel::Board(_)) => Ok(board),
         None => Err(format!("unknown channel: {raw}")),
     }
@@ -217,6 +220,37 @@ mod tests {
         let foreign = format!("user:{}", Uuid::now_v7());
         let raw = format!(r#"{{"type":"subscribe","channel":"{foreign}"}}"#);
         let action = apply_client_message(&mut subs, &c, &raw);
+        assert!(matches!(
+            action,
+            ClientAction::Reply(ref replies) if matches!(replies.first(), Some(ServerMessage::Error { .. }))
+        ));
+        assert!(!subs.contains(&Channel::parse(&foreign).unwrap()));
+    }
+
+    #[test]
+    fn subscribe_accepts_own_org_and_rejects_foreign_org() {
+        let c = claims();
+        let mut subs = HashSet::new();
+        let own = format!("org:{}", c.org);
+        let action = apply_client_message(
+            &mut subs,
+            &c,
+            &format!(r#"{{"type":"subscribe","channel":"{own}"}}"#),
+        );
+        assert_eq!(
+            action,
+            ClientAction::Reply(vec![ServerMessage::Subscribed {
+                channel: own.clone()
+            }])
+        );
+        assert!(subs.contains(&Channel::Org(c.org)));
+
+        let foreign = format!("org:{}", Uuid::now_v7());
+        let action = apply_client_message(
+            &mut subs,
+            &c,
+            &format!(r#"{{"type":"subscribe","channel":"{foreign}"}}"#),
+        );
         assert!(matches!(
             action,
             ClientAction::Reply(ref replies) if matches!(replies.first(), Some(ServerMessage::Error { .. }))

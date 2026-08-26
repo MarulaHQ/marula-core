@@ -296,6 +296,46 @@ where
     rows.into_iter().map(my_work_row_from).collect()
 }
 
+/// CRUD unassigned tickets for the dispatch queue (TASKLIST 2.19): same
+/// annotated shape and ordering as [`my_work_annotated`] — priority rank
+/// first, then the earliest effective deadline — but the unassigned
+/// filter replaces the per-user one, so a dispatcher sees exactly what
+/// needs placing.
+pub async fn unassigned_queue_annotated<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    limit: i64,
+) -> DbResult<Vec<MyWorkRow>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let cols = TICKET_COLS.replace(", ", ", t.");
+    let sql = format!(
+        r#"SELECT t.{cols},
+                  c.name  AS client_name,
+                  b.name  AS board_name,
+                  st.name AS status_name,
+                  s.resolution_due AS sla_resolution_due
+           FROM tickets t
+           LEFT JOIN clients c ON c.id = t.client_id
+           LEFT JOIN boards b ON b.id = t.board_id
+           LEFT JOIN board_statuses st ON st.id = t.status_id
+           LEFT JOIN ticket_sla_state s ON s.ticket_id = t.id
+           WHERE t.org_id = $1 AND t.assignee_id IS NULL AND t.category <> 'closed'
+           ORDER BY
+             CASE t.priority WHEN 'p1' THEN 0 WHEN 'p2' THEN 1 WHEN 'p3' THEN 2 ELSE 3 END,
+             COALESCE(s.resolution_due, t.due_at) NULLS LAST,
+             t.created_at
+           LIMIT $2"#
+    );
+    let rows = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(limit)
+        .fetch_all(executor)
+        .await?;
+    rows.into_iter().map(my_work_row_from).collect()
+}
+
 pub async fn update_status<'e, E>(
     executor: E,
     org_id: Uuid,
