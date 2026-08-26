@@ -174,6 +174,7 @@ mod tests {
             email_scan_clamd_addr: None,
             email_from_address: "support@meridian.local".into(),
             email_from_name: None,
+            internal_token: None,
         }
     }
 

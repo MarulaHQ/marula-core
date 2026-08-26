@@ -99,6 +99,47 @@ export interface paths {
         trace?: never;
     };
     "/api/auth/mfa/totp/enroll-begin": {
+    "/api/automation-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/automation-rules */
+        get: operations["automation_rules_list"];
+        put?: never;
+        /**
+         * POST /api/automation-rules — documents are validated through core-domain
+         *     BEFORE storage, so stored rules are always well-formed (malformed rules
+         *     can only arrive out-of-band and are skipped at evaluation time).
+         */
+        post: operations["automation_rules_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/automation-rules/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** DELETE /api/automation-rules/{id} */
+        delete: operations["automation_rules_delete"];
+        options?: never;
+        head?: never;
+        /** PATCH /api/automation-rules/{id} */
+        patch: operations["automation_rules_update"];
+        trace?: never;
+    };
+    "/api/boards": {
         parameters: {
             query?: never;
             header?: never;
@@ -294,6 +335,50 @@ export interface paths {
         trace?: never;
     };
     "/api/auth/oidc/providers/public": {
+    "/api/internal/effects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/internal/effects — applies automation-rule effects to one
+         *     ticket through the SAME write paths users go through (ticket patch,
+         *     comment insert, notification fan-out), emitting every corresponding
+         *     domain event tagged `via_automation` so evaluators never loop.
+         */
+        post: operations["internal_effects"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/internal/sla/verdict": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/internal/sla/verdict — fire-once application of one ladder
+         *     step: ledger insert (PK-guarded), breach flip, notification fan-out with
+         *     preference gates, events + audit, all in ONE transaction.
+         */
+        post: operations["internal_sla_verdict"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me": {
         parameters: {
             query?: never;
             header?: never;
@@ -438,6 +523,84 @@ export interface paths {
         trace?: never;
     };
     "/api/auth/sessions": {
+    "/api/sla/calendars": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/sla/calendars */
+        get: operations["sla_calendars_list"];
+        put?: never;
+        /** POST /api/sla/calendars */
+        post: operations["sla_calendars_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sla/calendars/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/sla/calendars/{id} — detaches policies (FK SET NULL); their
+         *     embedded calendars keep governing.
+         */
+        delete: operations["sla_calendars_delete"];
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/sla/calendars/{id} — partial update; validates the merged
+         *     result by re-reading and running domain validation.
+         */
+        patch: operations["sla_calendars_update"];
+        trace?: never;
+    };
+    "/api/sla/policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/sla/policies */
+        get: operations["sla_policies_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sla/policies/{id}/ladder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/sla/policies/{id}/ladder — enabled + disabled steps, ordered. */
+        get: operations["sla_ladder_get"];
+        /** PUT /api/sla/policies/{id}/ladder — replaces the whole ladder in one tx. */
+        put: operations["sla_ladder_replace"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tickets": {
         parameters: {
             query?: never;
             header?: never;
@@ -561,6 +724,27 @@ export interface paths {
         trace?: never;
     };
     "/api/boards/{id}/statuses/{status_id}": {
+    "/api/tickets/{id}/sla": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/tickets/{id}/sla — clock state plus a live business-time
+         *     remaining estimate for the resolution budget (drives the UI badge).
+         */
+        get: operations["tickets_sla_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tickets/{id}/status": {
         parameters: {
             query?: never;
             header?: never;
@@ -819,6 +1003,60 @@ export interface paths {
             header?: never;
             path?: never;
             cookie?: never;
+        /**
+         * @description Effects a rule may request. Every variant maps onto an existing core-api
+         *     write path — automations never gain private write routes.
+         */
+        AutomationAction: {
+            /** @enum {string} */
+            type: "assign_user";
+            /** Format: uuid */
+            user_id: string;
+        } | {
+            priority: components["schemas"]["Priority"];
+            /** @enum {string} */
+            type: "set_priority";
+        } | {
+            body: string;
+            /** @enum {string} */
+            type: "add_internal_comment";
+        } | {
+            kind: components["schemas"]["NotificationKind"];
+            title: string;
+            /** @enum {string} */
+            type: "notify_users";
+            user_ids: string[];
+        };
+        /** @description One predicate; a rule matches only when EVERY condition holds. */
+        AutomationCondition: {
+            priority: components["schemas"]["Priority"];
+            /** @enum {string} */
+            type: "priority_is";
+        } | {
+            category: components["schemas"]["TicketStatusCategory"];
+            /** @enum {string} */
+            type: "category_is";
+        } | {
+            needle: string;
+            /** @enum {string} */
+            type: "title_contains";
+        } | {
+            /** @enum {string} */
+            type: "unassigned";
+        };
+        Board: {
+            /**
+             * Format: date-time
+             * @description Users whose favorite this board is (board groups/favorites, Stage 2).
+             */
+            created_at: string;
+            description?: string | null;
+            /** Format: uuid */
+            id: string;
+            is_default: boolean;
+            name: string;
+            /** Format: uuid */
+            org_id: string;
         };
         get?: never;
         put?: never;
@@ -859,6 +1097,37 @@ export interface paths {
             header?: never;
             path?: never;
             cookie?: never;
+        BoardTransitionsResponse: {
+            edges: components["schemas"]["TransitionEdge"][];
+            /**
+             * @description `"explicit"` when the listed edges are authoritative; `"floor"` when
+             *     the semantic-category default governs (any→any except closed→open).
+             */
+            mode: string;
+        };
+        /**
+         * @description Weekly business hours in a named IANA timezone, plus holiday dates.
+         *     `None` window = non-business day.
+         */
+        BusinessCalendar: {
+            /** @description Local dates (YYYY-MM-DD) with no business hours. */
+            holidays: string[];
+            /**
+             * @description Downtime stretches subtracted from every measurement. Absent in
+             *     legacy documents (`default`) so stored policies keep deserializing.
+             */
+            maintenance?: components["schemas"]["MaintenanceWindow"][];
+            name: string;
+            timezone: string;
+            /** @description [Mon..Sun] open/close in local wall-clock "HH:MM". */
+            windows: ([
+                string,
+                string
+            ] | null)[];
+        };
+        ChangeStatusRequest: {
+            /** Format: uuid */
+            status_id: string;
         };
         /** GET /api/tickets — filtered, priority-ordered list. */
         get: operations["tickets_list"];
@@ -1644,6 +1913,12 @@ export interface components {
         PublicProvider: {
             display_name: string;
             /** @description URL path segment for /api/auth/oidc/{name}/login. */
+        CreateCalendarRequest: {
+            /** @description Timezone/windows/holidays/maintenance document. */
+            calendar: components["schemas"]["BusinessCalendar"];
+            name: string;
+        };
+        CreateClientRequest: {
             name: string;
         };
         PutChecklistTemplateRequest: {
@@ -1711,6 +1986,18 @@ export interface components {
             edges: components["schemas"]["TransitionEdge"][];
         };
         Site: {
+        CreateRuleRequest: {
+            /** @description Action documents (see AutomationAction schema). */
+            actions: unknown;
+            /** Format: uuid */
+            board_id?: string | null;
+            /** @description Condition documents (see AutomationCondition schema). */
+            conditions: unknown;
+            name: string;
+            /** @description Domain event type, e.g. "ticket.created". */
+            trigger_event: string;
+        };
+        CreateSiteRequest: {
             address?: string | null;
             city?: string | null;
             /** Format: uuid */
@@ -1950,6 +2237,35 @@ export interface components {
              */
             expires_in: number;
             refresh_token: string;
+        EffectsRequest: {
+            /** @description AutomationAction documents, parsed and validated via core-domain. */
+            actions: unknown;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            rule_id?: string | null;
+            /** Format: uuid */
+            ticket_id: string;
+        };
+        /** @description One escalation ladder step as stored (`sla_escalation_steps`). */
+        EscalationStep: {
+            /** Format: int64 */
+            at_pct: number;
+            enabled: boolean;
+            /** Format: uuid */
+            id: string;
+            /** @description Extra recipients beyond the ticket assignee. */
+            notify_user_ids: string[];
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            policy_id: string;
+            /** Format: int32 */
+            step_index: number;
+            /** @description 'risk' | 'breach' | 'escalate' — bound to existing notification kinds. */
+            trigger_kind: string;
+        };
+        FavoriteRequest: {
             /** Format: uuid */
             session_id: string;
         };
@@ -1973,6 +2289,24 @@ export interface components {
          *     in storage).
          */
         TransitionEdge: {
+        LadderStepSpec: {
+            /**
+             * Format: int64
+             * @description Fires when consumed budget reaches this percent (1..=500).
+             */
+            at_pct: number;
+            enabled?: boolean;
+            notify_user_ids: string[];
+            /** Format: int32 */
+            step_index: number;
+            /** @description 'risk' | 'breach' | 'escalate' (notification-center kinds). */
+            trigger_kind: string;
+        };
+        ListEntriesQuery: {
+            /** Format: int64 */
+            limit?: number;
+            /** Format: date-time */
+            since?: string | null;
             /** Format: uuid */
             from_status_id: string;
             /** Format: uuid */
@@ -1991,6 +2325,19 @@ export interface components {
             quiet_until?: string | null;
             /** @description IANA timezone for the window; defaults to UTC. */
             timezone?: string | null;
+        /**
+         * @description Planned downtime: an absolute UTC interval during which SLA clocks do
+         *     not consume business-time budget (vendor maintenance, change freezes).
+         */
+        MaintenanceWindow: {
+            /** Format: date-time */
+            ends_at: string;
+            name: string;
+            /** Format: date-time */
+            starts_at: string;
+        };
+        MarkReadBulkRequest: {
+            ids: string[];
         };
         UpdateStatusRequest: {
             category?: null | components["schemas"]["TicketStatusCategory"];
@@ -2206,6 +2553,31 @@ export interface operations {
                     "application/json": components["schemas"]["TotpEnrollBeginResponse"];
                 };
             };
+        PolicyView: {
+            /** Format: uuid */
+            calendar_id?: string | null;
+            /** Format: uuid */
+            id: string;
+            is_default: boolean;
+            name: string;
+            /** @description Targets keyed by priority ("p1".."p4"), business minutes. */
+            targets: unknown;
+            /** @description True while the policy governs itself via its embedded calendar. */
+            uses_embedded_calendar: boolean;
+        };
+        /**
+         * @description One resolved preference row: which chain link supplied it (`user`,
+         *     `org_default`, or `builtin`), the channel toggles, and the quiet-hours
+         *     window with its timezone.
+         */
+        PreferenceView: {
+            email: boolean;
+            in_app: boolean;
+            kind: components["schemas"]["NotificationKind"];
+            quiet_from?: string | null;
+            quiet_until?: string | null;
+            source: string;
+            timezone: string;
         };
     };
     mfa_totp_enroll_verify: {
@@ -2235,6 +2607,17 @@ export interface operations {
                 };
                 content?: never;
             };
+        ReplaceLadderRequest: {
+            steps: components["schemas"]["LadderStepSpec"][];
+        };
+        /**
+         * @description Why a timer segment ended. Preserved forever — the pause reason is
+         *     billable-work metadata, not a transient UI state.
+         * @enum {string}
+         */
+        SegmentEnd: "stopped" | "paused" | "switched";
+        SetChecklistItemRequest: {
+            checked: boolean;
         };
     };
     mfa_verify: {
@@ -2264,6 +2647,48 @@ export interface operations {
                 };
                 content?: never;
             };
+        /**
+         * @description An org-level business-hours calendar row (`sla_calendars`). The math
+         *     type is [`BusinessCalendar`]; this carries its identity.
+         */
+        SlaCalendar: {
+            /**
+             * @description Flattened calendar body (timezone/windows/holidays/maintenance);
+             *     `calendar.name` mirrors `name` on write.
+             */
+            calendar: Record<string, never>;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: uuid */
+            org_id: string;
+        };
+        SlaVerdictRequest: {
+            body?: string | null;
+            /**
+             * @description Extra recipients from the ladder step; the assignee is added
+             *     server-side.
+             */
+            notify_user_ids: string[];
+            /** Format: uuid */
+            org_id: string;
+            /**
+             * Format: uuid
+             * @description Ladder step that fired (ledger key).
+             */
+            step_id: string;
+            /** @description 'first_response' | 'resolution' */
+            target: string;
+            /** Format: uuid */
+            ticket_id: string;
+            /** @description Human-facing headline, e.g. "[MER-12] SLA risk on resolution". */
+            title: string;
+            /** @description 'risk' | 'breach' | 'escalate' */
+            trigger: string;
+        };
+        StartTimerRequest: {
+            /** Format: uuid */
+            ticket_id: string;
         };
     };
     mfa_webauthn_login_begin: {
@@ -2327,6 +2752,58 @@ export interface operations {
             content: {
                 "application/json": components["schemas"]["WebauthnRemoveRequest"];
             };
+        /** @description Live SLA clock readout for one ticket (badge + countdown surfaces). */
+        TicketSlaStatus: {
+            breached: boolean;
+            /**
+             * Format: int64
+             * @description Business minutes left on the resolution budget (negative = over).
+             */
+            minutes_remaining?: number | null;
+            /** @description True while a Waiting-category pause is open. */
+            paused: boolean;
+            state: components["schemas"]["TicketSlaState"];
+        };
+        /**
+         * @description The four semantic categories every ticket status maps to (§5).
+         *     Customization (labels, ordering, per-board sets) can never add, remove, or
+         *     re-bind these: SLA timers, pause logic, automations, billing, and reports
+         *     bind to the category, not the label.
+         * @enum {string}
+         */
+        TicketStatusCategory: "open" | "in_progress" | "waiting" | "closed";
+        /**
+         * @description A durable, reviewable record of worked time. Created from a timer session
+         *     or entered manually; subject to bulk review and approval workflows.
+         */
+        TimeEntry: {
+            billable: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            ended_at: string;
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: int64
+             * @description Worked seconds — authoritative, derived on write, never recomputed.
+             */
+            minutes: number;
+            notes?: string | null;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: date-time */
+            started_at: string;
+            /** Format: uuid */
+            ticket_id: string;
+            /**
+             * Format: uuid
+             * @description Origin: timer-derived entries keep their session for audit.
+             */
+            timer_session_id?: string | null;
+            /** Format: uuid */
+            user_id: string;
+            work_type?: string | null;
         };
         responses: {
             204: {
@@ -2404,6 +2881,49 @@ export interface operations {
                 };
                 content?: never;
             };
+        UpdateCalendarRequest: {
+            holidays?: unknown;
+            maintenance?: unknown;
+            name?: string | null;
+            timezone?: string | null;
+            windows?: unknown;
+        };
+        UpdatePreferenceRequest: {
+            email: boolean;
+            in_app: boolean;
+            kind: components["schemas"]["NotificationKind"];
+            /** @description `HH:MM` pair; both bounds together or neither. */
+            quiet_from?: string | null;
+            quiet_until?: string | null;
+            /** @description IANA timezone for the window; defaults to UTC. */
+            timezone?: string | null;
+        };
+        UpdateRuleRequest: {
+            actions?: unknown;
+            /**
+             * Format: uuid
+             * @description `Some(Some(id))` scopes; `Some(None)` clears to all boards.
+             */
+            board_id?: string | null;
+            conditions?: unknown;
+            enabled?: boolean | null;
+            name?: string | null;
+            trigger_event?: string | null;
+        };
+        UpdateStatusRequest: {
+            category?: null | components["schemas"]["TicketStatusCategory"];
+            is_entry?: boolean | null;
+            name?: string | null;
+            /** Format: int32 */
+            sort_order?: number | null;
+        };
+        VerdictResponse: {
+            /**
+             * @description False when the ledger had already recorded this fire (idempotent
+             *     replay after a worker retry) — nothing was written or notified.
+             */
+            applied: boolean;
+            reason?: string | null;
         };
     };
     oidc_providers_list: {
@@ -2680,6 +3200,95 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    boards_list: {
+    automation_rules_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>[];
+                };
+            };
+        };
+    };
+    automation_rules_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRuleRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    automation_rules_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    automation_rules_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateRuleRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
             };
         };
     };
@@ -3150,6 +3759,52 @@ export interface operations {
             };
         };
     };
+    internal_effects: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EffectsRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    internal_sla_verdict: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SlaVerdictRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerdictResponse"];
+                };
+            };
+        };
+    };
     handlers_me: {
         parameters: {
             query?: never;
@@ -3330,6 +3985,7 @@ export interface operations {
         };
     };
     sso_exchange: {
+    sla_calendars_list: {
         parameters: {
             query?: never;
             header?: never;
@@ -3341,6 +3997,116 @@ export interface operations {
                 "application/json": components["schemas"]["SsoExchangeRequest"];
             };
         };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlaCalendar"][];
+                };
+            };
+        };
+    };
+    sla_calendars_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCalendarRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlaCalendar"];
+                };
+            };
+        };
+    };
+    sla_calendars_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    sla_calendars_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateCalendarRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlaCalendar"];
+                };
+            };
+        };
+    };
+    sla_policies_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyView"][];
+                };
+            };
+        };
+    };
+    sla_ladder_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {
@@ -3355,6 +4121,33 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+                    "application/json": components["schemas"]["EscalationStep"][];
+                };
+            };
+        };
+    };
+    sla_ladder_replace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplaceLadderRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EscalationStep"][];
+                };
             };
         };
     };
@@ -3593,6 +4386,27 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TicketComment"];
+                };
+            };
+        };
+    };
+    tickets_sla_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketSlaStatus"];
                 };
             };
         };

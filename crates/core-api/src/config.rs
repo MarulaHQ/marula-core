@@ -53,6 +53,9 @@ pub struct Config {
     /// From-identity for Meridian-generated outbound mail.
     pub email_from_address: String,
     pub email_from_name: Option<String>,
+    /// Bearer token guarding /api/internal/* machine endpoints used by the
+    /// worker (§4.1 single-writer). Unset ⇒ the surface is disabled.
+    pub internal_token: Option<String>,
 }
 
 /// Which malware scanner the inbound path uses.
@@ -141,6 +144,7 @@ impl Config {
             email_from_address: std::env::var("EMAIL_FROM_ADDRESS")
                 .unwrap_or_else(|_| "support@meridian.local".into()),
             email_from_name: std::env::var("EMAIL_FROM_NAME").ok(),
+            internal_token: std::env::var("MERIDIAN_INTERNAL_TOKEN").ok(),
         }
     }
 }
@@ -187,6 +191,7 @@ impl Config {
             email_from_address: std::env::var("EMAIL_FROM_ADDRESS")
                 .unwrap_or_else(|_| "support@meridian.local".into()),
             email_from_name: std::env::var("EMAIL_FROM_NAME").ok(),
+            internal_token: std::env::var("MERIDIAN_INTERNAL_TOKEN").ok(),
         }
     }
 }

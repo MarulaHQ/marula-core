@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n             COUNT(*) FILTER (WHERE status = 'pending') AS pending,\n             COUNT(*) FILTER (WHERE status = 'running') AS running,\n             COUNT(*) FILTER (WHERE status = 'dead')    AS dead\n           FROM jobs",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pending",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "running",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "dead",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "98dd18282a9e4512bd8133e05df38a8bea807b2cfa954e10d5e199c22e6e542d"
+}

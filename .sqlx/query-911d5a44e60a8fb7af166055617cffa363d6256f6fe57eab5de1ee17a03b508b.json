@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE ticket_sla_state SET breached = true, updated_at = now()\n           WHERE ticket_id = $1 AND breached = false",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "911d5a44e60a8fb7af166055617cffa363d6256f6fe57eab5de1ee17a03b508b"
+}

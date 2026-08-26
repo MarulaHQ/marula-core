@@ -44,6 +44,15 @@ pub mod types {
     /// Emitted when a user overrides one preference row.
     pub const NOTIFICATION_PREFS_UPDATED: &str = "notification_prefs.updated";
     pub const EMAIL_MESSAGE_RECORDED: &str = "email.message_recorded";
+    /// A ladder step fired for a ticket clock (risk/breach/escalate).
+    pub const SLA_ESCALATION_FIRED: &str = "sla.escalation_fired";
+    /// An automation rule matched and its effects were applied.
+    pub const AUTOMATION_TRIGGERED: &str = "automation.triggered";
+    /// SLA configuration surfaces mutated (calendars/policies/ladders).
+    pub const SLA_CALENDAR_UPDATED: &str = "sla.calendar_updated";
+    pub const SLA_POLICY_UPDATED: &str = "sla.policy_updated";
+    /// An automation rule definition was created/changed/disabled.
+    pub const AUTOMATION_RULE_UPDATED: &str = "automation.rule_updated";
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

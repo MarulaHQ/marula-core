@@ -10,6 +10,7 @@ pub mod internal;
 pub mod notifications;
 pub mod oidc;
 pub mod openapi;
+pub mod sla_admin;
 pub mod tickets;
 pub mod timers;
 pub mod webhooks;
@@ -59,7 +60,12 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/internal/email/outbound/results",
             post(internal::report_results),
-        );
+        )
+        // Machine surface for the worker (token-gated inside the handlers,
+        // NOT behind the JWT middleware — §4.1: worker effects enter
+        // through core-api, never direct DB writes).
+        .route("/api/internal/sla/verdict", post(internal::sla_verdict))
+        .route("/api/internal/effects", post(internal::effects));
 
     let protected = Router::new()
         .route("/api/me", get(auth_handlers::me))
@@ -151,6 +157,30 @@ pub fn build_router(state: AppState) -> Router {
             get(tickets::get_one).patch(tickets::patch),
         )
         .route("/api/tickets/{id}/status", post(tickets::change_status))
+        .route("/api/tickets/{id}/sla", get(tickets::sla_status))
+        // sla configuration (admin)
+        .route(
+            "/api/sla/calendars",
+            get(sla_admin::list_calendars).post(sla_admin::create_calendar),
+        )
+        .route(
+            "/api/sla/calendars/{id}",
+            axum::routing::patch(sla_admin::update_calendar).delete(sla_admin::delete_calendar),
+        )
+        .route("/api/sla/policies", get(sla_admin::list_policies))
+        .route(
+            "/api/sla/policies/{id}/ladder",
+            get(sla_admin::get_ladder).put(sla_admin::replace_ladder),
+        )
+        // automation rules (admin)
+        .route(
+            "/api/automation-rules",
+            get(sla_admin::list_rules).post(sla_admin::create_rule),
+        )
+        .route(
+            "/api/automation-rules/{id}",
+            axum::routing::patch(sla_admin::update_rule).delete(sla_admin::delete_rule),
+        )
         .route(
             "/api/tickets/{id}/comments",
             get(tickets::list_comments).post(tickets::add_comment),

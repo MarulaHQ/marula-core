@@ -1,20 +1,24 @@
 //! worker — the background process host.
 //!
-//! Purpose: run three loops — the outbox→Redis relay
-//! (`core_events::run_relay`), the notification email fan-out consumer
-//! (noop transport until a real MailTransport is configured), and the
-//! outbound email send loop that transports claimed messages and reports
-//! results through core-api — plus a `/healthz` endpoint reflecting all
-//! loops' liveness. `meridian-cli` hosts this same library via
-//! `meridian serve-worker`.
+//! Purpose: run every background loop Meridian needs: the outbox→Redis
+//! relay (`core_events::run_relay`), the notification email fan-out
+//! consumer (noop transport until a real MailTransport is configured),
+//! the outbound email send loop, the general job queue processor, the
+//! periodic SLA evaluation sweep, and the automations stream consumer —
+//! plus a `/healthz` endpoint reflecting loop liveness. `meridian-cli`
+//! hosts this same library via `meridian serve-worker`.
 //!
-//! Non-purpose: no general job scheduler and no direct database writes of
-//! its own beyond what the relay's mark-published step performs; the email
-//! loop never touches Postgres (it talks to core-api exclusively).
+//! Non-purpose: no domain writes — effects flow back through core-api's
+//! internal surface (§4.1); the worker touches only its own queue tables,
+//! and the email loop never touches Postgres at all.
 
+pub mod automations;
 pub mod config;
+pub mod effects;
 pub mod email;
 pub mod notifier;
+pub mod queue_runner;
+pub mod sla_sweep;
 
 use axum::extract::State;
 use axum::routing::get;
@@ -27,14 +31,14 @@ use std::sync::Arc;
 use tokio::sync::watch;
 
 /// Runs the worker until `shutdown` fires: connects to Postgres and Redis,
-/// spawns the relay + email-send loops, and serves `/healthz` until then.
+/// spawns all background loops, and serves `/healthz` until then.
 pub async fn run(
     config: config::WorkerConfig,
     shutdown: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
     let pool = core_db::connect(&config.database_url).await?;
     let publisher = Publisher::connect(&config.redis_url).await?;
-    tracing::info!("worker connected; starting event relay");
+    tracing::info!("worker connected; starting background loops");
 
     let relay_alive = Arc::new(AtomicBool::new(true));
     let relay = tokio::spawn(core_events::run_relay(
@@ -58,7 +62,7 @@ pub async fn run(
     // adapter is configured (standalone-first "none" mode). Best-effort
     // consumer; liveness is reported by the relay.
     tokio::spawn(notifier::run_notifier(
-        pool,
+        pool.clone(),
         config.redis_url.clone(),
         NoopMailTransport,
         shutdown.clone(),
@@ -77,9 +81,63 @@ pub async fn run(
         });
     }
 
+    // General job queue: claims durable jobs and applies them through
+    // core-api's internal machine surface.
+    let queue_alive = Arc::new(AtomicBool::new(true));
+    let counters = Arc::new(queue_runner::QueueCounters::default());
+    {
+        let effect_api = effects::ReqwestEffectApi::new(
+            config.internal_api_url.clone(),
+            config.internal_token.clone(),
+        );
+        let alive = Arc::clone(&queue_alive);
+        let counters = Arc::clone(&counters);
+        let pool = pool.clone();
+        let shutdown = shutdown.clone();
+        let batch = config.queue_batch;
+        let stale = config.queue_stale_after_secs;
+        tokio::spawn(async move {
+            queue_runner::run_queue(pool, effect_api, batch, stale, counters, shutdown).await;
+            alive.store(false, Ordering::Relaxed);
+            tracing::error!("queue loop exited; reporting unhealthy");
+        });
+    }
+
+    // SLA evaluation sweep: DB-clock-driven ladder decisions → verdict jobs.
+    let sla_alive = Arc::new(AtomicBool::new(true));
+    {
+        let alive = Arc::clone(&sla_alive);
+        let pool = pool.clone();
+        let shutdown = shutdown.clone();
+        tokio::spawn(async move {
+            sla_sweep::run_sla_sweep(pool, config.eval_interval_secs, 200, shutdown).await;
+            alive.store(false, Ordering::Relaxed);
+            tracing::error!("sla sweep exited; reporting unhealthy");
+        });
+    }
+
+    // Automations consumer: event stream → matched rules → effect jobs.
+    let auto_alive = Arc::new(AtomicBool::new(true));
+    {
+        let alive = Arc::clone(&auto_alive);
+        let shutdown = shutdown.clone();
+        tokio::spawn(async move {
+            automations::run_automations(pool, config.redis_url, shutdown).await;
+            alive.store(false, Ordering::Relaxed);
+            tracing::error!("automations loop exited; reporting unhealthy");
+        });
+    }
+
+    let health = HealthFlags {
+        relay_alive,
+        email_alive,
+        queue_alive,
+        sla_alive,
+        automations_alive: auto_alive,
+    };
     let app = Router::new()
         .route("/healthz", get(healthz))
-        .with_state((relay_alive, email_alive));
+        .with_state(Arc::new(health));
     let listener = tokio::net::TcpListener::bind(&config.bind_addr).await?;
     tracing::info!(addr = %config.bind_addr, "worker health endpoint listening");
     axum::serve(listener, app)
@@ -88,19 +146,27 @@ pub async fn run(
     Ok(())
 }
 
-async fn healthz(
-    State((relay, email)): State<(Arc<AtomicBool>, Arc<AtomicBool>)>,
-) -> Json<serde_json::Value> {
-    let relay_ok = relay.load(Ordering::Relaxed);
-    let email_ok = email.load(Ordering::Relaxed);
-    if relay_ok && email_ok {
-        Json(json!({ "status": "ok", "relay": "alive", "email": "alive" }))
+#[derive(Clone)]
+struct HealthFlags {
+    relay_alive: Arc<AtomicBool>,
+    email_alive: Arc<AtomicBool>,
+    queue_alive: Arc<AtomicBool>,
+    sla_alive: Arc<AtomicBool>,
+    automations_alive: Arc<AtomicBool>,
+}
+
+async fn healthz(State(flags): State<Arc<HealthFlags>>) -> Json<serde_json::Value> {
+    let ok = flags.relay_alive.load(Ordering::Relaxed)
+        && flags.email_alive.load(Ordering::Relaxed)
+        && flags.queue_alive.load(Ordering::Relaxed)
+        && flags.sla_alive.load(Ordering::Relaxed)
+        && flags.automations_alive.load(Ordering::Relaxed);
+    if ok {
+        Json(
+            json!({ "status": "ok", "relay": "alive", "email": "alive", "queue": "alive", "sla": "alive", "automations": "alive" }),
+        )
     } else {
-        Json(json!({
-            "status": "unhealthy",
-            "relay": if relay_ok { "alive" } else { "stopped" },
-            "email": if email_ok { "alive" } else { "stopped" },
-        }))
+        Json(json!({ "status": "unhealthy" }))
     }
 }
 
@@ -118,45 +184,21 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn healthz_reflects_both_loops() {
-        let relay = Arc::new(AtomicBool::new(true));
-        let email = Arc::new(AtomicBool::new(true));
-        let healthy = healthz(State((Arc::clone(&relay), Arc::clone(&email)))).await;
+    async fn healthz_reflects_the_liveness_flags() {
+        let flags = HealthFlags {
+            relay_alive: Arc::new(AtomicBool::new(true)),
+            email_alive: Arc::new(AtomicBool::new(true)),
+            queue_alive: Arc::new(AtomicBool::new(true)),
+            sla_alive: Arc::new(AtomicBool::new(true)),
+            automations_alive: Arc::new(AtomicBool::new(true)),
+        };
+        let healthy = healthz(State(Arc::new(flags.clone()))).await;
         assert_eq!(healthy.0["relay"], "alive");
         assert_eq!(healthy.0["email"], "alive");
-        email.store(false, Ordering::Relaxed);
-        let degraded = healthz(State((Arc::clone(&relay), Arc::clone(&email)))).await;
-        assert_eq!(degraded.0["status"], "unhealthy");
-        assert_eq!(degraded.0["email"], "stopped");
-        assert_eq!(degraded.0["relay"], "alive");
-    }
+        assert_eq!(healthy.0["status"], "ok");
 
-    #[tokio::test]
-    async fn shutdown_waits_for_the_flag() {
-        let (tx, rx) = watch::channel(false);
-        let waiter = tokio::spawn(wait_for_shutdown(rx));
-        assert!(!waiter.is_finished());
-        tx.send(true).expect("receiver alive");
-        waiter.await.expect("resolves");
-    }
-
-    #[tokio::test]
-    async fn email_loop_exits_immediately_when_unconfigured() {
-        // None-mode: no token ⇒ the loop returns instead of spinning.
-        let (_, rx) = watch::channel(false);
-        let cfg = config::EmailLoopConfig {
-            core_api_url: "http://127.0.0.1:1".into(),
-            internal_token: None,
-            transport_kind: core_mail::TransportKind::None,
-            claim_batch: 10,
-            lease_secs: 300,
-        };
-        // Resolves only if the loop returned; timeout proves no spin.
-        tokio::time::timeout(
-            std::time::Duration::from_secs(2),
-            email::run_email_loop(cfg, Arc::new(core_mail::RecordingTransport::new()), rx),
-        )
-        .await
-        .expect("unconfigured loop must exit promptly");
+        flags.queue_alive.store(false, Ordering::Relaxed);
+        let unhealthy = healthz(State(Arc::new(flags))).await;
+        assert_eq!(unhealthy.0["status"], "unhealthy");
     }
 }

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE jobs SET status = 'pending',\n                  run_after = now() + make_interval(secs => $2),\n                  last_error = $3, claimed_at = NULL, claimed_by = NULL,\n                  updated_at = now()\n           WHERE id = $1 AND status = 'running'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Float8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9b3ae4a990c1aa619535d63316503a47e68442bee286a0d962c610bf45c26bc1"
+}

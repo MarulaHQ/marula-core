@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO sla_fired_escalations (org_id, ticket_id, step_id, target)\n           VALUES ($1, $2, $3, $4)\n           ON CONFLICT (ticket_id, step_id, target) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7d0c9bf7ae5ed90f94c5080f610aa6cd2dd49d1e66b5d778cee097991b53d63f"
+}

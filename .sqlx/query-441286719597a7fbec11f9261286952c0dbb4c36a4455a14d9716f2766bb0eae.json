@@ -1,0 +1,72 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE automation_rules SET\n             name = COALESCE($3, name),\n             board_id = CASE WHEN $4::bool THEN $5 ELSE board_id END,\n             trigger_event = COALESCE($6, trigger_event),\n             conditions = COALESCE($7, conditions),\n             actions = COALESCE($8, actions),\n             enabled = COALESCE($9, enabled),\n             updated_at = now()\n           WHERE org_id = $1 AND id = $2\n           RETURNING id, org_id, board_id, name, trigger_event,\n                     conditions, actions, enabled",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "board_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "trigger_event",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "conditions",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "actions",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "enabled",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Bool",
+        "Uuid",
+        "Text",
+        "Jsonb",
+        "Jsonb",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "441286719597a7fbec11f9261286952c0dbb4c36a4455a14d9716f2766bb0eae"
+}

@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE jobs\n           SET status = 'running', claimed_at = now(), claimed_by = $1,\n               attempts = attempts + 1, updated_at = now()\n           WHERE id IN (\n             SELECT id FROM jobs\n             WHERE status = 'pending' AND run_after <= now()\n             ORDER BY id\n             FOR UPDATE SKIP LOCKED\n             LIMIT $2\n           )\n           RETURNING id, org_id, kind, payload, attempts, max_attempts, claimed_by",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "payload",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "attempts",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "max_attempts",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "claimed_by",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "d826e0ddd997080ae5117427613d4cd7b8efff059e281c7557228b5b75408c99"
+}
