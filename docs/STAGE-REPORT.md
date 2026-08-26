@@ -137,3 +137,46 @@ acceptance re-run on merged main: **18/18** incl. WS push chain, p95 ≤ 38 ms.
 2. Webhook subscription secrets dead-letter fail-closed when `MERIDIAN_SECRET_KEY` unset on worker (documented none mode).
 3. Portal MFA deferred to portal v2.
 4. Scheduling reminders/notification hooks deferred (data model dispatch-ready).
+
+## Stage 2 — close-out (2.18–2.6 remainder)
+
+**Status: STAGE 2 COMPLETE.** Final three lanes merged and verified on main:
+
+| Item | Lane | Highlights |
+|---|---|---|
+| 2.18 OTel baseline | `stage2-otel` | `core-otel` crate (opt-in OTLP, disabled-by-default none mode), HTTP/WS/worker spans + `meridian.http.*` metrics, redaction+cardinality policy tested; observability compose profile with collector→Tempo/Loki + Grafana provisioning |
+| 2.19 Dispatch board v1 | `stage2-dispatch` | capacity math + day-view assembly + conflict-checked bulk-move under EXCLUDE constraints; org-channel WS subscriptions (own-org authz) for presence/appointment events; drag/drop grid per mockup with ghost preview, conflict badges, optimistic reconcile; headless drag-state reducer w/ vitest |
+| 2.6 Admin config screens | `stage2-admin-ui` | workflow editor (category-chipped statuses, transition matrix, checklist template), SLA calendar+ladder editors with referenced-by counts, webhook manager (event multiselect, rotate, paged delivery log, test-fire), API-keys page (scopes, show-once secret, revoke, last-used); SDK-typed mock-fetch vitest suites |
+
+**Final verification on merged main:** fmt · clippy `-D warnings` · **46 Rust
+suites / 74 web tests green** · spec snapshot at **122 paths** · live-stack
+acceptance **18/18** incl. WS push chain and p95 ≤ 15.2 ms.
+
+### Stage-2 exit criteria (BUILD-PROMPT §7 line vs. evidence)
+
+- Email-in/out two-simulated-weeks zero-loss harness — CI-style in-repo ✓ (2.4)
+- SLA provably correct under clock skew — DB-clock sweeps + property tests ✓ (2.7)
+- Workflow customization bound to semantic categories only ✓ (2.1/2.11)
+- @mentions + notification center w/ prefs/quiet hours ✓ (2.2)
+- Notes taxonomy + enforced pre-close checklists ✓ (2.8)
+- Single-active timer + missing-time EOD nudges ✓ (2.9/2.10)
+- Client portal v1 incl. IT-manager tier ✓ (2.13)
+- OIDC SSO + TOTP/WebAuthn MFA + audit coverage ✓ (2.3)
+- Plugin runtime v1 (signed webhooks, scoped API keys) + NinjaOne/Hudu refs ✓ (2.15)
+- Scheduling/calendars/availability + dispatch board v1 ✓ (2.12/2.19)
+- OTel instrumentation ✓ (2.18)
+- Settings hub + admin configuration screens ✓ (2.5/2.6)
+
+### Known gaps carried into Phase 3
+
+1. WebAuthn state serialization review (`danger-allow-state-serialisation`) during security pass.
+2. OIDC discovery/JWKS on reqwest+jsonwebtoken — consider `openidconnect` crate.
+3. Portal MFA; scheduling reminders; report definitions UI (R3/R6 tracks added).
+4. Upgrade-policy retrofit backlog U1–U10 tracked in TASKLIST.
+5. Per-ticket SLA badge shipped for detail view; list-column integration pending views work.
+
+## Release v0.1.0
+
+Tagged at Stage-2 close per upgrade-policy §3/U10: strict semver anchor for
+the N−2 chain (U7), release notes carry an empty "Breaking & deprecated"
+section (§7) — no released API existed before this tag to break.
