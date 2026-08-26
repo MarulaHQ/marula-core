@@ -43,11 +43,19 @@ pub fn build_router(state: AppState) -> Router {
             "/api/clients/{id}/assets",
             get(clients::list_assets).post(clients::create_asset),
         )
-        // boards + statuses
+        // boards + statuses + workflow customization
         .route("/api/boards", get(boards::list).post(boards::create))
         .route(
             "/api/boards/{id}/statuses",
             get(boards::list_statuses).post(boards::add_status),
+        )
+        .route(
+            "/api/boards/{id}/statuses/{status_id}",
+            axum::routing::patch(boards::update_status).delete(boards::delete_status),
+        )
+        .route(
+            "/api/boards/{id}/transitions",
+            get(boards::list_transitions).put(boards::set_transitions),
         )
         .route("/api/boards/{id}/favorite", post(boards::toggle_favorite))
         // tickets
