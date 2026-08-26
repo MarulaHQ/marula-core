@@ -129,6 +129,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/boards/{id}/checklist-template": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/boards/{id}/checklist-template */
+        get: operations["boards_get_checklist_template"];
+        /**
+         * PUT /api/boards/{id}/checklist-template — creates or replaces the
+         *     board's template wholesale and sets the enforcement toggle; emits
+         *     `board.checklist_template_updated` and audits the change.
+         */
+        put: operations["boards_put_checklist_template"];
+        post?: never;
+        /**
+         * DELETE /api/boards/{id}/checklist-template — removes the template.
+         *     Ticket instances demote to ad-hoc items; with no template left,
+         *     close-time enforcement is off by construction regardless of the toggle.
+         */
+        delete: operations["boards_delete_checklist_template"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/boards/{id}/statuses": {
         parameters: {
             query?: never;
@@ -492,10 +519,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** GET /api/tickets/{id}/checklist */
+        /**
+         * GET /api/tickets/{id}/checklist — lazily instantiates any template items
+         *     the ticket has not picked up yet, then returns the full view.
+         */
         get: operations["tickets_get_checklist"];
         put?: never;
-        /** POST /api/tickets/{id}/checklist — appends a pre-close checklist item. */
+        /**
+         * POST /api/tickets/{id}/checklist — appends an ad-hoc checklist item.
+         *     Ad-hoc items never block closure; emits `ticket.checklist_updated`.
+         */
         post: operations["tickets_add_checklist_item"];
         delete?: never;
         options?: never;
@@ -512,7 +545,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** POST /api/tickets/{id}/checklist/{item_id} — toggles one checklist item. */
+        /**
+         * POST /api/tickets/{id}/checklist/{item_id} — toggles one checklist item;
+         *     emits `ticket.checklist_updated` in the same transaction.
+         */
         post: operations["tickets_set_checklist_item"];
         delete?: never;
         options?: never;
@@ -528,8 +564,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * GET /api/tickets/{id}/comments — internal notes require ticket view;
-         *     the portal surface filters kinds separately (portal v1).
+         * GET /api/tickets/{id}/comments — optional kind filter; internal notes
+         *     require ticket view. The portal surface must consume the dedicated
+         *     client-visible read (`core-db::tickets::list_client_visible_comments`),
+         *     never this staff endpoint.
          */
         get: operations["tickets_list_comments"];
         put?: never;
@@ -555,8 +593,9 @@ export interface paths {
         put?: never;
         /**
          * POST /api/tickets/{id}/status — the guarded lifecycle transition:
-         *     domain transition rules, pre-close checklist enforcement, SLA pause
-         *     bookkeeping, and the `ticket.status_changed` event, all in one tx.
+         *     domain transition rules, pre-close checklist enforcement (typed 409
+         *     listing the incomplete required items when the board enforces), SLA
+         *     pause bookkeeping, and the `ticket.status_changed` event, all in one tx.
          */
         post: operations["tickets_change_status"];
         delete?: never;
@@ -778,6 +817,12 @@ export interface components {
             name: string;
             /** Format: uuid */
             org_id: string;
+            /**
+             * @description Pre-close checklist enforcement toggle (defaults OFF; closing is
+             *     gated only when this AND a checklist template are both present —
+             *     defaults-first doctrine, migration 0016).
+             */
+            require_checklist_close: boolean;
         };
         /**
          * @description A per-board status. `category` is the binding contract — labels are
@@ -815,8 +860,10 @@ export interface components {
             status_id: string;
         };
         /**
-         * @description One line of a ticket's pre-close checklist. Closing a ticket whose
-         *     category target requires a checklist fails while any item is unchecked.
+         * @description One line of a ticket's pre-close checklist. Items instantiated from the
+         *     board's template carry `template_item_id`; those are REQUIRED when the
+         *     board enforces pre-close checklists (see `crate::notes`). Ad-hoc items
+         *     (`template_item_id == None`) never block closure.
          */
         ChecklistItem: {
             checked: boolean;
@@ -830,9 +877,80 @@ export interface components {
             org_id: string;
             /** Format: int32 */
             sort_order: number;
+            /**
+             * Format: uuid
+             * @description Template provenance: `Some` ⇒ required under enforcement.
+             */
+            template_item_id?: string | null;
             text: string;
             /** Format: uuid */
             ticket_id: string;
+        };
+        /**
+         * @description Derived-at-read-time checklist progress (never materialized — see the
+         *     0016 migration header for the justification). `required_open` counts
+         *     unchecked template-derived instances: the close-blocking set when the
+         *     board enforces.
+         */
+        ChecklistProgress: {
+            /**
+             * Format: int64
+             * @description Checked rows across both classes.
+             */
+            checked: number;
+            /**
+             * Format: int64
+             * @description Unchecked REQUIRED (template-derived) rows.
+             */
+            required_open: number;
+            /**
+             * Format: int64
+             * @description All instance rows (template-derived + ad-hoc).
+             */
+            total: number;
+        };
+        /**
+         * @description A board's pre-close checklist template. Exactly one per board
+         *     (UNIQUE in storage): the deterministic gate consulted at close time.
+         */
+        ChecklistTemplate: {
+            /** Format: uuid */
+            board_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /**
+         * @description One required step in a template. Instances on tickets link back to this
+         *     id (`checklist_items.template_item_id`), so enforcement follows identity,
+         *     never fragile text matching.
+         */
+        ChecklistTemplateItem: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: int32 */
+            sort_order: number;
+            /** Format: uuid */
+            template_id: string;
+            text: string;
+        };
+        /**
+         * @description GET /api/boards/{id}/checklist-template response: the template (if any),
+         *     its items, and the enforcement posture actually applied at close time.
+         */
+        ChecklistTemplateView: {
+            items: components["schemas"]["ChecklistTemplateItem"][];
+            /** @description Mirrors `boards.require_checklist_close`. */
+            require_checklist_close: boolean;
+            template?: null | components["schemas"]["ChecklistTemplate"];
         };
         Client: {
             /** Format: date-time */
@@ -850,6 +968,9 @@ export interface components {
             restricted_to: string[];
             /** Format: date-time */
             updated_at: string;
+        };
+        CommentListQuery: {
+            kind?: null | components["schemas"]["NoteKind"];
         };
         Contact: {
             /** Format: uuid */
@@ -1077,6 +1198,13 @@ export interface components {
          * @enum {string}
          */
         Priority: "p1" | "p2" | "p3" | "p4";
+        PutChecklistTemplateRequest: {
+            /** @description The complete required-step list; replaces any previous items. */
+            items: string[];
+            name: string;
+            /** @description Enforcement toggle (defaults-first: OFF until explicitly enabled). */
+            require_checklist_close?: boolean;
+        };
         RefreshRequest: {
             refresh_token: string;
             /**
@@ -1185,6 +1313,17 @@ export interface components {
             title: string;
             /** Format: date-time */
             updated_at: string;
+        };
+        /**
+         * @description GET response for a ticket's checklist: instances, derived progress,
+         *     and the board's live enforcement posture. `blocking` lists the unchecked
+         *     REQUIRED items when enforcement is active (empty otherwise).
+         */
+        TicketChecklistView: {
+            blocking: string[];
+            enforcement_active: boolean;
+            items: components["schemas"]["ChecklistItem"][];
+            progress: components["schemas"]["ChecklistProgress"];
         };
         /**
          * @description A structured ticket note. Taxonomy: internal / client-visible /
@@ -1567,6 +1706,71 @@ export interface operations {
                 "application/json": components["schemas"]["FavoriteRequest"];
             };
         };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    boards_get_checklist_template: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChecklistTemplateView"];
+                };
+            };
+        };
+    };
+    boards_put_checklist_template: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutChecklistTemplateRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChecklistTemplateView"];
+                };
+            };
+        };
+    };
+    boards_delete_checklist_template: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             204: {
                 headers: {
@@ -2225,7 +2429,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChecklistItem"][];
+                    "application/json": components["schemas"]["TicketChecklistView"];
                 };
             };
         };
@@ -2250,7 +2454,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChecklistItem"][];
+                    "application/json": components["schemas"]["TicketChecklistView"];
                 };
             };
         };
@@ -2276,14 +2480,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChecklistItem"][];
+                    "application/json": components["schemas"]["TicketChecklistView"];
                 };
             };
         };
     };
     tickets_list_comments: {
         parameters: {
-            query?: never;
+            query?: {
+                /**
+                 * @description Optional taxonomy filter (`internal`, `client_visible`,
+                 *     `in_house_update`). Omit for all kinds (staff view).
+                 */
+                kind?: null | components["schemas"]["NoteKind"];
+            };
             header?: never;
             path: {
                 id: string;
@@ -2350,7 +2560,14 @@ export interface operations {
                     "application/json": components["schemas"]["Ticket"];
                 };
             };
-            /** @description checklist incomplete or invalid transition */
+            /** @description pre-close checklist incomplete (board enforces) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid transition */
             422: {
                 headers: {
                     [name: string]: unknown;
