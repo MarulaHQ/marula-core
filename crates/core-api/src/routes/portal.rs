@@ -538,3 +538,114 @@ pub async fn reply(
 
     Ok(Json(comment))
 }
+
+// --- portal attachments (TASKLIST 2.14) -------------------------------------
+
+/// Portal attachment view: metadata only (bytes stream on download).
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PortalAttachmentView {
+    pub id: Uuid,
+    pub filename: String,
+    pub content_type: String,
+    pub size_bytes: i64,
+    pub sha256: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+fn portal_attachment_visible_kinds(role: PortalRole) -> Vec<String> {
+    core_domain::notes::visible_kinds(audience_for(role))
+        .iter()
+        .map(|k| k.as_str().to_string())
+        .collect()
+}
+
+/// GET /api/portal/tickets/{id}/attachments — attachments the portal
+/// caller may see: ticket-level files always; comment files only when the
+/// owning note kind is visible to this tier.
+#[utoipa::path(operation_id = "portal_list_attachments", get,
+    path = "/api/portal/tickets/{id}/attachments", tag = "portal",
+    security(("bearer" = [])), params(("id" = Uuid, Path)),
+    responses((status = 200, body = [PortalAttachmentView]), (status = 404)))]
+pub async fn list_attachments(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<Vec<PortalAttachmentView>>> {
+    let authed = portal_authed(&extensions)?;
+    check_portal(
+        authed.user.role,
+        core_domain::policy::PortalAction::ViewTickets,
+    )
+    .expect()
+    .map_err(ApiError::Forbidden)?;
+    let org_id = authed.user.org_id;
+    let client_id = authed.user.client_id;
+
+    // Exposure + ownership gate (also 404s hidden tickets).
+    core_db::portal::get_client_ticket(&state.pool, org_id, client_id, id).await?;
+    let kinds = portal_attachment_visible_kinds(authed.user.role);
+    let items = core_db::attachments::list_portal_visible(&state.pool, org_id, id, &kinds)
+        .await?
+        .into_iter()
+        .map(|a| PortalAttachmentView {
+            id: a.id,
+            filename: a.filename,
+            content_type: a.content_type,
+            size_bytes: a.size_bytes,
+            sha256: a.sha256,
+            created_at: a.created_at,
+        })
+        .collect();
+    Ok(Json(items))
+}
+
+/// GET /api/portal/tickets/{id}/attachments/{attachment_id}/download —
+/// streams one visible attachment through the API. Hidden or foreign
+/// attachments are plain 404s (no existence leak).
+#[utoipa::path(operation_id = "portal_download_attachment", get,
+    path = "/api/portal/tickets/{id}/attachments/{attachment_id}/download", tag = "portal",
+    security(("bearer" = [])),
+    params(("id" = Uuid, Path), ("attachment_id" = Uuid, Path)),
+    responses((status = 200, body = Vec<u8>, content_type = "application/octet-stream"), (status = 404)))]
+pub async fn download_attachment(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path((id, attachment_id)): Path<(Uuid, Uuid)>,
+) -> ApiResult<axum::response::Response> {
+    use futures_util::StreamExt;
+    let authed = portal_authed(&extensions)?;
+    check_portal(
+        authed.user.role,
+        core_domain::policy::PortalAction::ViewTickets,
+    )
+    .expect()
+    .map_err(ApiError::Forbidden)?;
+    let org_id = authed.user.org_id;
+    let client_id = authed.user.client_id;
+
+    core_db::portal::get_client_ticket(&state.pool, org_id, client_id, id).await?;
+    let kinds = portal_attachment_visible_kinds(authed.user.role);
+    let Some(attachment) =
+        core_db::attachments::find_portal_visible(&state.pool, org_id, id, attachment_id, &kinds)
+            .await?
+    else {
+        return Err(ApiError::NotFound);
+    };
+
+    let obj = state
+        .store
+        .get(&attachment.storage_key)
+        .await
+        .map_err(crate::routes::attachments::store_error)?;
+    let content_disposition = format!(
+        "attachment; filename=\"{}\"",
+        attachment.filename.replace(['"', '\\'], "")
+    );
+    let stream = obj.stream.map(|chunk| chunk.map_err(axum::Error::new));
+    axum::response::Response::builder()
+        .status(axum::http::StatusCode::OK)
+        .header(axum::http::header::CONTENT_TYPE, obj.content_type)
+        .header(axum::http::header::CONTENT_DISPOSITION, content_disposition)
+        .body(axum::body::Body::from_stream(stream))
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!(e.to_string())))
+}

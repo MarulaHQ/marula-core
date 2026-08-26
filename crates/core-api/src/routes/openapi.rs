@@ -164,6 +164,13 @@ use utoipa::OpenApi;
         crate::routes::availability::create_exclusion,
         crate::routes::availability::delete_exclusion,
         crate::routes::search::search,
+        crate::routes::attachments::upload,
+        crate::routes::attachments::list_for_ticket,
+        crate::routes::attachments::list_for_comment,
+        crate::routes::attachments::download,
+        crate::routes::attachments::remove,
+        crate::routes::portal::list_attachments,
+        crate::routes::portal::download_attachment,
     ),
     components(schemas(
         crate::auth::handlers::RegisterRequest,
@@ -340,6 +347,10 @@ use utoipa::OpenApi;
         crate::routes::search::SearchQuery,
         crate::routes::search::SearchResponse,
         crate::routes::search::SearchResult,
+        // attachments (TASKLIST 2.14)
+        core_domain::entities::Attachment,
+        core_domain::entities::AttachmentKind,
+        crate::routes::portal::PortalAttachmentView,
     ),
     ),
     tags(
@@ -359,6 +370,7 @@ use utoipa::OpenApi;
         (name = "portal-admin", description = "Staff administration of portal users + board exposure"),
         (name = "integrations", description = "Signed webhooks OUT + scoped API keys (plugin runtime v1)"),
         (name = "scheduling", description = "Appointments, availability, on-call, calendar views"),
+        (name = "attachments", description = "File attachments on tickets/comments (ObjectStore-backed)"),
     )
 )]
 pub struct ApiDoc;

@@ -106,10 +106,61 @@ pub async fn process_inbound(
     msg.validate()
         .map_err(|e| ApiError::Validation(e.to_string()))?;
 
-    // --- scan (network IO deliberately outside the DB transaction) ---
+    // --- attachment preparation (TASKLIST 2.14): decode + size-cap +
+    // hash BEFORE the scan gate so nothing undecoded/oversized ever
+    // reaches storage, and so the scanner sees attachment bytes too.
+    // Email attachments skip the API's magic-byte allowlist ON PURPOSE:
+    // after the malware gate this is a trusted channel and rejecting,
+    // say, .eml forwards would silently drop ticket content.
+    let max_bytes = state.config.max_upload_bytes;
+    let mut prepared_attachments: Vec<PreparedAttachment> =
+        Vec::with_capacity(msg.attachments.len());
+    for part in &msg.attachments {
+        let bytes = part.decoded().map_err(|e| {
+            ApiError::Validation(format!("attachment {:?}: bad base64: {e}", part.filename))
+        })?;
+        if bytes.is_empty() {
+            return Err(ApiError::Validation(format!(
+                "attachment {:?} is empty",
+                part.filename
+            )));
+        }
+        if bytes.len() as i64 > max_bytes {
+            return Err(ApiError::Validation(format!(
+                "attachment {:?} exceeds size cap",
+                part.filename
+            )));
+        }
+        use sha2::{Digest, Sha256};
+        let sha256_hex = hex::encode(Sha256::digest(&bytes));
+        let filename = core_domain::attachments::sanitize_filename(&part.filename);
+        prepared_attachments.push(PreparedAttachment {
+            filename,
+            content_type: if part.content_type.trim().is_empty() {
+                "application/octet-stream".to_string()
+            } else {
+                part.content_type
+                    .split(';')
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .to_ascii_lowercase()
+            },
+            sha256_hex,
+            bytes,
+        });
+    }
+
+    // --- scan (network IO deliberately outside the DB transaction); the
+    // scanner receives body text PLUS attachment contents so a payload
+    // hidden in an attachment still trips the verdict ---
     let body_text = msg.effective_text();
-    let scan_input = body_text.as_deref().unwrap_or("");
-    let (scan_status, proceed) = match state.mail.scanner.scan(scan_input).await {
+    let mut scan_text = body_text.clone().unwrap_or_default();
+    for part in &prepared_attachments {
+        scan_text.push('\n');
+        scan_text.push_str(&String::from_utf8_lossy(&part.bytes));
+    }
+    let (scan_status, proceed) = match state.mail.scanner.scan(&scan_text).await {
         Ok(v) if v.infected => (ScanStatus::Infected, false),
         Ok(_) => (
             if state.mail.scanner.name() == "none" {
@@ -165,6 +216,96 @@ pub async fn process_inbound(
     .await?;
     if inserted.is_none() {
         return Ok(InboundStatus::Duplicate);
+    }
+
+    // --- attachments: store objects + rows INSIDE the claim-winning
+    // transaction. Claiming first prevents replay-race orphans; the tx is
+    // deliberately held across object PUTs (bounded by the per-part cap)
+    // and every stored key is tracked so the error path below can reclaim
+    // exactly what it wrote. Rows point at the LEDGER message; ticket/
+    // comment linkage is copied onto them once routing decides below.
+    let mut stored_keys: Vec<String> = Vec::new();
+    let attachment_result: ApiResult<()> = async {
+        for part in &prepared_attachments {
+            if !proceed {
+                break;
+            }
+            let key = core_store::attachment_key(org_id, &part.sha256_hex);
+            let existing =
+                core_db::attachments::find_existing_object_key(&mut tx, org_id, &part.sha256_hex)
+                    .await?;
+            if existing.is_none() {
+                state
+                    .store
+                    .put(
+                        &key,
+                        &part.content_type,
+                        bytes::Bytes::from(part.bytes.clone()),
+                    )
+                    .await
+                    .map_err(|e| {
+                        tracing::error!(error = %e, "attachment store failed");
+                        ApiError::Internal(anyhow::anyhow!(e.to_string()))
+                    })?;
+                stored_keys.push(key.clone());
+            }
+            let kind = core_domain::entities::AttachmentKind::EmailMessage;
+            match core_db::attachments::insert(
+                &mut tx,
+                core_db::attachments::NewAttachment {
+                    id: Uuid::now_v7(),
+                    org_id,
+                    kind,
+                    ticket_id: None,
+                    ticket_comment_id: None,
+                    email_message_id: Some(message_id),
+                    filename: &part.filename,
+                    content_type: &part.content_type,
+                    size_bytes: part.bytes.len() as i64,
+                    sha256: &part.sha256_hex,
+                    storage_key: &key,
+                    uploaded_by_user_id: None,
+                    uploaded_by_portal_user_id: None,
+                },
+            )
+            .await
+            {
+                Ok(attachment) => {
+                    emit_event(
+                        &mut tx,
+                        org_id,
+                        types::ATTACHMENT_ADDED,
+                        "attachment",
+                        Some(attachment.id),
+                        &serde_json::to_value(core_domain::events::AttachmentAdded {
+                            attachment_id: attachment.id,
+                            kind: kind.as_str().to_string(),
+                            ticket_id: None,
+                            ticket_comment_id: None,
+                            email_message_id: Some(message_id),
+                            filename: attachment.filename.clone(),
+                            content_type: attachment.content_type.clone(),
+                            size_bytes: attachment.size_bytes,
+                            sha256: attachment.sha256.clone(),
+                            uploaded_by_user_id: None,
+                        })
+                        .unwrap_or_default(),
+                    )
+                    .await?;
+                }
+                Err(e) => {
+                    // Fatal to THIS stage: a swallowed error would leave
+                    // the transaction aborted for every later statement.
+                    return Err(ApiError::from(e));
+                }
+            }
+        }
+        Ok(())
+    }
+    .await;
+    if let Err(e) = attachment_result {
+        reclaim(&state.store, &stored_keys).await;
+        return Err(e);
     }
 
     // --- decide + act ---
@@ -231,8 +372,14 @@ pub async fn process_inbound(
         }
     };
 
-    // --- link the routing result onto the claimed ledger row ---
+    // --- link the routing result onto the claimed ledger row; copy the
+    // same targets onto email-message attachment rows so authz and
+    // portal visibility flow through the ticket like any other file ---
     emails::link_message_targets(&mut *tx, org_id, message_id, ticket_id, comment_id).await?;
+    // The ledger row is the single source of truth for routing targets:
+    // email attachments stay linked via email_message_id and authz plus
+    // portal visibility JOIN through it (routes/attachments +
+    // core_db::attachments list_portal_visible/find_portal_visible).
     emit_event(
         &mut tx,
         org_id,
@@ -251,8 +398,29 @@ pub async fn process_inbound(
     )
     .await?;
 
-    tx.commit().await.map_err(ApiError::from)?;
+    if let Err(e) = tx.commit().await {
+        reclaim(&state.store, &stored_keys).await;
+        return Err(ApiError::from(e));
+    }
     Ok(status)
+}
+
+/// One decoded, size-capped, hashed inbound attachment ready to persist.
+struct PreparedAttachment {
+    filename: String,
+    content_type: String,
+    sha256_hex: String,
+    bytes: Vec<u8>,
+}
+
+/// Best-effort object reclamation after a failed pipeline stage. Delete
+/// is idempotent per trait contract; failures are logged, never fatal.
+async fn reclaim(store: &Arc<dyn core_store::ObjectStore>, keys: &[String]) {
+    for key in keys {
+        if let Err(e) = store.delete(key).await {
+            tracing::warn!(key = %key, error = %e, "orphaned attachment bytes");
+        }
+    }
 }
 
 /// Creates the autoresponder ticket for brand-new senders: requester

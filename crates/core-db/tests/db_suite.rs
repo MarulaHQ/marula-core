@@ -5502,3 +5502,229 @@ async fn search_unscoped_app_role_cannot_read_or_write() {
         other => panic!("expected RLS violation, got {other:?}"),
     }
 }
+
+// --- attachments (TASKLIST 2.14) --------------------------------------------
+
+/// Inserts one attachment row through the public query API.
+#[allow(clippy::too_many_arguments)]
+async fn put_attachment(
+    conn: &mut PgConnection,
+    org: Uuid,
+    id: Uuid,
+    kind: core_domain::entities::AttachmentKind,
+    ticket_id: Option<Uuid>,
+    comment_id: Option<Uuid>,
+    sha_hex: &str,
+    uploader: Option<Uuid>,
+) -> Attachment {
+    let key = format!("org/{org}/attachments/{sha_hex}");
+    core_db::attachments::insert(
+        conn,
+        core_db::attachments::NewAttachment {
+            id,
+            org_id: org,
+            kind,
+            ticket_id,
+            ticket_comment_id: comment_id,
+            email_message_id: None,
+            filename: "evidence.png",
+            content_type: "image/png",
+            size_bytes: 42,
+            sha256: sha_hex,
+            storage_key: &key,
+            uploaded_by_user_id: uploader,
+            uploaded_by_portal_user_id: None,
+        },
+    )
+    .await
+    .expect("attachment insert")
+}
+
+/// Dedup shares one stored object between rows; refcount-gated delete
+/// reclaims only when the LAST reference goes; linking is one-shot.
+#[tokio::test]
+async fn attachments_dedup_link_and_refcounted_delete() {
+    let db = test_db().await;
+    let sa = seed_org(&db.app, 130).await;
+    let ua = seed_user(&db.app, &sa, 13000).await;
+
+    let mut tx = org_tx(&db.app, sa.org).await;
+    let t1 = create_ticket(
+        &mut tx,
+        &sa,
+        fixed_uuid(13001),
+        "Attach me",
+        Priority::P2,
+        sa.entry_status,
+        None,
+    )
+    .await;
+    let c1 = tickets::insert_comment(
+        &mut *tx,
+        fixed_uuid(13002),
+        sa.org,
+        t1.id,
+        Some(ua),
+        NoteKind::Internal,
+        "with file",
+    )
+    .await
+    .expect("comment");
+
+    // First upload claims the content-addressed object…
+    let a1 = put_attachment(
+        &mut tx,
+        sa.org,
+        fixed_uuid(13003),
+        core_domain::entities::AttachmentKind::TicketComment,
+        Some(t1.id),
+        Some(c1.id),
+        &"a".repeat(64),
+        Some(ua),
+    )
+    .await;
+    assert_eq!(
+        core_db::attachments::find_existing_object_key(&mut tx, sa.org, &"a".repeat(64))
+            .await
+            .expect("dedup"),
+        Some(a1.storage_key.clone())
+    );
+
+    // …second row REUSES it (same bytes attached elsewhere).
+    let a2 = put_attachment(
+        &mut tx,
+        sa.org,
+        fixed_uuid(13004),
+        core_domain::entities::AttachmentKind::TicketComment,
+        Some(t1.id),
+        None,
+        &"a".repeat(64),
+        Some(ua),
+    )
+    .await;
+    assert_eq!(a1.storage_key, a2.storage_key);
+
+    // Linking the still-unlinked upload is one-shot.
+    let linked = core_db::attachments::link_to_comment(&mut tx, sa.org, a2.id, t1.id, c1.id)
+        .await
+        .expect("link")
+        .expect("linked");
+    assert_eq!(linked.ticket_comment_id, Some(c1.id));
+    assert!(
+        core_db::attachments::link_to_comment(&mut tx, sa.org, a2.id, t1.id, c1.id)
+            .await
+            .expect("relink")
+            .is_none()
+    );
+
+    // Listing sees both rows for the ticket and per-comment.
+    assert_eq!(
+        core_db::attachments::list_for_ticket(&mut *tx, sa.org, t1.id)
+            .await
+            .expect("list")
+            .len(),
+        2
+    );
+    assert_eq!(
+        core_db::attachments::list_for_comment(&mut *tx, sa.org, c1.id)
+            .await
+            .expect("per-comment")
+            .len(),
+        2
+    );
+
+    tx.commit().await.expect("commit");
+
+    // Delete row 1: object stays (row 2 still references the key).
+    let mut tx = org_tx(&db.app, sa.org).await;
+    let gone = core_db::attachments::delete(&mut tx, sa.org, a1.id)
+        .await
+        .expect("del")
+        .expect("row");
+    assert_eq!(gone.sha256, "a".repeat(64));
+    let refs = core_db::attachments::count_other_refs(&mut tx, sa.org, &a1.storage_key, a1.id)
+        .await
+        .expect("refs");
+    assert_eq!(refs, 1, "sibling reference keeps the object alive");
+
+    // Delete row 2: zero refs → caller may reclaim the object.
+    core_db::attachments::delete(&mut tx, sa.org, a2.id)
+        .await
+        .expect("del2")
+        .expect("row2");
+    let refs = core_db::attachments::count_other_refs(&mut tx, sa.org, &a1.storage_key, a2.id)
+        .await
+        .expect("refs");
+    assert_eq!(refs, 0);
+    tx.commit().await.expect("commit del");
+}
+
+/// RLS: attachments are invisible cross-org and default-deny unscoped.
+#[tokio::test]
+async fn rls_isolates_attachments_table() {
+    use core_domain::entities::AttachmentKind;
+    let db = test_db().await;
+    let sa = seed_org(&db.app, 132).await;
+    let sb = seed_org(&db.app, 133).await;
+    let ua = seed_user(&db.app, &sa, 13300).await;
+
+    let mut tx_a = org_tx(&db.app, sa.org).await;
+    let t1 = create_ticket(
+        &mut tx_a,
+        &sa,
+        fixed_uuid(13301),
+        "Secret file",
+        Priority::P3,
+        sa.entry_status,
+        None,
+    )
+    .await;
+    put_attachment(
+        &mut tx_a,
+        sa.org,
+        fixed_uuid(13302),
+        AttachmentKind::Ticket,
+        Some(t1.id),
+        None,
+        &"b".repeat(64),
+        Some(ua),
+    )
+    .await;
+    tx_a.commit().await.expect("commit A");
+
+    // Org B cannot read or delete org A's attachment.
+    let mut tx_b = org_tx(&db.app, sb.org).await;
+    assert!(
+        core_db::attachments::get(&mut *tx_b, sb.org, fixed_uuid(13302))
+            .await
+            .is_err()
+    );
+    assert!(
+        core_db::attachments::list_for_ticket(&mut *tx_b, sb.org, t1.id)
+            .await
+            .expect("empty")
+            .is_empty()
+    );
+    assert!(
+        core_db::attachments::delete(&mut tx_b, sb.org, fixed_uuid(13302))
+            .await
+            .expect("no-op delete")
+            .is_none()
+    );
+    // Dedup lookup never leaks across orgs either.
+    assert_eq!(
+        core_db::attachments::find_existing_object_key(&mut tx_b, sb.org, &"b".repeat(64))
+            .await
+            .expect("dedup b"),
+        None
+    );
+    tx_b.commit().await.expect("commit B");
+
+    // Unscoped connection (no app.org_id) sees nothing.
+    let unscoped = db.fresh_app_pool().await;
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM attachments")
+        .fetch_one(&unscoped)
+        .await
+        .unwrap_or_else(|e| panic!("unscoped count attachments: {e}"));
+    assert_eq!(count, 0, "unscoped reads on attachments are default-deny");
+}

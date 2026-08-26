@@ -232,5 +232,6 @@ fn fresh_email(rfc: &str, from: &str, poison: bool) -> InboundEmail {
         }),
         html: None,
         received_at: None,
+        attachments: vec![],
     }
 }

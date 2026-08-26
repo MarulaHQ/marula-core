@@ -2,6 +2,7 @@
 //! the spec from the handlers; Scalar serves interactive docs from it).
 
 pub mod api_keys;
+pub mod attachments;
 pub mod audit;
 pub mod availability;
 pub mod board_access;
@@ -94,6 +95,16 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/portal/tickets", get(portal::list_tickets))
         .route("/api/portal/tickets/{id}", get(portal::get_ticket))
         .route("/api/portal/tickets/{id}/reply", post(portal::reply))
+        // Portal-visible attachments (TASKLIST 2.14): metadata + streamed
+        // download only; hidden/internal files are indistinguishable 404s.
+        .route(
+            "/api/portal/tickets/{id}/attachments",
+            get(portal::list_attachments),
+        )
+        .route(
+            "/api/portal/tickets/{id}/attachments/{attachment_id}/download",
+            get(portal::download_attachment),
+        )
         .layer(middleware::from_fn_with_state(
             state.clone(),
             portal::require_portal_auth,
@@ -238,6 +249,25 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/tickets/{id}/comments",
             get(tickets::list_comments).post(tickets::add_comment),
+        )
+        // attachments (TASKLIST 2.14): raw-body upload needs a per-route
+        // limit override because axum's default caps bodies at 2 MB.
+        .route(
+            "/api/tickets/{id}/attachments",
+            get(attachments::list_for_ticket)
+                .post(attachments::upload)
+                .layer(axum::extract::DefaultBodyLimit::max(
+                    state.config.max_upload_bytes.max(1024 * 1024) as usize,
+                )),
+        )
+        .route(
+            "/api/tickets/{id}/comments/{comment_id}/attachments",
+            get(attachments::list_for_comment),
+        )
+        .route("/api/attachments/{id}/download", get(attachments::download))
+        .route(
+            "/api/attachments/{id}",
+            axum::routing::delete(attachments::remove),
         )
         .route(
             "/api/tickets/{id}/checklist",

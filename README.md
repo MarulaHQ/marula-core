@@ -76,6 +76,7 @@ One writer. Every mutation emits a versioned domain event. REST, WebSocket, webh
 | | |
 |---|---|
 | Install & self-host | [`docs/`](docs/) — install guide, config reference, upgrade runbooks |
+| Upgrades & compatibility | [`docs/upgrade-compatibility-policy.md`](docs/upgrade-compatibility-policy.md) — support windows, breaking-change rules, what's guaranteed |
 | API reference | Generated from OpenAPI (`utoipa` → Scalar UI on `core-api`) |
 | Build plugins & connectors | [`packages/plugin-kit`](packages/plugin-kit/) · [`connectors/`](connectors/) reference implementations |
 | Architecture decisions | [`docs/adr/`](docs/adr/) |

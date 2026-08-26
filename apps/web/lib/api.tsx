@@ -149,3 +149,64 @@ export function useRequireAuth(): AuthState {
   }, [auth.status, router]);
   return auth;
 }
+
+// --- attachments (TASKLIST 2.14) --------------------------------------------
+// Raw-byte surfaces (octet-stream upload, streamed download) bypass the
+// generated client on purpose: openapi-fetch models JSON bodies, while
+// attachments are binary with sidecar headers.
+
+/** Auth header for manual fetches against the API base URL. */
+function authHeaders(): HeadersInit {
+  const tokens = loadTokens();
+  return tokens === null ? {} : { authorization: `Bearer ${tokens.access_token}` };
+}
+
+export function apiBaseUrl(): string {
+  return process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+}
+
+export interface UploadedAttachment {
+  id: string;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+}
+
+/**
+ * Uploads one file against a ticket (composer flow: upload first, link the
+ * returned ids when the comment is posted). Throws with the server's
+ * message on validation failures — callers surface it verbatim.
+ */
+export async function uploadAttachment(ticketId: string, file: File): Promise<UploadedAttachment> {
+  const response = await fetch(`${apiBaseUrl()}/api/tickets/${ticketId}/attachments`, {
+    method: "POST",
+    headers: {
+      ...authHeaders(),
+      "content-type": "application/octet-stream",
+      "x-filename": file.name,
+    },
+    body: file,
+  });
+  if (!response.ok) {
+    const detail = (await response.json().catch(() => null)) as
+      | { error?: { message?: string } }
+      | null;
+    throw new Error(detail?.error?.message ?? `Upload failed (${response.status})`);
+  }
+  return (await response.json()) as UploadedAttachment;
+}
+
+/** Streams an attachment through the API and triggers a browser download. */
+export async function downloadAttachment(attachmentId: string, filename: string): Promise<void> {
+  const response = await fetch(`${apiBaseUrl()}/api/attachments/${attachmentId}/download`, {
+    headers: authHeaders(),
+  });
+  if (!response.ok) throw new Error(`Download failed (${response.status})`);
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}

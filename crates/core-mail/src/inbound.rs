@@ -41,6 +41,32 @@ pub struct InboundEmail {
     pub html: Option<String>,
     #[serde(default)]
     pub received_at: Option<DateTime<Utc>>,
+    /// Provider-extracted attachments (base64 bodies). Optional and
+    /// defaulted so existing webhook senders keep working unchanged
+    /// (TASKLIST 2.14).
+    #[serde(default)]
+    pub attachments: Vec<InboundAttachment>,
+}
+
+/// One provider-extracted attachment: metadata plus base64 body. Meridian
+/// deliberately does no MIME parsing in v1 — extraction is the edge's job.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct InboundAttachment {
+    #[serde(default)]
+    pub filename: String,
+    #[serde(default)]
+    pub content_type: String,
+    /// Base64 (standard alphabet, padding optional-tolerant) of the bytes.
+    pub content_base64: String,
+}
+
+impl InboundAttachment {
+    /// Decodes the base64 body. Errors are per-attachment so one broken
+    /// part cannot poison the whole message.
+    pub fn decoded(&self) -> Result<Vec<u8>, base64::DecodeError> {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD.decode(self.content_base64.as_bytes())
+    }
 }
 
 impl InboundEmail {
@@ -53,7 +79,24 @@ impl InboundEmail {
         if self.from_address.trim().is_empty() {
             return Err("from is required");
         }
+        if self.attachments.len() > MAX_INBOUND_ATTACHMENTS {
+            return Err("too many attachments");
+        }
+        for a in &self.attachments {
+            if a.filename.trim().is_empty() {
+                return Err("attachment filename is required");
+            }
+            if a.content_base64.is_empty() {
+                return Err("attachment body is required");
+            }
+        }
         Ok(())
+    }
+
+    /// Attachment count (structural convenience for pipeline logging).
+    #[must_use]
+    pub fn attachment_count(&self) -> usize {
+        self.attachments.len()
     }
 
     /// Best-effort plain text body: `text` when present, else a naive
@@ -94,6 +137,10 @@ impl InboundEmail {
         out
     }
 }
+
+/// Hard ceiling on attachments per inbound message — a structural bound,
+/// not policy (per-part and total size caps live in core-api config).
+pub const MAX_INBOUND_ATTACHMENTS: usize = 10;
 
 /// Message-IDs may or may not keep their RFC angle brackets depending on
 /// the provider; comparisons normalize by trimming whitespace and brackets
@@ -214,6 +261,7 @@ mod tests {
             text: Some("hello".into()),
             html: None,
             received_at: None,
+            attachments: vec![],
         }
     }
 

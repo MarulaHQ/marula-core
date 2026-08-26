@@ -82,6 +82,17 @@ services:
       EMAIL_TRANSPORT: ${EMAIL_TRANSPORT:-smtp}
       SMTP_HOST: ${SMTP_HOST:-mailpit}
       SMTP_PORT: ${SMTP_PORT:-1025}
+      # Object storage (TASKLIST 2.14). Default stays the local-fs none
+      # mode so `up` without the stage2 profile needs no MinIO; flipping
+      # OBJECT_STORE=s3 (stage2 profile) points at the minio slot below.
+      OBJECT_STORE: ${OBJECT_STORE:-local}
+      OBJECT_STORE_LOCAL_DIR: ${OBJECT_STORE_LOCAL_DIR:-/data/objects}
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+      S3_BUCKET: ${S3_BUCKET:-meridian}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-meridian}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-meridian-dev-minio}
+      MERIDIAN_MAX_UPLOAD_MB: ${MERIDIAN_MAX_UPLOAD_MB:-25}
     ports:
       - "8080:8080"
     depends_on:
@@ -150,6 +161,10 @@ services:
 
   # ---- Stage-2 slots (not started by default; see --profile stage2) ----
 
+  # Object storage for attachments when OBJECT_STORE=s3 (see core-api env).
+  # Buckets are NOT auto-created; once after first start:
+  #   docker run --rm --network meridian_default --entrypoint /bin/sh minio/mc \
+  #     -c "mc alias set m http://minio:9000 meridian meridian-dev-minio && mc mb --ignore-existing m/meridian"
   minio:
     image: minio/minio:latest
     profiles: ["stage2"]
@@ -162,6 +177,11 @@ services:
       - "9001:9001"
     volumes:
       - miniodata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9000/minio/health/live || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
   mailpit:
     image: axllent/mailpit:latest

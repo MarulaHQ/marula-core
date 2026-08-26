@@ -38,6 +38,7 @@ async fn test_state() -> AppState {
         config: Arc::new(config),
         oidc: OidcHttpClient::new(),
         mail: Arc::new(core_api::email::MailStack::from_config(&Config::from_env())),
+        store: Arc::new(core_store::memory::MemoryStore::new()),
     }
 }
 

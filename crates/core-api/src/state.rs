@@ -15,4 +15,7 @@ pub struct AppState {
     pub oidc: crate::auth::oidc_client::OidcHttpClient,
     /// Email edge: transport + scanner adapters built from config.
     pub mail: Arc<MailStack>,
+    /// Object storage edge (attachments): local-fs none mode by default,
+    /// S3/MinIO when configured. See crates/core-store.
+    pub store: Arc<dyn core_store::ObjectStore>,
 }

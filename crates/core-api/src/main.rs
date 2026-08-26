@@ -31,6 +31,11 @@ async fn main() -> anyhow::Result<()> {
         config: std::sync::Arc::clone(&config),
         oidc: core_api::auth::oidc_client::OidcHttpClient::new(),
         mail: std::sync::Arc::new(core_api::email::MailStack::from_config(&config)),
+        store: {
+            let choice = config.object_store.clone();
+            tracing::info!(?choice, "object store selected");
+            core_store::build(&choice)
+        },
     };
     let mut app = core_api::router(state);
 

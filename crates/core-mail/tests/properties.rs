@@ -66,6 +66,7 @@ proptest! {
             text: None,
             html: None,
             received_at: None,
+            attachments: vec![],
         };
         let keys = msg.thread_keys();
         let normalized_all: Vec<String> =
