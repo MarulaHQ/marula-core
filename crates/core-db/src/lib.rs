@@ -27,6 +27,7 @@ pub mod tickets;
 pub mod time_audit;
 pub mod timers;
 pub mod users;
+pub mod webhooks;
 
 use sqlx::{postgres::PgPoolOptions, PgPool, Postgres, Transaction};
 use uuid::Uuid;

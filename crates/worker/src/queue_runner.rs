@@ -11,6 +11,7 @@
 //! domain tables.
 
 use crate::effects::{EffectApi, EffectOutcome};
+use crate::webhook_out::{self, DeliverySink};
 use sqlx::PgPool;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::watch;
@@ -30,9 +31,12 @@ pub struct QueueCounters {
     pub dead: AtomicU64,
 }
 
-pub async fn run_queue<E: EffectApi>(
+#[allow(clippy::too_many_arguments)]
+pub async fn run_queue<S: DeliverySink, E: EffectApi>(
     pool: PgPool,
     effects: E,
+    sink: S,
+    webhook_secret_key: Option<crate::config::AtRestKey>,
     batch: i64,
     stale_after_secs: i64,
     counters: std::sync::Arc<QueueCounters>,
@@ -49,7 +53,7 @@ pub async fn run_queue<E: EffectApi>(
         }
         tokio::select! {
             _ = shutdown.changed() => return,
-            result = tick(&pool, &effects, batch, stale_after_secs, &counters, &worker) => {
+            result = tick(&pool, &effects, &sink, webhook_secret_key, batch, stale_after_secs, &counters, &worker) => {
                 match result {
                     Ok(claimed) => {
                         if claimed == 0 {
@@ -68,9 +72,12 @@ pub async fn run_queue<E: EffectApi>(
     }
 }
 
-async fn tick<E: EffectApi>(
+#[allow(clippy::too_many_arguments)]
+async fn tick<S: DeliverySink, E: EffectApi>(
     pool: &PgPool,
     effects: &E,
+    sink: &S,
+    webhook_secret_key: Option<crate::config::AtRestKey>,
     batch: i64,
     stale_after_secs: i64,
     counters: &QueueCounters,
@@ -82,6 +89,33 @@ async fn tick<E: EffectApi>(
     let jobs = core_db::queue::claim_batch(pool, batch, worker).await?;
     let count = jobs.len();
     for job in jobs {
+        // Signed-webhook delivery performs its own HTTP attempt + attempt
+        // ledger write + settle (it needs more than one effect call).
+        if job.kind == webhook_out::JOB_KIND {
+            match webhook_secret_key {
+                Some(key) => {
+                    if let Err(error) =
+                        webhook_out::process_delivery_job(pool, &key, sink, effects, &job).await
+                    {
+                        tracing::error!(%error, job_id = %job.id, "webhook delivery crashed");
+                        core_db::queue::schedule_retry(
+                            pool,
+                            job.id,
+                            backoff_secs(job.attempts),
+                            "delivery processing error",
+                        )
+                        .await?;
+                        counters.retried.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+                None => {
+                    // Fail-closed none mode: no at-rest key ⇒ never deliver.
+                    core_db::queue::mark_dead(pool, job.id, "MERIDIAN_SECRET_KEY unset").await?;
+                    counters.dead.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+            continue;
+        }
         let path: &'static str = match job.kind.as_str() {
             "sla.verdict" => "/api/internal/sla/verdict",
             "automation.effects" => "/api/internal/effects",

@@ -23,6 +23,8 @@ sqlx = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+aes-gcm = { workspace = true }
+hex = { workspace = true }
 
 [dev-dependencies]
 uuid = { workspace = true }

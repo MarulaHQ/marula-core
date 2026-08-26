@@ -1,6 +1,7 @@
 //! HTTP routes: router assembly and the OpenAPI document (utoipa derives
 //! the spec from the handlers; Scalar serves interactive docs from it).
 
+pub mod api_keys;
 pub mod audit;
 pub mod board_access;
 pub mod boards;
@@ -18,6 +19,7 @@ pub mod sla_admin;
 pub mod tickets;
 pub mod time;
 pub mod timers;
+pub mod webhook_admin;
 pub mod webhooks;
 
 use crate::auth::handlers as auth_handlers;
@@ -74,6 +76,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/internal/time/gap-audit/run",
             post(internal::run_gap_audit),
+        )
+        .route(
+            "/api/internal/webhook/deliveries",
+            post(internal::webhook_deliveries),
         );
 
     // Client-portal v1: public auth endpoints + a DEDICATED middleware for
@@ -284,6 +290,26 @@ pub fn build_router(state: AppState) -> Router {
         )
         // audit (admin)
         .route("/api/audit-events", get(audit::list))
+        // plugin runtime v1: signed webhooks OUT + API keys (admin;
+        // x-api-key machine auth is handled inside require_auth)
+        .route(
+            "/api/webhooks",
+            get(webhook_admin::list).post(webhook_admin::create),
+        )
+        .route(
+            "/api/webhooks/{id}",
+            axum::routing::patch(webhook_admin::update).delete(webhook_admin::remove),
+        )
+        .route(
+            "/api/webhooks/{id}/deliveries",
+            get(webhook_admin::deliveries),
+        )
+        .route("/api/webhooks/{id}/test", post(webhook_admin::test_fire))
+        .route("/api/api-keys", get(api_keys::list).post(api_keys::create))
+        .route(
+            "/api/api-keys/{id}",
+            axum::routing::delete(api_keys::revoke),
+        )
         // settings hub: typed registry + org/user scoped values + org profile
         .route("/api/settings/registry", get(settings::get_registry))
         .route(

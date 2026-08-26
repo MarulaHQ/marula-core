@@ -16,6 +16,7 @@ tracing = { workspace = true }
 anyhow = { workspace = true }
 
 [dev-dependencies]
+aes-gcm = { workspace = true }
 tokio = { workspace = true }
 chrono-tz = { workspace = true }
 testcontainers = { version = "0.23", features = ["reusable-containers"] }

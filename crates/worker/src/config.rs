@@ -17,6 +17,42 @@
 
 use core_mail::TransportKind;
 
+/// The at-rest secret-encryption key (AES-256, same `MERIDIAN_SECRET_KEY`
+/// env core-api uses). Needed ONLY by the webhook delivery loop to decrypt
+/// subscription secrets before signing; unset ⇒ webhook jobs dead-letter
+/// fail-closed (documented none mode) — nothing is delivered plaintext.
+#[derive(Debug, Clone, Copy)]
+pub struct AtRestKey(pub [u8; 32]);
+
+impl AtRestKey {
+    /// Parses the 64-hex-char env value.
+    pub fn from_env_value(value: Option<&str>) -> Option<Self> {
+        let hex_key = value?;
+        if hex_key.len() != 64 {
+            return None;
+        }
+        let mut bytes = [0_u8; 32];
+        hex::decode_to_slice(hex_key, &mut bytes).ok()?;
+        Some(Self(bytes))
+    }
+
+    /// Decrypts `nonce || ciphertext` produced by core-api's seal(). The
+    /// wire format contract lives in both modules' docs (§6 secrets rule).
+    pub fn decrypt(&self, sealed: &[u8]) -> Result<Vec<u8>, String> {
+        use aes_gcm::aead::{Aead, KeyInit};
+        use aes_gcm::{Aes256Gcm, Nonce};
+        const NONCE_LEN: usize = 12;
+        if sealed.len() <= NONCE_LEN {
+            return Err("ciphertext too short".into());
+        }
+        let cipher = Aes256Gcm::new_from_slice(&self.0).map_err(|e| e.to_string())?;
+        let (nonce, ct) = sealed.split_at(NONCE_LEN);
+        cipher
+            .decrypt(Nonce::from_slice(nonce), ct)
+            .map_err(|_| "ciphertext malformed or tampered".to_string())
+    }
+}
+
 /// Settings for the outbound email send loop (TASKLIST 2.4).
 #[derive(Debug, Clone)]
 pub struct EmailLoopConfig {
@@ -76,6 +112,10 @@ pub struct WorkerConfig {
     /// Lease age after which a crashed claimant's job is re-armed
     /// (`QUEUE_STALE_SECS`, DB-clock comparison).
     pub queue_stale_after_secs: i64,
+    /// At-rest decryption key for webhook subscription secrets
+    /// (`MERIDIAN_SECRET_KEY`, 64 hex chars). Unset ⇒ webhook delivery
+    /// jobs dead-letter fail-closed.
+    pub webhook_secret_key: Option<AtRestKey>,
 }
 
 impl WorkerConfig {
@@ -141,6 +181,7 @@ impl WorkerConfig {
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(60),
             },
+            webhook_secret_key: AtRestKey::from_env_value(lookup("MERIDIAN_SECRET_KEY").as_deref()),
             internal_api_url: lookup("INTERNAL_API_URL")
                 .unwrap_or_else(|| "http://127.0.0.1:8080".to_string()),
             internal_token: lookup("MERIDIAN_INTERNAL_TOKEN"),
@@ -179,6 +220,27 @@ mod tests {
         assert_eq!(cfg.eval_interval_secs, 60);
         assert_eq!(cfg.queue_batch, 10);
         assert_eq!(cfg.queue_stale_after_secs, 300);
+        // Fail-closed none mode: no key ⇒ webhook delivery stays dead.
+        assert!(cfg.webhook_secret_key.is_none());
+    }
+
+    #[test]
+    fn at_rest_key_parses_hex_and_decrypts_roundtrip() {
+        use aes_gcm::aead::{Aead, KeyInit, OsRng};
+        use aes_gcm::{AeadCore, Aes256Gcm};
+        let key = AtRestKey([7_u8; 32]);
+        let cipher = Aes256Gcm::new_from_slice(&key.0).expect("key");
+        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+        let mut sealed = cipher.encrypt(&nonce, b"whsec".as_ref()).expect("encrypt");
+        let mut out = nonce.to_vec();
+        out.append(&mut sealed);
+        assert_eq!(key.decrypt(&out).expect("decrypt"), b"whsec");
+
+        assert!(AtRestKey::from_env_value(Some("nothex")).is_none());
+        assert!(AtRestKey::from_env_value(Some(&"z".repeat(64))).is_none());
+        let valid = AtRestKey::from_env_value(Some(&"07".repeat(32))).expect("valid hex");
+        assert_eq!(valid.0, [7_u8; 32]);
+        assert_eq!(valid.decrypt(b"short").unwrap_err(), "ciphertext too short");
     }
 
     #[test]
@@ -193,6 +255,7 @@ mod tests {
         vars.insert("EVAL_INTERVAL_SECS", "15".into());
         vars.insert("QUEUE_BATCH", "3".into());
         vars.insert("QUEUE_STALE_SECS", "60".into());
+        vars.insert("MERIDIAN_SECRET_KEY", "ab".repeat(32));
         let cfg = WorkerConfig::from_lookup(|k| vars.get(k).cloned());
         assert_eq!(cfg.database_url, "postgres://db");
         assert_eq!(cfg.redis_url, "redis://r");
@@ -203,6 +266,7 @@ mod tests {
         assert_eq!(cfg.eval_interval_secs, 15);
         assert_eq!(cfg.queue_batch, 3);
         assert_eq!(cfg.queue_stale_after_secs, 60);
+        assert!(cfg.webhook_secret_key.is_some());
     }
 
     #[test]

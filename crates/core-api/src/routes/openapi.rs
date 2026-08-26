@@ -133,6 +133,15 @@ use utoipa::OpenApi;
         crate::routes::portal_admin::delete_portal_user,
         crate::routes::portal_admin::list_board_exposures,
         crate::routes::portal_admin::put_board_exposure,
+        crate::routes::webhook_admin::list,
+        crate::routes::webhook_admin::create,
+        crate::routes::webhook_admin::update,
+        crate::routes::webhook_admin::remove,
+        crate::routes::webhook_admin::deliveries,
+        crate::routes::webhook_admin::test_fire,
+        crate::routes::api_keys::list,
+        crate::routes::api_keys::create,
+        crate::routes::api_keys::revoke,
     ),
     components(schemas(
         crate::auth::handlers::RegisterRequest,
@@ -269,6 +278,19 @@ use utoipa::OpenApi;
         core_domain::entities::PortalUser,
         core_domain::entities::PortalRole,
         core_domain::entities::PortalUserStatus,
+        crate::routes::webhook_admin::WebhookView,
+        crate::routes::webhook_admin::WebhookList,
+        crate::routes::webhook_admin::WebhookSecretResponse,
+        crate::routes::webhook_admin::CreateWebhookRequest,
+        crate::routes::webhook_admin::UpdateWebhookRequest,
+        crate::routes::webhook_admin::DeliveryAttemptView,
+        crate::routes::webhook_admin::DeliveryPage,
+        crate::routes::webhook_admin::DeliveryQuery,
+        crate::routes::webhook_admin::TestFireResponse,
+        crate::routes::api_keys::ApiKeyView,
+        crate::routes::api_keys::ApiKeyList,
+        crate::routes::api_keys::CreateApiKeyRequest,
+        crate::routes::api_keys::ApiKeyCreatedResponse,
     ),
     ),
     tags(
@@ -285,6 +307,7 @@ use utoipa::OpenApi;
         (name = "automations", description = "Event-triggered automation rules (admin)"),
         (name = "portal", description = "Client portal v1: login, own-client tickets, replies"),
         (name = "portal-admin", description = "Staff administration of portal users + board exposure"),
+        (name = "integrations", description = "Signed webhooks OUT + scoped API keys (plugin runtime v1)"),
     )
 )]
 pub struct ApiDoc;

@@ -20,6 +20,7 @@ pub mod settings;
 pub mod sla_engine;
 pub mod status;
 pub mod time_audit;
+pub mod webhooks;
 pub mod workflow;
 
 pub use entities::*;
@@ -28,6 +29,7 @@ pub use ids::*;
 pub use money::Money;
 pub use policy::{Permission, PolicyDecision};
 pub use status::{Priority, TicketStatusCategory};
+pub use webhooks::VerifyError as WebhookVerifyError;
 pub use workflow::{TransitionEdge, TransitionRejection};
 
 /// Semantic categories every custom ticket status must bind to (§5).

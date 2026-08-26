@@ -30,6 +30,7 @@ const SECTIONS: NavItem[] = [
   { href: "/settings/workflow", label: "Workflow", pending: true },
   { href: "/settings/sla", label: "SLA", pending: true },
   { href: "/settings/mail", label: "Mail", pending: true },
+  { href: "/settings/integrations", label: "Integrations" },
 ];
 
 export default function SettingsLayout({ children }: { children: ReactNode }) {

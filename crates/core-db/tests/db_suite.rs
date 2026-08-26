@@ -4332,3 +4332,382 @@ async fn portal_audit_provenance_roundtrips_per_tier() {
         "unknown actor_kind must violate the CHECK"
     );
 }
+
+// --- Plugin runtime v1 (TASKLIST 2.15; seed slots 90–99) --------------------
+
+use core_db::webhooks as wh;
+
+fn sealed_secret(key: [u8; 32], secret: &str) -> Vec<u8> {
+    // Mirrors core-api crypto::seal(): nonce(12) || AES-256-GCM ct.
+    use aes_gcm::aead::{Aead, KeyInit, OsRng};
+    use aes_gcm::{AeadCore, Aes256Gcm};
+    let cipher = Aes256Gcm::new_from_slice(&key).expect("key");
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let mut out = nonce.to_vec();
+    out.extend(cipher.encrypt(&nonce, secret.as_bytes()).expect("seal"));
+    out
+}
+
+const SUITE_AT_REST_KEY: [u8; 32] = [11; 32];
+
+#[tokio::test]
+async fn webhook_crud_and_rls_isolation() {
+    let db = test_db().await;
+    let app = db.app.clone();
+    let sa = seed_org(&app, 90).await;
+    let sb = seed_org(&app, 91).await;
+    let user_a = seed_user(&app, &sa, 9000).await;
+
+    let secret = "whsec_db_suite";
+    let sealed = sealed_secret(SUITE_AT_REST_KEY, secret);
+    let id = fixed_uuid(901);
+
+    // Insert + read back inside org A.
+    let row = {
+        let mut tx = org_tx(&app, sa.org).await;
+        let row = wh::insert_webhook(
+            &mut *tx,
+            id,
+            sa.org,
+            "https://hooks.acme.test/meridian",
+            &sealed,
+            &["ticket.created".into(), "ticket.closed".into()],
+            user_a,
+        )
+        .await
+        .expect("insert webhook");
+        tx.commit().await.expect("commit");
+        row
+    };
+    assert!(row.enabled);
+    assert_eq!(row.event_types.len(), 2);
+    // The stored ciphertext must decrypt back to the original secret
+    // through the exact at-rest format core-api's seal() produces.
+    {
+        use aes_gcm::aead::{Aead, KeyInit};
+        use aes_gcm::{Aes256Gcm, Nonce};
+        let cipher = Aes256Gcm::new_from_slice(&SUITE_AT_REST_KEY).expect("key");
+        let (nonce, ct) = row.secret_encrypted.split_at(12);
+        let plain = cipher
+            .decrypt(Nonce::from_slice(nonce), ct)
+            .expect("stored ciphertext must be authentic");
+        assert_eq!(String::from_utf8(plain).as_deref(), Ok(secret));
+    }
+
+    // Cross-org visibility is denied by RLS.
+    {
+        let mut tx = org_tx(&app, sb.org).await;
+        assert!(matches!(
+            wh::get_webhook(&mut *tx, sb.org, id).await,
+            Err(DbError::NotFound)
+        ));
+        assert!(wh::list_webhooks(&mut *tx, sb.org)
+            .await
+            .expect("list b")
+            .is_empty());
+    }
+
+    // Wildcard matching: empty filter matches anything; exact filter only
+    // its own types; disabled subscriptions match nothing.
+    {
+        let mut tx = org_tx(&app, sa.org).await;
+        wh::update_webhook(&mut *tx, sa.org, id, None, Some(&[]), None)
+            .await
+            .expect("wildcard");
+        tx.commit().await.expect("commit");
+    }
+    // Worker posture: cross-org matching runs on the OWNER pool with no
+    // org scope set (see crates/worker config note).
+    let matched = wh::find_enabled_for_event(&db.admin, sa.org, "timer.started")
+        .await
+        .expect("wildcard match");
+    assert_eq!(matched.len(), 1, "empty filter is a wildcard");
+    {
+        let mut tx = org_tx(&app, sa.org).await;
+        wh::update_webhook(
+            &mut *tx,
+            sa.org,
+            id,
+            None,
+            Some(&["sla.escalation_fired".to_string()]),
+            None,
+        )
+        .await
+        .expect("narrow");
+        tx.commit().await.expect("commit");
+    }
+    let matched = wh::find_enabled_for_event(&db.admin, sa.org, "timer.started")
+        .await
+        .expect("no match");
+    assert!(matched.is_empty(), "filtered subscription must not match");
+
+    // Disabled ⇒ never matched even on its own event type.
+    {
+        let mut tx = org_tx(&app, sa.org).await;
+        wh::update_webhook(&mut *tx, sa.org, id, None, None, Some(false))
+            .await
+            .expect("disable");
+        tx.commit().await.expect("commit");
+    }
+    let matched = wh::find_enabled_for_event(&db.admin, sa.org, "sla.escalation_fired")
+        .await
+        .expect("disabled");
+    assert!(matched.is_empty());
+
+    // Delete removes the row for its org only.
+    {
+        let mut tx = org_tx(&app, sa.org).await;
+        wh::delete_webhook(&mut *tx, sa.org, id)
+            .await
+            .expect("delete");
+        tx.commit().await.expect("commit");
+    }
+}
+
+#[tokio::test]
+async fn delivery_ledger_records_every_attempt_exactly_once_and_pages() {
+    let db = test_db().await;
+    let app = db.app.clone();
+    let s = seed_org(&app, 92).await;
+    let user = seed_user(&app, &s, 9020).await;
+    let hook = fixed_uuid(921);
+    {
+        let mut tx = org_tx(&app, s.org).await;
+        wh::insert_webhook(
+            &mut *tx,
+            hook,
+            s.org,
+            "https://hooks.acme.test/sink",
+            &sealed_secret(SUITE_AT_REST_KEY, "whsec_x"),
+            &[],
+            user,
+        )
+        .await
+        .expect("insert");
+        tx.commit().await.expect("commit");
+    }
+
+    let event_id = fixed_uuid(922);
+    // Attempts 1..=3 land; a duplicate report of attempt 2 is swallowed.
+    for attempt in 1..=3_i32 {
+        let delivered = (attempt == 3).then(chrono::Utc::now);
+        let retry = (attempt < 3)
+            .then(|| chrono::Utc::now() + chrono::Duration::seconds(30 * attempt as i64));
+        let mut tx = app.begin().await.expect("tx");
+        core_db::set_org(&mut tx, s.org).await.expect("scope");
+        let logged = wh::insert_delivery_attempt(
+            &mut tx,
+            s.org,
+            &wh::NewDeliveryAttempt {
+                webhook_id: hook,
+                event_id,
+                event_type: "ticket.created".into(),
+                attempt,
+                response_status: Some(if attempt == 3 { 200 } else { 500 }),
+                next_retry_at: retry,
+                delivered_at: delivered,
+                last_error: (attempt < 3).then(|| "receiver returned 500".to_string()),
+            },
+        )
+        .await
+        .expect("log attempt");
+        assert!(logged, "first report of attempt {attempt} must insert");
+        tx.commit().await.expect("commit");
+    }
+    // Exactly-once under worker at-least-once replays:
+    let mut tx = app.begin().await.expect("tx");
+    core_db::set_org(&mut tx, s.org).await.expect("scope");
+    let replayed = wh::insert_delivery_attempt(
+        &mut tx,
+        s.org,
+        &wh::NewDeliveryAttempt {
+            webhook_id: hook,
+            event_id,
+            event_type: "ticket.created".into(),
+            attempt: 2,
+            response_status: Some(500),
+            next_retry_at: None,
+            delivered_at: None,
+            last_error: Some("duplicate report".into()),
+        },
+    )
+    .await
+    .expect("replay log");
+    assert!(!replayed, "duplicate attempt report must be ignored");
+
+    // Cursor pagination walks newest-first without repeats or gaps.
+    let page1 = wh::list_deliveries(&mut tx, s.org, hook, None, 2)
+        .await
+        .expect("page 1");
+    assert_eq!(page1.len(), 2);
+    assert_eq!(page1[0].attempt, 3, "newest first");
+    let cursor = (page1.last().expect("row").created_at, page1[1].id);
+    let page2 = wh::list_deliveries(&mut tx, s.org, hook, Some(cursor), 2)
+        .await
+        .expect("page 2");
+    assert_eq!(page2.len(), 1);
+    assert_eq!(page2[0].attempt, 1);
+    tx.commit().await.expect("commit");
+}
+
+#[tokio::test]
+async fn api_keys_hash_lifecycle_scopes_and_revocation() {
+    let db = test_db().await;
+    let app = db.app.clone();
+    let s = seed_org(&app, 93).await;
+    let creator = seed_user(&app, &s, 9030).await;
+
+    let raw = "mrd_0123456789abcdef0123456789abcdef";
+    let hash = format!("{:064x}", 0xbeef_u128); // hex(HMAC(...)) shape
+    let id = fixed_uuid(931);
+
+    let key = {
+        let mut tx = org_tx(&app, s.org).await;
+        let key = wh::insert_api_key(
+            &mut *tx,
+            id,
+            s.org,
+            "NinjaOne sync",
+            &hash,
+            &raw[..12],
+            &["tickets:read".to_string(), "clients:read".to_string()],
+            creator,
+        )
+        .await
+        .expect("create key");
+        tx.commit().await.expect("commit");
+        key
+    };
+    assert_eq!(key.scopes.len(), 2);
+    assert_eq!(key.prefix, "mrd_01234567");
+    assert!(key.revoked_at.is_none());
+
+    // Active lookup resolves cross-org by hash (auth path).
+    let found = wh::find_active_api_key_by_hash(&app, &hash)
+        .await
+        .expect("lookup")
+        .expect("active key resolves");
+    assert_eq!(found.id, id);
+    assert_eq!(found.org_id, s.org);
+
+    // Throttled last-used touch writes once per window.
+    wh::touch_api_key_last_used(&app, id, 60)
+        .await
+        .expect("touch");
+    let first_stamp = wh::find_active_api_key_by_hash(&app, &hash)
+        .await
+        .expect("lookup")
+        .expect("key")
+        .last_used_at;
+    assert!(first_stamp.is_some());
+    wh::touch_api_key_last_used(&app, id, 3600)
+        .await
+        .expect("throttled touch no-op");
+    let unchanged = wh::find_active_api_key_by_hash(&app, &hash)
+        .await
+        .expect("lookup")
+        .expect("key")
+        .last_used_at;
+    assert_eq!(first_stamp, unchanged, "inside throttle window: no write");
+
+    // Revocation hides the key from auth lookups immediately.
+    {
+        let mut tx = org_tx(&app, s.org).await;
+        wh::revoke_api_key(&mut *tx, s.org, id)
+            .await
+            .expect("revoke");
+        tx.commit().await.expect("commit");
+    }
+    assert!(
+        wh::find_active_api_key_by_hash(&app, &hash)
+            .await
+            .expect("lookup")
+            .is_none(),
+        "revoked keys never authenticate"
+    );
+    // Idempotent second revoke still reports NotFound via rows_affected==0
+    // guard? No — revoked_at IS NOT NULL filter means zero rows: NotFound.
+    let mut tx = org_tx(&app, s.org).await;
+    assert!(matches!(
+        wh::revoke_api_key(&mut *tx, s.org, id).await,
+        Err(DbError::NotFound)
+    ));
+}
+
+#[tokio::test]
+async fn connector_installations_upsert_consent_and_isolation() {
+    let db = test_db().await;
+    let app = db.app.clone();
+    let sa = seed_org(&app, 94).await;
+    let sb = seed_org(&app, 95).await;
+    let admin_a = seed_user(&app, &sa, 9040).await;
+
+    let config = sealed_secret(SUITE_AT_REST_KEY, r#"{"api_key":"nj-secret"}"#);
+    let scopes = vec!["tickets:read".to_string()];
+    let first = {
+        let mut tx = org_tx(&app, sa.org).await;
+        let row = wh::upsert_connector_installation(
+            &mut *tx,
+            Uuid::now_v7(),
+            sa.org,
+            "ninjaone",
+            &config,
+            &scopes,
+            admin_a,
+        )
+        .await
+        .expect("install");
+        tx.commit().await.expect("commit");
+        row
+    };
+
+    // Re-consent replaces config + scopes in place (same row).
+    let new_config = sealed_secret(SUITE_AT_REST_KEY, r#"{"api_key":"nj-rotated"}"#);
+    let updated = {
+        let mut tx = org_tx(&app, sa.org).await;
+        let row = wh::upsert_connector_installation(
+            &mut *tx,
+            Uuid::now_v7(),
+            sa.org,
+            "ninjaone",
+            &new_config,
+            &["tickets:read".to_string(), "clients:read".to_string()],
+            admin_a,
+        )
+        .await
+        .expect("re-consent");
+        tx.commit().await.expect("commit");
+        row
+    };
+    assert_eq!(updated.id, first.id, "one installation per connector type");
+    assert_eq!(updated.capability_scopes.len(), 2);
+
+    let list_a = {
+        let mut tx = org_tx(&app, sa.org).await;
+        let rows = wh::list_connector_installations(&mut *tx, sa.org)
+            .await
+            .expect("list a");
+        tx.commit().await.expect("commit");
+        rows
+    };
+    assert_eq!(list_a.len(), 1);
+    assert_eq!(list_a[0].connector_type, "ninjaone");
+
+    // Org B sees nothing of org A's installations.
+    let list_b = {
+        let mut tx = org_tx(&app, sb.org).await;
+        let rows = wh::list_connector_installations(&mut *tx, sb.org)
+            .await
+            .expect("list b");
+        tx.commit().await.expect("commit");
+        rows
+    };
+    assert!(list_b.is_empty());
+    {
+        let mut tx = org_tx(&app, sb.org).await;
+        assert!(matches!(
+            wh::delete_connector_installation(&mut *tx, sb.org, "ninjaone").await,
+            Err(DbError::NotFound)
+        ));
+    }
+}

@@ -629,6 +629,7 @@ dependencies = [
  "core-mail",
  "data-encoding",
  "hex",
+ "hmac",
  "jsonwebtoken",
  "rand 0.8.8",
  "reqwest",
@@ -658,6 +659,7 @@ dependencies = [
 name = "core-db"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
  "anyhow",
  "chrono",
  "chrono-tz",
@@ -679,9 +681,13 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "chrono-tz",
+ "hex",
+ "hmac",
  "proptest",
  "serde",
  "serde_json",
+ "sha2",
+ "subtle",
  "thiserror 2.0.20",
  "utoipa",
  "uuid",
@@ -4380,6 +4386,7 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 name = "worker"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
  "anyhow",
  "async-trait",
  "axum 0.8.9",
@@ -4389,6 +4396,7 @@ dependencies = [
  "core-domain",
  "core-events",
  "core-mail",
+ "hex",
  "redis",
  "reqwest",
  "serde",

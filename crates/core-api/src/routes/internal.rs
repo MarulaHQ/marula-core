@@ -718,3 +718,82 @@ pub async fn effects(
 
     Ok(Json(applied))
 }
+
+// --- webhook delivery ledger (stage2-webhooks lane) ---
+//
+// Purpose: the write seam for the worker's signed-webhook delivery loop.
+// Each delivery attempt is POSTed here and inserted into the per-attempt
+// ledger with a unique guard, so at-least-once workers can report the same
+// attempt twice without ever double-logging. Auth + disable semantics are
+// identical to the SLA/automation surface above (§4.1 single-writer).
+// Deliberately NOT in OpenAPI/SDK.
+//
+// Non-purpose: no signing, no retry math (worker), no event emission —
+// deliveries are bookkeeping, never domain mutations.
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct WebhookDeliveryRecord {
+    pub webhook_id: Uuid,
+    pub event_id: Uuid,
+    pub event_type: String,
+    pub attempt: i32,
+    pub response_status: Option<i32>,
+    pub next_retry_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub delivered_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_error: Option<String>,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct WebhookDeliveriesRequest {
+    pub org_id: Uuid,
+    pub records: Vec<WebhookDeliveryRecord>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct WebhookDeliveriesResponse {
+    pub applied: usize,
+}
+
+/// POST /api/internal/webhook/deliveries — idempotent attempt-log writes.
+/// Cross-org batch runs as table owner; each record commits separately so
+/// one bad row cannot roll back the batch.
+#[utoipa::path(operation_id = "internal_webhook_deliveries", post, path = "/api/internal/webhook/deliveries", tag = "internal",
+    request_body = WebhookDeliveriesRequest,
+    responses((status = 200, body = WebhookDeliveriesResponse)))]
+pub async fn webhook_deliveries(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<WebhookDeliveriesRequest>,
+) -> ApiResult<Json<WebhookDeliveriesResponse>> {
+    require_internal_token(&state, &headers)?;
+    let mut applied = 0_usize;
+    for record in &req.records {
+        if record.attempt < 1 {
+            return Err(ApiError::Validation("attempt must be >= 1".into()));
+        }
+        let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+        // No set_org on purpose: the worker pool is the owner role and one
+        // batch spans orgs (same posture as claim_outbound above).
+        core_db::set_org(&mut tx, req.org_id).await?;
+        let logged = core_db::webhooks::insert_delivery_attempt(
+            &mut tx,
+            req.org_id,
+            &core_db::webhooks::NewDeliveryAttempt {
+                webhook_id: record.webhook_id,
+                event_id: record.event_id,
+                event_type: record.event_type.clone(),
+                attempt: record.attempt,
+                response_status: record.response_status,
+                next_retry_at: record.next_retry_at,
+                delivered_at: record.delivered_at,
+                last_error: record.last_error.clone(),
+            },
+        )
+        .await?;
+        tx.commit().await.map_err(ApiError::from)?;
+        if logged {
+            applied += 1;
+        }
+    }
+    Ok(Json(WebhookDeliveriesResponse { applied }))
+}
