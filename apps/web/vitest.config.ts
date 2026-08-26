@@ -1,13 +1,21 @@
-/// <summary>
-/// Vitest config: node environment — the dispatch reducer is pure logic
-/// with no DOM dependency, so headless node keeps it fast.
-/// </summary>
+// Vitest runner configuration for @meridian/web.
+//
+// Purpose: one config serves both test families — headless unit suites of
+// pure lib modules (dispatch drag-state reducer, admin form reducers) and
+// jsdom page-level integration tests that mock global fetch against
+// SDK-typed handlers.
+// Non-purpose: no browser E2E here — that stays in the Playwright suite;
+// no backend contract testing — that lives in Rust integration tests.
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  esbuild: { jsx: "automatic" },
   test: {
-    environment: "node",
-    globals: true,
-    include: ["lib/**/*.test.?(c|m)[jt]s?(x)"],
+    environment: "jsdom",
+    setupFiles: ["./tests/setup.ts"],
+    include: [
+      "lib/**/*.test.?(c|m)[jt]s?(x)",
+      "tests/**/*.test.?(c|m)[jt]s?(x)",
+    ],
   },
 });
