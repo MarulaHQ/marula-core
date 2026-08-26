@@ -1,19 +1,21 @@
-//! worker — the background process host (Stage 1 scope).
+//! worker — the background process host.
 //!
 //! Purpose: run the outbox→Redis relay (`core_events::run_relay`) as the
-//! primary loop and expose a `/healthz` endpoint that reflects relay
-//! liveness. `meridian-cli` hosts this same library via
-//! `meridian serve-worker`.
+//! primary loop plus the notification email fan-out consumer, and expose a
+//! `/healthz` endpoint that reflects relay liveness. `meridian-cli` hosts
+//! this same library via `meridian serve-worker`.
 //!
-//! Non-purpose: no general job queue, email, SLA evaluation, or webhook
-//! delivery — those are Stage 2 scope — and no direct database writes of
-//! its own beyond what the relay's mark-published step performs.
+//! Non-purpose: no general job queue, webhook delivery, or SLA evaluation
+//! — those are later-stage scope — and no direct database writes of its own
+//! beyond what the relay's mark-published step performs.
 
 pub mod config;
+pub mod notifier;
 
 use axum::extract::State;
 use axum::routing::get;
 use axum::{Json, Router};
+use core_domain::notifications::NoopMailTransport;
 use core_events::Publisher;
 use serde_json::json;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -31,7 +33,11 @@ pub async fn run(
     tracing::info!("worker connected; starting event relay");
 
     let relay_alive = Arc::new(AtomicBool::new(true));
-    let relay = tokio::spawn(core_events::run_relay(pool, publisher, config.relay_batch));
+    let relay = tokio::spawn(core_events::run_relay(
+        pool.clone(),
+        publisher,
+        config.relay_batch,
+    ));
     {
         // Flip the health flag if the loop ever exits (it only can by
         // panicking); /healthz then reports unhealthy so the orchestrator
@@ -43,6 +49,16 @@ pub async fn run(
             tracing::error!("relay loop exited; reporting unhealthy");
         });
     }
+
+    // Email fan-out: noop transport until a real MailTransport adapter is
+    // configured (standalone-first "none" mode). Best-effort consumer;
+    // liveness is reported by the relay.
+    tokio::spawn(notifier::run_notifier(
+        pool,
+        config.redis_url.clone(),
+        NoopMailTransport,
+        shutdown.clone(),
+    ));
 
     let app = Router::new()
         .route("/healthz", get(healthz))
