@@ -20,6 +20,7 @@ pub mod oidc;
 pub mod orgs;
 pub mod outbox;
 pub mod queue;
+pub mod settings;
 pub mod sla;
 pub mod tickets;
 pub mod timers;
@@ -61,6 +62,22 @@ pub async fn run_migrations(pool: &PgPool) -> DbResult<()> {
 pub async fn set_org(tx: &mut Transaction<'_, Postgres>, org_id: Uuid) -> DbResult<()> {
     sqlx::query("SELECT set_config('app.org_id', $1, true)")
         .bind(org_id.to_string())
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+/// Binds the transaction to one org AND one user. The extra `app.user_id`
+/// GUC lets per-user RLS policies (settings) hide sibling users' rows even
+/// inside a correctly-org-scoped transaction.
+pub async fn set_org_and_user(
+    tx: &mut Transaction<'_, Postgres>,
+    org_id: Uuid,
+    user_id: Uuid,
+) -> DbResult<()> {
+    sqlx::query("SELECT set_config('app.org_id', $1, true), set_config('app.user_id', $2, true)")
+        .bind(org_id.to_string())
+        .bind(user_id.to_string())
         .execute(&mut **tx)
         .await?;
     Ok(())

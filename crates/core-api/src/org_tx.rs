@@ -50,10 +50,11 @@ pub async fn begin(state: &AppState, org_id: Uuid, user_id: Uuid) -> ApiResult<O
         .begin()
         .await
         .map_err(|e| ApiError::Internal(e.into()))?;
-    // Bind THIS transaction to the org. `set_config(..., true)` is
-    // transaction-local: it auto-resets on commit/rollback, so a pooled
-    // connection can never leak org scope across requests.
-    core_db::set_org(&mut tx, org_id)
+    // Bind THIS transaction to the org + acting user. `set_config(..., true)`
+    // is transaction-local: it auto-resets on commit/rollback, so a pooled
+    // connection can never leak scope across requests. The user GUC powers
+    // per-user RLS policies (settings).
+    core_db::set_org_and_user(&mut tx, org_id, user_id)
         .await
         .map_err(ApiError::from)?;
     Ok(OrgTx {

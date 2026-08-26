@@ -11,6 +11,7 @@ pub mod notifications;
 pub mod oidc;
 pub mod openapi;
 pub mod sla_admin;
+pub mod settings;
 pub mod tickets;
 pub mod timers;
 pub mod webhooks;
@@ -233,6 +234,20 @@ pub fn build_router(state: AppState) -> Router {
         )
         // audit (admin)
         .route("/api/audit-events", get(audit::list))
+        // settings hub: typed registry + org/user scoped values + org profile
+        .route("/api/settings/registry", get(settings::get_registry))
+        .route(
+            "/api/settings/org",
+            get(settings::org_values_get).put(settings::org_value_put),
+        )
+        .route(
+            "/api/settings/user",
+            get(settings::user_values_get).put(settings::user_value_put),
+        )
+        .route(
+            "/api/org",
+            get(settings::org_profile_get).patch(settings::org_profile_patch),
+        )
         // email inbound routing settings (admin)
         .route(
             "/api/email/inbound-settings",

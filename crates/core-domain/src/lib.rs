@@ -17,6 +17,7 @@ pub mod notes;
 pub mod notifications;
 pub mod policy;
 pub mod sla_engine;
+pub mod settings;
 pub mod status;
 pub mod workflow;
 

@@ -53,6 +53,12 @@ pub mod types {
     pub const SLA_POLICY_UPDATED: &str = "sla.policy_updated";
     /// An automation rule definition was created/changed/disabled.
     pub const AUTOMATION_RULE_UPDATED: &str = "automation.rule_updated";
+    /// Emitted when an org- or user-scoped setting changes through the
+    /// typed settings registry.
+    pub const SETTING_UPDATED: &str = "setting.updated";
+    /// Emitted when the org profile (name/ticket prefix) is edited from
+    /// General settings or the first-run wizard.
+    pub const ORG_UPDATED: &str = "org.updated";
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
