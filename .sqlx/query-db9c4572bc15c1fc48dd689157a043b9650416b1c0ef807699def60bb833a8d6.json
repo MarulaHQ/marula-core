@@ -1,0 +1,75 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE custom_field_defs SET\n             name = COALESCE($3, name),\n             config = COALESCE($4, config),\n             required = COALESCE($5, required),\n             sort_order = COALESCE($6, sort_order)\n           WHERE org_id = $1 AND id = $2 AND archived_at IS NULL\n           RETURNING id, org_id, board_id, entity, name, kind, config, required, sort_order",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "board_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "entity",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "config",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "required",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "sort_order",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Jsonb",
+        "Bool",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "db9c4572bc15c1fc48dd689157a043b9650416b1c0ef807699def60bb833a8d6"
+}
