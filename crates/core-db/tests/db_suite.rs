@@ -842,6 +842,10 @@ async fn timer_enforces_single_active_session_per_user() {
         "expected unique violation, got {err:?}"
     );
 
+    let mut tx = org_tx(&db.app, s.org).await;
+    let active = timers::active_session(&mut *tx, u).await.expect("active 2");
+    assert_eq!(active.expect("running s2").id, s2.id);
+
     let recent = timers::recent_sessions(&mut *tx, u, 10)
         .await
         .expect("recent");
@@ -3245,6 +3249,8 @@ async fn rls_hides_time_gap_audits_across_orgs_and_unscoped() {
         assert_eq!(rows.len(), 1);
         assert!(rows[0].has_gap);
     }
+}
+
 // --- TASKLIST 2.11: board groups/favorites, per-board RBAC, my-work -------
 
 /// Board groups: CRUD, ordering, board assignment, ungroup-on-delete, and
