@@ -116,6 +116,10 @@ use utoipa::OpenApi;
         crate::routes::internal::effects,
         crate::routes::settings::get_registry,
         crate::routes::settings::org_values_get,
+        // Restored: the PUT half of /api/settings/org was missing from this
+        // list while the route stayed registered, so snapshots silently
+        // lost it and generated SDK types rejected the settings-hub writes.
+        crate::routes::settings::org_value_put,
         crate::routes::settings::user_values_get,
         crate::routes::settings::user_value_put,
         crate::routes::settings::org_profile_get,
