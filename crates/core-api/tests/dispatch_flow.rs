@@ -112,10 +112,8 @@ async fn register_org(app: &Router, slug: String) -> Org {
     assert_eq!(response.status(), 200, "register must succeed");
     let tokens = body_json(response).await;
     let token = tokens["access_token"].as_str().unwrap().to_string();
-    let me = body_json(
-        send(app, axum::http::Method::GET, "/api/me", Some(&token), None).await,
-    )
-    .await;
+    let me =
+        body_json(send(app, axum::http::Method::GET, "/api/me", Some(&token), None).await).await;
     Org {
         token,
         org_id: me["org_id"].as_str().unwrap().parse().unwrap(),
@@ -628,11 +626,14 @@ async fn assign_places_ticket_and_flips_assignee() {
     assert!(blocks
         .iter()
         .any(|x| x["ticket_id"] == ticket["id"] && x["ticket_number"] == ticket["number"]));
-    assert!(!view["unassigned"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|x| x["id"] == ticket["id"]), "assigned ticket left the queue");
+    assert!(
+        !view["unassigned"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|x| x["id"] == ticket["id"]),
+        "assigned ticket left the queue"
+    );
 
     // Conflicting assignment → 409.
     let conflict = send(

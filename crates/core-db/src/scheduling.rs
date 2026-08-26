@@ -163,8 +163,7 @@ pub async fn list_dispatch_appointments_between<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let sql = format!(
-        r#"SELECT a.id, a.org_id, a.user_id, a.ticket_id, a.client_id, a.title,
+    let sql = r#"SELECT a.id, a.org_id, a.user_id, a.ticket_id, a.client_id, a.title,
                   a.starts_at, a.ends_at, a.kind::text AS kind, a.status::text AS status,
                   a.travel_minutes,
                   t.number AS ticket_number,
@@ -175,9 +174,8 @@ where
            WHERE a.org_id = $1 AND a.user_id = ANY($2)
              AND a.status <> 'cancelled'
              AND a.starts_at < $3 AND a.ends_at > $4
-           ORDER BY a.starts_at, a.user_id"#
-    );
-    sqlx::query_as::<_, DispatchAppointmentRow>(&sql)
+           ORDER BY a.starts_at, a.user_id"#;
+    sqlx::query_as::<_, DispatchAppointmentRow>(sql)
         .bind(org_id)
         .bind(user_ids)
         .bind(to)
@@ -226,15 +224,14 @@ where
 /// transaction reinserts moved bookings at their targets via
 /// [`create_appointment`], so every statement boundary stays
 /// constraint-clean while the batch remains atomic.
-pub async fn delete_appointment(
-    conn: &mut PgConnection,
-    org_id: Uuid,
-    id: Uuid,
-) -> DbResult<()> {
-    let deleted =
-        sqlx::query!("DELETE FROM appointments WHERE org_id = $1 AND id = $2", org_id, id)
-            .execute(conn)
-            .await?;
+pub async fn delete_appointment(conn: &mut PgConnection, org_id: Uuid, id: Uuid) -> DbResult<()> {
+    let deleted = sqlx::query!(
+        "DELETE FROM appointments WHERE org_id = $1 AND id = $2",
+        org_id,
+        id
+    )
+    .execute(conn)
+    .await?;
     if deleted.rows_affected() == 0 {
         return Err(DbError::NotFound);
     }

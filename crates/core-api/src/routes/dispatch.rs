@@ -225,21 +225,21 @@ pub async fn dispatch_day(
             booked_minutes: booked,
             utilization_percent: capacity_percent(booked, available),
             appointments: user_appointments,
-            on_call: on_call.iter().filter(|b| b.user_id == user.id).cloned().collect(),
+            on_call: on_call
+                .iter()
+                .filter(|b| b.user_id == user.id)
+                .cloned()
+                .collect(),
             exclusions,
             availability_windows: windows,
         });
     }
 
-    let unassigned = core_db::tickets::unassigned_queue_annotated(
-        &state.pool,
-        org_id,
-        QUEUE_LIMIT,
-    )
-    .await?
-    .into_iter()
-    .map(MyWorkItem::from_row)
-    .collect();
+    let unassigned = core_db::tickets::unassigned_queue_annotated(&state.pool, org_id, QUEUE_LIMIT)
+        .await?
+        .into_iter()
+        .map(MyWorkItem::from_row)
+        .collect();
 
     Ok(Json(DispatchDayView {
         date,
@@ -376,11 +376,11 @@ pub async fn bulk_move(
         // at targets. Identity stays; events carry the new user_id so the
         // realtime router fans out to the right channel.
         let mut updated = Vec::with_capacity(req.moves.len());
-        for (spec, mut appt) in req.moves.iter().zip(moved_appointments.into_iter()) {
+        for (spec, mut appt) in req.moves.iter().zip(moved_appointments) {
             appt.user_id = spec.user_id;
             appt.starts_at = spec.starts_at;
             appt.ends_at = spec.ends_at;
-            core_db::scheduling::delete_appointment(&mut *tx.tx, org_id, appt.id).await?;
+            core_db::scheduling::delete_appointment(&mut tx.tx, org_id, appt.id).await?;
             updated.push(appt);
         }
         let mut moved_views = Vec::with_capacity(updated.len());
@@ -467,9 +467,11 @@ pub async fn assign(
             req.ends_at,
         )
         .await?;
-        if let Some(idx) = conflict_indices(req.starts_at, req.ends_at, existing.iter().map(|a| {
-            (a.starts_at, a.ends_at)
-        }))
+        if let Some(idx) = conflict_indices(
+            req.starts_at,
+            req.ends_at,
+            existing.iter().map(|a| (a.starts_at, a.ends_at)),
+        )
         .into_iter()
         .next()
         {

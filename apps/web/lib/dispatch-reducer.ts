@@ -36,6 +36,8 @@ export interface Block {
   starts_at: string;
   ends_at: string;
   status: string;
+  /** Travel placeholder rendered before the block face (minutes). */
+  travel_minutes?: number;
 }
 
 /** Loose structural mirror of TechnicianView (keeps tests SDK-free). */
@@ -62,7 +64,12 @@ export interface QueueItem {
 export interface BoardState {
   technicians: Tech[];
   unassigned: QueueItem[];
-  drag: { source: "queue" | "board"; id: string; title: string } | null;
+  drag: {
+    source: "queue" | "board";
+    id: string;
+    title: string;
+    durationMin: number;
+  } | null;
   /** Dashed preview target; conflict recomputed on every move. */
   ghost: {
     userId: string;
@@ -94,6 +101,9 @@ export type DispatchAction =
       source: "queue" | "board";
       id: string;
       title: string;
+      /** Drop-span length: board drags keep their booking length; queue
+       * drops default to 60 minutes. */
+      durationMin?: number;
     }
   | { type: "drag_end" }
   | { type: "ghost_move"; userId: string; startIso: string; endIso: string }
@@ -245,8 +255,22 @@ export function coveredSpans(
     if (!localDay || localDay.weekday !== w.weekday) return [];
     const [sh, sm] = w.start_local.split(":").map(Number);
     const [eh, em] = w.end_local.split(":").map(Number);
-    const start = zonedInstant(w.timezone, localDay.y, localDay.m, localDay.d, sh, sm);
-    const end = zonedInstant(w.timezone, localDay.y, localDay.m, localDay.d, eh, em);
+    const start = zonedInstant(
+      w.timezone,
+      localDay.y,
+      localDay.m,
+      localDay.d,
+      sh ?? 0,
+      sm ?? 0,
+    );
+    const end = zonedInstant(
+      w.timezone,
+      localDay.y,
+      localDay.m,
+      localDay.d,
+      eh ?? 0,
+      em ?? 0,
+    );
     if (start === null || end === null || end <= start) return [];
     return [[start, end] as const];
   });
@@ -379,6 +403,7 @@ export function dispatchReducer(
           source: action.source,
           id: action.id,
           title: action.title,
+          durationMin: action.durationMin ?? 60,
         },
         announcement:
           action.source === "board"

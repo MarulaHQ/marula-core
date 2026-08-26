@@ -25,7 +25,7 @@ function iso(at: string): string {
   return `${DAY}T${at}:00Z`;
 }
 
-function block(partial: Partial<Block>): Block {
+function block(partial: Partial<Block> = {}): Block {
   return {
     id: "b1",
     user_id: "tech-a",
@@ -38,6 +38,13 @@ function block(partial: Partial<Block>): Block {
     status: "scheduled",
     ...partial,
   };
+}
+
+/** Indexed access under noUncheckedIndexedAccess with a clear failure. */
+function first<T>(xs: T[]): T {
+  const v = xs[0];
+  if (v === undefined) throw new Error("expected non-empty array");
+  return v;
 }
 
 function tech(partial: Partial<Tech> = {}): Tech {
@@ -56,7 +63,7 @@ function tech(partial: Partial<Tech> = {}): Tech {
   };
 }
 
-function queueItem(partial: Partial<QueueItem>): QueueItem {
+function queueItem(partial: Partial<QueueItem> = {}): QueueItem {
   return {
     id: "t1",
     number: "MER-1001",
@@ -193,9 +200,9 @@ describe("optimistic move flow", () => {
       endsAt: iso("12:00"),
     });
     expect(s.technicians.find((t) => t.user_id === "tech-a")?.appointments).toHaveLength(0);
-    const moved = s.technicians.find((t) => t.user_id === "tech-b")?.appointments;
+    const moved = s.technicians.find((t) => t.user_id === "tech-b")?.appointments ?? [];
     expect(moved).toHaveLength(1);
-    expect(moved?.[0].starts_at).toBe(iso("11:00"));
+    expect(first(moved!).starts_at).toBe(iso("11:00"));
     expect(s.pending["b1"]?.kind).toBe("move");
   });
 
@@ -215,8 +222,10 @@ describe("optimistic move flow", () => {
       message: "dispatch move conflicts with existing booking",
     });
     expect(s.pending["b1"]).toBeUndefined();
-    const restored = s.technicians.find((t) => t.user_id === "tech-a")?.appointments;
-    expect(restored?.[0]).toMatchObject({ id: "b1", starts_at: iso("09:00") });
+    const restored = first(
+      s.technicians.find((t) => t.user_id === "tech-a")?.appointments ?? [],
+    );
+    expect(restored).toMatchObject({ id: "b1", starts_at: iso("09:00") });
     expect(s.technicians.find((t) => t.user_id === "tech-b")?.appointments).toHaveLength(0);
     expect(s.error?.message).toContain("conflicts");
   });
@@ -277,10 +286,10 @@ describe("optimistic assign flow", () => {
       endsAt: iso("10:00"),
     });
     expect(s.unassigned).toHaveLength(0);
-    const inserted = s.technicians[0].appointments;
+    const inserted = first(s.technicians).appointments;
     expect(inserted).toHaveLength(1);
-    expect(inserted[0].id).toBe("tmp-1");
-    expect(inserted[0].title).toBe("MER-1001 server down");
+    expect(first(inserted).id).toBe("tmp-1");
+    expect(first(inserted).title).toBe("MER-1001 server down");
     expect(s.pending["tmp-1"]?.kind).toBe("assign");
   });
 
@@ -303,7 +312,7 @@ describe("optimistic assign flow", () => {
     });
     s = dispatchReducer(s, { type: "reject", key: "tmp-1", message: "slot already booked: x" });
     expect(s.unassigned.some((t) => t.id === "t1")).toBe(true);
-    expect(s.technicians[0].appointments).toHaveLength(0);
+    expect(first(s.technicians).appointments).toHaveLength(0);
   });
 
   it("confirmation swaps the temp id out via reconcile of the real block", () => {
@@ -330,7 +339,7 @@ describe("optimistic assign flow", () => {
       type: "reconcile_upsert",
       block: block({ id: "real-1", title: "MER-1001 server down" }),
     });
-    expect(s.technicians[0].appointments.map((a) => a.id)).toEqual(["real-1"]);
+    expect(first(s.technicians).appointments.map((a) => a.id)).toEqual(["real-1"]);
   });
 });
 
@@ -341,12 +350,12 @@ describe("realtime reconciliation", () => {
       type: "reconcile_upsert",
       block: block({ id: "remote-1", title: "from another dispatcher" }),
     });
-    expect(s.technicians[0].appointments).toHaveLength(1);
+    expect(first(s.technicians).appointments).toHaveLength(1);
     s = dispatchReducer(s, {
       type: "reconcile_upsert",
       block: block({ id: "remote-1", starts_at: iso("14:00"), ends_at: iso("15:00") }),
     });
-    expect(s.technicians[0].appointments[0].starts_at).toBe(iso("14:00"));
+    expect(first(first(s.technicians).appointments).starts_at).toBe(iso("14:00"));
   });
 
   it("never lets an echo fight an in-flight optimistic move", () => {
@@ -369,13 +378,13 @@ describe("realtime reconciliation", () => {
       type: "reconcile_upsert",
       block: block({ starts_at: iso("09:00"), ends_at: iso("10:00") }),
     });
-    expect(s.technicians[0].appointments[0].starts_at).toBe(iso("11:00"));
+    expect(first(first(s.technicians).appointments).starts_at).toBe(iso("11:00"));
   });
 
   it("removes cancelled blocks", () => {
     let s = stateWith([tech({ appointments: [block({ id: "gone" })] })]);
     s = dispatchReducer(s, { type: "reconcile_remove", apptId: "gone" });
-    expect(s.technicians[0].appointments).toHaveLength(0);
+    expect(first(s.technicians).appointments).toHaveLength(0);
   });
 });
 
@@ -413,7 +422,7 @@ describe("block placement helpers", () => {
     const a = tech({ appointments: [block()] });
     const b = tech({ user_id: "tech-b" });
     const stripped = withoutBlock([a, b], "b1");
-    expect(stripped[0].appointments).toHaveLength(0);
+    expect(first(stripped).appointments).toHaveLength(0);
     const movedHome = withBlock(stripped, block({ user_id: "tech-b" }));
     expect(movedHome.find((t) => t.user_id === "tech-b")?.appointments).toHaveLength(1);
     expect(movedHome.find((t) => t.user_id === "tech-a")?.appointments).toHaveLength(0);
@@ -422,6 +431,6 @@ describe("block placement helpers", () => {
   it("unknown-owner blocks are dropped silently by withBlock", () => {
     const a = tech();
     expect(withBlock([a], block({ user_id: "ghost-tech" }))).toHaveLength(1);
-    expect(withBlock([a], block({ user_id: "ghost-tech" }))[0].appointments).toHaveLength(0);
+    expect(first(withBlock([a], block({ user_id: "ghost-tech" }))).appointments).toHaveLength(0);
   });
 });

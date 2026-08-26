@@ -239,7 +239,9 @@ mod tests {
         );
         assert_eq!(
             action,
-            ClientAction::Reply(vec![ServerMessage::Subscribed { channel: own.clone() }])
+            ClientAction::Reply(vec![ServerMessage::Subscribed {
+                channel: own.clone()
+            }])
         );
         assert!(subs.contains(&Channel::Org(c.org)));
 

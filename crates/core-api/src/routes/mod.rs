@@ -445,10 +445,7 @@ pub fn build_router(state: AppState) -> Router {
         )
         // dispatch board (TASKLIST 2.19)
         .route("/api/dispatch/day", get(dispatch::dispatch_day))
-        .route(
-            "/api/dispatch/bulk-move",
-            post(dispatch::bulk_move),
-        )
+        .route("/api/dispatch/bulk-move", post(dispatch::bulk_move))
         .route("/api/dispatch/assign", post(dispatch::assign))
         .layer(middleware::from_fn_with_state(state.clone(), require_auth));
 
