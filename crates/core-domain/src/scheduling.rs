@@ -265,6 +265,41 @@ pub fn covered_minutes(
     total / 60
 }
 
+/// Booked minutes for a dispatch day: the union of LIVE appointment spans
+/// clipped to `[from, to]`, merged so touching/stacked bookings never
+/// double-count. Cancelled bookings contribute nothing. Travel placeholders
+/// are NOT included — they are annotations, not occupied capacity, until
+/// the RoutingProvider lane lands.
+pub fn booked_minutes<I>(appointments: I, from: DateTime<Utc>, to: DateTime<Utc>) -> i64
+where
+    I: IntoIterator<Item = (DateTime<Utc>, DateTime<Utc>)>,
+{
+    let clipped: Vec<(DateTime<Utc>, DateTime<Utc>)> = appointments
+        .into_iter()
+        .filter_map(|(s, e)| {
+            let s = s.max(from);
+            let e = e.min(to);
+            (e > s).then_some((s, e))
+        })
+        .collect();
+    merge_intervals(clipped)
+        .iter()
+        .map(|(s, e)| (*e - *s).num_seconds())
+        .sum::<i64>()
+        / 60
+}
+
+/// Dispatch capacity utilization as 0–100+ (over-capacity days exceed
+/// 100 when bookings outstrip availability). Zero availability is not a
+/// division error: an off-day technician is 0% utilized with no bookings,
+/// and over-capacity-on-nothing is impossible, so the answer is 0.
+pub fn capacity_percent(booked: i64, available: i64) -> i64 {
+    if available <= 0 {
+        return 0;
+    }
+    booked * 100 / available
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -418,6 +453,32 @@ mod tests {
             excl(utc(2026, 5, 18, 11, 0), utc(2026, 5, 18, 13, 0)),
         ];
         assert_eq!(covered_minutes(&windows, &stacked, day.0, day.1), 5 * 60);
+    }
+
+    #[test]
+    fn booked_minutes_merges_and_clips_and_skips_cancelled() {
+        let day = (utc(2026, 6, 1, 0, 0), utc(2026, 6, 2, 0, 0));
+        // Touching 09–10 + 10–11 unions to 120, not 120+; a span poking
+        // outside the day clips; zero-length contributes nothing.
+        let spans = [
+            (at9(9, 0), at9(10, 0)),
+            (at9(10, 0), at9(11, 0)),
+            (utc(2026, 5, 31, 23, 0), at9(0, 30)),
+            (at9(13, 0), at9(13, 0)),
+        ];
+        assert_eq!(booked_minutes(spans, day.0, day.1), 150);
+        assert_eq!(booked_minutes([], day.0, day.1), 0);
+    }
+
+    #[test]
+    fn capacity_percent_bounds_and_over_capacity() {
+        assert_eq!(capacity_percent(0, 480), 0);
+        assert_eq!(capacity_percent(240, 480), 50);
+        assert_eq!(capacity_percent(480, 480), 100);
+        // Overbooked against availability exceeds 100 (the warning state).
+        assert_eq!(capacity_percent(540, 480), 112);
+        // No availability (off day): 0 regardless of bookings.
+        assert_eq!(capacity_percent(120, 0), 0);
     }
 
     #[test]
