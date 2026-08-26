@@ -102,3 +102,38 @@ private dev ports; each lane shipped its tests with the implementation.
 2. OIDC discovery/JWKS plumbing is hand-rolled on reqwest+jsonwebtoken; consider `openidconnect` crate during hardening.
 3. Notification email fan-out runs on noop transport until settings-hub wires real transport config.
 4. Inbound email malware scanning is clamd-optional (noop default) — document operator runbook when attachments land.
+
+## Stage 2 — waves 4–6 (daily-driver bulk)
+
+**Status:** merged through `d376d25`. Six more parallel lanes landed on top
+of wave 3; every lane shipped tests with implementation. Live-stack
+acceptance re-run on merged main: **18/18** incl. WS push chain, p95 ≤ 38 ms.
+
+### What shipped
+
+| Item | Lane | Highlights |
+|---|---|---|
+| 2.7 SLA engine + automations v1 | `stage2-sla` | `0015_sla_v1.sql` — org business-hours calendars (DST/holiday aware), policy/ladder attachment, fire-once escalation ledger; pure ladder evaluation (proptests); general job queue in worker (SKIP LOCKED, retries, dead-letter) driven by DB clocks — clock-skew tolerant by construction; automations consumer turns matched rules into effect jobs applied via core-api's token-gated internal surface (§4.1 single-writer preserved) |
+| 2.5 Settings hub + registry | `stage2-settings` | `0018_settings_registry.sql` — typed settings registry (key/kind/default/scope + validation) rendered FROM / read THROUGH; settings shell with General/Preferences/Security pages consolidating the notifications-prefs and MFA/OIDC surfaces; skippable Tier-1 org wizard (defaults-first: skipping changes nothing) |
+| 2.9/2.10 Timer discipline + missing time | `stage2-timer` | `0017_timer_discipline--breaking.sql` — single-active invariant via generated `is_running` column + partial unique index (paused timers dock, not block); switch = atomic auto-pause-with-reason + start; gap-audit ledger with once-per-day nudge claim; EOD nudge scheduler loop feeding the notification center (`missing_time` kind honors prefs/quiet hours); docked timer bar + missing-time strip + quick-log dialog per Today mockup |
+| 2.11 Board organize + RBAC + my-work | `stage2-mywork` | `0019_board_organize_rbac.sql` — board groups/favorites, board_members roles (viewer/member/admin) with deny-wins matrix over ops, cross-board my-work endpoint (priority→SLA-due ordering); left-nav board tree + Today my-work queue per mockup |
+| 2.13 Client portal v1 | `stage2-portal` | `0021_portal_v1.sql` — portal_users (contact/approver/it_manager), separate JWT audience, per-client RLS scoping ON TOP of org RLS; ticket view/reply restricted to client-visible notes (it_manager additionally reads in-house updates, never internal); staff admin CRUD for portal users + board exposure flags; distinct /portal shell |
+| 2.15 Webhooks out + API keys + connectors | `stage2-webhooks` | `0020_webhooks_connectors.sql` — HMAC-signed deliveries w/ timestamp anti-replay, exponential backoff, per-attempt delivery logs visible via API; scoped rotatable API keys (hash-at-rest, show-once, last-used tracked, x-api-key machine auth); NinjaOne + Hudu reference connectors under `connectors/` written against ONLY @meridian/sdk |
+
+### Criteria status
+
+- [x] SLA provably correct under clock-skew tests (DB-clock sweeps, host clock paces cadence only)
+- [x] Escalation ladders → notification center kinds (prefs/quiet hours apply automatically)
+- [x] Automations v1 event-triggered with audit
+- [x] Single-active-timer workflow server-authoritative + WS events
+- [x] Missing-time EOD nudges + manager/self gap reports
+- [x] Board groups/favorites + my-work + board-level RBAC enforcement
+- [x] Portal v1 with IT-manager tier and client-visible-only content
+- [x] Signed webhooks with retry/backoff and in-app-visible delivery logs; third-party-pattern connectors on public API only
+
+### Known gaps / deferred
+
+1. Admin config screens (2.6): workflow editor, SLA/calendar editors, webhook delivery-log UI — backends all exist; UI consolidation is the remaining settings-hub slice.
+2. Webhook subscription secrets dead-letter fail-closed when `MERIDIAN_SECRET_KEY` unset on worker (documented none mode).
+3. Portal MFA deferred to portal v2.
+4. Scheduling reminders/notification hooks deferred (data model dispatch-ready).
