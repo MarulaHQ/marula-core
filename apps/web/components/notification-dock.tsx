@@ -122,8 +122,14 @@ export function NotificationDock() {
 
   const openItem = (item: NotificationItem) => {
     void markRead([item.id]);
+    setOpen(false);
+    // Missing-time nudges land on Today with the quick-log dialog open;
+    // everything else deep-links to its ticket.
+    if (item.kind === "missing_time") {
+      router.push("/today?log=1");
+      return;
+    }
     if (item.ticket_id) {
-      setOpen(false);
       router.push(`/tickets/${item.ticket_id}`);
     }
   };
