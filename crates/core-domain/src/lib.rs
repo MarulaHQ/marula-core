@@ -6,6 +6,7 @@
 //! Non-purpose: no I/O of any kind. No SQL, no HTTP, no Redis, no clocks read
 //! from the environment — time and effects are always injected as parameters.
 
+pub mod automations;
 pub mod entities;
 pub mod error;
 pub mod events;
@@ -14,6 +15,7 @@ pub mod mentions;
 pub mod money;
 pub mod notifications;
 pub mod policy;
+pub mod sla_engine;
 pub mod status;
 pub mod workflow;
 
