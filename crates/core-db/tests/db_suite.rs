@@ -1802,3 +1802,336 @@ async fn migration_seed_logic_restores_missing_category_defaults() {
             .expect("healthy count");
     assert_eq!(healthy, 4);
 }
+
+// --- notes taxonomy + enforced pre-close checklists (TASKLIST 2.8) --------------
+
+use core_db::checklists;
+use core_domain::entities::ChecklistProgress;
+
+/// Re-runs migration 0016's defensive taxonomy backfill verbatim and proves
+/// it is a no-op that never disturbs existing kinds.
+#[tokio::test]
+async fn note_kind_backfill_is_idempotent_and_preserves_taxonomy() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 50).await;
+    let u = seed_user(&db.app, &s, 5000).await;
+
+    let mut tx = org_tx(&db.app, s.org).await;
+    let t = create_ticket(
+        &mut tx,
+        &s,
+        fixed_uuid(5001),
+        "backfill target",
+        Priority::P3,
+        s.entry_status,
+        None,
+    )
+    .await;
+    for (n, kind) in [
+        (5002u64, NoteKind::Internal),
+        (5003, NoteKind::ClientVisible),
+        (5004, NoteKind::InHouseUpdate),
+    ] {
+        tickets::insert_comment(&mut *tx, fixed_uuid(n), s.org, t.id, Some(u), kind, "body")
+            .await
+            .expect("comment");
+    }
+    tx.commit().await.expect("commit");
+
+    // The exact statement from migrations/0016_notes_taxonomy.sql, twice.
+    let mut admin = db.admin.begin().await.expect("admin tx");
+    for _ in 0..2 {
+        sqlx::query("UPDATE ticket_comments SET kind = 'internal' WHERE kind IS NULL")
+            .execute(&mut *admin)
+            .await
+            .expect("backfill");
+    }
+    admin.commit().await.expect("commit backfill");
+
+    let mut tx = org_tx(&db.app, s.org).await;
+    let all = tickets::list_comments(&mut *tx, s.org, t.id, None)
+        .await
+        .expect("all kinds intact");
+    let kinds: std::collections::HashSet<NoteKind> = all.iter().map(|c| c.kind).collect();
+    assert_eq!(
+        kinds,
+        std::collections::HashSet::from([
+            NoteKind::Internal,
+            NoteKind::ClientVisible,
+            NoteKind::InHouseUpdate,
+        ]),
+        "idempotent backfill must not rewrite explicit kinds"
+    );
+}
+
+/// The portal read path is hard-limited to client-visible notes at the
+/// query layer — the whitelist comes from core-domain `notes`, so staff-only
+/// kinds can never leak through this function.
+#[tokio::test]
+async fn client_visible_read_path_returns_only_client_visible() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 51).await;
+    let u = seed_user(&db.app, &s, 5100).await;
+
+    let mut tx = org_tx(&db.app, s.org).await;
+    let t = create_ticket(
+        &mut tx,
+        &s,
+        fixed_uuid(5101),
+        "portal view",
+        Priority::P2,
+        s.entry_status,
+        None,
+    )
+    .await;
+    let visible = tickets::insert_comment(
+        &mut *tx,
+        fixed_uuid(5102),
+        s.org,
+        t.id,
+        Some(u),
+        NoteKind::ClientVisible,
+        "client-safe update",
+    )
+    .await
+    .expect("visible");
+    tickets::insert_comment(
+        &mut *tx,
+        fixed_uuid(5103),
+        s.org,
+        t.id,
+        None,
+        NoteKind::Internal,
+        "password reset root cause",
+    )
+    .await
+    .expect("internal");
+    tickets::insert_comment(
+        &mut *tx,
+        fixed_uuid(5104),
+        s.org,
+        t.id,
+        None,
+        NoteKind::InHouseUpdate,
+        "shift handover",
+    )
+    .await
+    .expect("in-house");
+
+    // The pure policy and the DB path must agree exactly.
+    let portal_kinds = core_domain::notes::visible_kinds(core_domain::notes::NoteAudience::Portal);
+    assert_eq!(portal_kinds, [NoteKind::ClientVisible]);
+
+    let portal_view = tickets::list_client_visible_comments(&mut *tx, s.org, t.id)
+        .await
+        .expect("portal read");
+    assert_eq!(
+        portal_view.iter().map(|c| c.id).collect::<Vec<_>>(),
+        vec![visible.id],
+        "portal surface sees ONLY client_visible"
+    );
+
+    // Staff filter composes the other direction: exclude client-visible.
+    let staff_only = tickets::list_comments(
+        &mut *tx,
+        s.org,
+        t.id,
+        Some(&[NoteKind::Internal, NoteKind::InHouseUpdate]),
+    )
+    .await
+    .expect("staff filter");
+    assert_eq!(staff_only.len(), 2);
+}
+
+/// Template CRUD: one-per-board upsert with replace-all items, RLS isolation
+/// against a foreign org, and clean deletion.
+#[tokio::test]
+async fn checklist_template_upsert_replace_and_rls_isolation() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 52).await;
+    let foreign = seed_org(&db.app, 53).await;
+
+    let mut tx = org_tx(&db.app, s.org).await;
+    // No template by default → enforcement posture is off by construction.
+    assert!(checklists::get_template_for_board(&mut *tx, s.org, s.board)
+        .await
+        .expect("default lookup")
+        .is_none());
+
+    let (tpl, items) = checklists::upsert_template(
+        &mut tx,
+        s.org,
+        s.board,
+        Uuid::now_v7(),
+        "Close-out",
+        &["root cause documented".into(), "client notified".into()],
+    )
+    .await
+    .expect("upsert");
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0].text, "root cause documented");
+
+    // Replace-all: same board keeps ONE template; items are swapped.
+    let (_tpl2, items2) = checklists::upsert_template(
+        &mut tx,
+        s.org,
+        s.board,
+        Uuid::now_v7(),
+        "Close-out v2",
+        &["invoice draft ready".into()],
+    )
+    .await
+    .expect("replace");
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM board_checklist_templates WHERE board_id = $1")
+            .bind(s.board)
+            .fetch_one(&mut *tx)
+            .await
+            .expect("template count");
+    assert_eq!(count, 1, "one template per board");
+    assert_eq!(items2.len(), 1);
+    assert_ne!(tpl.name, "Close-out v2");
+
+    // Foreign org sees nothing (RLS), even with the same board uuid shape.
+    let mut ftx = org_tx(&db.app, foreign.org).await;
+    assert!(
+        checklists::get_template_for_board(&mut *ftx, foreign.org, s.board)
+            .await
+            .expect("rls-scoped lookup")
+            .is_none()
+    );
+
+    checklists::delete_template(&mut *tx, s.org, s.board)
+        .await
+        .expect("delete");
+    assert!(matches!(
+        checklists::delete_template(&mut *tx, s.org, s.board).await,
+        Err(DbError::NotFound)
+    ));
+}
+
+/// Instantiation is idempotent, lazily syncs template edits onto tickets,
+/// demotes instances when their template item disappears, and progress is
+/// derived correctly from the required/ad-hoc split.
+#[tokio::test]
+async fn template_instantiation_idempotent_lazy_sync_and_progress() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 54).await;
+    let u = seed_user(&db.app, &s, 5400).await;
+
+    let mut tx = org_tx(&db.app, s.org).await;
+    let (_, _items) = checklists::upsert_template(
+        &mut tx,
+        s.org,
+        s.board,
+        Uuid::now_v7(),
+        "Gate",
+        &["step one".into(), "step two".into()],
+    )
+    .await
+    .expect("template");
+    let t = create_ticket(
+        &mut tx,
+        &s,
+        fixed_uuid(5401),
+        "instantiation probe",
+        Priority::P3,
+        s.entry_status,
+        None,
+    )
+    .await;
+
+    // First instantiation creates both instances; the second is a no-op.
+    assert_eq!(
+        checklists::instantiate_missing(&mut tx, s.org, s.board, t.id)
+            .await
+            .expect("first run"),
+        2
+    );
+    assert_eq!(
+        checklists::instantiate_missing(&mut tx, s.org, s.board, t.id)
+            .await
+            .expect("second run"),
+        0,
+        "idempotent: no duplicates"
+    );
+
+    let (listed, p0) = checklists::view(&mut tx, s.org, t.id).await.expect("view");
+    assert_eq!(listed.len(), 2);
+    assert!(listed.iter().all(|i| i.template_item_id.is_some()));
+    assert_eq!(
+        p0,
+        ChecklistProgress {
+            total: 2,
+            checked: 0,
+            required_open: 2
+        }
+    );
+
+    // Check one instance off: derived progress follows instantly.
+    tickets::set_checklist_item(&mut *tx, s.org, listed[0].id, true, Some(u))
+        .await
+        .expect("check");
+    let (_, p1) = checklists::view(&mut tx, s.org, t.id)
+        .await
+        .expect("view 2");
+    assert_eq!(
+        p1,
+        ChecklistProgress {
+            total: 2,
+            checked: 1,
+            required_open: 1
+        }
+    );
+
+    // A later template edit flows onto the EXISTING ticket lazily…
+    checklists::upsert_template(
+        &mut tx,
+        s.org,
+        s.board,
+        Uuid::now_v7(),
+        "Gate v2",
+        &["step one".into(), "step two".into(), "step three".into()],
+    )
+    .await
+    .expect("edit");
+    // …and because item sync is IDENTITY-PRESERVING (matching texts keep
+    // their row ids), exactly ONE genuinely-new instance appears on the
+    // lazy pass while prior linkage AND checked state survive untouched.
+    assert_eq!(
+        checklists::instantiate_missing(&mut tx, s.org, s.board, t.id)
+            .await
+            .expect("lazy sync"),
+        1
+    );
+    let (after_edit, p2) = checklists::view(&mut tx, s.org, t.id)
+        .await
+        .expect("view 3");
+    assert_eq!(after_edit.len(), 3);
+    let linked = after_edit
+        .iter()
+        .filter(|i| i.template_item_id.is_some())
+        .count();
+    assert_eq!(linked, 3, "edits never break instance provenance");
+    assert_eq!(
+        p2,
+        ChecklistProgress {
+            total: 3,
+            checked: 1,
+            required_open: 2
+        },
+        "checked state survives template edits"
+    );
+    tx.commit().await.expect("commit");
+
+    // Deleting the whole template demotes every remaining link (SET NULL).
+    let mut tx = org_tx(&db.app, s.org).await;
+    checklists::delete_template(&mut *tx, s.org, s.board)
+        .await
+        .expect("template delete");
+    let (_, p3) = checklists::view(&mut tx, s.org, t.id)
+        .await
+        .expect("view 4");
+    assert_eq!(p3.total, 3, "instances survive template removal");
+    assert_eq!(p3.required_open, 0, "nothing required once links are gone");
+}

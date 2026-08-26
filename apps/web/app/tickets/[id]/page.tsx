@@ -4,8 +4,11 @@
 // — ticket list (left), detail (center), activity (comments + checklist +
 // timer controls, right) — composed with @meridian/layout so pane geometry
 // persists per user. Status changes go through the semantic-category
-// transition endpoint; the timer binds to this ticket.
-// Non-purpose: no board editing and no admin actions here.
+// transition endpoint; the timer binds to this ticket. The note composer
+// picks the structured taxonomy (internal / client-visible / in-house
+// update) and the checklist panel surfaces required-item progress plus the
+// exact blockers the server reports on an enforced close (typed 409).
+// Non-purpose: no board editing, no template administration here.
 "use client";
 
 import type { components } from "@meridian/sdk";
@@ -31,6 +34,8 @@ import { api, useRequireAuth } from "../../../lib/api";
 type Ticket = components["schemas"]["Ticket"];
 type TicketComment = components["schemas"]["TicketComment"];
 type ChecklistItem = components["schemas"]["ChecklistItem"];
+type ChecklistProgress = components["schemas"]["ChecklistProgress"];
+type TicketChecklistView = components["schemas"]["TicketChecklistView"];
 type BoardStatus = components["schemas"]["BoardStatus"];
 type BoardTransitionsResponse = components["schemas"]["BoardTransitionsResponse"];
 
@@ -59,6 +64,22 @@ function categoryTone(category: string): "success" | "warning" | "neutral" {
   return "neutral";
 }
 
+// Note-kind taxonomy: squared tags, functional tones only (green = goes to
+// the client, amber = internal coordination variant), labels spelled out.
+const NOTE_KINDS: {
+  value: NonNullable<TicketComment["kind"]>;
+  label: string;
+  tone: "neutral" | "success" | "warning";
+}[] = [
+  { value: "internal", label: "Internal", tone: "neutral" },
+  { value: "client_visible", label: "Client-visible", tone: "success" },
+  { value: "in_house_update", label: "In-house update", tone: "warning" },
+];
+
+function noteKindMeta(kind: NonNullable<TicketComment["kind"]>): (typeof NOTE_KINDS)[number] {
+  return NOTE_KINDS.find((k) => k.value === kind) ?? NOTE_KINDS[0]!;
+}
+
 /// Client mirror of the server's transition verdict (core-domain `workflow`):
 /// explicit matrix wins; otherwise the semantic floor governs — any→any
 /// except identity and closed→open. The API remains authoritative; this only
@@ -80,6 +101,16 @@ function transitionAllowed(
   const toCat = catOf.get(toId);
   if (fromCat === undefined || toCat === undefined) return false;
   return !(fromCat === "closed" && toCat === "open");
+}
+
+/// Extracts the missing-item list from the typed checklist-blocked 409
+/// body (`{ error: { code: 409, message, missing: string[] } }`). Returns
+/// null for any other error shape so callers can fall back to generic copy.
+function extractMissingItems(errorBody: unknown): string[] | null {
+  const err = (errorBody as { error?: { code?: number; missing?: unknown } })?.error;
+  if (err?.code !== 409 || !Array.isArray(err.missing)) return null;
+  const items = err.missing.filter((t): t is string => typeof t === "string");
+  return items.length > 0 ? items : [];
 }
 
 export default function TicketWorkspacePage() {
@@ -108,10 +139,13 @@ export default function TicketWorkspacePage() {
   const [statuses, setStatuses] = useState<BoardStatus[]>([]);
   const [workflow, setWorkflow] = useState<BoardTransitionsResponse>({ mode: "floor", edges: [] });
   const [comments, setComments] = useState<TicketComment[]>([]);
-  const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
+  const [checklist, setChecklist] = useState<TicketChecklistView | null>(null);
   const [commentDraft, setCommentDraft] = useState("");
+  const [commentKind, setCommentKind] = useState<NonNullable<TicketComment["kind"]>>("internal");
   const [checklistDraft, setChecklistDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Blockers reported by the server's typed 409 on an enforced close.
+  const [closeBlockers, setCloseBlockers] = useState<string[] | null>(null);
 
   const refreshTicket = useCallback(async () => {
     if (ticketId === "") return;
@@ -126,7 +160,7 @@ export default function TicketWorkspacePage() {
     }
     setTicket(t.data);
     setComments(c.data ?? []);
-    setChecklist(cl.data ?? []);
+    setChecklist(cl.data ?? null);
     setError(null);
     if (t.data.board_id !== null && statuses.length === 0) {
       // Statuses + the board's effective workflow arrive together so the
@@ -149,11 +183,21 @@ export default function TicketWorkspacePage() {
   }, [auth.status, refreshTicket]);
 
   async function changeStatus(statusId: string) {
+    setCloseBlockers(null);
     const res = await api.api.POST("/api/tickets/{id}/status", {
       params: { path: { id: ticketId } },
       body: { status_id: statusId },
     });
     if (res.error !== undefined) {
+      // Typed 409: pre-close checklist enforcement names every unchecked
+      // REQUIRED item so the panel can render exact blockers.
+      const missing = extractMissingItems(res.error);
+      if (missing !== null) {
+        setCloseBlockers(missing);
+        setError(null);
+        void refreshTicket();
+        return;
+      }
       setError("That status change is not allowed by this board's workflow");
       return;
     }
@@ -174,7 +218,7 @@ export default function TicketWorkspacePage() {
     if (body === "") return;
     await api.api.POST("/api/tickets/{id}/comments", {
       params: { path: { id: ticketId } },
-      body: { body, kind: "internal" },
+      body: { body, kind: commentKind },
     });
     setCommentDraft("");
     void refreshTicket();
@@ -313,6 +357,7 @@ export default function TicketWorkspacePage() {
               );
             }
             if (pane.id === PANE_ACTIVITY && ticket !== null) {
+              const progress: ChecklistProgress | undefined = checklist?.progress;
               return (
                 <div className="grid content-start gap-4 p-4">
                   <section className="grid gap-2">
@@ -322,22 +367,58 @@ export default function TicketWorkspacePage() {
                         No comments yet.
                       </p>
                     )}
-                    {comments.map((c) => (
-                      <article key={c.id} className="rounded-[2px] border p-2 text-xs" style={{ borderColor: "var(--m-border)" }}>
-                        <header className="mb-1 flex justify-between">
-                          <StatusTag tone="neutral">{c.kind}</StatusTag>
-                          <time style={{ color: "var(--m-text-muted)" }}>
-                            {new Date(c.created_at).toLocaleString()}
-                          </time>
-                        </header>
-                        <p className="whitespace-pre-wrap">{c.body}</p>
-                      </article>
-                    ))}
+                    {comments.map((c) => {
+                      const meta =
+                        c.kind === null || c.kind === undefined
+                          ? (NOTE_KINDS[0]!)
+                          : noteKindMeta(c.kind);
+                      return (
+                        <article
+                          key={c.id}
+                          className="rounded-[2px] border p-2 text-xs"
+                          style={{ borderColor: "var(--m-border)" }}
+                        >
+                          <header className="mb-1 flex justify-between">
+                            <StatusTag tone={meta.tone}>{meta.label}</StatusTag>
+                            <time style={{ color: "var(--m-text-muted)" }}>
+                              {new Date(c.created_at).toLocaleString()}
+                            </time>
+                          </header>
+                          <p className="whitespace-pre-wrap">{c.body}</p>
+                        </article>
+                      );
+                    })}
+                    <div className="flex flex-wrap items-center gap-1 pt-1">
+                      {NOTE_KINDS.map((k) => (
+                        <button
+                          key={k.value}
+                          type="button"
+                          aria-pressed={commentKind === k.value}
+                          title={
+                            k.value === "client_visible"
+                              ? "Visible to the client on portal surfaces"
+                              : k.value === "in_house_update"
+                                ? "Staff-only coordination update (never shown to clients)"
+                                : "Private to your team"
+                          }
+                          onClick={() => setCommentKind(k.value)}
+                          className="cursor-pointer rounded-[2px] border px-2 py-1 text-xs"
+                          style={{
+                            borderColor:
+                              commentKind === k.value ? "var(--m-accent)" : "var(--m-border)",
+                            background:
+                              commentKind === k.value ? "var(--m-accent-soft)" : "transparent",
+                          }}
+                        >
+                          {k.label}
+                        </button>
+                      ))}
+                    </div>
                     <Textarea
                       rows={3}
                       value={commentDraft}
                       onChange={(e) => setCommentDraft(e.target.value)}
-                      placeholder="Add a note…"
+                      placeholder={`Add a note (${noteKindMeta(commentKind).label})…`}
                     />
                     <Button size="sm" variant="primary" onClick={() => void postComment()}>
                       Comment
@@ -345,19 +426,56 @@ export default function TicketWorkspacePage() {
                   </section>
 
                   <section className="grid gap-2">
-                    <Label>Pre-close checklist</Label>
-                    {checklist.map((item) => (
-                      <label key={item.id} className="flex items-center gap-2 text-xs">
-                        <input
-                          type="checkbox"
-                          checked={item.checked}
-                          onChange={(e) => void toggleChecklistItem(item.id, e.target.checked)}
-                        />
-                        <span style={{ color: item.checked ? "var(--m-text-muted)" : undefined }}>
-                          {item.text}
+                    <div className="flex items-center justify-between">
+                      <Label>Pre-close checklist</Label>
+                      {progress !== undefined && (
+                        <span className="text-xs" style={{ color: "var(--m-text-muted)" }}>
+                          {progress.checked}/{progress.total} done
+                          {(checklist?.enforcement_active ?? false) &&
+                            ` · ${progress.required_open} required open`}
                         </span>
-                      </label>
-                    ))}
+                      )}
+                    </div>
+                    {closeBlockers !== null && closeBlockers.length > 0 && (
+                      <div
+                        role="alert"
+                        className="rounded-[2px] border p-2 text-xs"
+                        style={{
+                          borderColor: "var(--m-status-danger-fg)",
+                          background: "var(--m-status-danger-bg, transparent)",
+                        }}
+                      >
+                        <p className="font-medium">Close blocked — required items incomplete:</p>
+                        <ul className="ml-4 list-disc">
+                          {closeBlockers.map((text) => (
+                            <li key={text}>{text}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {(checklist?.items ?? []).map((item) => {
+                      const required = item.template_item_id != null;
+                      return (
+                        <label key={item.id} className="flex items-center gap-2 text-xs">
+                          <input
+                            type="checkbox"
+                            checked={item.checked}
+                            onChange={(e) => void toggleChecklistItem(item.id, e.target.checked)}
+                          />
+                          <span
+                            style={{
+                              color: item.checked ? "var(--m-text-muted)" : undefined,
+                              textDecoration: item.checked ? "line-through" : undefined,
+                            }}
+                          >
+                            {item.text}
+                          </span>
+                          {required && (
+                            <StatusTag tone={item.checked ? "success" : "warning"}>required</StatusTag>
+                          )}
+                        </label>
+                      );
+                    })}
                     <div className="flex gap-2">
                       <Input
                         value={checklistDraft}

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, org_id, name, description, is_default, created_at\n           FROM boards WHERE org_id = $1 ORDER BY is_default DESC, name",
+  "query": "SELECT id, org_id, name, description, is_default, require_checklist_close, created_at\n           FROM boards WHERE org_id = $1 AND id = $2",
   "describe": {
     "columns": [
       {
@@ -30,12 +30,18 @@
       },
       {
         "ordinal": 5,
+        "name": "require_checklist_close",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
         "name": "created_at",
         "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
+        "Uuid",
         "Uuid"
       ]
     },
@@ -45,8 +51,9 @@
       false,
       true,
       false,
+      false,
       false
     ]
   },
-  "hash": "73589b3855544040baa5e18c5caf323acec7c0f3f7be1c97f5505769ba736d82"
+  "hash": "99089a83d14009fc470e26c41dd6e07acb37032be0d022e337147ebab8d52d6d"
 }

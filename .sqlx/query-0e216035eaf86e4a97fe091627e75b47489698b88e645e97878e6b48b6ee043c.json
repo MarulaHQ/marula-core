@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, org_id, name, description, is_default, created_at\n           FROM boards WHERE org_id = $1 AND id = $2",
+  "query": "INSERT INTO board_checklist_templates (id, org_id, board_id, name)\n           VALUES ($1, $2, $3, $4)\n           ON CONFLICT (board_id) DO UPDATE SET name = $4, updated_at = now()\n           RETURNING id, org_id, board_id, name, created_at, updated_at",
   "describe": {
     "columns": [
       {
@@ -15,39 +15,41 @@
       },
       {
         "ordinal": 2,
+        "name": "board_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
         "name": "name",
         "type_info": "Text"
       },
       {
-        "ordinal": 3,
-        "name": "description",
-        "type_info": "Text"
-      },
-      {
         "ordinal": 4,
-        "name": "is_default",
-        "type_info": "Bool"
+        "name": "created_at",
+        "type_info": "Timestamptz"
       },
       {
         "ordinal": 5,
-        "name": "created_at",
+        "name": "updated_at",
         "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
         "Uuid",
-        "Uuid"
+        "Uuid",
+        "Uuid",
+        "Text"
       ]
     },
     "nullable": [
       false,
       false,
       false,
-      true,
+      false,
       false,
       false
     ]
   },
-  "hash": "02bfb072144c84d9573a69bb3e717b675ad7d9ab167ed76be76e7e7b9960c446"
+  "hash": "0e216035eaf86e4a97fe091627e75b47489698b88e645e97878e6b48b6ee043c"
 }

@@ -2,6 +2,7 @@
 
 pub mod audit;
 pub mod board;
+pub mod checklist;
 pub mod client;
 pub mod email;
 pub mod notification;
@@ -12,6 +13,7 @@ pub mod time_tracking;
 
 pub use audit::*;
 pub use board::*;
+pub use checklist::*;
 pub use client::*;
 pub use email::*;
 pub use notification::*;

@@ -15,6 +15,10 @@ pub struct Board {
     pub name: String,
     pub description: Option<String>,
     pub is_default: bool,
+    /// Pre-close checklist enforcement toggle (defaults OFF; closing is
+    /// gated only when this AND a checklist template are both present —
+    /// defaults-first doctrine, migration 0016).
+    pub require_checklist_close: bool,
     /// Users whose favorite this board is (board groups/favorites, Stage 2).
     pub created_at: DateTime<Utc>,
 }

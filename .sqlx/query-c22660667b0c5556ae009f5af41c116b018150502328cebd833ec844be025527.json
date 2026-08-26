@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO boards (id, org_id, name, description, is_default)\n           VALUES ($1, $2, $3, $4, $5)\n           RETURNING id, org_id, name, description, is_default, created_at",
+  "query": "SELECT id, org_id, name, description, is_default, require_checklist_close, created_at\n           FROM boards WHERE org_id = $1 ORDER BY is_default DESC, name",
   "describe": {
     "columns": [
       {
@@ -30,17 +30,18 @@
       },
       {
         "ordinal": 5,
+        "name": "require_checklist_close",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
         "name": "created_at",
         "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Uuid",
-        "Text",
-        "Text",
-        "Bool"
+        "Uuid"
       ]
     },
     "nullable": [
@@ -49,8 +50,9 @@
       false,
       true,
       false,
+      false,
       false
     ]
   },
-  "hash": "ad3ad4e7cdef08cdb304097cce80fc1ac341018b52692c35c9610d6f5d2e136b"
+  "hash": "c22660667b0c5556ae009f5af41c116b018150502328cebd833ec844be025527"
 }

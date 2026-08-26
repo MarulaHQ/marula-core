@@ -11,12 +11,12 @@ use axum::{
     http::Extensions,
     Json,
 };
-use core_domain::entities::{Actor, AuditEvent};
+use core_domain::entities::{Actor, AuditEvent, ChecklistItem, ChecklistProgress};
 use core_domain::events::types;
 use core_domain::policy::{Module, Permission};
 use core_domain::status::{NoteKind, Priority, TicketStatusCategory};
 use core_domain::workflow;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -25,6 +25,24 @@ fn tickets(action: core_domain::policy::Action) -> Permission {
         module: Module::Tickets,
         action,
     }
+}
+
+/// The board's close-enforcement posture: ACTIVE only when a checklist
+/// template exists AND the board's require_checklist_close toggle is on
+/// (defaults-first doctrine — see migration 0016's header).
+async fn checklist_enforcement(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    board_id: Uuid,
+) -> ApiResult<bool> {
+    let board = core_db::boards::get_board(&mut *conn, org_id, board_id).await?;
+    if !board.require_checklist_close {
+        return Ok(false);
+    }
+    let has_template = core_db::checklists::get_template_for_board(&mut *conn, org_id, board_id)
+        .await?
+        .is_some();
+    Ok(has_template)
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -203,6 +221,12 @@ pub async fn create(
             core_db::sla::upsert_ticket_state(&mut *ctx.tx, &sla).await?;
         }
 
+        // Checklist templates instantiate eagerly on creation so staff see
+        // required steps from minute one; template edits flow onto existing
+        // tickets lazily via `instantiate_missing` (close path / reads).
+        core_db::checklists::instantiate_missing(&mut ctx.tx, org_id, req.board_id, ticket.id)
+            .await?;
+
         ctx.emit(
             types::TICKET_CREATED,
             "ticket",
@@ -315,12 +339,14 @@ pub async fn patch(
 }
 
 /// POST /api/tickets/{id}/status — the guarded lifecycle transition:
-/// domain transition rules, pre-close checklist enforcement, SLA pause
-/// bookkeeping, and the `ticket.status_changed` event, all in one tx.
+/// domain transition rules, pre-close checklist enforcement (typed 409
+/// listing the incomplete required items when the board enforces), SLA
+/// pause bookkeeping, and the `ticket.status_changed` event, all in one tx.
 #[utoipa::path(operation_id = "tickets_change_status", post, path = "/api/tickets/{id}/status", tag = "tickets", security(("bearer" = [])),
     params(("id" = Uuid, Path)), request_body = ChangeStatusRequest,
     responses((status = 200, body = core_domain::entities::Ticket),
-              (status = 422, description = "checklist incomplete or invalid transition")))]
+              (status = 409, description = "pre-close checklist incomplete (board enforces)"),
+              (status = 422, description = "invalid transition")))]
 pub async fn change_status(
     State(state): State<AppState>,
     extensions: Extensions,
@@ -353,9 +379,38 @@ pub async fn change_status(
             .ok_or(ApiError::NotFound)?
             .clone();
 
-        // Pre-close checklist: closing requires every item checked (§1).
+        // Pre-close checklist gate (defaults-first): lazy-instantiate any
+        // template items this ticket has not picked up yet — both so older
+        // tickets see template edits and so the verdict below judges the
+        // complete required set — then apply the pure domain rule. Blocking
+        // is a typed 409 that names every unchecked REQUIRED item.
+        let instantiated =
+            core_db::checklists::instantiate_missing(&mut ctx.tx, org_id, ticket.board_id, id)
+                .await?;
         let checklist = core_db::tickets::list_checklist(&mut *ctx.tx, org_id, id).await?;
-        core_domain::entities::validate_pre_close(&checklist, &target)?;
+        // Only closures are gated; other categories never consult the list.
+        if target.category.requires_checklist() {
+            let active = checklist_enforcement(&mut ctx.tx, org_id, ticket.board_id).await?;
+            if let Err(blocked) = core_domain::notes::enforce_pre_close(&checklist, active) {
+                return Err(ApiError::ChecklistBlocked {
+                    missing: blocked.missing,
+                });
+            }
+        }
+        if instantiated > 0 {
+            ctx.emit(
+                types::TICKET_CHECKLIST_UPDATED,
+                "ticket",
+                Some(id.to_string().as_str()),
+                &serde_json::to_value(core_domain::events::TicketChecklistUpdated {
+                    ticket_id: id,
+                    items: checklist,
+                    updated_by: None,
+                })
+                .unwrap_or_default(),
+            )
+            .await?;
+        }
 
         // 3. SLA pause bookkeeping binds to the semantic category.
         let now = chrono::Utc::now();
@@ -435,24 +490,39 @@ pub async fn change_status(
     Ok(Json(ticket))
 }
 
-/// GET /api/tickets/{id}/comments — internal notes require ticket view;
-/// the portal surface filters kinds separately (portal v1).
+#[derive(Debug, Deserialize, utoipa::IntoParams, ToSchema)]
+pub struct CommentListQuery {
+    /// Optional taxonomy filter (`internal`, `client_visible`,
+    /// `in_house_update`). Omit for all kinds (staff view).
+    pub kind: Option<NoteKind>,
+}
+
+/// GET /api/tickets/{id}/comments — optional kind filter; internal notes
+/// require ticket view. The portal surface must consume the dedicated
+/// client-visible read (`core-db::tickets::list_client_visible_comments`),
+/// never this staff endpoint.
 #[utoipa::path(operation_id = "tickets_list_comments", get, path = "/api/tickets/{id}/comments", tag = "tickets", security(("bearer" = [])),
-    params(("id" = Uuid, Path)),
+    params(("id" = Uuid, Path), CommentListQuery),
     responses((status = 200, body = [core_domain::entities::TicketComment])))]
 pub async fn list_comments(
     State(state): State<AppState>,
     extensions: Extensions,
     Path(id): Path<Uuid>,
+    Query(q): Query<CommentListQuery>,
 ) -> ApiResult<Json<Vec<core_domain::entities::TicketComment>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(
         &authed.principal,
         tickets(core_domain::policy::Action::View),
     )?;
-    let comments =
-        core_db::tickets::list_comments(&state.pool, authed.principal.user.org_id, id, None)
-            .await?;
+    let kinds: Option<Vec<NoteKind>> = q.kind.map(|k| vec![k]);
+    let comments = core_db::tickets::list_comments(
+        &state.pool,
+        authed.principal.user.org_id,
+        id,
+        kinds.as_deref(),
+    )
+    .await?;
     Ok(Json(comments))
 }
 
@@ -620,83 +690,203 @@ fn comment_excerpt(body: &str) -> &str {
     }
 }
 
-/// GET /api/tickets/{id}/checklist
+/// Unchecked REQUIRED item texts under the given posture (empty when
+/// inactive) — the UI-facing projection of the close gate.
+fn blocking_of(items: &[ChecklistItem], enforcement_active: bool) -> Vec<String> {
+    if !enforcement_active {
+        return Vec::new();
+    }
+    core_domain::notes::enforce_pre_close(items, true)
+        .err()
+        .map(|b| b.missing)
+        .unwrap_or_default()
+}
+
+/// GET response for a ticket's checklist: instances, derived progress,
+/// and the board's live enforcement posture. `blocking` lists the unchecked
+/// REQUIRED items when enforcement is active (empty otherwise).
+#[derive(Debug, Serialize, ToSchema)]
+pub struct TicketChecklistView {
+    pub items: Vec<ChecklistItem>,
+    pub progress: ChecklistProgress,
+    pub enforcement_active: bool,
+    pub blocking: Vec<String>,
+}
+
+async fn checklist_view(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    ticket: &core_domain::entities::Ticket,
+) -> ApiResult<TicketChecklistView> {
+    let (items, progress) = core_db::checklists::view(&mut *conn, org_id, ticket.id).await?;
+    let enforcement_active = checklist_enforcement(conn, org_id, ticket.board_id).await?;
+    let blocking = blocking_of(&items, enforcement_active);
+    Ok(TicketChecklistView {
+        items,
+        progress,
+        enforcement_active,
+        blocking,
+    })
+}
+
+/// GET /api/tickets/{id}/checklist — lazily instantiates any template items
+/// the ticket has not picked up yet, then returns the full view.
 #[utoipa::path(operation_id = "tickets_get_checklist", get, path = "/api/tickets/{id}/checklist", tag = "tickets", security(("bearer" = [])),
     params(("id" = Uuid, Path)),
-    responses((status = 200, body = [core_domain::entities::ChecklistItem])))]
+    responses((status = 200, body = TicketChecklistView)))]
 pub async fn get_checklist(
     State(state): State<AppState>,
     extensions: Extensions,
     Path(id): Path<Uuid>,
-) -> ApiResult<Json<Vec<core_domain::entities::ChecklistItem>>> {
+) -> ApiResult<Json<TicketChecklistView>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(
         &authed.principal,
         tickets(core_domain::policy::Action::View),
     )?;
-    let items =
-        core_db::tickets::list_checklist(&state.pool, authed.principal.user.org_id, id).await?;
-    Ok(Json(items))
+    let org_id = authed.principal.user.org_id;
+    let mut tx = state
+        .pool
+        .begin()
+        .await
+        .map_err(|e| ApiError::Internal(e.into()))?;
+    core_db::set_org(&mut tx, org_id)
+        .await
+        .map_err(ApiError::from)?;
+    // Instantiation is idempotent; a plain read must never fail because the
+    // template changed, so it runs inside its own committed transaction.
+    let ticket = core_db::tickets::get_ticket(&mut *tx, org_id, id).await?;
+    core_db::checklists::instantiate_missing(&mut tx, org_id, ticket.board_id, id).await?;
+    let view = checklist_view(&mut tx, org_id, &ticket).await?;
+    tx.commit()
+        .await
+        .map_err(|e| ApiError::Internal(e.into()))?;
+    Ok(Json(view))
 }
 
-/// POST /api/tickets/{id}/checklist — appends a pre-close checklist item.
+/// POST /api/tickets/{id}/checklist — appends an ad-hoc checklist item.
+/// Ad-hoc items never block closure; emits `ticket.checklist_updated`.
 #[utoipa::path(operation_id = "tickets_add_checklist_item", post, path = "/api/tickets/{id}/checklist", tag = "tickets", security(("bearer" = [])),
     params(("id" = Uuid, Path)), request_body = AddChecklistItemRequest,
-    responses((status = 200, body = [core_domain::entities::ChecklistItem])))]
+    responses((status = 200, body = TicketChecklistView)))]
 pub async fn add_checklist_item(
     State(state): State<AppState>,
     extensions: Extensions,
     Path(id): Path<Uuid>,
     Json(req): Json<AddChecklistItemRequest>,
-) -> ApiResult<Json<Vec<core_domain::entities::ChecklistItem>>> {
+) -> ApiResult<Json<TicketChecklistView>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(
         &authed.principal,
         tickets(core_domain::policy::Action::Edit),
     )?;
+    if req.text.trim().is_empty() {
+        return Err(ApiError::Validation("checklist text is required".into()));
+    }
     let org_id = authed.principal.user.org_id;
-    let existing = core_db::tickets::list_checklist(&state.pool, org_id, id).await?;
-    core_db::tickets::add_checklist_item(
-        &state.pool,
-        Uuid::now_v7(),
-        org_id,
-        id,
-        req.text.trim(),
-        existing.len() as i32,
-    )
+    let user_id = authed.principal.user.id;
+
+    let view = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id).await?;
+        let existing = core_db::tickets::list_checklist(&mut *ctx.tx, org_id, id).await?;
+        core_db::tickets::add_checklist_item(
+            &mut *ctx.tx,
+            Uuid::now_v7(),
+            org_id,
+            id,
+            req.text.trim(),
+            existing.len() as i32,
+        )
+        .await?;
+        let (items, progress) = core_db::checklists::view(&mut ctx.tx, org_id, id).await?;
+        ctx.emit(
+            types::TICKET_CHECKLIST_UPDATED,
+            "ticket",
+            Some(id.to_string().as_str()),
+            &serde_json::to_value(core_domain::events::TicketChecklistUpdated {
+                ticket_id: id,
+                items: items.clone(),
+                updated_by: Some(user_id),
+            })
+            .unwrap_or_default(),
+        )
+        .await?;
+        let enforcement_active =
+            checklist_enforcement(&mut ctx.tx, org_id, ticket.board_id).await?;
+        let blocking = blocking_of(&items, enforcement_active);
+        Ok((
+            ctx,
+            TicketChecklistView {
+                items,
+                progress,
+                enforcement_active,
+                blocking,
+            },
+        ))
+    })
     .await?;
-    let items = core_db::tickets::list_checklist(&state.pool, org_id, id).await?;
-    Ok(Json(items))
+    Ok(Json(view))
 }
 
-/// POST /api/tickets/{id}/checklist/{item_id} — toggles one checklist item.
+/// POST /api/tickets/{id}/checklist/{item_id} — toggles one checklist item;
+/// emits `ticket.checklist_updated` in the same transaction.
 #[utoipa::path(operation_id = "tickets_set_checklist_item", post, path = "/api/tickets/{id}/checklist/{item_id}", tag = "tickets",
     security(("bearer" = [])),
     params(("id" = Uuid, Path), ("item_id" = Uuid, Path)),
     request_body = SetChecklistItemRequest,
-    responses((status = 200, body = [core_domain::entities::ChecklistItem])))]
+    responses((status = 200, body = TicketChecklistView)))]
 pub async fn set_checklist_item(
     State(state): State<AppState>,
     extensions: Extensions,
     Path((id, item_id)): Path<(Uuid, Uuid)>,
     Json(req): Json<SetChecklistItemRequest>,
-) -> ApiResult<Json<Vec<core_domain::entities::ChecklistItem>>> {
+) -> ApiResult<Json<TicketChecklistView>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(
         &authed.principal,
         tickets(core_domain::policy::Action::Edit),
     )?;
     let org_id = authed.principal.user.org_id;
-    core_db::tickets::set_checklist_item(
-        &state.pool,
-        org_id,
-        item_id,
-        req.checked,
-        Some(authed.principal.user.id),
-    )
+    let user_id = authed.principal.user.id;
+
+    let view = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id).await?;
+        core_db::tickets::set_checklist_item(
+            &mut *ctx.tx,
+            org_id,
+            item_id,
+            req.checked,
+            Some(user_id),
+        )
+        .await?;
+        let (items, progress) = core_db::checklists::view(&mut ctx.tx, org_id, id).await?;
+        ctx.emit(
+            types::TICKET_CHECKLIST_UPDATED,
+            "ticket",
+            Some(id.to_string().as_str()),
+            &serde_json::to_value(core_domain::events::TicketChecklistUpdated {
+                ticket_id: id,
+                items: items.clone(),
+                updated_by: Some(user_id),
+            })
+            .unwrap_or_default(),
+        )
+        .await?;
+        let enforcement_active =
+            checklist_enforcement(&mut ctx.tx, org_id, ticket.board_id).await?;
+        let blocking = blocking_of(&items, enforcement_active);
+        Ok((
+            ctx,
+            TicketChecklistView {
+                items,
+                progress,
+                enforcement_active,
+                blocking,
+            },
+        ))
+    })
     .await?;
-    let items = core_db::tickets::list_checklist(&state.pool, org_id, id).await?;
-    Ok(Json(items))
+    Ok(Json(view))
 }
 
 /// GET /api/tickets/{id}/time-entries
