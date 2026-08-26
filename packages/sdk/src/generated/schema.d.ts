@@ -1,4 +1,42 @@
 export interface paths {
+    "/api/api-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/api-keys — listing without secrets. */
+        get: operations["api_keys_list"];
+        put?: never;
+        /** POST /api/api-keys — creates a key and returns the raw secret ONCE. */
+        post: operations["api_keys_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/api-keys/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/api-keys/{id} — immediate revocation (rotation story:
+         *     create replacement → revoke old).
+         */
+        delete: operations["api_keys_revoke"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/audit-events": {
         parameters: {
             query?: never;
@@ -1425,6 +1463,89 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/webhooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/webhooks — the org's subscriptions (never includes secrets). */
+        get: operations["webhooks_list"];
+        put?: never;
+        /**
+         * POST /api/webhooks — create a subscription; responds with the signing
+         *     secret once. Emits an audit record in the same transaction.
+         */
+        post: operations["webhooks_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/webhooks/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/webhooks/{id} — removes the subscription; deliveries
+         *     cascade (history is intentionally scoped to the subscription's life).
+         */
+        delete: operations["webhooks_delete"];
+        options?: never;
+        head?: never;
+        /** PATCH /api/webhooks/{id} — mutate URL / filter / enabled flag. */
+        patch: operations["webhooks_update"];
+        trace?: never;
+    };
+    "/api/webhooks/{id}/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/webhooks/{id}/deliveries — the in-app delivery log, newest
+         *     first, keyset-cursor paged.
+         */
+        get: operations["webhooks_deliveries_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/webhooks/{id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/webhooks/{id}/test — fires one `webhook.test` envelope into
+         *     the real pipeline (outbox → relay → stream → signed delivery), then
+         *     returns 202; poll the deliveries endpoint to watch attempts land.
+         */
+        post: operations["webhooks_test_fire"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1457,6 +1578,32 @@ export interface components {
         AddCommentRequest: {
             body: string;
             kind: components["schemas"]["NoteKind"];
+        };
+        /**
+         * @description The ONLY response carrying raw key material. Lost keys are rotated by
+         *     creating a new key and revoking this one — never recovered.
+         */
+        ApiKeyCreatedResponse: {
+            key: components["schemas"]["ApiKeyView"];
+            /** @description Raw bearer material: `mrd_<32 hex>`. */
+            raw_key: string;
+        };
+        ApiKeyList: {
+            keys: components["schemas"]["ApiKeyView"][];
+        };
+        ApiKeyView: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            last_used_at?: string | null;
+            name: string;
+            /** @description Non-secret display prefix, e.g. "mrd_ab12cd34". */
+            prefix: string;
+            /** Format: date-time */
+            revoked_at?: string | null;
+            scopes: string[];
         };
         AuditEvent: {
             /** @description Dot-path of the action, e.g. "auth.login", "ticket.status_change". */
@@ -1726,6 +1873,11 @@ export interface components {
             site_id?: string | null;
             title?: string | null;
         };
+        CreateApiKeyRequest: {
+            name: string;
+            /** @description Capability scopes from [`KNOWN_SCOPES`]. */
+            scopes: string[];
+        };
         CreateAssetRequest: {
             kind?: string | null;
             name: string;
@@ -1814,6 +1966,12 @@ export interface components {
             ticket_id: string;
             work_type?: string | null;
         };
+        CreateWebhookRequest: {
+            /** @description Exact event types to subscribe; empty subscribes to everything. */
+            event_types?: string[];
+            /** @description HTTPS endpoint receiving `POST`s. (http:// allowed for local dev.) */
+            url: string;
+        };
         /**
          * @description Wire shape of one declaration. Kinds/options are flattened so generated
          *     clients can render editors directly from this payload.
@@ -1832,6 +1990,37 @@ export interface components {
             section: string;
             /** @description "ui" renders an editable row; "hidden" is state readable via values. */
             visibility: string;
+        };
+        DeliveryAttemptView: {
+            /** Format: int32 */
+            attempt: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            delivered_at?: string | null;
+            /** Format: uuid */
+            event_id: string;
+            event_type: string;
+            /** Format: uuid */
+            id: string;
+            last_error?: string | null;
+            /** Format: date-time */
+            next_retry_at?: string | null;
+            /**
+             * Format: int32
+             * @description HTTP status when a response arrived; null for transport failures.
+             */
+            response_status?: number | null;
+        };
+        DeliveryPage: {
+            deliveries: components["schemas"]["DeliveryAttemptView"][];
+            /** @description Opaque keyset cursor for the next page; absent when exhausted. */
+            next_cursor?: string | null;
+        };
+        DeliveryQuery: {
+            cursor?: string | null;
+            /** Format: int64 */
+            limit?: number;
         };
         DeviceAsset: {
             /** Format: uuid */
@@ -2273,6 +2462,13 @@ export interface components {
              */
             session_id?: string | null;
         };
+        TestFireResponse: {
+            /**
+             * Format: uuid
+             * @description The envelope id to look for in the delivery log.
+             */
+            event_id: string;
+        };
         Ticket: {
             /** Format: uuid */
             assignee_id?: string | null;
@@ -2553,6 +2749,11 @@ export interface components {
             /** Format: int32 */
             sort_order?: number | null;
         };
+        UpdateWebhookRequest: {
+            enabled?: boolean | null;
+            event_types?: string[] | null;
+            url?: string | null;
+        };
         UpsertProviderRequest: {
             client_id: string;
             /** @description Write-only: stored encrypted at rest, never returned. */
@@ -2608,6 +2809,29 @@ export interface components {
         WebauthnRemoveRequest: {
             password: string;
         };
+        WebhookList: {
+            webhooks: components["schemas"]["WebhookView"][];
+        };
+        /**
+         * @description Returned by create ONLY — carries the signing secret in plaintext one
+         *     final time. There is deliberately no read-back path.
+         */
+        WebhookSecretResponse: {
+            secret: string;
+            webhook: components["schemas"]["WebhookView"];
+        };
+        WebhookView: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            enabled: boolean;
+            /** @description Empty array = wildcard (all event types). */
+            event_types: string[];
+            /** Format: uuid */
+            id: string;
+            url: string;
+        };
     };
     responses: never;
     parameters: never;
@@ -2617,6 +2841,67 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    api_keys_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiKeyList"];
+                };
+            };
+        };
+    };
+    api_keys_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateApiKeyRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiKeyCreatedResponse"];
+                };
+            };
+        };
+    };
+    api_keys_revoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     audit_list: {
         parameters: {
             query?: {
@@ -4877,6 +5162,137 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TimerSession"][];
+                };
+            };
+        };
+    };
+    webhooks_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookList"];
+                };
+            };
+        };
+    };
+    webhooks_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWebhookRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookSecretResponse"];
+                };
+            };
+        };
+    };
+    webhooks_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    webhooks_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateWebhookRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookView"];
+                };
+            };
+        };
+    };
+    webhooks_deliveries_list: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryPage"];
+                };
+            };
+        };
+    };
+    webhooks_test_fire: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestFireResponse"];
                 };
             };
         };
