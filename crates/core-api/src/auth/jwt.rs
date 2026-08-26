@@ -1,7 +1,7 @@
 //! JWT access-token issuing and verification (HS256 on the configured
 //! secret; short TTL — the refresh session is the real credential).
 
-use super::AccessClaims;
+use super::{AccessClaims, PortalClaims};
 use crate::config::Config;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
@@ -18,6 +18,9 @@ pub struct ScopedClaims {
     pub exp: i64,
 }
 
+const KIND_STAFF: &str = "staff";
+const KIND_PORTAL: &str = "portal";
+
 pub fn issue_access_token(
     config: &Config,
     user_id: Uuid,
@@ -31,6 +34,7 @@ pub fn issue_access_token(
         sid: session_id,
         exp: now + config.access_ttl_secs,
         iat: now,
+        kind: KIND_STAFF.into(),
     };
     encode(
         &Header::default(),
@@ -39,7 +43,9 @@ pub fn issue_access_token(
     )
 }
 
-/// Verifies signature + expiry and returns the claims.
+/// Verifies signature + expiry and returns the claims. Portal-family
+/// tokens are rejected HERE so staff middleware can never be tricked into
+/// accepting one.
 pub fn verify_access_token(config: &Config, token: &str) -> Option<AccessClaims> {
     decode::<AccessClaims>(
         token,
@@ -48,6 +54,7 @@ pub fn verify_access_token(config: &Config, token: &str) -> Option<AccessClaims>
     )
     .ok()
     .map(|data| data.claims)
+    .filter(|claims| claims.kind != KIND_PORTAL)
 }
 
 /// Generates a cryptographically random refresh token (returned to the
@@ -147,6 +154,53 @@ pub fn issue_webauthn_challenge_token(
 pub fn verify_webauthn_challenge_token(config: &Config, token: &str) -> Option<(Uuid, Uuid, Uuid)> {
     decode_scoped(config, token, "webauthn_challenge")
         .and_then(|c| c.jti.parse().ok().map(|jti| (c.sub, c.org, jti)))
+}
+
+// --- client-portal token family ---------------------------------------------
+//
+// Same signing secret as staff tokens, DIFFERENT audience: every portal
+// token carries kind:"portal" and a distinct claim set (client binding +
+// portal session id). Verification is family-strict in BOTH directions —
+// see the tests below.
+
+pub fn issue_portal_access_token(
+    config: &Config,
+    portal_user_id: Uuid,
+    org_id: Uuid,
+    client_id: Uuid,
+    session_id: Uuid,
+) -> Result<String, jsonwebtoken::errors::Error> {
+    let now = chrono::Utc::now().timestamp();
+    encode(
+        &Header::default(),
+        &PortalClaims {
+            kind: KIND_PORTAL.into(),
+            sub: portal_user_id,
+            org: org_id,
+            client: client_id,
+            sid: session_id,
+            exp: now + config.access_ttl_secs,
+            iat: now,
+        },
+        &EncodingKey::from_secret(config.jwt_secret.as_bytes()),
+    )
+}
+
+/// Verifies a portal access token; None for staff tokens, expired or
+/// tampered ones. Returns (portal_user_id, org_id, client_id, session_id).
+pub fn verify_portal_access_token(
+    config: &Config,
+    token: &str,
+) -> Option<(Uuid, Uuid, Uuid, Uuid)> {
+    decode::<PortalClaims>(
+        token,
+        &DecodingKey::from_secret(config.jwt_secret.as_bytes()),
+        &Validation::default(),
+    )
+    .ok()
+    .map(|data| data.claims)
+    .filter(|claims| claims.kind == KIND_PORTAL)
+    .map(|claims| (claims.sub, claims.org, claims.client, claims.sid))
 }
 
 #[cfg(test)]
@@ -256,5 +310,35 @@ mod tests {
         parts[2] = String::from_utf8(sig).expect("base64 remains utf8");
         let tampered = parts.join(".");
         assert_eq!(verify_webauthn_challenge_token(&cfg, &tampered), None);
+    }
+
+    /// The binding v1 audience-separation rule: portal and staff tokens are
+    /// signed with the same secret but NEVER verify across families — a
+    /// portal token must not open staff endpoints and vice versa.
+    #[test]
+    fn portal_and_staff_token_families_are_strictly_separate() {
+        let cfg = test_config();
+        let (pu, u, o, c, s) = (
+            Uuid::now_v7(),
+            Uuid::now_v7(),
+            Uuid::now_v7(),
+            Uuid::now_v7(),
+            Uuid::now_v7(),
+        );
+        let portal = issue_portal_access_token(&cfg, pu, o, c, s).unwrap();
+        let staff = issue_access_token(&cfg, u, o, s).unwrap();
+
+        // Staff verification refuses the portal family…
+        assert!(verify_access_token(&cfg, &portal).is_none());
+        let verified_staff = verify_access_token(&cfg, &staff).expect("staff token verifies");
+        assert_eq!(verified_staff.sub, u);
+        assert_eq!(verified_staff.org, o);
+        assert_eq!(verified_staff.sid, s);
+        // …and the portal verifier refuses the staff family.
+        assert_eq!(verify_portal_access_token(&cfg, &staff), None);
+        assert_eq!(
+            verify_portal_access_token(&cfg, &portal),
+            Some((pu, o, c, s))
+        );
     }
 }
