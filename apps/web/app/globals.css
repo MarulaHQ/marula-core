@@ -34,3 +34,9 @@ body {
   color: var(--m-text);
   font-family: var(--m-font-sans, "Inter", system-ui, sans-serif);
 }
+
+/* Quiet row hover for dense queues (theme-token mixed, both modes). */
+.row-hover:hover,
+.row-hover:focus-visible {
+  background: color-mix(in srgb, var(--m-mist) 14%, transparent);
+}

@@ -32,6 +32,7 @@ import { AppHeader } from "../../../components/app-header";
 import { api, useRequireAuth } from "../../../lib/api";
 
 type Ticket = components["schemas"]["Ticket"];
+type MyWorkItem = components["schemas"]["MyWorkItem"];
 type TicketComment = components["schemas"]["TicketComment"];
 type ChecklistItem = components["schemas"]["ChecklistItem"];
 type ChecklistProgress = components["schemas"]["ChecklistProgress"];
@@ -508,7 +509,7 @@ export default function TicketWorkspacePage() {
 
 /// Left pane: the caller's my-work queue (same ordering as /today).
 function MyWorkList({ selectedId, onSelect }: { selectedId: string; onSelect(id: string): void }) {
-  const [tickets, setTickets] = useState<Ticket[] | null>(null);
+  const [tickets, setTickets] = useState<MyWorkItem[] | null>(null);
 
   useEffect(() => {
     let cancelled = false;
