@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT org_id, kind, in_app, email, quiet_from, quiet_until, timezone\n           FROM notification_org_defaults WHERE org_id = $1 ORDER BY kind",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "in_app",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "email",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "quiet_from",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "quiet_until",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "timezone",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "78c9805131e62ceb63e1f64ea0da5675bfdd91847796b18cb49c7ddd9562e6c5"
+}
