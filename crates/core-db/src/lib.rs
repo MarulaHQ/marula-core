@@ -20,6 +20,7 @@ pub mod oidc;
 pub mod orgs;
 pub mod outbox;
 pub mod queue;
+pub mod scheduling;
 pub mod settings;
 pub mod sla;
 pub mod tickets;
