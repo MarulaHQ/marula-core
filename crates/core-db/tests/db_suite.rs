@@ -5135,7 +5135,7 @@ async fn attachments_dedup_link_and_refcounted_delete() {
     )
     .await;
     let c1 = tickets::insert_comment(
-        &mut *tx,
+        &mut tx,
         fixed_uuid(13002),
         sa.org,
         t1.id,
@@ -5148,7 +5148,7 @@ async fn attachments_dedup_link_and_refcounted_delete() {
 
     // First upload claims the content-addressed object…
     let a1 = put_attachment(
-        &mut *tx,
+        &mut tx,
         sa.org,
         fixed_uuid(13003),
         core_domain::entities::AttachmentKind::TicketComment,
@@ -5159,7 +5159,7 @@ async fn attachments_dedup_link_and_refcounted_delete() {
     )
     .await;
     assert_eq!(
-        core_db::attachments::find_existing_object_key(&mut *tx, sa.org, &"a".repeat(64))
+        core_db::attachments::find_existing_object_key(&mut tx, sa.org, &"a".repeat(64))
             .await
             .expect("dedup"),
         Some(a1.storage_key.clone())
@@ -5167,7 +5167,7 @@ async fn attachments_dedup_link_and_refcounted_delete() {
 
     // …second row REUSES it (same bytes attached elsewhere).
     let a2 = put_attachment(
-        &mut *tx,
+        &mut tx,
         sa.org,
         fixed_uuid(13004),
         core_domain::entities::AttachmentKind::TicketComment,
@@ -5180,13 +5180,13 @@ async fn attachments_dedup_link_and_refcounted_delete() {
     assert_eq!(a1.storage_key, a2.storage_key);
 
     // Linking the still-unlinked upload is one-shot.
-    let linked = core_db::attachments::link_to_comment(&mut *tx, sa.org, a2.id, t1.id, c1.id)
+    let linked = core_db::attachments::link_to_comment(&mut tx, sa.org, a2.id, t1.id, c1.id)
         .await
         .expect("link")
         .expect("linked");
     assert_eq!(linked.ticket_comment_id, Some(c1.id));
     assert!(
-        core_db::attachments::link_to_comment(&mut *tx, sa.org, a2.id, t1.id, c1.id)
+        core_db::attachments::link_to_comment(&mut tx, sa.org, a2.id, t1.id, c1.id)
             .await
             .expect("relink")
             .is_none()
@@ -5194,14 +5194,14 @@ async fn attachments_dedup_link_and_refcounted_delete() {
 
     // Listing sees both rows for the ticket and per-comment.
     assert_eq!(
-        core_db::attachments::list_for_ticket(&mut *tx, sa.org, t1.id)
+        core_db::attachments::list_for_ticket(&mut tx, sa.org, t1.id)
             .await
             .expect("list")
             .len(),
         2
     );
     assert_eq!(
-        core_db::attachments::list_for_comment(&mut *tx, sa.org, c1.id)
+        core_db::attachments::list_for_comment(&mut tx, sa.org, c1.id)
             .await
             .expect("per-comment")
             .len(),
@@ -5212,22 +5212,22 @@ async fn attachments_dedup_link_and_refcounted_delete() {
 
     // Delete row 1: object stays (row 2 still references the key).
     let mut tx = org_tx(&db.app, sa.org).await;
-    let gone = core_db::attachments::delete(&mut *tx, sa.org, a1.id)
+    let gone = core_db::attachments::delete(&mut tx, sa.org, a1.id)
         .await
         .expect("del")
         .expect("row");
     assert_eq!(gone.sha256, "a".repeat(64));
-    let refs = core_db::attachments::count_other_refs(&mut *tx, sa.org, &a1.storage_key, a1.id)
+    let refs = core_db::attachments::count_other_refs(&mut tx, sa.org, &a1.storage_key, a1.id)
         .await
         .expect("refs");
     assert_eq!(refs, 1, "sibling reference keeps the object alive");
 
     // Delete row 2: zero refs → caller may reclaim the object.
-    core_db::attachments::delete(&mut *tx, sa.org, a2.id)
+    core_db::attachments::delete(&mut tx, sa.org, a2.id)
         .await
         .expect("del2")
         .expect("row2");
-    let refs = core_db::attachments::count_other_refs(&mut *tx, sa.org, &a1.storage_key, a2.id)
+    let refs = core_db::attachments::count_other_refs(&mut tx, sa.org, &a1.storage_key, a2.id)
         .await
         .expect("refs");
     assert_eq!(refs, 0);
@@ -5255,7 +5255,7 @@ async fn rls_isolates_attachments_table() {
     )
     .await;
     put_attachment(
-        &mut *tx_a,
+        &mut tx_a,
         sa.org,
         fixed_uuid(13302),
         AttachmentKind::Ticket,
@@ -5270,25 +5270,25 @@ async fn rls_isolates_attachments_table() {
     // Org B cannot read or delete org A's attachment.
     let mut tx_b = org_tx(&db.app, sb.org).await;
     assert!(
-        core_db::attachments::get(&mut *tx_b, sb.org, fixed_uuid(13302))
+        core_db::attachments::get(&mut tx_b, sb.org, fixed_uuid(13302))
             .await
             .is_err()
     );
     assert!(
-        core_db::attachments::list_for_ticket(&mut *tx_b, sb.org, t1.id)
+        core_db::attachments::list_for_ticket(&mut tx_b, sb.org, t1.id)
             .await
             .expect("empty")
             .is_empty()
     );
     assert!(
-        core_db::attachments::delete(&mut *tx_b, sb.org, fixed_uuid(13302))
+        core_db::attachments::delete(&mut tx_b, sb.org, fixed_uuid(13302))
             .await
             .expect("no-op delete")
             .is_none()
     );
     // Dedup lookup never leaks across orgs either.
     assert_eq!(
-        core_db::attachments::find_existing_object_key(&mut *tx_b, sb.org, &"b".repeat(64))
+        core_db::attachments::find_existing_object_key(&mut tx_b, sb.org, &"b".repeat(64))
             .await
             .expect("dedup b"),
         None
