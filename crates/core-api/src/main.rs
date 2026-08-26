@@ -5,12 +5,9 @@ use anyhow::Context;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,tower_http=debug".into()),
-        )
-        .init();
+    // Shared telemetry (TASKLIST 2.18): none-mode unless
+    // OTEL_EXPORTER_OTLP_ENDPOINT is set; guard lives for `main`.
+    let _telemetry = core_otel::init("core-api");
 
     let config = std::sync::Arc::new(core_api::config::Config::from_env());
     tracing::info!(addr = %config.bind_addr, "starting core-api");

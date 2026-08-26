@@ -106,6 +106,9 @@ pub fn build_router(state: AppState) -> Router {
             "/api/portal/tickets/{id}/attachments/{attachment_id}/download",
             get(portal::download_attachment),
         )
+        // Stamps org_id onto the current request span (telemetry) once the
+        // portal auth middleware below has resolved it.
+        .layer(middleware::from_fn(crate::otel_http::record_org))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             portal::require_portal_auth,
@@ -442,6 +445,9 @@ pub fn build_router(state: AppState) -> Router {
             "/api/calendar-exclusions/{id}",
             axum::routing::delete(availability::delete_exclusion),
         )
+        // Stamps org_id onto the current request span (telemetry) once the
+        // auth middleware below has resolved it.
+        .layer(middleware::from_fn(crate::otel_http::record_org))
         .layer(middleware::from_fn_with_state(state.clone(), require_auth));
 
     // Machine-to-machine effect surface (§4.1): token-guarded, NOT behind
@@ -452,11 +458,16 @@ pub fn build_router(state: AppState) -> Router {
 
     let docs = openapi::scalar_router();
 
+    // Request telemetry (TASKLIST 2.18): outermost so the span covers the
+    // entire pipeline; the route TEMPLATE + status + duration become span
+    // attrs and `meridian.http.*` metrics. Unmatched routes collapse to
+    // the constant "unmatched" — never raw paths (redact module docs).
     Router::new()
         .merge(public)
         .merge(protected)
         .merge(internal)
         .merge(docs)
+        .layer(middleware::from_fn(crate::otel_http::track))
         .with_state(state)
 }
 
