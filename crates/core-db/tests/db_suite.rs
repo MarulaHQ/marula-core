@@ -318,13 +318,20 @@ async fn session_lifecycle_rotate_revoke_and_replay_rejection() {
     }
 
     // SECURITY DEFINER bridge resolves (user, org) with no org scope set.
-    let resolved = users::resolve_session_org(&db.app, session, "h1")
+    let resolved = users::resolve_refresh(&db.app, session, "h1")
         .await
-        .expect("bridge resolve");
-    assert_eq!(resolved, (user, s.org));
+        .expect("bridge resolve")
+        .expect("session exists");
+    assert_eq!(resolved.user_id, user);
+    assert_eq!(resolved.org_id, s.org);
+    assert!(resolved.active);
 
     let mut tx = org_tx(&db.app, s.org).await;
-    users::rotate_session(&mut *tx, session, "h2", FUTURE)
+    let parent = users::find_session_any(&mut *tx, session, "h1")
+        .await
+        .expect("row for rotation");
+    let child = fixed_uuid(303);
+    users::rotate_session_chain(&mut *tx, &parent, child, "h2", FUTURE)
         .await
         .expect("rotate");
 
@@ -333,18 +340,40 @@ async fn session_lifecycle_rotate_revoke_and_replay_rejection() {
         users::find_active_session(&mut *tx, session, "h1").await,
         Err(DbError::NotFound)
     ));
-    assert!(users::find_active_session(&mut *tx, session, "h2")
+    assert!(users::find_active_session(&mut *tx, child, "h2")
         .await
         .is_ok());
-
-    // Revocation ends the session even with the current secret.
-    users::revoke_session(&mut *tx, session)
+    // The chain is preserved across the new node.
+    let child_row = users::find_session_any(&mut *tx, child, "h2")
         .await
-        .expect("revoke");
+        .expect("child row");
+    assert_eq!(child_row.chain_id, parent.chain_id);
+    assert_eq!(child_row.rotated_from, Some(parent.id));
+    // Commit so the widened bridge (separate session) observes the rotation.
+    tx.commit().await.expect("commit rotation");
+
+    // Reuse detection: the rotated token still resolves through the widened
+    // bridge, flagged inactive — that exact signal triggers chain revocation.
+    let replayed = users::resolve_refresh(&db.app, session, "h1")
+        .await
+        .expect("bridge resolve on replay")
+        .expect("rotated row still visible to bridge");
+    assert!(!replayed.active);
+
+    let mut tx = org_tx(&db.app, s.org).await;
+    let killed = users::revoke_chain(&mut *tx, replayed.chain_id)
+        .await
+        .expect("chain revoke");
+    assert!(killed >= 1);
     assert!(matches!(
-        users::find_active_session(&mut *tx, session, "h2").await,
+        users::find_active_session(&mut *tx, child, "h2").await,
         Err(DbError::NotFound)
     ));
+
+    // Revocation ends the session even with the current secret.
+    users::revoke_session(&mut *tx, child)
+        .await
+        .expect("revoke");
 
     // Expired sessions are never active, on either lookup path.
     let expired = fixed_uuid(302);
@@ -355,10 +384,12 @@ async fn session_lifecycle_rotate_revoke_and_replay_rejection() {
         users::find_active_session(&mut *tx, expired, "h9").await,
         Err(DbError::NotFound)
     ));
-    drop(tx);
-    assert!(users::resolve_session_org(&db.app, expired, "h9")
+    // Commit so the bridge observes the expired session's committed row.
+    tx.commit().await.expect("commit tail");
+    let expired_resolved = users::resolve_refresh(&db.app, expired, "h9")
         .await
-        .is_err());
+        .expect("expired rows stay visible for classification");
+    assert!(!expired_resolved.expect("row").active);
 }
 
 // --- tickets -------------------------------------------------------------------

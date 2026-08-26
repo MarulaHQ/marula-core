@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE oidc_accounts SET last_login_at = now() WHERE provider_id = $1 AND subject = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0cd9e04875551b0ede0dc8e67b9e9af99b47cbde9e9779c049e0539769a4050e"
+}

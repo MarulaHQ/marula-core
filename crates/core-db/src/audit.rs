@@ -5,6 +5,20 @@ use core_domain::entities::{Actor, AuditEvent};
 use sqlx::Postgres;
 use uuid::Uuid;
 
+/// Filters for the admin audit query API. All optional; unset = unfiltered.
+#[derive(Debug, Default, Clone)]
+pub struct AuditFilter {
+    /// Actor filter: a user uuid, or "system".
+    pub actor: Option<String>,
+    /// Action prefix match, e.g. "auth" covers every auth.* event.
+    pub action: Option<String>,
+    pub from: Option<chrono::DateTime<chrono::Utc>>,
+    pub to: Option<chrono::DateTime<chrono::Utc>>,
+    /// Keyset cursor: strictly older than (occurred_at, id).
+    pub before: Option<chrono::DateTime<chrono::Utc>>,
+    pub cursor: Option<(chrono::DateTime<chrono::Utc>, Uuid)>,
+}
+
 pub async fn insert<'e, E>(executor: E, e: &AuditEvent) -> DbResult<()>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
@@ -36,6 +50,30 @@ where
     Ok(())
 }
 
+fn event_from_row(row: sqlx::postgres::PgRow) -> AuditEvent {
+    use sqlx::Row;
+    let actor_kind: String = row.get("actor_kind");
+    let actor_id: Option<String> = row.get("actor_id");
+    let actor = match (actor_kind.as_str(), actor_id.clone()) {
+        ("human", Some(id)) => Actor::Human(id.parse().unwrap_or(Uuid::nil())),
+        ("agent", Some(a)) => Actor::Agent(a),
+        ("plugin", Some(p)) => Actor::Plugin(p),
+        ("connector", Some(c)) => Actor::Connector(c),
+        _ => Actor::System,
+    };
+    AuditEvent {
+        id: row.get("id"),
+        org_id: row.get("org_id"),
+        actor,
+        action: row.get("action"),
+        entity_type: row.get("entity_type"),
+        entity_id: row.get("entity_id"),
+        detail: row.get("detail"),
+        ip: row.get("ip"),
+        occurred_at: row.get("occurred_at"),
+    }
+}
+
 pub async fn list<'e, E>(
     executor: E,
     org_id: Uuid,
@@ -45,39 +83,53 @@ pub async fn list<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let rows = sqlx::query!(
+    list_filtered(
+        executor,
+        org_id,
+        AuditFilter {
+            before,
+            ..AuditFilter::default()
+        },
+        limit,
+    )
+    .await
+}
+
+/// Admin filtered listing with keyset pagination on (occurred_at DESC, id DESC).
+pub async fn list_filtered<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    filter: AuditFilter,
+    limit: i64,
+) -> DbResult<Vec<AuditEvent>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let rows = sqlx::query(
         r#"SELECT id, org_id, actor_kind, actor_id, action, entity_type, entity_id,
                   detail, ip, occurred_at
            FROM audit_events
-           WHERE org_id = $1 AND ($2::timestamptz IS NULL OR occurred_at < $2)
-           ORDER BY occurred_at DESC LIMIT $3"#,
-        org_id,
-        before,
-        limit
+           WHERE org_id = $1
+             AND ($2::text IS NULL OR actor_id = $2 OR ($2 = 'system' AND actor_kind = 'system'))
+             AND ($3::text IS NULL OR action LIKE $3 || '%')
+             AND ($4::timestamptz IS NULL OR occurred_at >= $4)
+             AND ($5::timestamptz IS NULL OR occurred_at <= $5)
+             AND ($6::timestamptz IS NULL OR occurred_at < $6)
+             AND ($7::timestamptz IS NULL OR $8::uuid IS NULL OR
+                  (occurred_at, id) < ($7::timestamptz, $8::uuid))
+           ORDER BY occurred_at DESC, id DESC
+           LIMIT $9"#,
     )
+    .bind(org_id)
+    .bind(filter.actor.as_deref())
+    .bind(filter.action.as_deref())
+    .bind(filter.from)
+    .bind(filter.to)
+    .bind(filter.before)
+    .bind(filter.cursor.map(|c| c.0))
+    .bind(filter.cursor.map(|c| c.1))
+    .bind(limit.clamp(1, 500))
     .fetch_all(executor)
     .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| {
-            let actor = match (row.actor_kind.as_str(), row.actor_id.clone()) {
-                ("human", Some(id)) => Actor::Human(id.parse().unwrap_or(Uuid::nil())),
-                ("agent", Some(a)) => Actor::Agent(a),
-                ("plugin", Some(p)) => Actor::Plugin(p),
-                ("connector", Some(c)) => Actor::Connector(c),
-                _ => Actor::System,
-            };
-            AuditEvent {
-                id: row.id,
-                org_id: row.org_id,
-                actor,
-                action: row.action,
-                entity_type: row.entity_type,
-                entity_id: row.entity_id,
-                detail: row.detail,
-                ip: row.ip,
-                occurred_at: row.occurred_at,
-            }
-        })
-        .collect())
+    Ok(rows.into_iter().map(event_from_row).collect())
 }

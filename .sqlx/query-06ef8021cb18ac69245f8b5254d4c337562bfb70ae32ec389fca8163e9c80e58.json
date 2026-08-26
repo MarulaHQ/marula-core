@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO auth_sessions (id, user_id, refresh_token_hash, user_agent, expires_at)\n           VALUES ($1, $2, $3, $4, $5)\n           RETURNING id, user_id, refresh_token_hash, user_agent, expires_at, created_at, revoked_at",
+  "query": "INSERT INTO auth_sessions (id, user_id, refresh_token_hash, user_agent, chain_id, expires_at)\n           VALUES ($1, $2, $3, $4, $1, $5)\n           RETURNING id, user_id, refresh_token_hash, user_agent, expires_at, created_at, revoked_at",
   "describe": {
     "columns": [
       {
@@ -58,5 +58,5 @@
       true
     ]
   },
-  "hash": "b38c04e455b989e25687d5cbaad6a99ca48f0c9ac02dfbc5de65351372858b00"
+  "hash": "06ef8021cb18ac69245f8b5254d4c337562bfb70ae32ec389fca8163e9c80e58"
 }

@@ -45,3 +45,10 @@ subtle = "2"
 futures-util = "0.3"
 clap = { version = "4", features = ["derive"] }
 serde_urlencoded = "0.7"
+totp-rs = { version = "5", default-features = false, features = ["otpauth"] }
+webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation"] }
+webauthn-rs-core = "0.5"
+aes-gcm = "0.10"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+url = "2"
+data-encoding = "2"

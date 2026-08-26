@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE webauthn_credentials SET last_used_at = now() WHERE cred_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "409687e2d04c9f5cc47576371e5c3576741dddd670b71d459f3d6d4182f16762"
+}
