@@ -36,6 +36,10 @@ pub mod types {
     pub const TIME_ENTRY_CREATED: &str = "time_entry.created";
     pub const TIME_ENTRY_UPDATED: &str = "time_entry.updated";
     pub const NOTIFICATION_CREATED: &str = "notification.created";
+    /// Emitted when a user marks notifications read (single, bulk, or all).
+    pub const NOTIFICATION_READ: &str = "notification.read";
+    /// Emitted when a user overrides one preference row.
+    pub const NOTIFICATION_PREFS_UPDATED: &str = "notification_prefs.updated";
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

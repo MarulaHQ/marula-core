@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO notification_preferences\n             (user_id, kind, in_app, email, quiet_from, quiet_until, timezone)\n           VALUES ($1, $2, $3, $4, $5, $6, $7)\n           ON CONFLICT (user_id, kind) DO UPDATE SET\n             in_app = $3, email = $4, quiet_from = $5, quiet_until = $6,\n             timezone = $7",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Bool",
+        "Bool",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d2cb9cebc94bbba0093713197acc3747820a2576d498d7100aaf83820ae886a5"
+}

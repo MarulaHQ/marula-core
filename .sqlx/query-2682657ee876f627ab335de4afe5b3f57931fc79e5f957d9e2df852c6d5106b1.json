@@ -1,0 +1,54 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n             CASE WHEN up.user_id IS NOT NULL THEN 'user'\n                  WHEN od.org_id  IS NOT NULL THEN 'org_default'\n                  ELSE 'builtin' END AS source,\n             CASE WHEN up.user_id IS NOT NULL THEN up.in_app\n                  WHEN od.org_id  IS NOT NULL THEN od.in_app\n                  ELSE TRUE END AS in_app,\n             CASE WHEN up.user_id IS NOT NULL THEN up.email\n                  WHEN od.org_id  IS NOT NULL THEN od.email\n                  ELSE FALSE END AS email,\n             CASE WHEN up.user_id IS NOT NULL THEN up.quiet_from\n                  WHEN od.org_id  IS NOT NULL THEN od.quiet_from\n                  ELSE NULL END AS quiet_from,\n             CASE WHEN up.user_id IS NOT NULL THEN up.quiet_until\n                  WHEN od.org_id  IS NOT NULL THEN od.quiet_until\n                  ELSE NULL END AS quiet_until,\n             CASE WHEN up.user_id IS NOT NULL THEN up.timezone\n                  WHEN od.org_id  IS NOT NULL THEN od.timezone\n                  ELSE 'UTC' END AS timezone\n           FROM (SELECT 1) AS one\n           LEFT JOIN notification_preferences up\n                  ON up.user_id = $1 AND up.kind = $2\n           LEFT JOIN notification_org_defaults od\n                  ON od.org_id = $3 AND od.kind = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "source",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "in_app",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "email",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "quiet_from",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "quiet_until",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "timezone",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "2682657ee876f627ab335de4afe5b3f57931fc79e5f957d9e2df852c6d5106b1"
+}

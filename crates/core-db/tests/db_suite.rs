@@ -1100,6 +1100,7 @@ async fn notifications_track_read_state_and_counts_per_org() {
         email,
         quiet_from: Some("22:00".into()),
         quiet_until: Some("07:00".into()),
+        timezone: "America/New_York".into(),
     };
     notif::upsert_preference(&mut *tx, &pref(false))
         .await
@@ -1123,6 +1124,222 @@ async fn notifications_track_read_state_and_counts_per_org() {
     .expect("pref email");
     assert_eq!(rows, 1, "upsert must not duplicate preference rows");
     assert!(email, "last write wins");
+}
+
+#[tokio::test]
+async fn notifications_cursor_pagination_walks_newest_first() {
+    let db = test_db().await;
+    let sa = seed_org(&db.app, 18).await;
+    let ua = seed_user(&db.app, &sa, 1800).await;
+
+    let mut ids = Vec::new();
+    for i in 0..5 {
+        let id = fixed_uuid(1401 + i);
+        let mut tx = org_tx(&db.app, sa.org).await;
+        notif::insert(
+            &mut *tx,
+            id,
+            sa.org,
+            ua,
+            "mention",
+            None,
+            &format!("n{i}"),
+            None,
+        )
+        .await
+        .expect("insert");
+        tx.commit().await.expect("commit");
+        ids.push(id);
+    }
+
+    // Page size 2: walk the full keyset chain.
+    let mut seen = Vec::new();
+    let mut cursor: Option<notif::NotificationCursor> = None;
+    loop {
+        let mut tx = org_tx(&db.app, sa.org).await;
+        let (items, next) = notif::list_page(&mut *tx, sa.org, ua, false, cursor, 2)
+            .await
+            .expect("page");
+        tx.commit().await.expect("commit");
+        assert!(items.len() <= 2);
+        for item in &items {
+            seen.push(item.id);
+        }
+        match next {
+            Some(c) => cursor = Some(c),
+            None => break,
+        }
+    }
+    assert_eq!(
+        seen,
+        ids.iter().rev().copied().collect::<Vec<_>>(),
+        "newest first"
+    );
+
+    // Exhausted stream: a cursor from the last page yields an empty page
+    // with next_cursor = None.
+    let mut tx = org_tx(&db.app, sa.org).await;
+    let (_, next) = notif::list_page(&mut *tx, sa.org, ua, false, cursor, 2)
+        .await
+        .expect("tail page");
+    assert!(next.is_none());
+
+    // unread_only composes with the keyset.
+    notif::mark_read(&mut *tx, sa.org, ua, ids[4])
+        .await
+        .expect("read");
+    let (unread, next) = notif::list_page(&mut *tx, sa.org, ua, true, None, 10)
+        .await
+        .expect("unread page");
+    assert_eq!(unread.len(), 4, "read one excluded");
+    assert!(unread.iter().all(|n| n.id != ids[4]));
+    assert!(next.is_none());
+}
+
+#[tokio::test]
+async fn notifications_bulk_and_all_mark_read_are_idempotent() {
+    let db = test_db().await;
+    let sa = seed_org(&db.app, 19).await;
+    let sb = seed_org(&db.app, 20).await;
+    let ua = seed_user(&db.app, &sa, 1900).await;
+
+    let n1 = fixed_uuid(1901);
+    let n2 = fixed_uuid(1902);
+    let unknown = fixed_uuid(1903); // never inserted anywhere
+    let cross_org = fixed_uuid(1904); // seeded under another org_id
+    {
+        let mut tx = org_tx(&db.app, sa.org).await;
+        for (id, title) in [(n1, "a"), (n2, "b")] {
+            notif::insert(&mut *tx, id, sa.org, ua, "mention", None, title, None)
+                .await
+                .expect("insert");
+        }
+        tx.commit().await.expect("commit");
+    }
+    // Owner-pool seed: a row whose org scope differs from every app-tx
+    // scope used below — proves org scoping, not just id matching.
+    notif::insert(
+        &db.admin,
+        cross_org,
+        sb.org,
+        ua,
+        "mention",
+        None,
+        "other-org",
+        None,
+    )
+    .await
+    .expect("seed cross-org note");
+
+    {
+        // Unknown ids flip nothing.
+        let mut tx = org_tx(&db.app, sa.org).await;
+        let flipped = notif::mark_read_many(&mut *tx, sa.org, ua, &[unknown])
+            .await
+            .expect("bulk");
+        assert_eq!(flipped, 0);
+
+        // One real unread flips exactly one row.
+        let flipped = notif::mark_read_many(&mut *tx, sa.org, ua, &[n1])
+            .await
+            .expect("bulk");
+        assert_eq!(flipped, 1);
+
+        // Retrying the same batch flips only the still-unread row; the
+        // cross-org row stays untouched despite being in the batch.
+        let again = notif::mark_read_many(&mut *tx, sa.org, ua, &[n1, n2, cross_org])
+            .await
+            .expect("retry");
+        assert_eq!(again, 1, "idempotent under retry");
+
+        assert_eq!(
+            notif::unread_count(&mut *tx, sa.org, ua).await.unwrap(),
+            0,
+            "all read"
+        );
+        let all_again = notif::mark_all_read(&mut *tx, sa.org, ua)
+            .await
+            .expect("all");
+        assert_eq!(all_again, 0, "nothing left to flip");
+    }
+}
+
+#[tokio::test]
+async fn notification_preferences_resolve_defaults_first_chain() {
+    use core_db::notifications::{effective_preference, upsert_org_default, OrgDefaultRow};
+
+    let db = test_db().await;
+    let sa = seed_org(&db.app, 21).await;
+    let ua = seed_user(&db.app, &sa, 2100).await;
+
+    // 1. Built-in fallback when neither user nor org rows exist.
+    {
+        let mut tx = org_tx(&db.app, sa.org).await;
+        let eff = effective_preference(&mut *tx, sa.org, ua, "sla_breach")
+            .await
+            .expect("builtin");
+        assert_eq!(eff.source, "builtin");
+        assert!(eff.in_app && !eff.email);
+        assert!(eff.quiet_from.is_none() && eff.quiet_until.is_none());
+        assert_eq!(eff.timezone, "UTC");
+    }
+
+    // 2. Org default supplies values absent a user override.
+    {
+        let mut tx = org_tx(&db.app, sa.org).await;
+        upsert_org_default(
+            &mut *tx,
+            &OrgDefaultRow {
+                org_id: sa.org,
+                kind: "sla_breach".into(),
+                in_app: true,
+                email: true,
+                quiet_from: Some("21:00".into()),
+                quiet_until: Some("05:00".into()),
+                timezone: "Europe/Berlin".into(),
+            },
+        )
+        .await
+        .expect("org default");
+        tx.commit().await.expect("commit");
+
+        let mut tx = org_tx(&db.app, sa.org).await;
+        let eff = effective_preference(&mut *tx, sa.org, ua, "sla_breach")
+            .await
+            .expect("org default");
+        assert_eq!(eff.source, "org_default");
+        assert!(eff.email, "org default enables email");
+        assert_eq!(eff.timezone, "Europe/Berlin");
+    }
+
+    // 3. A user row wins WHOLE-ROW over the org default.
+    {
+        let mut tx = org_tx(&db.app, sa.org).await;
+        notif::upsert_preference(
+            &mut *tx,
+            &NotificationPreference {
+                user_id: ua,
+                kind: core_domain::entities::NotificationKind::SlaBreach,
+                in_app: true,
+                email: false,
+                quiet_from: Some("23:00".into()),
+                quiet_until: Some("06:00".into()),
+                timezone: "Asia/Tokyo".into(),
+            },
+        )
+        .await
+        .expect("user pref");
+        tx.commit().await.expect("commit");
+
+        let mut tx = org_tx(&db.app, sa.org).await;
+        let eff = effective_preference(&mut *tx, sa.org, ua, "sla_breach")
+            .await
+            .expect("user");
+        assert_eq!(eff.source, "user");
+        assert!(!eff.email, "user override replaces the org row entirely");
+        assert_eq!(eff.quiet_from.as_deref(), Some("23:00"));
+        assert_eq!(eff.timezone, "Asia/Tokyo");
+    }
 }
 
 // --- audit -----------------------------------------------------------------------

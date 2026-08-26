@@ -9,6 +9,7 @@ import { useTheme } from "@meridian/ui";
 import type { Theme } from "@meridian/ui";
 import { Button } from "@meridian/ui";
 import { useAuth } from "../lib/api";
+import { NotificationDock } from "./notification-dock";
 
 function ThemeToggle() {
   const { theme, setTheme } = useTheme();
@@ -38,6 +39,7 @@ export function AppHeader() {
         </span>
       </div>
       <div className="flex items-center gap-2">
+        <NotificationDock />
         <ThemeToggle />
         <span className="text-xs" style={{ color: "var(--m-text-secondary)" }}>
           {me?.display_name ?? ""}
