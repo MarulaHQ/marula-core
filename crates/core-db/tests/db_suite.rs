@@ -158,6 +158,11 @@ fn is_unique_violation(err: &DbError) -> bool {
     matches!(err, DbError::Sql(sqlx::Error::Database(db)) if db.is_unique_violation())
 }
 
+/// Any FK/CHECK/UNIQUE constraint rejection surfaced by sqlx.
+fn is_constraint_violation(err: &DbError) -> bool {
+    matches!(err, DbError::Sql(sqlx::Error::Database(db)) if db.constraint().is_some())
+}
+
 async fn count_rows(tx: &mut Transaction<'_, Postgres>, table_sql: &str, id: Uuid) -> i64 {
     sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table_sql} WHERE id = $1"))
         .bind(id)
@@ -1273,4 +1278,279 @@ async fn rls_blocks_cross_org_and_unscoped_reads() {
         assert_eq!(count_rows(&mut tx, "users", ub).await, 0);
         assert_eq!(count_rows(&mut tx, "tickets", fixed_uuid(1603)).await, 0);
     }
+}
+
+// --- workflow customization v1 (board statuses / transitions) -------------------
+
+use core_db::boards;
+use core_domain::workflow::TransitionEdge;
+
+fn edge(a: Uuid, b: Uuid) -> TransitionEdge {
+    TransitionEdge::new(a, b)
+}
+
+#[tokio::test]
+async fn transitions_replace_and_list_roundtrip() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 21).await;
+    let mut tx = org_tx(&db.app, s.org).await;
+
+    // Empty by default → the semantic floor governs.
+    assert!(boards::list_transitions(&mut *tx, s.board)
+        .await
+        .expect("initial transitions")
+        .is_empty());
+
+    let in_progress = status_id(&mut tx, s.board, "In Progress").await;
+    boards::replace_transitions(
+        &mut tx,
+        s.org,
+        s.board,
+        &[
+            edge(s.entry_status, in_progress),
+            edge(in_progress, s.resolved_status),
+        ],
+    )
+    .await
+    .expect("replace");
+    let edges = boards::list_transitions(&mut *tx, s.board)
+        .await
+        .expect("edges after replace");
+    assert_eq!(edges.len(), 2);
+    assert!(edges.contains(&edge(s.entry_status, in_progress)));
+    assert!(edges.contains(&edge(in_progress, s.resolved_status)));
+
+    // Replacement is authoritative: a fresh empty list returns to floor mode.
+    boards::replace_transitions(&mut tx, s.org, s.board, &[])
+        .await
+        .expect("clear");
+    assert!(boards::list_transitions(&mut *tx, s.board)
+        .await
+        .expect("cleared")
+        .is_empty());
+}
+
+#[tokio::test]
+async fn transition_edge_with_foreign_status_is_rejected_by_fk() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 22).await;
+    let mut tx = org_tx(&db.app, s.org).await;
+    // A second board in the same org owns the foreign status. Bare
+    // db-layer boards carry no statuses until seeded, so add one directly.
+    let other_board =
+        boards::create_board(&mut *tx, s.org, Uuid::now_v7(), "Overflow", None, false)
+            .await
+            .expect("second board")
+            .id;
+    let foreign = boards::add_status(
+        &mut tx,
+        s.org,
+        Uuid::now_v7(),
+        other_board,
+        "New",
+        TicketStatusCategory::Open,
+        0,
+        true,
+    )
+    .await
+    .expect("foreign status")
+    .id;
+
+    let result =
+        boards::replace_transitions(&mut tx, s.org, s.board, &[edge(s.entry_status, foreign)])
+            .await;
+    assert!(
+        result
+            .as_ref()
+            .err()
+            .map(is_constraint_violation)
+            .unwrap_or(false),
+        "cross-board edge must violate the same-board FK, got {result:?}"
+    );
+}
+
+#[tokio::test]
+async fn status_patch_updates_binding_metadata() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 23).await;
+    let mut tx = org_tx(&db.app, s.org).await;
+    let waiting = status_id(&mut tx, s.board, "Waiting").await;
+
+    let updated = boards::update_status(
+        &mut tx,
+        waiting,
+        boards::StatusPatch {
+            name: Some("Blocked On Vendor"),
+            category: Some(TicketStatusCategory::InProgress),
+            sort_order: Some(42),
+            is_entry: None,
+        },
+    )
+    .await
+    .expect("patch");
+    assert_eq!(updated.name, "Blocked On Vendor");
+    assert_eq!(updated.category, TicketStatusCategory::InProgress);
+    assert_eq!(updated.sort_order, 42);
+    assert!(!updated.is_entry);
+
+    // Category re-binding is behavior, not cosmetics: SLA pause semantics
+    // now follow InProgress for this label.
+    assert!(!updated.category.pauses_sla());
+
+    assert!(matches!(
+        boards::update_status(&mut tx, Uuid::now_v7(), boards::StatusPatch::default()).await,
+        Err(DbError::NotFound)
+    ));
+}
+
+#[tokio::test]
+async fn status_delete_rejects_when_tickets_reference_it() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 24).await;
+    let user = seed_user(&db.app, &s, 240).await;
+
+    // The referencing ticket makes deletion impossible.
+    {
+        let mut tx = org_tx(&db.app, s.org).await;
+        let _ticket = create_ticket(
+            &mut tx,
+            &s,
+            fixed_uuid(2401),
+            "delete guard",
+            Priority::P3,
+            s.waiting_status,
+            Some(user),
+        )
+        .await;
+
+        let blocked = boards::delete_status(&mut *tx, s.waiting_status).await;
+        assert!(
+            blocked
+                .as_ref()
+                .err()
+                .map(is_constraint_violation)
+                .unwrap_or(false),
+            "RESTRICT must protect referenced statuses, got {blocked:?}"
+        );
+        // Transaction aborts on the failed statement; drop it and start clean.
+    }
+
+    // An unused custom status deletes cleanly.
+    let mut tx = org_tx(&db.app, s.org).await;
+    let custom = boards::add_status(
+        &mut tx,
+        s.org,
+        Uuid::now_v7(),
+        s.board,
+        "Escalated",
+        TicketStatusCategory::Waiting,
+        25,
+        false,
+    )
+    .await
+    .expect("custom");
+    boards::delete_status(&mut *tx, custom.id)
+        .await
+        .expect("unused delete");
+    assert!(matches!(
+        boards::get_status(&mut *tx, custom.id).await,
+        Err(DbError::NotFound)
+    ));
+}
+
+/// Re-applies migration 0011's defensive seed + entry backfill against a
+/// board stripped to a single non-entry status — proving the SQL restores
+/// full category coverage and a valid entry without touching healthy data.
+#[tokio::test]
+async fn migration_seed_logic_restores_missing_category_defaults() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 25).await;
+    let bare_board = {
+        let mut tx = org_tx(&db.app, s.org).await;
+        let b = boards::create_board(&mut *tx, s.org, Uuid::now_v7(), "Legacy", None, false)
+            .await
+            .expect("bare board")
+            .id;
+        tx.commit().await.expect("commit board");
+        b
+    };
+    {
+        let mut admin = db.admin.begin().await.expect("admin tx");
+        sqlx::query("DELETE FROM board_statuses WHERE board_id = $1 AND name <> 'Resolved'")
+            .bind(bare_board)
+            .execute(&mut *admin)
+            .await
+            .expect("strip");
+        sqlx::query("UPDATE board_statuses SET is_entry = false WHERE board_id = $1")
+            .bind(bare_board)
+            .execute(&mut *admin)
+            .await
+            .expect("no entry");
+        admin.commit().await.expect("commit strip");
+    }
+
+    // The exact statements from migrations/0011_board_statuses.sql.
+    let mut admin = db.admin.begin().await.expect("admin tx 2");
+    sqlx::query(
+        r#"INSERT INTO board_statuses (id, board_id, org_id, name, category, sort_order, is_entry)
+           SELECT gen_random_uuid(), b.id, b.org_id,
+                  d.name || CASE WHEN EXISTS (
+                    SELECT 1 FROM board_statuses x
+                    WHERE x.board_id = b.id AND x.name = d.name AND x.category <> d.category
+                  ) THEN ' (default)' ELSE '' END,
+                  d.category, d.sort_order, false
+           FROM boards b
+           CROSS JOIN (VALUES ('New'::text,'open'::text,0), ('In Progress','in_progress',10),
+                              ('Waiting','waiting',20), ('Resolved','closed',30))
+                AS d(name, category, sort_order)
+           WHERE NOT EXISTS (
+             SELECT 1 FROM board_statuses s2
+             WHERE s2.board_id = b.id AND s2.category = d.category
+           )"#,
+    )
+    .execute(&mut *admin)
+    .await
+    .expect("seed defaults");
+    sqlx::query(
+        r#"UPDATE board_statuses s SET is_entry = true
+           WHERE s.is_entry = false
+             AND NOT EXISTS (SELECT 1 FROM board_statuses e WHERE e.board_id = s.board_id AND e.is_entry)
+             AND s.id = (
+               SELECT c.id FROM board_statuses c WHERE c.board_id = s.board_id
+               ORDER BY (c.category = 'open') DESC, c.sort_order, c.id LIMIT 1)"#,
+    )
+    .execute(&mut *admin)
+    .await
+    .expect("entry backfill");
+    admin.commit().await.expect("commit seed");
+
+    let mut tx = org_tx(&db.app, s.org).await;
+    let cats: Vec<(String, bool)> = sqlx::query_as(
+        "SELECT category, is_entry FROM board_statuses WHERE board_id = $1 ORDER BY sort_order",
+    )
+    .bind(bare_board)
+    .fetch_all(&mut *tx)
+    .await
+    .expect("restored");
+    let categories: Vec<&str> = cats.iter().map(|(c, _)| c.as_str()).collect();
+    assert_eq!(
+        categories,
+        vec!["open", "in_progress", "waiting", "closed"],
+        "all four categories restored"
+    );
+    assert_eq!(
+        cats.iter().filter(|(_, e)| *e).count(),
+        1,
+        "exactly one entry restored"
+    );
+    assert!(cats[0].1, "entry is the open-category status");
+
+    // Healthy board untouched: still exactly its four seeded statuses.
+    let healthy: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM board_statuses WHERE board_id = $1")
+            .bind(s.board)
+            .fetch_one(&mut *tx)
+            .await
+            .expect("healthy count");
+    assert_eq!(healthy, 4);
 }

@@ -16,6 +16,11 @@ pub mod types {
     pub const CLIENT_UPDATED: &str = "client.updated";
     pub const SITE_CREATED: &str = "site.created";
     pub const CONTACT_CREATED: &str = "contact.created";
+    pub const BOARD_CREATED: &str = "board.created";
+    pub const BOARD_STATUS_ADDED: &str = "board.status_added";
+    pub const BOARD_STATUS_UPDATED: &str = "board.status_updated";
+    pub const BOARD_STATUS_REMOVED: &str = "board.status_removed";
+    pub const BOARD_TRANSITIONS_UPDATED: &str = "board.transitions_updated";
     pub const TICKET_CREATED: &str = "ticket.created";
     pub const TICKET_UPDATED: &str = "ticket.updated";
     pub const TICKET_STATUS_CHANGED: &str = "ticket.status_changed";
@@ -62,6 +67,46 @@ pub struct TicketStatusChanged {
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub changed_by: Option<UserId>,
     pub occurred_at: DateTime<Utc>,
+}
+
+/// A status was added to a board (custom workflow definition, §5).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct BoardStatusAdded {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub board_id: BoardId,
+    pub status: crate::entities::BoardStatus,
+}
+
+/// A board status's label/category/ordering was re-bound.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct BoardStatusUpdated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub board_id: BoardId,
+    pub status: crate::entities::BoardStatus,
+}
+
+/// An unused board status was removed. Carries the name because the row is
+/// gone — consumers render history from this payload alone.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct BoardStatusRemoved {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub board_id: BoardId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub status_id: crate::ids::TicketStatusId,
+    pub name: String,
+}
+
+/// The board's explicit transition matrix was replaced. Empty `edges`
+/// means the semantic-category floor governs again.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct BoardTransitionsUpdated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub board_id: BoardId,
+    pub edges: Vec<crate::workflow::TransitionEdge>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

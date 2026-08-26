@@ -13,6 +13,7 @@ pub mod ids;
 pub mod money;
 pub mod policy;
 pub mod status;
+pub mod workflow;
 
 pub use entities::*;
 pub use error::DomainError;
@@ -20,6 +21,7 @@ pub use ids::*;
 pub use money::Money;
 pub use policy::{Permission, PolicyDecision};
 pub use status::{Priority, TicketStatusCategory};
+pub use workflow::{TransitionEdge, TransitionRejection};
 
 /// Semantic categories every custom ticket status must bind to (§5).
 /// SLA timers, pause logic, automations, billing rules, and reports bind to

@@ -32,15 +32,54 @@ type Ticket = components["schemas"]["Ticket"];
 type TicketComment = components["schemas"]["TicketComment"];
 type ChecklistItem = components["schemas"]["ChecklistItem"];
 type BoardStatus = components["schemas"]["BoardStatus"];
+type BoardTransitionsResponse = components["schemas"]["BoardTransitionsResponse"];
 
 const PANE_LIST = "pane-list" as const;
 const PANE_DETAIL = "pane-detail" as const;
 const PANE_ACTIVITY = "pane-activity" as const;
 
+// Semantic-category groups in lifecycle order. Colors are industry-standard
+// PSA semantics expressed ONLY through the Workbench status tokens (amber
+// for waiting, green for closed; red stays reserved for breaches) — light
+// and dark parity come from the shared token set.
+const CATEGORY_GROUPS: {
+  category: NonNullable<BoardStatus["category"]>;
+  label: string;
+  tone: "neutral" | "warning" | "success";
+}[] = [
+  { category: "open", label: "Open", tone: "neutral" },
+  { category: "in_progress", label: "In Progress", tone: "neutral" },
+  { category: "waiting", label: "Waiting", tone: "warning" },
+  { category: "closed", label: "Closed", tone: "success" },
+];
+
 function categoryTone(category: string): "success" | "warning" | "neutral" {
   if (category === "closed") return "success";
   if (category === "waiting") return "warning";
   return "neutral";
+}
+
+/// Client mirror of the server's transition verdict (core-domain `workflow`):
+/// explicit matrix wins; otherwise the semantic floor governs — any→any
+/// except identity and closed→open. The API remains authoritative; this only
+/// disables buttons the server would reject anyway.
+function transitionAllowed(
+  statuses: BoardStatus[],
+  workflow: BoardTransitionsResponse,
+  fromId: string,
+  toId: string,
+): boolean {
+  if (fromId === toId) return false;
+  if ((workflow.mode ?? "floor") === "explicit") {
+    return (workflow.edges ?? []).some(
+      (e) => e.from_status_id === fromId && e.to_status_id === toId,
+    );
+  }
+  const catOf = new Map(statuses.map((s) => [s.id, s.category]));
+  const fromCat = catOf.get(fromId);
+  const toCat = catOf.get(toId);
+  if (fromCat === undefined || toCat === undefined) return false;
+  return !(fromCat === "closed" && toCat === "open");
 }
 
 export default function TicketWorkspacePage() {
@@ -67,6 +106,7 @@ export default function TicketWorkspacePage() {
 
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [statuses, setStatuses] = useState<BoardStatus[]>([]);
+  const [workflow, setWorkflow] = useState<BoardTransitionsResponse>({ mode: "floor", edges: [] });
   const [comments, setComments] = useState<TicketComment[]>([]);
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [commentDraft, setCommentDraft] = useState("");
@@ -89,10 +129,18 @@ export default function TicketWorkspacePage() {
     setChecklist(cl.data ?? []);
     setError(null);
     if (t.data.board_id !== null && statuses.length === 0) {
-      const s = await api.api.GET("/api/boards/{id}/statuses", {
-        params: { path: { id: t.data.board_id } },
-      });
+      // Statuses + the board's effective workflow arrive together so the
+      // status control can group by category and pre-disable illegal moves.
+      const [s, tr] = await Promise.all([
+        api.api.GET("/api/boards/{id}/statuses", {
+          params: { path: { id: t.data.board_id } },
+        }),
+        api.api.GET("/api/boards/{id}/transitions", {
+          params: { path: { id: t.data.board_id } },
+        }),
+      ]);
       if (s.error === undefined) setStatuses(s.data);
+      if (tr.error === undefined) setWorkflow(tr.data);
     }
   }, [ticketId, statuses.length]);
 
@@ -101,10 +149,15 @@ export default function TicketWorkspacePage() {
   }, [auth.status, refreshTicket]);
 
   async function changeStatus(statusId: string) {
-    await api.api.POST("/api/tickets/{id}/status", {
+    const res = await api.api.POST("/api/tickets/{id}/status", {
       params: { path: { id: ticketId } },
       body: { status_id: statusId },
     });
+    if (res.error !== undefined) {
+      setError("That status change is not allowed by this board's workflow");
+      return;
+    }
+    setError(null);
     void refreshTicket();
   }
 
@@ -174,7 +227,9 @@ export default function TicketWorkspacePage() {
                     <span className="font-mono text-xs" style={{ color: "var(--m-text-muted)" }}>
                       {ticket.number}
                     </span>
-                    <StatusTag tone={categoryTone(ticket.category)}>{ticket.category}</StatusTag>
+                    <StatusTag tone={categoryTone(ticket.category)}>
+                      {statuses.find((s) => s.id === ticket.status_id)?.name ?? ticket.category}
+                    </StatusTag>
                   </div>
                   <h1 className="text-base font-semibold">{ticket.title}</h1>
                   {ticket.body !== null && (
@@ -197,22 +252,54 @@ export default function TicketWorkspacePage() {
                     )}
                   </dl>
 
-                  <fieldset className="grid gap-2">
+                  <fieldset className="grid gap-3">
                     <legend className="mb-1 text-xs font-medium">Move to status</legend>
-                    <div className="flex flex-wrap gap-1">
-                      {statuses.map((s) => (
-                        <Button
-                          key={s.id}
-                          size="sm"
-                          variant={s.id === ticket.status_id ? "secondary" : "ghost"}
-                          disabled={s.id === ticket.status_id}
-                          onClick={() => void changeStatus(s.id)}
-                        >
-                          {s.name}
-                        </Button>
-                      ))}
-                    </div>
+                    {CATEGORY_GROUPS.map(({ category, label, tone }) => {
+                      const group = statuses.filter((s) => s.category === category);
+                      if (group.length === 0) return null;
+                      return (
+                        <div key={category} className="grid gap-1">
+                          <StatusTag tone={tone}>{label}</StatusTag>
+                          <div className="flex flex-wrap gap-1">
+                            {group.map((s) => {
+                              const current = s.id === ticket.status_id;
+                              const allowed =
+                                current ||
+                                (ticket.status_id !== null &&
+                                  transitionAllowed(
+                                    statuses,
+                                    workflow,
+                                    ticket.status_id,
+                                    s.id,
+                                  ));
+                              return (
+                                <Button
+                                  key={s.id}
+                                  size="sm"
+                                  variant={current ? "secondary" : "ghost"}
+                                  disabled={!allowed}
+                                  title={
+                                    allowed
+                                      ? undefined
+                                      : "This board's workflow does not allow that transition"
+                                  }
+                                  onClick={() => void changeStatus(s.id)}
+                                >
+                                  {s.name}
+                                </Button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </fieldset>
+
+                  {error !== null && (
+                    <p className="text-xs" style={{ color: "var(--m-status-danger-fg)" }} role="alert">
+                      {error}
+                    </p>
+                  )}
 
                   <div className="flex gap-2">
                     <Button variant="primary" size="sm" onClick={() => void startTimer()}>

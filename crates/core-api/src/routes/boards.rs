@@ -1,16 +1,21 @@
-//! Board endpoints: boards, their semantic-category-bound statuses, and
-//! user favorites (board groups / my-work inputs).
+//! Board endpoints: boards, their semantic-category-bound statuses,
+//! explicit transition matrices, and user favorites (board groups /
+//! my-work inputs). Every mutation emits an outbox event in-tx (§4.2).
 
 use crate::auth::middleware::{authed, require_permission};
-use crate::error::ApiResult;
+use crate::error::{ApiError, ApiResult};
+use crate::org_tx;
 use crate::state::AppState;
 use axum::{
     extract::{Path, State},
     http::Extensions,
     Json,
 };
+use core_domain::entities::Actor;
+use core_domain::events::{self, types};
 use core_domain::policy::{Module, Permission};
 use core_domain::status::TicketStatusCategory;
+use core_domain::workflow::{self, TransitionEdge};
 use serde::Deserialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -58,37 +63,49 @@ pub async fn create(
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, board_manage())?;
     let org_id = authed.principal.user.org_id;
-    // One connection for the board + its seeded statuses.
-    let mut conn = state.pool.acquire().await?;
-    let board = core_db::boards::create_board(
-        &mut *conn,
-        org_id,
-        Uuid::now_v7(),
-        &req.name,
-        req.description.as_deref(),
-        req.is_default,
-    )
-    .await?;
-    // Every new board gets the semantic defaults; customization adds more.
-    let defaults = [
-        ("New", TicketStatusCategory::Open, 0, true),
-        ("In Progress", TicketStatusCategory::InProgress, 10, false),
-        ("Waiting", TicketStatusCategory::Waiting, 20, false),
-        ("Resolved", TicketStatusCategory::Closed, 30, false),
-    ];
-    for (name, category, sort, is_entry) in defaults {
-        core_db::boards::add_status(
-            &mut conn,
+    let user_id = authed.principal.user.id;
+
+    let board = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        // Every new board gets the semantic defaults; customization adds more.
+        let defaults = [
+            ("New", TicketStatusCategory::Open, 0, true),
+            ("In Progress", TicketStatusCategory::InProgress, 10, false),
+            ("Waiting", TicketStatusCategory::Waiting, 20, false),
+            ("Resolved", TicketStatusCategory::Closed, 30, false),
+        ];
+        let board = core_db::boards::create_board(
+            &mut *ctx.tx,
             org_id,
             Uuid::now_v7(),
-            board.id,
-            name,
-            category,
-            sort,
-            is_entry,
+            &req.name,
+            req.description.as_deref(),
+            req.is_default,
         )
         .await?;
-    }
+        for (name, category, sort, is_entry) in defaults {
+            core_db::boards::add_status(
+                &mut ctx.tx,
+                org_id,
+                Uuid::now_v7(),
+                board.id,
+                name,
+                category,
+                sort,
+                is_entry,
+            )
+            .await?;
+        }
+        ctx.emit(
+            types::BOARD_CREATED,
+            "board",
+            Some(board.id.to_string().as_str()),
+            &serde_json::json!({ "board_id": board.id, "name": board.name }),
+        )
+        .await?;
+        Ok((ctx, board))
+    })
+    .await?;
+
     Ok(Json(board))
 }
 
@@ -118,7 +135,7 @@ pub struct CreateStatusRequest {
 }
 
 /// POST /api/boards/{id}/statuses — adds a custom status bound to a
-/// semantic category.
+/// semantic category; emits `board.status_added`.
 #[utoipa::path(operation_id = "boards_add_status", post, path = "/api/boards/{id}/statuses", tag = "boards", security(("bearer" = [])),
     params(("id" = Uuid, Path)), request_body = CreateStatusRequest,
     responses((status = 200, body = core_domain::entities::BoardStatus)))]
@@ -130,19 +147,278 @@ pub async fn add_status(
 ) -> ApiResult<Json<core_domain::entities::BoardStatus>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, board_manage())?;
-    let mut conn = state.pool.acquire().await?;
-    let status = core_db::boards::add_status(
-        &mut conn,
-        authed.principal.user.org_id,
-        Uuid::now_v7(),
-        id,
-        &req.name,
-        req.category,
-        req.sort_order,
-        req.is_entry,
-    )
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+
+    if req.name.trim().is_empty() {
+        return Err(ApiError::Validation("status name is required".into()));
+    }
+    let status = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        let status = core_db::boards::add_status(
+            &mut ctx.tx,
+            org_id,
+            Uuid::now_v7(),
+            id,
+            req.name.trim(),
+            req.category,
+            req.sort_order,
+            req.is_entry,
+        )
+        .await?;
+        ctx.emit(
+            types::BOARD_STATUS_ADDED,
+            "board_status",
+            Some(status.id.to_string().as_str()),
+            &serde_json::to_value(events::BoardStatusAdded {
+                board_id: id,
+                status: status.clone(),
+            })
+            .unwrap_or_default(),
+        )
+        .await?;
+        Ok((ctx, status))
+    })
     .await?;
     Ok(Json(status))
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct UpdateStatusRequest {
+    pub name: Option<String>,
+    /// Re-binds the semantic category; behavior follows immediately (§5).
+    pub category: Option<TicketStatusCategory>,
+    pub sort_order: Option<i32>,
+    pub is_entry: Option<bool>,
+}
+
+/// PATCH /api/boards/{id}/statuses/{status_id} — rebinds/reorders/renames a
+/// status; emits `board.status_updated`.
+#[utoipa::path(operation_id = "boards_update_status", patch, path = "/api/boards/{id}/statuses/{status_id}", tag = "boards",
+    security(("bearer" = [])),
+    params(("id" = Uuid, Path), ("status_id" = Uuid, Path)),
+    request_body = UpdateStatusRequest,
+    responses((status = 200, body = core_domain::entities::BoardStatus)))]
+pub async fn update_status(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path((id, status_id)): Path<(Uuid, Uuid)>,
+    Json(req): Json<UpdateStatusRequest>,
+) -> ApiResult<Json<core_domain::entities::BoardStatus>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, board_manage())?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+
+    if let Some(name) = req.name.as_deref() {
+        if name.trim().is_empty() {
+            return Err(ApiError::Validation("status name cannot be empty".into()));
+        }
+    }
+    let status = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        let status = core_db::boards::update_status(
+            &mut ctx.tx,
+            status_id,
+            core_db::boards::StatusPatch {
+                name: req.name.as_deref().map(str::trim),
+                category: req.category,
+                sort_order: req.sort_order,
+                is_entry: req.is_entry,
+            },
+        )
+        .await?;
+        // The RLS-scoped read above already proved same-org; keep the path
+        // honest by confirming the status belongs to the routed board.
+        if status.board_id != id {
+            return Err(ApiError::NotFound);
+        }
+        ctx.emit(
+            types::BOARD_STATUS_UPDATED,
+            "board_status",
+            Some(status.id.to_string().as_str()),
+            &serde_json::to_value(events::BoardStatusUpdated {
+                board_id: id,
+                status: status.clone(),
+            })
+            .unwrap_or_default(),
+        )
+        .await?;
+        Ok((ctx, status))
+    })
+    .await?;
+    Ok(Json(status))
+}
+
+/// DELETE /api/boards/{id}/statuses/{status_id} — removes an UNUSED custom
+/// status. Tickets referencing it force a 409; the last entry status of a
+/// board is protected so ticket creation can never break.
+#[utoipa::path(operation_id = "boards_delete_status", delete, path = "/api/boards/{id}/statuses/{status_id}", tag = "boards",
+    security(("bearer" = [])),
+    params(("id" = Uuid, Path), ("status_id" = Uuid, Path)),
+    responses((status = 204)))]
+pub async fn delete_status(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path((id, status_id)): Path<(Uuid, Uuid)>,
+) -> ApiResult<axum::http::StatusCode> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, board_manage())?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+
+    org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        let statuses = core_db::boards::list_statuses(&mut *ctx.tx, id).await?;
+        let target = statuses
+            .iter()
+            .find(|s| s.id == status_id)
+            .ok_or(ApiError::NotFound)?;
+        let entry_count = statuses.iter().filter(|s| s.is_entry).count();
+        if target.is_entry && entry_count <= 1 {
+            return Err(ApiError::Conflict(
+                "cannot delete the board's only entry status — promote another first".into(),
+            ));
+        }
+        let name = target.name.clone();
+        match core_db::boards::delete_status(&mut *ctx.tx, status_id).await {
+            Ok(()) => {}
+            Err(core_db::DbError::Sql(sqlx::Error::Database(db))) if db.constraint().is_some() => {
+                return Err(ApiError::Conflict(
+                    "status is referenced by tickets and cannot be deleted".into(),
+                ));
+            }
+            Err(e) => return Err(e.into()),
+        }
+        ctx.emit(
+            types::BOARD_STATUS_REMOVED,
+            "board_status",
+            Some(status_id.to_string().as_str()),
+            &serde_json::to_value(events::BoardStatusRemoved {
+                board_id: id,
+                status_id,
+                name,
+            })
+            .unwrap_or_default(),
+        )
+        .await?;
+        Ok((ctx, ()))
+    })
+    .await?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+/// GET response for a board's workflow: either its explicit matrix or the
+/// marker that the semantic-category floor governs.
+#[derive(Debug, serde::Serialize, ToSchema)]
+pub struct BoardTransitionsResponse {
+    /// `"explicit"` when the listed edges are authoritative; `"floor"` when
+    /// the semantic-category default governs (any→any except closed→open).
+    pub mode: String,
+    pub edges: Vec<TransitionEdge>,
+}
+
+/// GET /api/boards/{id}/transitions — the board's effective workflow.
+#[utoipa::path(operation_id = "boards_list_transitions", get, path = "/api/boards/{id}/transitions", tag = "boards", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    responses((status = 200, body = BoardTransitionsResponse)))]
+pub async fn list_transitions(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<BoardTransitionsResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, board_view())?;
+    let edges = core_db::boards::list_transitions(&state.pool, id).await?;
+    let mode = if edges.is_empty() {
+        "floor"
+    } else {
+        "explicit"
+    };
+    Ok(Json(BoardTransitionsResponse {
+        mode: mode.into(),
+        edges,
+    }))
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct SetTransitionsRequest {
+    /// The complete allowed matrix. Empty list returns the board to
+    /// floor-mode governance.
+    pub edges: Vec<TransitionEdge>,
+}
+
+/// PUT /api/boards/{id}/transitions — atomically replaces the explicit
+/// transition matrix; emits `board.transitions_updated`. Endpoints must be
+/// statuses of THIS board and self-transitions are rejected.
+#[utoipa::path(operation_id = "boards_set_transitions", put, path = "/api/boards/{id}/transitions", tag = "boards", security(("bearer" = [])),
+    params(("id" = Uuid, Path)), request_body = SetTransitionsRequest,
+    responses((status = 200, body = BoardTransitionsResponse)))]
+pub async fn set_transitions(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    Json(req): Json<SetTransitionsRequest>,
+) -> ApiResult<Json<BoardTransitionsResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, board_manage())?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+
+    let response = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        // Validate every edge endpoint against this board's statuses before
+        // writing; storage FKs are only the backstop.
+        let statuses = core_db::boards::list_statuses(&mut *ctx.tx, id).await?;
+        let mut edges: Vec<TransitionEdge> = Vec::with_capacity(req.edges.len());
+        for edge in req.edges {
+            workflow::validate_transition(&statuses, &[], edge.from_status_id, edge.to_status_id)
+                .map_err(|rej| ApiError::Validation(rej.message()))?;
+            if !edges.contains(&edge) {
+                edges.push(edge);
+            }
+        }
+        core_db::boards::replace_transitions(&mut ctx.tx, org_id, id, &edges).await?;
+
+        // Audit the workflow change (board-admin action).
+        core_db::audit::insert(
+            &mut *ctx.tx,
+            &core_domain::entities::AuditEvent {
+                id: Uuid::now_v7(),
+                org_id,
+                actor: Actor::Human(user_id),
+                action: "board.transitions_update".into(),
+                entity_type: Some("board".into()),
+                entity_id: Some(id.to_string()),
+                detail: serde_json::json!({ "edge_count": edges.len() }),
+                ip: None,
+                occurred_at: chrono::Utc::now(),
+            },
+        )
+        .await?;
+
+        ctx.emit(
+            types::BOARD_TRANSITIONS_UPDATED,
+            "board",
+            Some(id.to_string().as_str()),
+            &serde_json::to_value(events::BoardTransitionsUpdated {
+                board_id: id,
+                edges: edges.clone(),
+            })
+            .unwrap_or_default(),
+        )
+        .await?;
+        let mode = if edges.is_empty() {
+            "floor"
+        } else {
+            "explicit"
+        };
+        Ok((
+            ctx,
+            BoardTransitionsResponse {
+                mode: mode.into(),
+                edges,
+            },
+        ))
+    })
+    .await?;
+    Ok(Json(response))
 }
 
 #[derive(Debug, Deserialize, ToSchema)]

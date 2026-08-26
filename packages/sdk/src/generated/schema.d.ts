@@ -141,9 +141,56 @@ export interface paths {
         put?: never;
         /**
          * POST /api/boards/{id}/statuses — adds a custom status bound to a
-         *     semantic category.
+         *     semantic category; emits `board.status_added`.
          */
         post: operations["boards_add_status"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/boards/{id}/statuses/{status_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/boards/{id}/statuses/{status_id} — removes an UNUSED custom
+         *     status. Tickets referencing it force a 409; the last entry status of a
+         *     board is protected so ticket creation can never break.
+         */
+        delete: operations["boards_delete_status"];
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/boards/{id}/statuses/{status_id} — rebinds/reorders/renames a
+         *     status; emits `board.status_updated`.
+         */
+        patch: operations["boards_update_status"];
+        trace?: never;
+    };
+    "/api/boards/{id}/transitions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/boards/{id}/transitions — the board's effective workflow. */
+        get: operations["boards_list_transitions"];
+        /**
+         * PUT /api/boards/{id}/transitions — atomically replaces the explicit
+         *     transition matrix; emits `board.transitions_updated`. Endpoints must be
+         *     statuses of THIS board and self-transitions are rejected.
+         */
+        put: operations["boards_set_transitions"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -682,6 +729,18 @@ export interface components {
             /** Format: int32 */
             sort_order: number;
         };
+        /**
+         * @description GET response for a board's workflow: either its explicit matrix or the
+         *     marker that the semantic-category floor governs.
+         */
+        BoardTransitionsResponse: {
+            edges: components["schemas"]["TransitionEdge"][];
+            /**
+             * @description `"explicit"` when the listed edges are authoritative; `"floor"` when
+             *     the semantic-category default governs (any→any except closed→open).
+             */
+            mode: string;
+        };
         ChangeStatusRequest: {
             /** Format: uuid */
             status_id: string;
@@ -949,6 +1008,13 @@ export interface components {
         SetChecklistItemRequest: {
             checked: boolean;
         };
+        SetTransitionsRequest: {
+            /**
+             * @description The complete allowed matrix. Empty list returns the board to
+             *     floor-mode governance.
+             */
+            edges: components["schemas"]["TransitionEdge"][];
+        };
         Site: {
             address?: string | null;
             city?: string | null;
@@ -1174,9 +1240,27 @@ export interface components {
             /** Format: uuid */
             session_id: string;
         };
+        /**
+         * @description One directed edge in a board's explicit transition matrix. Both ids must
+         *     belong to statuses of the SAME board (enforced here, and by composite FKs
+         *     in storage).
+         */
+        TransitionEdge: {
+            /** Format: uuid */
+            from_status_id: string;
+            /** Format: uuid */
+            to_status_id: string;
+        };
         UnreadCount: {
             /** Format: int64 */
             count: number;
+        };
+        UpdateStatusRequest: {
+            category?: null | components["schemas"]["TicketStatusCategory"];
+            is_entry?: boolean | null;
+            name?: string | null;
+            /** Format: int32 */
+            sort_order?: number | null;
         };
     };
     responses: never;
@@ -1425,6 +1509,98 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BoardStatus"];
+                };
+            };
+        };
+    };
+    boards_delete_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                status_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    boards_update_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                status_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateStatusRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardStatus"];
+                };
+            };
+        };
+    };
+    boards_list_transitions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardTransitionsResponse"];
+                };
+            };
+        };
+    };
+    boards_set_transitions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetTransitionsRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardTransitionsResponse"];
                 };
             };
         };

@@ -15,6 +15,7 @@ use core_domain::entities::{Actor, AuditEvent};
 use core_domain::events::{self, types};
 use core_domain::policy::{Module, Permission};
 use core_domain::status::{NoteKind, Priority, TicketStatusCategory};
+use core_domain::workflow;
 use serde::Deserialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -336,16 +337,23 @@ pub async fn change_status(
 
     let ticket = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id).await?;
-        let target = core_db::boards::get_status(&mut *ctx.tx, req.status_id).await?;
-
-        // 1. Domain transition rules (closed tickets cannot go straight back to Open).
-        if !ticket.can_transition_to(&target) {
-            return Err(ApiError::Validation(format!(
-                "transition {} → {} not allowed",
-                ticket.category, target.category
-            )));
+        // The board's statuses + explicit transition matrix define what is
+        // legal here; with no explicit matrix the semantic-category floor
+        // governs (core-domain `workflow`).
+        let statuses = core_db::boards::list_statuses(&mut *ctx.tx, ticket.board_id).await?;
+        let edges = core_db::boards::list_transitions(&mut *ctx.tx, ticket.board_id).await?;
+        if let Err(rejection) =
+            workflow::validate_transition(&statuses, &edges, ticket.status_id, req.status_id)
+        {
+            return Err(ApiError::Validation(rejection.message()));
         }
-        // 2. Pre-close checklist: closing requires every item checked (§1).
+        let target = statuses
+            .iter()
+            .find(|s| s.id == req.status_id)
+            .ok_or(ApiError::NotFound)?
+            .clone();
+
+        // Pre-close checklist: closing requires every item checked (§1).
         let checklist = core_db::tickets::list_checklist(&mut *ctx.tx, org_id, id).await?;
         core_domain::entities::validate_pre_close(&checklist, &target)?;
 
@@ -391,18 +399,33 @@ pub async fn change_status(
             .await?;
         }
 
-        // Audit the lifecycle change.
-        core_db::audit::insert(&mut *ctx.tx, &AuditEvent {
-            id: Uuid::now_v7(),
-            org_id,
-            actor: Actor::Human(user_id),
-            action: "ticket.status_change".into(),
-            entity_type: Some("ticket".into()),
-            entity_id: Some(after.id.to_string()),
-            detail: serde_json::json!({ "from": ticket.category.as_str(), "to": target.category.as_str() }),
-            ip: None,
-            occurred_at: now,
-        })
+        // Audit the lifecycle change with full from→to provenance.
+        let from_name = statuses
+            .iter()
+            .find(|s| s.id == ticket.status_id)
+            .map(|s| s.name.clone())
+            .unwrap_or_default();
+        core_db::audit::insert(
+            &mut *ctx.tx,
+            &AuditEvent {
+                id: Uuid::now_v7(),
+                org_id,
+                actor: Actor::Human(user_id),
+                action: "ticket.status_change".into(),
+                entity_type: Some("ticket".into()),
+                entity_id: Some(after.id.to_string()),
+                detail: serde_json::json!({
+                    "from_status": from_name,
+                    "from_status_id": ticket.status_id,
+                    "from_category": ticket.category.as_str(),
+                    "to_status": target.name,
+                    "to_status_id": target.id,
+                    "to_category": target.category.as_str(),
+                }),
+                ip: None,
+                occurred_at: now,
+            },
+        )
         .await?;
 
         Ok((ctx, after))

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO board_status_transitions\n                 (org_id, board_id, from_status_id, to_status_id)\n               VALUES ($1, $2, $3, $4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "414794cc584abe7993f07132c26b77684cbcb11526b10eaa5fe49a9d279df5ef"
+}

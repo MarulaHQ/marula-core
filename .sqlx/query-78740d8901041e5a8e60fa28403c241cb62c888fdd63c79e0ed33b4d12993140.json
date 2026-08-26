@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT from_status_id, to_status_id\n           FROM board_status_transitions WHERE board_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "from_status_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "to_status_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "78740d8901041e5a8e60fa28403c241cb62c888fdd63c79e0ed33b4d12993140"
+}

@@ -1,8 +1,11 @@
 //! Boards, board statuses (semantic-category-bound), and favorites.
+//! Workflow customization v1 lives here too: the explicit per-board
+//! transition adjacency read/written through core-api only.
 
 use crate::{DbError, DbResult};
 use core_domain::entities::{Board, BoardFavorite, BoardStatus};
 use core_domain::status::TicketStatusCategory;
+use core_domain::workflow::TransitionEdge;
 use sqlx::{PgConnection, Postgres};
 use uuid::Uuid;
 
@@ -171,6 +174,111 @@ where
         .await?
         .ok_or(DbError::NotFound)?;
     status_from_row(row)
+}
+
+/// Patchable status metadata. `None` fields are left unchanged; the semantic
+/// category may be re-bound (behavior follows it immediately).
+#[derive(Debug, Default, Clone, Copy)]
+pub struct StatusPatch<'a> {
+    pub name: Option<&'a str>,
+    pub category: Option<TicketStatusCategory>,
+    pub sort_order: Option<i32>,
+    pub is_entry: Option<bool>,
+}
+
+/// Updates one status's presentation/binding metadata in place.
+pub async fn update_status(
+    conn: &mut PgConnection,
+    status_id: Uuid,
+    patch: StatusPatch<'_>,
+) -> DbResult<BoardStatus> {
+    let affected = sqlx::query!(
+        r#"UPDATE board_statuses SET
+             name = COALESCE($2, name),
+             category = COALESCE($3, category),
+             sort_order = COALESCE($4, sort_order),
+             is_entry = COALESCE($5, is_entry)
+           WHERE id = $1"#,
+        status_id,
+        patch.name,
+        patch.category.map(|c| c.as_str()),
+        patch.sort_order,
+        patch.is_entry,
+    )
+    .execute(&mut *conn)
+    .await?
+    .rows_affected();
+    if affected == 0 {
+        return Err(DbError::NotFound);
+    }
+    get_status(&mut *conn, status_id).await
+}
+
+/// Removes an unused custom status. Referencing tickets raise a foreign-key
+/// violation (`23503`) which callers surface as a conflict — deletion never
+/// cascades into ticket history.
+pub async fn delete_status(
+    executor: impl sqlx::Executor<'_, Database = Postgres>,
+    status_id: Uuid,
+) -> DbResult<()> {
+    let affected = sqlx::query!("DELETE FROM board_statuses WHERE id = $1", status_id)
+        .execute(executor)
+        .await?
+        .rows_affected();
+    if affected == 0 {
+        return Err(DbError::NotFound);
+    }
+    Ok(())
+}
+
+/// The board's explicit transition adjacency (possibly empty ⇒ the
+/// semantic-category floor governs; see core-domain `workflow`).
+pub async fn list_transitions<'e, E>(executor: E, board_id: Uuid) -> DbResult<Vec<TransitionEdge>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let rows = sqlx::query!(
+        r#"SELECT from_status_id, to_status_id
+           FROM board_status_transitions WHERE board_id = $1"#,
+        board_id
+    )
+    .fetch_all(executor)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| TransitionEdge::new(r.from_status_id, r.to_status_id))
+        .collect())
+}
+
+/// Atomically replaces the board's whole explicit matrix. Empty `edges`
+/// returns the board to floor-mode governance. Callers must have validated
+/// edge endpoints against the board's statuses (FKs are the backstop).
+pub async fn replace_transitions(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    board_id: Uuid,
+    edges: &[TransitionEdge],
+) -> DbResult<()> {
+    sqlx::query!(
+        "DELETE FROM board_status_transitions WHERE board_id = $1",
+        board_id
+    )
+    .execute(&mut *conn)
+    .await?;
+    for edge in edges {
+        sqlx::query!(
+            r#"INSERT INTO board_status_transitions
+                 (org_id, board_id, from_status_id, to_status_id)
+               VALUES ($1, $2, $3, $4)"#,
+            org_id,
+            board_id,
+            edge.from_status_id,
+            edge.to_status_id,
+        )
+        .execute(&mut *conn)
+        .await?;
+    }
+    Ok(())
 }
 
 pub async fn add_favorite<'e, E>(
