@@ -24,9 +24,9 @@ import {
 } from "@meridian/ui";
 import { PanelLayout, usePanelLayout } from "@meridian/layout";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { AppHeader } from "../../../components/app-header";
-import { api, useRequireAuth } from "../../../lib/api";
+import { api, downloadAttachment, uploadAttachment, useRequireAuth } from "../../../lib/api";
 
 type Ticket = components["schemas"]["Ticket"];
 type MyWorkItem = components["schemas"]["MyWorkItem"];
@@ -36,6 +36,7 @@ type TicketChecklistView = components["schemas"]["TicketChecklistView"];
 type BoardStatus = components["schemas"]["BoardStatus"];
 type BoardTransitionsResponse = components["schemas"]["BoardTransitionsResponse"];
 type TicketSlaStatus = components["schemas"]["TicketSlaStatus"];
+type Attachment = components["schemas"]["Attachment"];
 
 const PANE_LIST = "pane-list" as const;
 const PANE_DETAIL = "pane-detail" as const;
@@ -55,6 +56,15 @@ const CATEGORY_GROUPS: {
   { category: "waiting", label: "Waiting", tone: "warning" },
   { category: "closed", label: "Closed", tone: "success" },
 ];
+
+/** Paperclip glyph: inline SVG on currentColor so both themes track tokens. */
+function PaperclipIcon(): ReactNode {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+    </svg>
+  );
+}
 
 function categoryTone(category: string): "success" | "warning" | "neutral" {
   if (category === "closed") return "success";
@@ -139,16 +149,22 @@ export default function TicketWorkspacePage() {
   const [checklist, setChecklist] = useState<TicketChecklistView | null>(null);
   const [commentDraft, setCommentDraft] = useState("");
   const [checklistDraft, setChecklistDraft] = useState("");
+  // Attachments (2.14): files staged in the composer + everything already
+  // on the ticket, grouped per comment for the paperclip rows.
+  const [stagedFiles, setStagedFiles] = useState<File[]>([]);
+  const [ticketAttachments, setTicketAttachments] = useState<Attachment[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const refreshTicket = useCallback(async () => {
     if (ticketId === "") return;
-    const [t, c, cl, sla] = await Promise.all([
+    const [t, c, cl, sla, atts] = await Promise.all([
       api.api.GET("/api/tickets/{id}", { params: { path: { id: ticketId } } }),
       api.api.GET("/api/tickets/{id}/comments", { params: { path: { id: ticketId } } }),
       api.api.GET("/api/tickets/{id}/checklist", { params: { path: { id: ticketId } } }),
       // SLA clock readout; absent (no policy) renders no badge.
       api.api.GET("/api/tickets/{id}/sla", { params: { path: { id: ticketId } } }),
+      // Attachments (2.14); absent only on older servers.
+      api.api.GET("/api/tickets/{id}/attachments", { params: { path: { id: ticketId } } }),
     ]);
     if (t.error !== undefined) {
       setError("Ticket not found in your organization");
@@ -158,6 +174,7 @@ export default function TicketWorkspacePage() {
     setComments(c.data ?? []);
     setChecklist(cl.data ?? null);
     setSla(sla.data ?? null);
+    setTicketAttachments(atts.data ?? []);
     setError(null);
     if (t.data.board_id !== null && statuses.length === 0) {
       // Statuses + the board's effective workflow arrive together so the
@@ -203,12 +220,50 @@ export default function TicketWorkspacePage() {
   async function postComment() {
     const body = commentDraft.trim();
     if (body === "") return;
-    await api.api.POST("/api/tickets/{id}/comments", {
-      params: { path: { id: ticketId } },
-      body: { body, kind: "internal" },
-    });
-    setCommentDraft("");
-    void refreshTicket();
+    try {
+      // Composer flow (2.14): upload bytes first, then link the returned
+      // attachment ids in the comment create — one atomic note.
+      const uploaded: string[] = [];
+      for (const file of stagedFiles) {
+        uploaded.push((await uploadAttachment(ticketId, file)).id);
+      }
+      await api.api.POST("/api/tickets/{id}/comments", {
+        params: { path: { id: ticketId } },
+        body: { body, kind: "internal", attachment_ids: uploaded },
+      });
+      setCommentDraft("");
+      setStagedFiles([]);
+      void refreshTicket();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not post comment");
+    }
+  }
+
+  /** Paperclip rows for one comment (or null = unlinked/ticket files). */
+  function attachmentsFor(commentId: string | null): Attachment[] {
+    return ticketAttachments.filter((a) =>
+      commentId === null ? a.ticket_comment_id === null || a.ticket_comment_id === undefined : a.ticket_comment_id === commentId,
+    );
+  }
+
+  function paperclipRow(attachment: Attachment): ReactNode {
+    const sizeKb = Math.max(1, Math.round(attachment.size_bytes / 1024));
+    return (
+      <button
+        key={attachment.id}
+        type="button"
+        className="flex items-center gap-1 rounded-[2px] px-1 py-0.5 text-left text-xs hover:underline"
+        style={{ color: "var(--m-text-muted)" }}
+        title={`${attachment.filename} · ${sizeKb} KB`}
+        onClick={() => void downloadAttachment(attachment.id, attachment.filename)}
+      >
+        <PaperclipIcon />
+        <span className="truncate" style={{ maxWidth: 220 }}>
+          {attachment.filename}
+        </span>
+        <span>({sizeKb} KB)</span>
+      </button>
+    );
   }
 
   async function addChecklistItem() {
@@ -368,6 +423,11 @@ export default function TicketWorkspacePage() {
                           </time>
                         </header>
                         <p className="whitespace-pre-wrap">{c.body}</p>
+                        {attachmentsFor(c.id).length > 0 && (
+                          <footer className="mt-1 flex flex-wrap gap-1">
+                            {attachmentsFor(c.id).map((a) => paperclipRow(a))}
+                          </footer>
+                        )}
                       </article>
                     ))}
                     <Textarea
@@ -376,6 +436,37 @@ export default function TicketWorkspacePage() {
                       onChange={(e) => setCommentDraft(e.target.value)}
                       placeholder="Add a note…"
                     />
+                    <div className="flex items-center gap-2">
+                      <label
+                        className="flex cursor-pointer items-center gap-1 rounded-[2px] border px-2 py-1 text-xs"
+                        style={{ borderColor: "var(--m-border)", color: "var(--m-text-muted)" }}
+                        title="Attach files (PDF, images, Office, zip, text)"
+                      >
+                        <PaperclipIcon />
+                        Attach
+                        <input
+                          type="file"
+                          multiple
+                          className="hidden"
+                          onChange={(e) => {
+                            setStagedFiles((prev) => [...prev, ...Array.from(e.target.files ?? [])]);
+                            e.target.value = "";
+                          }}
+                        />
+                      </label>
+                      {stagedFiles.map((f, i) => (
+                        <button
+                          key={`${f.name}-${i}`}
+                          type="button"
+                          className="flex items-center gap-1 rounded-[2px] px-1 text-xs"
+                          style={{ color: "var(--m-text-muted)" }}
+                          title="Remove"
+                          onClick={() => setStagedFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                        >
+                          <PaperclipIcon /> {f.name.length > 24 ? `${f.name.slice(0, 21)}…` : f.name} ✕
+                        </button>
+                      ))}
+                    </div>
                     <Button size="sm" variant="primary" onClick={() => void postComment()}>
                       Comment
                     </Button>

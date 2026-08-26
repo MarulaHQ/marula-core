@@ -116,6 +116,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/attachments/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/attachments/{id} — author-gated (the uploader, or an org
+         *     owner/admin). The stored object is reclaimed only when no sibling row
+         *     still references the same content-addressed key.
+         */
+        delete: operations["attachments_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/attachments/{id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/attachments/{id}/download — streams the stored bytes through
+         *     the API behind board-view authz (no public URLs in v1). Integrity is
+         *     verifiable against the recorded sha256 (`x-meridian-sha256` header).
+         */
+        get: operations["attachments_download"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/audit-events": {
         parameters: {
             query?: never;
@@ -1508,6 +1550,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/portal/tickets/{id}/attachments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/portal/tickets/{id}/attachments — attachments the portal
+         *     caller may see: ticket-level files always; comment files only when the
+         *     owning note kind is visible to this tier.
+         */
+        get: operations["portal_list_attachments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/portal/tickets/{id}/attachments/{attachment_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/portal/tickets/{id}/attachments/{attachment_id}/download —
+         *     streams one visible attachment through the API. Hidden or foreign
+         *     attachments are plain 404s (no existence leak).
+         */
+        get: operations["portal_download_attachment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/portal/tickets/{id}/reply": {
         parameters: {
             query?: never;
@@ -1777,6 +1861,30 @@ export interface paths {
         patch: operations["tickets_patch"];
         trace?: never;
     };
+    "/api/tickets/{id}/attachments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/tickets/{id}/attachments — every attachment on one ticket. */
+        get: operations["attachments_list_for_ticket"];
+        put?: never;
+        /**
+         * POST /api/tickets/{id}/attachments — stores one file against a ticket
+         *     (linked to a comment later by the composer submit).
+         * @description Headers: `x-filename` (required), `content-type` (declared; verified
+         *     against sniffed magic bytes). Body: raw bytes, capped by
+         *     `MERIDIAN_MAX_UPLOAD_MB` (default 25 MB).
+         */
+        post: operations["attachments_upload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tickets/{id}/checklist": {
         parameters: {
             query?: never;
@@ -1839,6 +1947,26 @@ export interface paths {
          *     fan out into the notification center.
          */
         post: operations["tickets_add_comment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tickets/{id}/comments/{comment_id}/attachments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/tickets/{id}/comments/{comment_id}/attachments — one comment's
+         *     attachments.
+         */
+        get: operations["attachments_list_for_comment"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2232,6 +2360,12 @@ export interface components {
             text: string;
         };
         AddCommentRequest: {
+            /**
+             * @description Attachments uploaded earlier against this ticket (composer flow:
+             *     upload first, link when the comment is created). Absent/empty in
+             *     older clients — purely additive.
+             */
+            attachment_ids?: string[];
             body: string;
             kind: components["schemas"]["NoteKind"];
         };
@@ -2313,6 +2447,68 @@ export interface components {
              */
             group_id?: string | null;
         };
+        /** @description One uploaded file's metadata row; the payload lives behind `storage_key`. */
+        Attachment: {
+            /** @description Declared + magic-byte-verified content type. */
+            content_type: string;
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * Format: uuid
+             * @description Set only when kind is email_message.
+             */
+            email_message_id?: string | null;
+            /** @description Original filename, sanitized (no path components/control chars). */
+            filename: string;
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["AttachmentKind"];
+            /** Format: uuid */
+            org_id: string;
+            /** @description Lowercase hex sha256 of the exact bytes; dedup + integrity anchor. */
+            sha256: string;
+            /** Format: int64 */
+            size_bytes: number;
+            /** @description Object-store key (`org/<id>/attachments/<sha256>`). */
+            storage_key: string;
+            /**
+             * Format: uuid
+             * @description Set only when kind is ticket_comment.
+             */
+            ticket_comment_id?: string | null;
+            /**
+             * Format: uuid
+             * @description Set when kind is ticket_comment or ticket.
+             */
+            ticket_id?: string | null;
+            /**
+             * Format: uuid
+             * @description Portal actor when uploaded through a portal surface (v1: none —
+             *     reserved so portal uploads need no schema change).
+             */
+            uploaded_by_portal_user_id?: string | null;
+            /**
+             * Format: uuid
+             * @description Staff uploader when uploaded through the API.
+             */
+            uploaded_by_user_id?: string | null;
+        };
+        /**
+         * @description attachment.deleted — the metadata row went away; `object_removed`
+         *     reports whether the backing bytes were reclaimed too (refcount hit 0).
+         */
+        AttachmentDeleted: {
+            /** Format: uuid */
+            attachment_id: string;
+            object_removed: boolean;
+            /** Format: uuid */
+            ticket_id?: string | null;
+        };
+        /**
+         * @description What an attachment belongs to. The enum value is persisted verbatim.
+         * @enum {string}
+         */
+        AttachmentKind: "ticket_comment" | "email_message" | "ticket";
         AuditEvent: {
             /** @description Dot-path of the action, e.g. "auth.login", "ticket.status_change". */
             action: string;
@@ -3371,6 +3567,18 @@ export interface components {
             /** @description True while the policy governs itself via its embedded calendar. */
             uses_embedded_calendar: boolean;
         };
+        /** @description Portal attachment view: metadata only (bytes stream on download). */
+        PortalAttachmentView: {
+            content_type: string;
+            /** Format: date-time */
+            created_at: string;
+            filename: string;
+            /** Format: uuid */
+            id: string;
+            sha256: string;
+            /** Format: int64 */
+            size_bytes: number;
+        };
         PortalLoginRequest: {
             email: string;
             password: string;
@@ -4316,6 +4524,48 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    attachments_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachmentDeleted"];
+                };
+            };
+        };
+    };
+    attachments_download: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": number[];
+                };
             };
         };
     };
@@ -6582,6 +6832,61 @@ export interface operations {
             };
         };
     };
+    portal_list_attachments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalAttachmentView"][];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    portal_download_attachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                attachment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": number[];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     portal_reply: {
         parameters: {
             query?: never;
@@ -7056,6 +7361,52 @@ export interface operations {
             };
         };
     };
+    attachments_list_for_ticket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Attachment"][];
+                };
+            };
+        };
+    };
+    attachments_upload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": number[];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Attachment"];
+                };
+            };
+        };
+    };
     tickets_get_checklist: {
         parameters: {
             query?: never;
@@ -7176,6 +7527,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TicketComment"];
+                };
+            };
+        };
+    };
+    attachments_list_for_comment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                comment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Attachment"][];
                 };
             };
         };
