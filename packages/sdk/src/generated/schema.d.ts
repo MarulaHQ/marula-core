@@ -6,7 +6,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** GET /api/audit-events — append-only audit trail, newest first. */
+        /**
+         * GET /api/audit-events — append-only audit trail, newest first, filterable
+         *     by actor / action prefix / time range with opaque cursor pagination.
+         */
         get: operations["audit_list"];
         put?: never;
         post?: never;
@@ -27,7 +30,9 @@ export interface paths {
         put?: never;
         /**
          * POST /api/auth/login — resolves the org by email (SECURITY DEFINER
-         *     bridge), verifies the argon2 hash under RLS scope, issues tokens.
+         *     bridge), verifies the argon2 hash under RLS scope. When any second
+         *     factor is enrolled, returns a short-lived `mfa_pending` bridge instead
+         *     of tokens; POST /api/auth/mfa/verify completes it.
          */
         post: operations["handlers_login"];
         delete?: never;
@@ -45,8 +50,345 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** POST /api/auth/logout — revokes the refresh session. */
+        /** POST /api/auth/logout — revokes the refresh session and audits the event. */
         post: operations["handlers_logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/mfa/recovery-codes/regenerate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/auth/mfa/recovery-codes/regenerate — invalidates all previous
+         *     codes, issues a new batch (revealed once).
+         */
+        post: operations["mfa_recovery_regenerate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/mfa/totp/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/auth/mfa/totp/disable — requires password AND a live factor;
+         *     wipes TOTP enrollment and all recovery codes.
+         */
+        post: operations["mfa_totp_disable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/mfa/totp/enroll-begin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/auth/mfa/totp/enroll-begin — generates a secret (returned ONCE)
+         *     and stores it sealed+unconfirmed. Re-calling restarts enrollment safely.
+         */
+        post: operations["mfa_totp_enroll_begin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/mfa/totp/enroll-verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/auth/mfa/totp/enroll-verify — confirms the enrollment with the
+         *     first valid code and issues the one-time recovery-code batch.
+         */
+        post: operations["mfa_totp_enroll_verify"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/mfa/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/auth/mfa/verify — completes an MFA-gated login with a TOTP or
+         *     recovery code. Tries TOTP first (advancing the replay watermark), then
+         *     falls back to single-use recovery codes.
+         */
+        post: operations["mfa_verify"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/mfa/webauthn/begin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/auth/mfa/webauthn/begin — assertion request for the pending
+         *     MFA login. Requires a valid mfa_pending token.
+         */
+        post: operations["mfa_webauthn_login_begin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/mfa/webauthn/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/auth/mfa/webauthn/credentials — list registered passkeys. */
+        get: operations["mfa_webauthn_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/mfa/webauthn/credentials/{id}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/auth/mfa/webauthn/credentials/{id}/remove — password-gated
+         *     removal of one passkey.
+         */
+        post: operations["mfa_webauthn_remove"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/mfa/webauthn/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/auth/mfa/webauthn/finish — verifies the assertion and issues
+         *     full tokens. Ceremony state is single-use; replay of a finish call fails.
+         */
+        post: operations["mfa_webauthn_login_finish"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/mfa/webauthn/register/begin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/auth/mfa/webauthn/register/begin — starts a passkey
+         *     registration for the authenticated user.
+         */
+        post: operations["mfa_webauthn_register_begin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/mfa/webauthn/register/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/auth/mfa/webauthn/register/finish — verifies the attestation
+         *     and stores the passkey. The public key is stored; no secret exists.
+         */
+        post: operations["mfa_webauthn_register_finish"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oidc/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/auth/oidc/providers — admin listing. Secrets excluded by type. */
+        get: operations["oidc_providers_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oidc/providers/public": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/auth/oidc/providers/public — drives config-driven SSO buttons
+         *     on the login screen. No configuration detail beyond names.
+         */
+        get: operations["oidc_providers_public"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oidc/providers/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * PUT /api/auth/oidc/providers/{name} — create or replace a provider.
+         *     The client secret is required on every write (rotate-friendly).
+         */
+        put: operations["oidc_provider_upsert"];
+        post?: never;
+        /** DELETE /api/auth/oidc/providers/{name}. */
+        delete: operations["oidc_provider_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oidc/{name}/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/auth/oidc/{name}/callback — validates state signature/expiry/
+         *     provider binding and nonce echo, runs the conservative decision, then
+         *     hands tokens (or link confirmation) to the web app via a single-use code.
+         */
+        get: operations["oidc_callback"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oidc/{name}/link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/auth/oidc/{name}/link — begins the EXPLICIT account-link flow
+         *     for the current user. Returns the authorize URL to navigate to.
+         */
+        post: operations["oidc_link_begin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oidc/{name}/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/auth/oidc/{name}/login — 303 to the IdP with signed state,
+         *     nonce, and PKCE S256 bound together.
+         */
+        get: operations["oidc_login_redirect"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -63,8 +405,9 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * POST /api/auth/refresh — rotates the refresh token (old one dies with the
-         *     transaction; replay of a rotated token fails).
+         * POST /api/auth/refresh — rotates the refresh secret as a NEW chain node.
+         *     Presenting an already-consumed (rotated/revoked/expired) token proves
+         *     replay: the WHOLE chain is revoked and the event is audited.
          */
         post: operations["handlers_refresh"];
         delete?: never;
@@ -88,6 +431,46 @@ export interface paths {
          *     can never exist.
          */
         post: operations["handlers_register"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/auth/sessions — the caller's live refresh sessions (security
+         *     settings page).
+         */
+        get: operations["auth_sessions_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/sessions/{id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/auth/sessions/{id}/revoke — kills one of the caller's own
+         *     sessions (sign-out-everywhere-else primitive).
+         */
+        post: operations["auth_session_revoke"];
         delete?: never;
         options?: never;
         head?: never;
@@ -141,56 +524,9 @@ export interface paths {
         put?: never;
         /**
          * POST /api/boards/{id}/statuses — adds a custom status bound to a
-         *     semantic category; emits `board.status_added`.
+         *     semantic category.
          */
         post: operations["boards_add_status"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/boards/{id}/statuses/{status_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * DELETE /api/boards/{id}/statuses/{status_id} — removes an UNUSED custom
-         *     status. Tickets referencing it force a 409; the last entry status of a
-         *     board is protected so ticket creation can never break.
-         */
-        delete: operations["boards_delete_status"];
-        options?: never;
-        head?: never;
-        /**
-         * PATCH /api/boards/{id}/statuses/{status_id} — rebinds/reorders/renames a
-         *     status; emits `board.status_updated`.
-         */
-        patch: operations["boards_update_status"];
-        trace?: never;
-    };
-    "/api/boards/{id}/transitions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/boards/{id}/transitions — the board's effective workflow. */
-        get: operations["boards_list_transitions"];
-        /**
-         * PUT /api/boards/{id}/transitions — atomically replaces the explicit
-         *     transition matrix; emits `board.transitions_updated`. Endpoints must be
-         *     statuses of THIS board and self-transitions are rejected.
-         */
-        put: operations["boards_set_transitions"];
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -303,32 +639,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/notification-preferences": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * GET /api/notification-preferences — the caller's effective preference
-         *     for every kind (defaults-first resolution applied).
-         */
-        get: operations["notification_prefs_get"];
-        /**
-         * PUT /api/notification-preferences — upserts the caller's override row
-         *     for one kind and emits `notification_prefs.updated`. Quiet hours
-         *     validate as a paired `HH:MM` window in a real IANA timezone;
-         *     validation errors return 422.
-         */
-        put: operations["notification_prefs_update"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/notifications": {
         parameters: {
             query?: never;
@@ -336,50 +646,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * GET /api/notifications — the caller's notifications, newest first,
-         *     keyset-paginated.
-         */
+        /** GET /api/notifications — the caller's notifications, newest first. */
         get: operations["notifications_list"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/notifications/mark-read": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * POST /api/notifications/mark-read — bulk variant; unknown and
-         *     already-read ids are skipped (idempotent).
-         */
-        post: operations["notifications_mark_read_bulk"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/notifications/read-all": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** POST /api/notifications/read-all — empties the unread badge. */
-        post: operations["notifications_mark_all_read"];
         delete?: never;
         options?: never;
         head?: never;
@@ -412,11 +682,28 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * POST /api/notifications/{id}/read — marks one notification read and
-         *     emits `notification.read` for cross-session badge sync.
-         */
+        /** POST /api/notifications/{id}/read */
         post: operations["notifications_mark_read"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sso/exchange": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/auth/sso/exchange — swaps the single-use callback code for
+         *     tokens (or a link confirmation). Codes die on first use or after 60s.
+         */
+        post: operations["sso_exchange"];
         delete?: never;
         options?: never;
         head?: never;
@@ -765,6 +1052,11 @@ export interface components {
             /** Format: uuid */
             org_id: string;
         };
+        AuditPage: {
+            events: components["schemas"]["AuditEvent"][];
+            /** @description Opaque cursor for the next page; absent when exhausted. */
+            next_cursor?: string | null;
+        };
         Board: {
             /**
              * Format: date-time
@@ -797,18 +1089,6 @@ export interface components {
             org_id: string;
             /** Format: int32 */
             sort_order: number;
-        };
-        /**
-         * @description GET response for a board's workflow: either its explicit matrix or the
-         *     marker that the semantic-category floor governs.
-         */
-        BoardTransitionsResponse: {
-            edges: components["schemas"]["TransitionEdge"][];
-            /**
-             * @description `"explicit"` when the listed edges are authoritative; `"floor"` when
-             *     the semantic-category default governs (any→any except closed→open).
-             */
-            mode: string;
         };
         ChangeStatusRequest: {
             /** Format: uuid */
@@ -967,6 +1247,9 @@ export interface components {
         HealthResponse: {
             status: string;
         };
+        LinkBeginResponse: {
+            authorize_url: string;
+        };
         ListEntriesQuery: {
             /** Format: int64 */
             limit?: number;
@@ -981,15 +1264,16 @@ export interface components {
             email: string;
             password: string;
         };
-        MarkReadBulkRequest: {
-            ids: string[];
-        };
-        MarkReadResult: {
-            /**
-             * Format: int64
-             * @description Rows flipped from unread to read (idempotent under retry).
-             */
-            marked: number;
+        /**
+         * @description Login outcome: tokens directly, or a short-lived MFA bridge token when
+         *     any second factor is enrolled. Untagged so legacy clients that ignore
+         *     `mfa_required` keep parsing the plain token pair they always got.
+         */
+        LoginResponse: components["schemas"]["TokenPair"] | {
+            /** @description Second factors able to satisfy this login. */
+            methods: string[];
+            mfa_required: boolean;
+            mfa_token: string;
         };
         MeResponse: {
             display_name: string;
@@ -1000,6 +1284,15 @@ export interface components {
             timezone: string;
             /** Format: uuid */
             user_id: string;
+        };
+        MfaTokenRequest: {
+            mfa_token: string;
+        };
+        MfaVerifyRequest: {
+            /** @description TOTP code or recovery code. */
+            code: string;
+            /** @description The `mfa_token` from POST /api/auth/login when mfa_required was set. */
+            mfa_token: string;
         };
         /**
          * @description Taxonomy of structured ticket notes (§1).
@@ -1025,11 +1318,17 @@ export interface components {
         };
         /** @enum {string} */
         NotificationKind: "mention" | "assignment" | "sla_risk" | "sla_breach" | "escalation" | "missing_time" | "ticket_update";
-        /** @description One page of the inbox plus the cursor to continue with. */
-        NotificationPage: {
-            items: components["schemas"]["Notification"][];
-            /** @description Pass as `cursor` on the next request; `None` means exhausted. */
-            next_cursor?: string | null;
+        OidcProviderInfo: {
+            client_id: string;
+            discovery_url: string;
+            display_name: string;
+            enabled: boolean;
+            /** Format: uuid */
+            id: string;
+            issuer: string;
+            jit_provisioning: boolean;
+            /** @description URL path segment used by login/link routes. */
+            name: string;
         };
         PatchTicketRequest: {
             /**
@@ -1059,24 +1358,19 @@ export interface components {
             session_id?: string | null;
         };
         /**
-         * @description One resolved preference row: which chain link supplied it (`user`,
-         *     `org_default`, or `builtin`), the channel toggles, and the quiet-hours
-         *     window with its timezone.
-         */
-        PreferenceView: {
-            email: boolean;
-            in_app: boolean;
-            kind: components["schemas"]["NotificationKind"];
-            quiet_from?: string | null;
-            quiet_until?: string | null;
-            source: string;
-            timezone: string;
-        };
-        /**
          * @description Industry-standard four-tier priority.
          * @enum {string}
          */
         Priority: "p1" | "p2" | "p3" | "p4";
+        PublicProvider: {
+            display_name: string;
+            /** @description URL path segment for /api/auth/oidc/{name}/login. */
+            name: string;
+        };
+        RecoveryCodesResponse: {
+            /** @description Plaintext codes — displayed once, stored only as argon2id hashes. */
+            recovery_codes: string[];
+        };
         RefreshRequest: {
             refresh_token: string;
             /**
@@ -1084,6 +1378,10 @@ export interface components {
              * @description Session id returned alongside the refresh token.
              */
             session_id: string;
+        };
+        RegenerateRecoveryRequest: {
+            code: string;
+            password: string;
         };
         RegisterRequest: {
             display_name: string;
@@ -1104,15 +1402,20 @@ export interface components {
          * @enum {string}
          */
         SegmentEnd: "stopped" | "paused" | "switched";
+        SessionInfo: {
+            chain_root: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** @description True for the session making the request. */
+            current: boolean;
+            /** Format: date-time */
+            expires_at: string;
+            /** Format: uuid */
+            id: string;
+            user_agent?: string | null;
+        };
         SetChecklistItemRequest: {
             checked: boolean;
-        };
-        SetTransitionsRequest: {
-            /**
-             * @description The complete allowed matrix. Empty list returns the board to
-             *     floor-mode governance.
-             */
-            edges: components["schemas"]["TransitionEdge"][];
         };
         Site: {
             address?: string | null;
@@ -1137,6 +1440,13 @@ export interface components {
             postal_code?: string | null;
             region?: string | null;
             timezone?: string | null;
+        };
+        SsoExchangeRequest: {
+            /** Format: uuid */
+            code: string;
+        };
+        SsoExchangeResponse: components["schemas"]["TokenPair"] | {
+            linked: boolean;
         };
         StartTimerRequest: {
             /** Format: uuid */
@@ -1339,37 +1649,64 @@ export interface components {
             /** Format: uuid */
             session_id: string;
         };
-        /**
-         * @description One directed edge in a board's explicit transition matrix. Both ids must
-         *     belong to statuses of the SAME board (enforced here, and by composite FKs
-         *     in storage).
-         */
-        TransitionEdge: {
-            /** Format: uuid */
-            from_status_id: string;
-            /** Format: uuid */
-            to_status_id: string;
+        TotpDisableRequest: {
+            /** @description Current TOTP code or a recovery code. */
+            code: string;
+            password: string;
+        };
+        TotpEnrollBeginResponse: {
+            /** @description Standard otpauth:// URI (renderable as QR by clients). */
+            otpauth_url: string;
+            /** @description Base32 secret for manual authenticator entry. Shown exactly once. */
+            secret_base32: string;
+        };
+        TotpEnrollVerifyRequest: {
+            code: string;
         };
         UnreadCount: {
             /** Format: int64 */
             count: number;
         };
-        UpdatePreferenceRequest: {
-            email: boolean;
-            in_app: boolean;
-            kind: components["schemas"]["NotificationKind"];
-            /** @description `HH:MM` pair; both bounds together or neither. */
-            quiet_from?: string | null;
-            quiet_until?: string | null;
-            /** @description IANA timezone for the window; defaults to UTC. */
-            timezone?: string | null;
+        UpsertProviderRequest: {
+            client_id: string;
+            /** @description Write-only: stored encrypted at rest, never returned. */
+            client_secret: string;
+            /** @description Typically `{issuer}/.well-known/openid-configuration`. */
+            discovery_url: string;
+            display_name: string;
+            enabled?: boolean;
+            issuer: string;
+            jit_provisioning?: boolean;
         };
-        UpdateStatusRequest: {
-            category?: null | components["schemas"]["TicketStatusCategory"];
-            is_entry?: boolean | null;
-            name?: string | null;
-            /** Format: int32 */
-            sort_order?: number | null;
+        WebauthnBeginResponse: {
+            /** @description Opaque ceremony binding — pass back to finish. */
+            challenge_token: string;
+            /** @description CreationOptions for navigator.credentials.create()/get(). */
+            public_key: Record<string, never>;
+        };
+        WebauthnCredentialInfo: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            label: string;
+            /** Format: date-time */
+            last_used_at?: string | null;
+        };
+        WebauthnLoginFinishRequest: {
+            challenge_token: string;
+            /** @description The PublicKeyCredential from navigator.credentials.get(). */
+            credential: Record<string, never>;
+        };
+        WebauthnRegisterFinishRequest: {
+            challenge_token: string;
+            /** @description The PublicKeyCredential from navigator.credentials.create(). */
+            credential: Record<string, never>;
+            /** @description Label shown on the security settings page. */
+            label?: string | null;
+        };
+        WebauthnRemoveRequest: {
+            password: string;
         };
     };
     responses: never;
@@ -1383,7 +1720,18 @@ export interface operations {
     audit_list: {
         parameters: {
             query?: {
+                /** @description Legacy cursor (kept for compatibility): strictly older than this. */
                 before?: string | null;
+                /** @description Keyset cursor from a previous page's `next_cursor`. */
+                cursor?: string | null;
+                /** @description Actor filter: user uuid or "system". */
+                actor?: string | null;
+                /** @description Action prefix filter, e.g. "auth" matches every auth.* event. */
+                action?: string | null;
+                /** @description Inclusive lower bound on occurred_at. */
+                from?: string | null;
+                /** @description Inclusive upper bound on occurred_at. */
+                to?: string | null;
                 limit?: number;
             };
             header?: never;
@@ -1397,7 +1745,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AuditEvent"][];
+                    "application/json": components["schemas"]["AuditPage"];
                 };
             };
         };
@@ -1420,7 +1768,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TokenPair"];
+                    "application/json": components["schemas"]["LoginResponse"];
                 };
             };
             /** @description bad credentials */
@@ -1446,6 +1794,458 @@ export interface operations {
         };
         responses: {
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    mfa_recovery_regenerate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegenerateRecoveryRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecoveryCodesResponse"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    mfa_totp_disable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TotpDisableRequest"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    mfa_totp_enroll_begin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TotpEnrollBeginResponse"];
+                };
+            };
+        };
+    };
+    mfa_totp_enroll_verify: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TotpEnrollVerifyRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecoveryCodesResponse"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    mfa_verify: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MfaVerifyRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenPair"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    mfa_webauthn_login_begin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MfaTokenRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebauthnBeginResponse"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    mfa_webauthn_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebauthnCredentialInfo"][];
+                };
+            };
+        };
+    };
+    mfa_webauthn_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WebauthnRemoveRequest"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    mfa_webauthn_login_finish: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WebauthnLoginFinishRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenPair"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    mfa_webauthn_register_begin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebauthnBeginResponse"];
+                };
+            };
+        };
+    };
+    mfa_webauthn_register_finish: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WebauthnRegisterFinishRequest"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    oidc_providers_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OidcProviderInfo"][];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    oidc_providers_public: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicProvider"][];
+                };
+            };
+        };
+    };
+    oidc_provider_upsert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertProviderRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OidcProviderInfo"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    oidc_provider_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    oidc_callback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description redirect to web app */
+            303: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    oidc_link_begin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkBeginResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    oidc_login_redirect: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description redirect to provider */
+            303: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1506,6 +2306,44 @@ export interface operations {
             };
             /** @description validation error */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    auth_sessions_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionInfo"][];
+                };
+            };
+        };
+    };
+    auth_session_revoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1618,98 +2456,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BoardStatus"];
-                };
-            };
-        };
-    };
-    boards_delete_status: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-                status_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    boards_update_status: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-                status_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateStatusRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BoardStatus"];
-                };
-            };
-        };
-    };
-    boards_list_transitions: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BoardTransitionsResponse"];
-                };
-            };
-        };
-    };
-    boards_set_transitions: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SetTransitionsRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BoardTransitionsResponse"];
                 };
             };
         };
@@ -1934,62 +2680,11 @@ export interface operations {
             };
         };
     };
-    notification_prefs_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PreferenceView"][];
-                };
-            };
-        };
-    };
-    notification_prefs_update: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdatePreferenceRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PreferenceView"];
-                };
-            };
-            /** @description invalid quiet-hours window or timezone */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
     notifications_list: {
         parameters: {
             query?: {
                 unread_only?: boolean;
                 limit?: number;
-                /** @description Opaque keyset cursor from a previous page's `next_cursor`. */
-                cursor?: string | null;
             };
             header?: never;
             path?: never;
@@ -2002,56 +2697,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["NotificationPage"];
-                };
-            };
-        };
-    };
-    notifications_mark_read_bulk: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["MarkReadBulkRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MarkReadResult"];
-                };
-            };
-            /** @description empty or oversized id list */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    notifications_mark_all_read: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MarkReadResult"];
+                    "application/json": components["schemas"]["Notification"][];
                 };
             };
         };
@@ -2087,6 +2733,35 @@ export interface operations {
         requestBody?: never;
         responses: {
             204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    sso_exchange: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SsoExchangeRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SsoExchangeResponse"];
+                };
+            };
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

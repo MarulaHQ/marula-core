@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM mfa_challenges\n           WHERE id = $1 AND kind = 'sso_code' AND expires_at > now()\n           RETURNING state",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "state",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "857e73136fc82a9e9a3142323ac44488846f2c68ffe315bb0d6ee1b8c77386ea"
+}

@@ -5,16 +5,18 @@ pub mod audit;
 pub mod boards;
 pub mod clients;
 pub mod notifications;
+pub mod oidc;
 pub mod openapi;
 pub mod tickets;
 pub mod timers;
 
 use crate::auth::handlers as auth_handlers;
+use crate::auth::mfa_handlers as mfa;
 use crate::auth::middleware::require_auth;
 use crate::state::AppState;
 use axum::{
     middleware,
-    routing::{get, post},
+    routing::{get, post, put},
     Router,
 };
 
@@ -24,10 +26,72 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/auth/register", post(auth_handlers::register))
         .route("/api/auth/login", post(auth_handlers::login))
         .route("/api/auth/refresh", post(auth_handlers::refresh))
-        .route("/api/auth/logout", post(auth_handlers::logout));
+        .route("/api/auth/logout", post(auth_handlers::logout))
+        // MFA completion of a password login.
+        .route("/api/auth/mfa/verify", post(mfa::mfa_verify))
+        .route(
+            "/api/auth/mfa/webauthn/begin",
+            post(mfa::webauthn_login_begin),
+        )
+        .route(
+            "/api/auth/mfa/webauthn/finish",
+            post(mfa::webauthn_login_finish),
+        )
+        // OIDC SSO (config-driven; no providers configured ⇒ 404s).
+        .route(
+            "/api/auth/oidc/providers/public",
+            get(oidc::providers_public),
+        )
+        .route("/api/auth/oidc/{name}/login", get(oidc::login_redirect))
+        .route("/api/auth/oidc/{name}/callback", get(oidc::callback))
+        .route("/api/sso/exchange", post(oidc::sso_exchange));
 
     let protected = Router::new()
         .route("/api/me", get(auth_handlers::me))
+        // session management (security settings)
+        .route("/api/auth/sessions", get(auth_handlers::list_sessions))
+        .route(
+            "/api/auth/sessions/{id}/revoke",
+            post(auth_handlers::revoke_session),
+        )
+        // TOTP enrollment + recovery codes
+        .route(
+            "/api/auth/mfa/totp/enroll-begin",
+            post(mfa::totp_enroll_begin),
+        )
+        .route(
+            "/api/auth/mfa/totp/enroll-verify",
+            post(mfa::totp_enroll_verify),
+        )
+        .route("/api/auth/mfa/totp/disable", post(mfa::totp_disable))
+        .route(
+            "/api/auth/mfa/recovery-codes/regenerate",
+            post(mfa::regenerate_recovery_codes),
+        )
+        // WebAuthn credential management
+        .route(
+            "/api/auth/mfa/webauthn/register/begin",
+            post(mfa::webauthn_register_begin),
+        )
+        .route(
+            "/api/auth/mfa/webauthn/register/finish",
+            post(mfa::webauthn_register_finish),
+        )
+        .route(
+            "/api/auth/mfa/webauthn/credentials",
+            get(mfa::webauthn_credentials_list),
+        )
+        .route(
+            "/api/auth/mfa/webauthn/credentials/{id}/remove",
+            post(mfa::webauthn_credential_remove),
+        )
+        // OIDC provider admin + explicit linking
+        .route("/api/auth/oidc/providers", get(oidc::providers_list))
+        .route(
+            "/api/auth/oidc/providers/{name}",
+            put(oidc::providers_upsert).delete(oidc::providers_delete),
+        )
+        .route("/api/auth/oidc/{name}/link", post(oidc::link_begin))
         // clients
         .route("/api/clients", get(clients::list).post(clients::create))
         .route("/api/clients/{id}", get(clients::get_one))

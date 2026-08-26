@@ -1,5 +1,9 @@
 //! Users, credentials, sessions, and role assignment.
 //!
+//! Refresh sessions form immutable chains (`chain_id` + `rotated_from`):
+//! rotation revokes the parent and inserts a child, which is what makes
+//! replay of an old refresh token detectable and chain-revocable.
+//!
 //! All functions are generic over `Executor`, so callers may run them
 //! against the pool (autocommit) or inside an explicit transaction. RLS
 //! applies either way: the executor's transaction must carry `app.org_id`.
@@ -182,6 +186,45 @@ pub fn parse_builtin(s: Option<&str>) -> Option<core_domain::policy::BuiltinRole
 }
 
 // --- refresh sessions -------------------------------------------------------
+//
+// Sessions form immutable CHAINS: rotation never mutates a presented row,
+// it revokes the parent and inserts a child (`rotated_from`), so every
+// refresh token maps to exactly one historical row. Presenting any
+// non-active row therefore proves reuse and revokes the whole chain.
+
+/// Chain-aware session row (superset of [`AuthSession`]).
+#[derive(Debug, Clone)]
+pub struct RefreshSession {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub refresh_token_hash: String,
+    pub user_agent: Option<String>,
+    /// Chain root — constant across all rotations of one login lineage.
+    pub chain_id: Uuid,
+    /// Parent session this row was rotated from (None for chain roots).
+    pub rotated_from: Option<Uuid>,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+const REFRESH_COLS: &str = "id, user_id, refresh_token_hash, user_agent, chain_id, rotated_from, \
+     expires_at, created_at, revoked_at";
+
+fn refresh_from_row(row: sqlx::postgres::PgRow) -> DbResult<RefreshSession> {
+    use sqlx::Row;
+    Ok(RefreshSession {
+        id: row.get("id"),
+        user_id: row.get("user_id"),
+        refresh_token_hash: row.get("refresh_token_hash"),
+        user_agent: row.get("user_agent"),
+        chain_id: row.get("chain_id"),
+        rotated_from: row.get("rotated_from"),
+        expires_at: row.get("expires_at"),
+        created_at: row.get("created_at"),
+        revoked_at: row.get("revoked_at"),
+    })
+}
 
 pub async fn create_session<'e, E>(
     executor: E,
@@ -195,8 +238,8 @@ where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
     let row = sqlx::query!(
-        r#"INSERT INTO auth_sessions (id, user_id, refresh_token_hash, user_agent, expires_at)
-           VALUES ($1, $2, $3, $4, $5)
+        r#"INSERT INTO auth_sessions (id, user_id, refresh_token_hash, user_agent, chain_id, expires_at)
+           VALUES ($1, $2, $3, $4, $1, $5)
            RETURNING id, user_id, refresh_token_hash, user_agent, expires_at, created_at, revoked_at"#,
         id,
         user_id,
@@ -218,8 +261,8 @@ where
 }
 
 /// Validates a presented refresh token against its stored hash. Callers
-/// WITHOUT org scope must use `app_resolve_session` (SECURITY DEFINER)
-/// first; this function runs under RLS.
+/// WITHOUT org scope must use `resolve_refresh` (SECURITY DEFINER) first;
+/// this function runs under RLS.
 pub async fn find_active_session<'e, E>(
     executor: E,
     session_id: Uuid,
@@ -250,10 +293,36 @@ where
     })
 }
 
-/// Rotates the refresh secret for a session (refresh-token rotation).
-pub async fn rotate_session<'e, E>(
+/// Any session row matching (id, hash) regardless of revocation/expiry —
+/// the lookup reuse detection needs to classify a presented token.
+pub async fn find_session_any<'e, E>(
     executor: E,
     session_id: Uuid,
+    refresh_hash: &str,
+) -> DbResult<RefreshSession>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let sql = format!(
+        "SELECT {REFRESH_COLS} FROM auth_sessions WHERE id = $1 AND refresh_token_hash = $2"
+    );
+    let row = sqlx::query(&sql)
+        .bind(session_id)
+        .bind(refresh_hash)
+        .fetch_optional(executor)
+        .await?
+        .ok_or(DbError::NotFound)?;
+    refresh_from_row(row)
+}
+
+/// Rotates to a NEW chain node atomically: the parent is revoked (guarded:
+/// only when still active — concurrent replays lose the race and fall
+/// through to reuse handling) and the child carrying the fresh secret is
+/// inserted in the same statement.
+pub async fn rotate_session_chain<'e, E>(
+    executor: E,
+    parent: &RefreshSession,
+    new_id: Uuid,
     new_hash: &str,
     new_expiry: chrono::DateTime<chrono::Utc>,
 ) -> DbResult<()>
@@ -261,14 +330,85 @@ where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
     sqlx::query!(
-        r#"UPDATE auth_sessions SET refresh_token_hash = $2, expires_at = $3 WHERE id = $1"#,
-        session_id,
+        r#"WITH retired AS (
+               UPDATE auth_sessions SET revoked_at = now()
+               WHERE id = $1 AND revoked_at IS NULL
+           )
+           INSERT INTO auth_sessions (id, user_id, refresh_token_hash, user_agent,
+                                      chain_id, rotated_from, expires_at)
+           VALUES ($2, $3, $4, $5, $6, $1, $7)"#,
+        parent.id,
+        new_id,
+        parent.user_id,
         new_hash,
+        parent.user_agent,
+        parent.chain_id,
         new_expiry
     )
     .execute(executor)
     .await?;
     Ok(())
+}
+
+/// Revokes every still-live session in a chain (reuse-detection response).
+/// Returns how many rows died.
+pub async fn revoke_chain<'e, E>(executor: E, chain_id: Uuid) -> DbResult<u64>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let result = sqlx::query!(
+        r#"UPDATE auth_sessions SET revoked_at = now()
+           WHERE chain_id = $1 AND revoked_at IS NULL"#,
+        chain_id
+    )
+    .execute(executor)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+/// Lists a user's live sessions, newest first (security settings page).
+pub async fn list_user_sessions<'e, E>(executor: E, user_id: Uuid) -> DbResult<Vec<RefreshSession>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let sql = format!(
+        "SELECT {REFRESH_COLS} FROM auth_sessions \
+         WHERE user_id = $1 AND revoked_at IS NULL ORDER BY created_at DESC"
+    );
+    let rows = sqlx::query(&sql).bind(user_id).fetch_all(executor).await?;
+    rows.into_iter().map(refresh_from_row).collect()
+}
+
+/// Resolves a presented refresh token via the SECURITY DEFINER bridge —
+/// the only sanctioned pre-org-scope lookup. Returns None for unknown
+/// (id, hash) pairs; Some with `active=false` marks reuse of a rotated,
+/// revoked, or expired token.
+pub struct RefreshResolution {
+    pub user_id: Uuid,
+    pub org_id: Uuid,
+    pub chain_id: Uuid,
+    pub active: bool,
+}
+
+pub async fn resolve_refresh(
+    pool: &PgPool,
+    session_id: Uuid,
+    token_hash: &str,
+) -> DbResult<Option<RefreshResolution>> {
+    let row: Option<(Uuid, Uuid, Uuid, bool)> =
+        sqlx::query_as("SELECT user_id, org_id, chain_id, active FROM app_resolve_refresh($1, $2)")
+            .bind(session_id)
+            .bind(token_hash)
+            .fetch_optional(pool)
+            .await?;
+    Ok(
+        row.map(|(user_id, org_id, chain_id, active)| RefreshResolution {
+            user_id,
+            org_id,
+            chain_id,
+            active,
+        }),
+    )
 }
 
 pub async fn revoke_session<'e, E>(executor: E, session_id: Uuid) -> DbResult<()>
@@ -282,21 +422,6 @@ where
     .execute(executor)
     .await?;
     Ok(())
-}
-
-/// Resolves (user_id, org_id) via the SECURITY DEFINER bridge — the only
-/// sanctioned way to find a session before org scope is known.
-pub async fn resolve_session_org(
-    pool: &PgPool,
-    session_id: Uuid,
-    token_hash: &str,
-) -> DbResult<(Uuid, Uuid)> {
-    sqlx::query_as("SELECT user_id, org_id FROM app_resolve_session($1, $2)")
-        .bind(session_id)
-        .bind(token_hash)
-        .fetch_optional(pool)
-        .await?
-        .ok_or(DbError::NotFound)
 }
 
 /// Resolves (user_id, org_id) by email via the SECURITY DEFINER bridge.

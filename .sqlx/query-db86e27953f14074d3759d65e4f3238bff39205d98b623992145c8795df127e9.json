@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE totp_secrets SET confirmed = true, last_used_step = $2, updated_at = now()\n               WHERE user_id = $1 AND confirmed = false",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "db86e27953f14074d3759d65e4f3238bff39205d98b623992145c8795df127e9"
+}

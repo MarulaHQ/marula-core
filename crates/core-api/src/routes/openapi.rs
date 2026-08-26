@@ -63,6 +63,27 @@ use utoipa::OpenApi;
         crate::routes::notifications::prefs_get,
         crate::routes::notifications::prefs_update,
         crate::routes::audit::list,
+        crate::auth::handlers::list_sessions,
+        crate::auth::handlers::revoke_session,
+        crate::auth::mfa_handlers::totp_enroll_begin,
+        crate::auth::mfa_handlers::totp_enroll_verify,
+        crate::auth::mfa_handlers::totp_disable,
+        crate::auth::mfa_handlers::regenerate_recovery_codes,
+        crate::auth::mfa_handlers::mfa_verify,
+        crate::auth::mfa_handlers::webauthn_register_begin,
+        crate::auth::mfa_handlers::webauthn_register_finish,
+        crate::auth::mfa_handlers::webauthn_credentials_list,
+        crate::auth::mfa_handlers::webauthn_credential_remove,
+        crate::auth::mfa_handlers::webauthn_login_begin,
+        crate::auth::mfa_handlers::webauthn_login_finish,
+        crate::routes::oidc::providers_list,
+        crate::routes::oidc::providers_upsert,
+        crate::routes::oidc::providers_delete,
+        crate::routes::oidc::providers_public,
+        crate::routes::oidc::login_redirect,
+        crate::routes::oidc::callback,
+        crate::routes::oidc::link_begin,
+        crate::routes::oidc::sso_exchange,
     ),
     components(schemas(
         crate::auth::handlers::RegisterRequest,
@@ -120,6 +141,24 @@ use utoipa::OpenApi;
         core_domain::status::Priority,
         core_domain::status::NoteKind,
         core_domain::workflow::TransitionEdge,
+        crate::auth::handlers::LoginResponse,
+        crate::auth::handlers::SessionInfo,
+        crate::auth::mfa_handlers::TotpEnrollBeginResponse,
+        crate::auth::mfa_handlers::RecoveryCodesResponse,
+        crate::auth::mfa_handlers::TotpEnrollVerifyRequest,
+        crate::auth::mfa_handlers::TotpDisableRequest,
+        crate::auth::mfa_handlers::RegenerateRecoveryRequest,
+        crate::auth::mfa_handlers::MfaVerifyRequest,
+        crate::auth::mfa_handlers::MfaTokenRequest,
+        crate::auth::mfa_handlers::WebauthnBeginResponse,
+        crate::auth::mfa_handlers::WebauthnCredentialInfo,
+        crate::routes::oidc::OidcProviderInfo,
+        crate::routes::oidc::UpsertProviderRequest,
+        crate::routes::oidc::PublicProvider,
+        crate::routes::oidc::LinkBeginResponse,
+        crate::routes::oidc::SsoExchangeRequest,
+        crate::routes::oidc::SsoExchangeResponse,
+        crate::routes::audit::AuditPage,
     ),
     ),
     tags(
@@ -129,7 +168,7 @@ use utoipa::OpenApi;
         (name = "tickets", description = "Ticketing: lifecycle, notes, checklists"),
         (name = "timers", description = "Single-active-timer workflow + time entries"),
         (name = "notifications", description = "Notification center"),
-        (name = "audit", description = "Append-only audit log (admin)"),
+        (name = "audit", description = "Append-only audit log with filters + cursor pagination (admin)"),
     )
 )]
 pub struct ApiDoc;
@@ -175,7 +214,7 @@ async fn scalar_handler() -> axum::response::Html<String> {
 }
 
 /// Token pair returned by all auth flows.
-#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct TokenPair {
     pub access_token: String,
     pub refresh_token: String,

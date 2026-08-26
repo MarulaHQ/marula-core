@@ -10,4 +10,6 @@ use std::sync::Arc;
 pub struct AppState {
     pub pool: PgPool,
     pub config: Arc<crate::config::Config>,
+    /// Stateless OIDC protocol client (discovery/exchange/JWKS).
+    pub oidc: crate::auth::oidc_client::OidcHttpClient,
 }

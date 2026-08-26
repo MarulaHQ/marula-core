@@ -1,14 +1,23 @@
-// /login — email+password sign-in and first-run org registration.
+// /login — email+password sign-in, MFA hand-off, SSO entry, and first-run
+// org registration.
 //
 // Purpose: segmented form (Sign in / Create org) against the public auth
-// endpoints via @meridian/sdk; stores tokens and routes to /today.
-// Non-purpose: no SSO, no MFA enrollment UI yet.
+// endpoints via @meridian/sdk; routes MFA-gated logins to /mfa; renders
+// config-driven SSO buttons from the enabled OIDC providers.
+// Non-purpose: no enrollment/management UI here (see /settings/security).
 "use client";
 
 import { Button, Card, FieldHint, Input, Label } from "@meridian/ui";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, saveTokens, useAuth } from "../../lib/api";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+
+interface PublicProvider {
+  name: string;
+  display_name: string;
+}
 
 type Mode = "signin" | "register";
 
@@ -29,6 +38,21 @@ export default function LoginPage() {
   const [orgName, setOrgName] = useState("");
   const [orgSlug, setOrgSlug] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [providers, setProviders] = useState<PublicProvider[]>([]);
+
+  // Config-driven SSO: only providers an operator enabled appear here.
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_BASE}/api/auth/oidc/providers/public`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((list: PublicProvider[]) => {
+        if (!cancelled) setProviders(list);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (status === "authed") {
     router.replace("/today");
@@ -40,7 +64,16 @@ export default function LoginPage() {
     setError(null);
     try {
       if (mode === "signin") {
-        saveTokens(await api.login({ email, password }));
+        const result = await api.login({ email, password });
+        if ("mfa_required" in result) {
+          window.sessionStorage.setItem(
+            "meridian-mfa-pending",
+            JSON.stringify({ mfa_token: result.mfa_token, methods: result.methods }),
+          );
+          window.location.assign("/mfa");
+          return;
+        }
+        saveTokens(result);
       } else {
         saveTokens(
           await api.register({
@@ -59,6 +92,10 @@ export default function LoginPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function ssoHref(provider: string): string {
+    return `${API_BASE}/api/auth/oidc/${provider}/login`;
   }
 
   return (
@@ -154,6 +191,27 @@ export default function LoginPage() {
             {busy ? "Working…" : mode === "signin" ? "Sign in" : "Create organization"}
           </Button>
         </form>
+        {mode === "signin" && providers.length > 0 && (
+          <>
+            <div
+              className="my-4 flex items-center gap-2 text-xs"
+              style={{ color: "var(--m-text-secondary)" }}
+            >
+              <span className="h-px flex-1" style={{ background: "var(--m-border)" }} />
+              or continue with
+              <span className="h-px flex-1" style={{ background: "var(--m-border)" }} />
+            </div>
+            <div className="grid gap-2">
+              {providers.map((p) => (
+                <a key={p.name} href={ssoHref(p.name)} className="block">
+                  <Button type="button" variant="secondary" className="w-full">
+                    {p.display_name}
+                  </Button>
+                </a>
+              ))}
+            </div>
+          </>
+        )}
       </Card>
     </main>
   );

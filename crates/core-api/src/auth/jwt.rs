@@ -4,7 +4,19 @@
 use super::AccessClaims;
 use crate::config::Config;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+/// Claims of a purpose-scoped short-lived token (`typ` discriminates).
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ScopedClaims {
+    pub typ: String,
+    pub sub: Uuid,
+    pub org: Uuid,
+    /// Purpose binding: challenge row id (empty for mfa_pending).
+    pub jti: String,
+    pub exp: i64,
+}
 
 pub fn issue_access_token(
     config: &Config,
@@ -54,6 +66,89 @@ pub fn hash_refresh_token(token: &str) -> String {
     hex::encode(digest)
 }
 
+// --- short-lived purpose-scoped tokens -------------------------------------
+//
+// The MFA bridge (`mfa_pending`) and WebAuthn login challenges are carried
+// in signed, tightly-scoped JWTs: they prove "password succeeded for this
+// user" / "this challenge was issued by us" but grant NO API access.
+
+fn encode_scoped(
+    config: &Config,
+    claims: &ScopedClaims,
+) -> Result<String, jsonwebtoken::errors::Error> {
+    encode(
+        &Header::default(),
+        claims,
+        &EncodingKey::from_secret(config.jwt_secret.as_bytes()),
+    )
+}
+
+fn decode_scoped(config: &Config, token: &str, typ: &str) -> Option<ScopedClaims> {
+    let mut validation = Validation::default();
+    validation.validate_exp = true;
+    // Bridge tokens must die exactly at exp — no default leeway.
+    validation.leeway = 0;
+    decode::<ScopedClaims>(
+        token,
+        &DecodingKey::from_secret(config.jwt_secret.as_bytes()),
+        &validation,
+    )
+    .ok()
+    .map(|data| data.claims)
+    .filter(|claims| claims.typ == typ)
+}
+
+/// Issues a token proving password success but requiring second factor.
+pub fn issue_mfa_pending_token(
+    config: &Config,
+    user_id: Uuid,
+    org_id: Uuid,
+) -> Result<String, jsonwebtoken::errors::Error> {
+    let now = chrono::Utc::now().timestamp();
+    encode_scoped(
+        config,
+        &ScopedClaims {
+            typ: "mfa_pending".into(),
+            sub: user_id,
+            org: org_id,
+            jti: String::new(),
+            exp: now + config.mfa_pending_ttl_secs,
+        },
+    )
+}
+
+/// Verifies an `mfa_pending` token; None on expiry, tampering, or wrong type.
+pub fn verify_mfa_pending_token(config: &Config, token: &str) -> Option<(Uuid, Uuid)> {
+    decode_scoped(config, token, "mfa_pending").map(|c| (c.sub, c.org))
+}
+
+/// Issues a token binding a WebAuthn login ceremony to its challenge row.
+pub fn issue_webauthn_challenge_token(
+    config: &Config,
+    user_id: Uuid,
+    org_id: Uuid,
+    challenge_id: Uuid,
+    ttl_secs: i64,
+) -> Result<String, jsonwebtoken::errors::Error> {
+    let now = chrono::Utc::now().timestamp();
+    encode_scoped(
+        config,
+        &ScopedClaims {
+            typ: "webauthn_challenge".into(),
+            sub: user_id,
+            org: org_id,
+            jti: challenge_id.to_string(),
+            exp: now + ttl_secs,
+        },
+    )
+}
+
+/// Verifies a WebAuthn ceremony token → (user_id, org_id, challenge_id).
+pub fn verify_webauthn_challenge_token(config: &Config, token: &str) -> Option<(Uuid, Uuid, Uuid)> {
+    decode_scoped(config, token, "webauthn_challenge")
+        .and_then(|c| c.jti.parse().ok().map(|jti| (c.sub, c.org, jti)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -67,6 +162,12 @@ mod tests {
             access_ttl_secs: 900,
             refresh_ttl_secs: 86_400,
             cors_origin: None,
+            secret_key: crate::config::SecretKey([3u8; 32]),
+            mfa_pending_ttl_secs: 300,
+            webauthn_rp_id: "localhost".into(),
+            webauthn_rp_origin: "http://localhost:3000".into(),
+            public_base_url: "http://localhost:8080".into(),
+            web_base_url: "http://localhost:3000".into(),
         }
     }
 
@@ -99,5 +200,54 @@ mod tests {
             hash_refresh_token(&t),
             hash_refresh_token(&new_refresh_token())
         );
+    }
+
+    #[test]
+    fn mfa_pending_roundtrip_and_typ_isolation() {
+        let cfg = test_config();
+        let (u, o) = (Uuid::now_v7(), Uuid::now_v7());
+        let token = issue_mfa_pending_token(&cfg, u, o).unwrap();
+        assert_eq!(verify_mfa_pending_token(&cfg, &token), Some((u, o)));
+        // An access token must never satisfy the mfa_pending check.
+        let access = issue_access_token(&cfg, u, o, Uuid::now_v7()).unwrap();
+        assert_eq!(verify_mfa_pending_token(&cfg, &access), None);
+    }
+
+    #[test]
+    fn mfa_pending_expiry_is_enforced() {
+        let cfg = test_config();
+        let (u, o) = (Uuid::now_v7(), Uuid::now_v7());
+        let token = issue_mfa_pending_token(&cfg, u, o).unwrap();
+        // Simulate expiry by verifying against a config whose clock the
+        // token predates: jsonwebtoken rejects exp in the past.
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        let expired_cfg = Config {
+            mfa_pending_ttl_secs: -1,
+            ..test_config()
+        };
+        let stale = issue_mfa_pending_token(&expired_cfg, u, o).unwrap();
+        assert_eq!(verify_mfa_pending_token(&cfg, &stale), None);
+        assert_eq!(verify_mfa_pending_token(&cfg, &token), Some((u, o)));
+    }
+
+    #[test]
+    fn webauthn_challenge_tokens_bind_their_row() {
+        let cfg = test_config();
+        let (u, o, ch) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+        let token = issue_webauthn_challenge_token(&cfg, u, o, ch, 300).unwrap();
+        assert_eq!(
+            verify_webauthn_challenge_token(&cfg, &token),
+            Some((u, o, ch))
+        );
+        // Cross-type rejection.
+        assert_eq!(verify_mfa_pending_token(&cfg, &token), None);
+        // Tampered payload rejected (deterministically corrupt the
+        // signature's leading character).
+        let mut parts: Vec<String> = token.split('.').map(String::from).collect();
+        let mut sig: Vec<u8> = parts[2].clone().into_bytes();
+        sig[0] = if sig[0] == b'A' { b'B' } else { b'A' };
+        parts[2] = String::from_utf8(sig).expect("base64 remains utf8");
+        let tampered = parts.join(".");
+        assert_eq!(verify_webauthn_challenge_token(&cfg, &tampered), None);
     }
 }
