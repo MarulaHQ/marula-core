@@ -7,6 +7,7 @@
 //! from the environment — time and effects are always injected as parameters.
 
 pub mod automations;
+pub mod custom_fields;
 pub mod entities;
 pub mod error;
 pub mod events;
