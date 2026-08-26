@@ -1,16 +1,20 @@
 //! worker — the background process host.
 //!
-//! Purpose: run the outbox→Redis relay (`core_events::run_relay`) as the
-//! primary loop plus the notification email fan-out consumer, and expose a
-//! `/healthz` endpoint that reflects relay liveness. `meridian-cli` hosts
-//! this same library via `meridian serve-worker`.
+//! Purpose: run every background loop Meridian needs: the outbox→Redis
+//! relay (`core_events::run_relay`), the general job queue processor, the
+//! periodic SLA evaluation sweep, and the automations stream consumer —
+//! plus a `/healthz` endpoint reflecting loop liveness. `meridian-cli`
+//! hosts this same library via `meridian serve-worker`.
 //!
-//! Non-purpose: no general job queue, webhook delivery, or SLA evaluation
-//! — those are later-stage scope — and no direct database writes of its own
-//! beyond what the relay's mark-published step performs.
+//! Non-purpose: no domain writes — effects flow back through core-api's
+//! internal surface (§4.1); the worker touches only its own queue tables.
 
+pub mod automations;
 pub mod config;
+pub mod effects;
 pub mod notifier;
+pub mod queue_runner;
+pub mod sla_sweep;
 
 use axum::extract::State;
 use axum::routing::get;
@@ -23,14 +27,14 @@ use std::sync::Arc;
 use tokio::sync::watch;
 
 /// Runs the worker until `shutdown` fires: connects to Postgres and Redis,
-/// spawns the relay loop, and serves `/healthz` until then.
+/// spawns all background loops, and serves `/healthz` until then.
 pub async fn run(
     config: config::WorkerConfig,
     shutdown: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
     let pool = core_db::connect(&config.database_url).await?;
     let publisher = Publisher::connect(&config.redis_url).await?;
-    tracing::info!("worker connected; starting event relay");
+    tracing::info!("worker connected; starting background loops");
 
     let relay_alive = Arc::new(AtomicBool::new(true));
     let relay = tokio::spawn(core_events::run_relay(
@@ -54,15 +58,68 @@ pub async fn run(
     // configured (standalone-first "none" mode). Best-effort consumer;
     // liveness is reported by the relay.
     tokio::spawn(notifier::run_notifier(
-        pool,
+        pool.clone(),
         config.redis_url.clone(),
         NoopMailTransport,
         shutdown.clone(),
     ));
 
+    // General job queue: claims durable jobs and applies them through
+    // core-api's internal machine surface.
+    let queue_alive = Arc::new(AtomicBool::new(true));
+    let counters = Arc::new(queue_runner::QueueCounters::default());
+    {
+        let effect_api = effects::ReqwestEffectApi::new(
+            config.internal_api_url.clone(),
+            config.internal_token.clone(),
+        );
+        let alive = Arc::clone(&queue_alive);
+        let counters = Arc::clone(&counters);
+        let pool = pool.clone();
+        let shutdown = shutdown.clone();
+        let batch = config.queue_batch;
+        let stale = config.queue_stale_after_secs;
+        tokio::spawn(async move {
+            queue_runner::run_queue(pool, effect_api, batch, stale, counters, shutdown).await;
+            alive.store(false, Ordering::Relaxed);
+            tracing::error!("queue loop exited; reporting unhealthy");
+        });
+    }
+
+    // SLA evaluation sweep: DB-clock-driven ladder decisions → verdict jobs.
+    let sla_alive = Arc::new(AtomicBool::new(true));
+    {
+        let alive = Arc::clone(&sla_alive);
+        let pool = pool.clone();
+        let shutdown = shutdown.clone();
+        tokio::spawn(async move {
+            sla_sweep::run_sla_sweep(pool, config.eval_interval_secs, 200, shutdown).await;
+            alive.store(false, Ordering::Relaxed);
+            tracing::error!("sla sweep exited; reporting unhealthy");
+        });
+    }
+
+    // Automations consumer: event stream → matched rules → effect jobs.
+    let auto_alive = Arc::new(AtomicBool::new(true));
+    {
+        let alive = Arc::clone(&auto_alive);
+        let shutdown = shutdown.clone();
+        tokio::spawn(async move {
+            automations::run_automations(pool, config.redis_url, shutdown).await;
+            alive.store(false, Ordering::Relaxed);
+            tracing::error!("automations loop exited; reporting unhealthy");
+        });
+    }
+
+    let health = HealthFlags {
+        relay_alive,
+        queue_alive,
+        sla_alive,
+        automations_alive: auto_alive,
+    };
     let app = Router::new()
         .route("/healthz", get(healthz))
-        .with_state(relay_alive);
+        .with_state(Arc::new(health));
     let listener = tokio::net::TcpListener::bind(&config.bind_addr).await?;
     tracing::info!(addr = %config.bind_addr, "worker health endpoint listening");
     axum::serve(listener, app)
@@ -71,11 +128,25 @@ pub async fn run(
     Ok(())
 }
 
-async fn healthz(State(alive): State<Arc<AtomicBool>>) -> Json<serde_json::Value> {
-    if alive.load(Ordering::Relaxed) {
-        Json(json!({ "status": "ok", "relay": "alive" }))
+#[derive(Clone)]
+struct HealthFlags {
+    relay_alive: Arc<AtomicBool>,
+    queue_alive: Arc<AtomicBool>,
+    sla_alive: Arc<AtomicBool>,
+    automations_alive: Arc<AtomicBool>,
+}
+
+async fn healthz(State(flags): State<Arc<HealthFlags>>) -> Json<serde_json::Value> {
+    let ok = flags.relay_alive.load(Ordering::Relaxed)
+        && flags.queue_alive.load(Ordering::Relaxed)
+        && flags.sla_alive.load(Ordering::Relaxed)
+        && flags.automations_alive.load(Ordering::Relaxed);
+    if ok {
+        Json(
+            json!({ "status": "ok", "relay": "alive", "queue": "alive", "sla": "alive", "automations": "alive" }),
+        )
     } else {
-        Json(json!({ "status": "unhealthy", "relay": "stopped" }))
+        Json(json!({ "status": "unhealthy" }))
     }
 }
 
@@ -93,12 +164,18 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn healthz_reflects_the_liveness_flag() {
-        let alive = Arc::new(AtomicBool::new(true));
-        let healthy = healthz(State(Arc::clone(&alive))).await;
+    async fn healthz_reflects_the_liveness_flags() {
+        let flags = HealthFlags {
+            relay_alive: Arc::new(AtomicBool::new(true)),
+            queue_alive: Arc::new(AtomicBool::new(true)),
+            sla_alive: Arc::new(AtomicBool::new(true)),
+            automations_alive: Arc::new(AtomicBool::new(true)),
+        };
+        let healthy = healthz(State(Arc::new(flags.clone()))).await;
         assert_eq!(healthy.0["relay"], "alive");
-        alive.store(false, Ordering::Relaxed);
-        let unhealthy = healthz(State(alive)).await;
+        assert_eq!(healthy.0["status"], "ok");
+        flags.queue_alive.store(false, Ordering::Relaxed);
+        let unhealthy = healthz(State(Arc::new(flags))).await;
         assert_eq!(unhealthy.0["status"], "unhealthy");
     }
 
