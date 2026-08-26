@@ -21,10 +21,10 @@ use axum::{
 };
 use chrono::{DateTime, Datelike, Duration, NaiveDate, Utc};
 use chrono_tz::Tz;
-use core_domain::policy::Action;
 use core_domain::entities::{
     AppointmentKind, AppointmentStatus, AvailabilityWindow, CalendarExclusion, OnCallBlock,
 };
+use core_domain::policy::Action;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -154,8 +154,7 @@ pub async fn calendar_day(
 ) -> ApiResult<Json<CalendarViewResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, sched(Action::View))?;
-    let user_id =
-        target_user(&authed.principal, q.user_id, "calendar reads")?;
+    let user_id = target_user(&authed.principal, q.user_id, "calendar reads")?;
     let org_id = authed.principal.user.org_id;
     let user = core_db::users::get_user(&state.pool, org_id, user_id)
         .await
@@ -164,9 +163,13 @@ pub async fn calendar_day(
         .timezone
         .parse()
         .map_err(|_| ApiError::Validation(format!("unknown timezone: {}", user.timezone)))?;
-    let date = q.date.unwrap_or_else(|| Utc::now().with_timezone(&tz).date_naive());
+    let date = q
+        .date
+        .unwrap_or_else(|| Utc::now().with_timezone(&tz).date_naive());
     let (from, to) = core_domain::time_audit::local_day_window(date, tz);
-    build_personal(&state, org_id, user_id, from, to, &user.timezone).await.map(Json)
+    build_personal(&state, org_id, user_id, from, to, &user.timezone)
+        .await
+        .map(Json)
 }
 
 /// GET /api/calendar/week — Monday-start local week for one user.
@@ -189,7 +192,9 @@ pub async fn calendar_week(
         .timezone
         .parse()
         .map_err(|_| ApiError::Validation(format!("unknown timezone: {}", user.timezone)))?;
-    let date = q.date.unwrap_or_else(|| Utc::now().with_timezone(&tz).date_naive());
+    let date = q
+        .date
+        .unwrap_or_else(|| Utc::now().with_timezone(&tz).date_naive());
     // Snap to Monday of this week (num_days_from_monday: Mon=0..Sun=6).
     let monday = date - Duration::days(i64::from(date.weekday().num_days_from_monday()));
     let (from, _) = core_domain::time_audit::local_day_window(monday, tz);
@@ -197,7 +202,9 @@ pub async fn calendar_week(
         monday + Duration::weeks(1) - Duration::days(1),
         tz,
     );
-    build_personal(&state, org_id, user_id, from, to, &user.timezone).await.map(Json)
+    build_personal(&state, org_id, user_id, from, to, &user.timezone)
+        .await
+        .map(Json)
 }
 
 /// GET /api/calendar/team — every org member over an absolute UTC range.
@@ -249,14 +256,12 @@ async fn build_personal(
     )
     .await?;
     let users = [user_id];
-    let (items, windows) = tokio::try_join!(
-        merged_items(state, org_id, &users, from, to),
-        async {
+    let (items, windows) =
+        tokio::try_join!(merged_items(state, org_id, &users, from, to), async {
             core_db::scheduling::list_availability_windows(&state.pool, org_id, user_id)
                 .await
                 .map_err(ApiError::from)
-        },
-    )?;
+        },)?;
     Ok(CalendarViewResponse {
         user_id: Some(user_id),
         from,

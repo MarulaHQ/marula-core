@@ -292,15 +292,15 @@ pub fn build_router(state: AppState) -> Router {
             put(email_admin::put_board_inbound_address),
         )
         // scheduling/calendars/availability (TASKLIST 2.12)
-        .route(
-            "/api/appointments",
-            post(scheduling::create_appointment),
-        )
+        .route("/api/appointments", post(scheduling::create_appointment))
         .route(
             "/api/appointments/{id}",
             get(scheduling::get_appointment).patch(scheduling::patch_appointment),
         )
-        .route("/api/appointments/{id}/move", post(scheduling::move_appointment))
+        .route(
+            "/api/appointments/{id}/move",
+            post(scheduling::move_appointment),
+        )
         .route(
             "/api/appointments/{id}/cancel",
             post(scheduling::cancel_appointment),
@@ -309,18 +309,9 @@ pub fn build_router(state: AppState) -> Router {
             "/api/scheduling/conflict-check",
             post(scheduling::conflict_check),
         )
-        .route(
-            "/api/calendar/day",
-            get(calendar::calendar_day),
-        )
-        .route(
-            "/api/calendar/week",
-            get(calendar::calendar_week),
-        )
-        .route(
-            "/api/calendar/team",
-            get(calendar::calendar_team),
-        )
+        .route("/api/calendar/day", get(calendar::calendar_day))
+        .route("/api/calendar/week", get(calendar::calendar_week))
+        .route("/api/calendar/team", get(calendar::calendar_team))
         .route(
             "/api/availability",
             get(availability::list_availability).post(availability::create_availability),

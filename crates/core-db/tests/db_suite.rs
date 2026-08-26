@@ -3995,12 +3995,11 @@ async fn availability_oncall_exclusion_rules_and_merged_calendar() {
     assert_eq!(exclusions[0].reason.as_deref(), Some("vacation"));
 
     // Deletes round-trip with ownership scoping (org+user must match).
-    scheduling::delete_calendar_exclusion(&mut *tx, s.org, fixed_uuid(1113), u)
+    scheduling::delete_calendar_exclusion(&mut tx, s.org, fixed_uuid(1113), u)
         .await
         .expect("delete own exclusion");
     assert!(matches!(
-        scheduling::delete_on_call_block(&mut *tx, s.org, fixed_uuid(1112), fixed_uuid(11999))
-            .await,
+        scheduling::delete_on_call_block(&mut tx, s.org, fixed_uuid(1112), fixed_uuid(11999)).await,
         Err(core_db::DbError::NotFound),
     ));
     tx.commit().await.expect("commit deletes");

@@ -23,9 +23,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use core_domain::entities::{AvailabilityWindow, CalendarExclusion, OnCallBlock};
-use core_domain::events::{
-    types, AvailabilityChanged, CalendarExclusionChanged, OnCallChanged,
-};
+use core_domain::events::{types, AvailabilityChanged, CalendarExclusionChanged, OnCallChanged};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -197,18 +195,16 @@ pub async fn list_on_call(
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, sched(core_domain::policy::Action::View))?;
     let user_id = target_user(&authed.principal, q.user_id, "on-call reads")?;
-    let from = q.from.unwrap_or_else(|| Utc::now() - chrono::Duration::days(1));
-    let to = q.to.unwrap_or_else(|| Utc::now() + chrono::Duration::days(14));
+    let from = q
+        .from
+        .unwrap_or_else(|| Utc::now() - chrono::Duration::days(1));
+    let to =
+        q.to.unwrap_or_else(|| Utc::now() + chrono::Duration::days(14));
     validate_span(from, to)?;
     let org_id = authed.principal.user.org_id;
-    let blocks = core_db::scheduling::list_on_call_blocks_between(
-        &state.pool,
-        org_id,
-        &[user_id],
-        from,
-        to,
-    )
-    .await?;
+    let blocks =
+        core_db::scheduling::list_on_call_blocks_between(&state.pool, org_id, &[user_id], from, to)
+            .await?;
     Ok(Json(blocks))
 }
 
@@ -338,8 +334,11 @@ pub async fn list_exclusions(
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, sched(core_domain::policy::Action::View))?;
     let user_id = target_user(&authed.principal, q.user_id, "time-off reads")?;
-    let from = q.from.unwrap_or_else(|| Utc::now() - chrono::Duration::days(30));
-    let to = q.to.unwrap_or_else(|| Utc::now() + chrono::Duration::days(180));
+    let from = q
+        .from
+        .unwrap_or_else(|| Utc::now() - chrono::Duration::days(30));
+    let to =
+        q.to.unwrap_or_else(|| Utc::now() + chrono::Duration::days(180));
     validate_span(from, to)?;
     let org_id = authed.principal.user.org_id;
     let exclusions = core_db::scheduling::list_calendar_exclusions_between(

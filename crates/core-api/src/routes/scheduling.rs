@@ -58,7 +58,9 @@ pub(crate) fn target_user(
 
 pub(crate) fn validate_span(starts_at: DateTime<Utc>, ends_at: DateTime<Utc>) -> ApiResult<()> {
     if ends_at <= starts_at {
-        return Err(ApiError::Validation("ends_at must be after starts_at".into()));
+        return Err(ApiError::Validation(
+            "ends_at must be after starts_at".into(),
+        ));
     }
     if ends_at - starts_at > Duration::days(31) {
         return Err(ApiError::Validation("span exceeds 31 days".into()));
@@ -175,38 +177,43 @@ pub async fn create_appointment(
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
-    org_tx::with_org_tx(&state, org_id, authed.principal.user.id, |mut tx| async move {
-        // Friendly pre-check; the EXCLUDE constraint remains the guarantee.
-        let existing = core_db::scheduling::list_appointments_between(
-            &mut *tx.tx,
-            org_id,
-            &[user_id],
-            req.starts_at,
-            req.ends_at,
-        )
-        .await?;
-        if !conflict_indices(
-            req.starts_at,
-            req.ends_at,
-            existing.iter().map(|a| (a.starts_at, a.ends_at)),
-        )
-        .is_empty()
-        {
-            return Err(ApiError::Conflict("slot already booked".into()));
-        }
-        core_db::scheduling::create_appointment(&mut *tx.tx, &appointment).await?;
-        tx.emit(
-            types::APPOINTMENT_CREATED,
-            "appointment",
-            Some(&appointment.id.to_string()),
-            &serde_json::to_value(AppointmentCreated {
-                appointment: appointment.clone(),
-            })
-            .map_err(|e| ApiError::Internal(e.into()))?,
-        )
-        .await?;
-        Ok((tx, appointment))
-    })
+    org_tx::with_org_tx(
+        &state,
+        org_id,
+        authed.principal.user.id,
+        |mut tx| async move {
+            // Friendly pre-check; the EXCLUDE constraint remains the guarantee.
+            let existing = core_db::scheduling::list_appointments_between(
+                &mut *tx.tx,
+                org_id,
+                &[user_id],
+                req.starts_at,
+                req.ends_at,
+            )
+            .await?;
+            if !conflict_indices(
+                req.starts_at,
+                req.ends_at,
+                existing.iter().map(|a| (a.starts_at, a.ends_at)),
+            )
+            .is_empty()
+            {
+                return Err(ApiError::Conflict("slot already booked".into()));
+            }
+            core_db::scheduling::create_appointment(&mut *tx.tx, &appointment).await?;
+            tx.emit(
+                types::APPOINTMENT_CREATED,
+                "appointment",
+                Some(&appointment.id.to_string()),
+                &serde_json::to_value(AppointmentCreated {
+                    appointment: appointment.clone(),
+                })
+                .map_err(|e| ApiError::Internal(e.into()))?,
+            )
+            .await?;
+            Ok((tx, appointment))
+        },
+    )
     .await
     .map(|appt| (axum::http::StatusCode::CREATED, Json(appt)))
 }
@@ -223,8 +230,7 @@ pub async fn get_appointment(
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, sched(Action::View))?;
     let appt =
-        core_db::scheduling::get_appointment(&state.pool, authed.principal.user.org_id, id)
-            .await?;
+        core_db::scheduling::get_appointment(&state.pool, authed.principal.user.org_id, id).await?;
     Ok(Json(appt))
 }
 
@@ -250,8 +256,7 @@ pub async fn patch_appointment(
     let org_id = authed.principal.user.org_id;
     let actor = authed.principal.user.id;
     org_tx::with_org_tx(&state, org_id, actor, |mut tx| async move {
-        let mut appt =
-            core_db::scheduling::get_appointment(&mut *tx.tx, org_id, id).await?;
+        let mut appt = core_db::scheduling::get_appointment(&mut *tx.tx, org_id, id).await?;
         if let Some(t) = req.title {
             appt.title = t;
         }

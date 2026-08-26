@@ -384,8 +384,7 @@ async fn availability_oncall_exclusions_and_manager_scoping() {
             axum::http::Method::GET,
             &format!(
                 "/api/on-call-blocks?from={}&to={}",
-                "2026-06-01T00:00:00Z",
-                "2026-06-08T00:00:00Z"
+                "2026-06-01T00:00:00Z", "2026-06-08T00:00:00Z"
             ),
             Some(&bearer),
             None,
@@ -431,8 +430,7 @@ async fn availability_oncall_exclusions_and_manager_scoping() {
             axum::http::Method::GET,
             &format!(
                 "/api/calendar/team?from={}&to={}",
-                "2026-06-01T00:00:00Z",
-                "2026-06-08T00:00:00Z"
+                "2026-06-01T00:00:00Z", "2026-06-08T00:00:00Z"
             ),
             Some(&bearer),
             None,
@@ -453,7 +451,11 @@ async fn availability_oncall_exclusions_and_manager_scoping() {
     let del_win = send(
         &app,
         axum::http::Method::DELETE,
-        &format!("/api/availability/{}?user_id={}", win["id"].as_str().unwrap(), listed["user_id"].as_str().unwrap()),
+        &format!(
+            "/api/availability/{}?user_id={}",
+            win["id"].as_str().unwrap(),
+            listed["user_id"].as_str().unwrap()
+        ),
         Some(&bearer),
         None,
     )
@@ -518,8 +520,7 @@ async fn scheduling_reads_are_org_isolated_and_events_emitted() {
             axum::http::Method::GET,
             &format!(
                 "/api/calendar/team?from={}&to={}",
-                "2026-06-01T00:00:00Z",
-                "2026-06-08T00:00:00Z"
+                "2026-06-01T00:00:00Z", "2026-06-08T00:00:00Z"
             ),
             Some(&bearer_b),
             None,
@@ -555,12 +556,13 @@ async fn scheduling_reads_are_org_isolated_and_events_emitted() {
         .await;
         Uuid::parse_str(me["org_id"].as_str().unwrap()).unwrap()
     };
-    let events: Vec<(String,)> =
-        sqlx::query_as("SELECT event_type FROM outbox_events WHERE org_id = $1 AND entity = 'appointment'")
-            .bind(org_a)
-            .fetch_all(&state.pool)
-            .await
-            .expect("outbox scan");
+    let events: Vec<(String,)> = sqlx::query_as(
+        "SELECT event_type FROM outbox_events WHERE org_id = $1 AND entity = 'appointment'",
+    )
+    .bind(org_a)
+    .fetch_all(&state.pool)
+    .await
+    .expect("outbox scan");
     let kinds: Vec<String> = events.into_iter().map(|e| e.0).collect();
     assert!(
         kinds.contains(&"appointment.created".to_string()),
