@@ -349,6 +349,7 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/clients/{id}/board-exposures",
             get(portal_admin::list_board_exposures).put(portal_admin::put_board_exposure),
+        )
         // scheduling/calendars/availability (TASKLIST 2.12)
         .route("/api/appointments", post(scheduling::create_appointment))
         .route(

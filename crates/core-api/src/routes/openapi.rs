@@ -124,7 +124,6 @@ use utoipa::OpenApi;
         crate::routes::settings::user_value_put,
         crate::routes::settings::org_profile_get,
         crate::routes::settings::org_profile_patch,
-<<<<<<< HEAD
         crate::routes::portal::login,
         crate::routes::portal::refresh,
         crate::routes::portal::me,
@@ -146,7 +145,6 @@ use utoipa::OpenApi;
         crate::routes::api_keys::list,
         crate::routes::api_keys::create,
         crate::routes::api_keys::revoke,
-=======
         crate::routes::scheduling::create_appointment,
         crate::routes::scheduling::get_appointment,
         crate::routes::scheduling::patch_appointment,
@@ -165,7 +163,6 @@ use utoipa::OpenApi;
         crate::routes::availability::list_exclusions,
         crate::routes::availability::create_exclusion,
         crate::routes::availability::delete_exclusion,
->>>>>>> stage2-scheduling
     ),
     components(schemas(
         crate::auth::handlers::RegisterRequest,
@@ -288,7 +285,6 @@ use utoipa::OpenApi;
         crate::routes::settings::PatchOrgRequest,
         core_domain::settings::SettingKind,
         core_domain::settings::SettingValue,
-<<<<<<< HEAD
         crate::routes::portal::PortalLoginRequest,
         crate::routes::portal::PortalRefreshRequest,
         crate::routes::portal::PortalLoginResponse,
@@ -316,7 +312,6 @@ use utoipa::OpenApi;
         crate::routes::api_keys::ApiKeyList,
         crate::routes::api_keys::CreateApiKeyRequest,
         crate::routes::api_keys::ApiKeyCreatedResponse,
-=======
         // scheduling (TASKLIST 2.12)
         core_domain::entities::Appointment,
         core_domain::entities::AppointmentKind,
@@ -341,7 +336,6 @@ use utoipa::OpenApi;
         crate::routes::availability::CreateExclusionRequest,
         crate::routes::availability::RangeParams,
         crate::routes::availability::OwnedDeleteQuery,
->>>>>>> stage2-scheduling
     ),
     ),
     tags(
@@ -356,13 +350,10 @@ use utoipa::OpenApi;
         (name = "audit", description = "Append-only audit log (admin)"),
         (name = "sla", description = "SLA calendars, policies, escalation ladders (admin)"),
         (name = "automations", description = "Event-triggered automation rules (admin)"),
-<<<<<<< HEAD
         (name = "portal", description = "Client portal v1: login, own-client tickets, replies"),
         (name = "portal-admin", description = "Staff administration of portal users + board exposure"),
         (name = "integrations", description = "Signed webhooks OUT + scoped API keys (plugin runtime v1)"),
-=======
         (name = "scheduling", description = "Appointments, availability, on-call, calendar views"),
->>>>>>> stage2-scheduling
     )
 )]
 pub struct ApiDoc;
