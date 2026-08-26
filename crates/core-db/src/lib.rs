@@ -19,6 +19,7 @@ pub mod notifications;
 pub mod oidc;
 pub mod orgs;
 pub mod outbox;
+pub mod portal;
 pub mod queue;
 pub mod settings;
 pub mod sla;

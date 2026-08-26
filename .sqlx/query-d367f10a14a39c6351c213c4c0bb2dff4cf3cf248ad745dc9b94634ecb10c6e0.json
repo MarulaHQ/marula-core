@@ -1,0 +1,69 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO board_portal_exposure (id, org_id, board_id, client_id, exposed, visible_status_ids)\n           VALUES ($1, $2, $3, $4, $5, $6)\n           ON CONFLICT (board_id, client_id) DO UPDATE SET\n             exposed = EXCLUDED.exposed,\n             visible_status_ids = EXCLUDED.visible_status_ids,\n             updated_at = now()\n           RETURNING id, org_id, board_id, client_id, exposed, visible_status_ids, created_at, updated_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "board_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "client_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "exposed",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "visible_status_ids",
+        "type_info": "UuidArray"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Bool",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "d367f10a14a39c6351c213c4c0bb2dff4cf3cf248ad745dc9b94634ecb10c6e0"
+}

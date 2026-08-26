@@ -14,7 +14,9 @@ fn parse_priority(s: &str) -> DbResult<Priority> {
     })
 }
 
-fn row_to_ticket(row: sqlx::postgres::PgRow) -> Result<Ticket, sqlx::Error> {
+/// Shared with the portal read path (`crate::portal`) so both surfaces
+/// project identical Ticket shapes from raw rows.
+pub(crate) fn row_to_ticket(row: sqlx::postgres::PgRow) -> Result<Ticket, sqlx::Error> {
     use sqlx::Row;
     Ok(Ticket {
         id: row.get("id"),
