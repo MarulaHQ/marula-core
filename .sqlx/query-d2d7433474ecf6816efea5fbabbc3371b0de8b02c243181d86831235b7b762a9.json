@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE orgs SET eod_nudges_enabled = $2, eod_nudge_hour = $3,\n                           time_gap_min_minutes = $4\n           WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bool",
+        "Int2",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d2d7433474ecf6816efea5fbabbc3371b0de8b02c243181d86831235b7b762a9"
+}

@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT eod_nudges_enabled, eod_nudge_hour, time_gap_min_minutes\n           FROM orgs WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "eod_nudges_enabled",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "eod_nudge_hour",
+        "type_info": "Int2"
+      },
+      {
+        "ordinal": 2,
+        "name": "time_gap_min_minutes",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "95d4f614ef42014daaca35ba3145354cfb52ebeae11823e7bb3179873182f408"
+}

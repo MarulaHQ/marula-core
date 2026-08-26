@@ -1,0 +1,77 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO time_gap_audits\n             (id, org_id, user_id, day, activity, logged_minutes, expected_minutes, has_gap)\n           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n           ON CONFLICT (org_id, user_id, day) DO UPDATE SET\n             activity = EXCLUDED.activity,\n             logged_minutes = EXCLUDED.logged_minutes,\n             expected_minutes = EXCLUDED.expected_minutes,\n             has_gap = EXCLUDED.has_gap,\n             updated_at = now()\n           RETURNING id, org_id, user_id, day, activity, logged_minutes,\n                     expected_minutes, has_gap, nudge_sent_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "day",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 4,
+        "name": "activity",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "logged_minutes",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "expected_minutes",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "has_gap",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "nudge_sent_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Date",
+        "Bool",
+        "Int4",
+        "Int4",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "0d5893e3a2bef638ddf2f2dcffe354a4c07eb017f3b051a98b0319c6e2ae032b"
+}

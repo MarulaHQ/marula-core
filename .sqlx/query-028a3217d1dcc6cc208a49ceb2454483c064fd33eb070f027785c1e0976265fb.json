@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE time_gap_audits SET nudge_sent_at = $2\n           WHERE id = $1 AND nudge_sent_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "028a3217d1dcc6cc208a49ceb2454483c064fd33eb070f027785c1e0976265fb"
+}
