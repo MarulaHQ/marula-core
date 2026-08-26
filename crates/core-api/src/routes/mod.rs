@@ -47,7 +47,7 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/api/auth/oidc/{name}/login", get(oidc::login_redirect))
         .route("/api/auth/oidc/{name}/callback", get(oidc::callback))
-        .route("/api/sso/exchange", post(oidc::sso_exchange));
+        .route("/api/sso/exchange", post(oidc::sso_exchange))
         // Machine-to-machine surfaces with their own auth (HMAC webhook,
         // internal worker token) — never behind JWT middleware.
         .route("/api/webhooks/email-inbound", post(webhooks::email_inbound))

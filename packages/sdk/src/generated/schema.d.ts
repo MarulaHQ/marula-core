@@ -524,9 +524,56 @@ export interface paths {
         put?: never;
         /**
          * POST /api/boards/{id}/statuses — adds a custom status bound to a
-         *     semantic category.
+         *     semantic category; emits `board.status_added`.
          */
         post: operations["boards_add_status"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/boards/{id}/statuses/{status_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/boards/{id}/statuses/{status_id} — removes an UNUSED custom
+         *     status. Tickets referencing it force a 409; the last entry status of a
+         *     board is protected so ticket creation can never break.
+         */
+        delete: operations["boards_delete_status"];
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/boards/{id}/statuses/{status_id} — rebinds/reorders/renames a
+         *     status; emits `board.status_updated`.
+         */
+        patch: operations["boards_update_status"];
+        trace?: never;
+    };
+    "/api/boards/{id}/transitions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/boards/{id}/transitions — the board's effective workflow. */
+        get: operations["boards_list_transitions"];
+        /**
+         * PUT /api/boards/{id}/transitions — atomically replaces the explicit
+         *     transition matrix; emits `board.transitions_updated`. Endpoints must be
+         *     statuses of THIS board and self-transitions are rejected.
+         */
+        put: operations["boards_set_transitions"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -639,6 +686,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/notification-preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/notification-preferences — the caller's effective preference
+         *     for every kind (defaults-first resolution applied).
+         */
+        get: operations["notification_prefs_get"];
+        /**
+         * PUT /api/notification-preferences — upserts the caller's override row
+         *     for one kind and emits `notification_prefs.updated`. Quiet hours
+         *     validate as a paired `HH:MM` window in a real IANA timezone;
+         *     validation errors return 422.
+         */
+        put: operations["notification_prefs_update"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/notifications": {
         parameters: {
             query?: never;
@@ -646,10 +719,50 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** GET /api/notifications — the caller's notifications, newest first. */
+        /**
+         * GET /api/notifications — the caller's notifications, newest first,
+         *     keyset-paginated.
+         */
         get: operations["notifications_list"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notifications/mark-read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/notifications/mark-read — bulk variant; unknown and
+         *     already-read ids are skipped (idempotent).
+         */
+        post: operations["notifications_mark_read_bulk"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notifications/read-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/notifications/read-all — empties the unread badge. */
+        post: operations["notifications_mark_all_read"];
         delete?: never;
         options?: never;
         head?: never;
@@ -682,7 +795,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** POST /api/notifications/{id}/read */
+        /**
+         * POST /api/notifications/{id}/read — marks one notification read and
+         *     emits `notification.read` for cross-session badge sync.
+         */
         post: operations["notifications_mark_read"];
         delete?: never;
         options?: never;
@@ -1090,6 +1206,18 @@ export interface components {
             /** Format: int32 */
             sort_order: number;
         };
+        /**
+         * @description GET response for a board's workflow: either its explicit matrix or the
+         *     marker that the semantic-category floor governs.
+         */
+        BoardTransitionsResponse: {
+            edges: components["schemas"]["TransitionEdge"][];
+            /**
+             * @description `"explicit"` when the listed edges are authoritative; `"floor"` when
+             *     the semantic-category default governs (any→any except closed→open).
+             */
+            mode: string;
+        };
         ChangeStatusRequest: {
             /** Format: uuid */
             status_id: string;
@@ -1275,6 +1403,16 @@ export interface components {
             mfa_required: boolean;
             mfa_token: string;
         };
+        MarkReadBulkRequest: {
+            ids: string[];
+        };
+        MarkReadResult: {
+            /**
+             * Format: int64
+             * @description Rows flipped from unread to read (idempotent under retry).
+             */
+            marked: number;
+        };
         MeResponse: {
             display_name: string;
             email: string;
@@ -1318,6 +1456,12 @@ export interface components {
         };
         /** @enum {string} */
         NotificationKind: "mention" | "assignment" | "sla_risk" | "sla_breach" | "escalation" | "missing_time" | "ticket_update";
+        /** @description One page of the inbox plus the cursor to continue with. */
+        NotificationPage: {
+            items: components["schemas"]["Notification"][];
+            /** @description Pass as `cursor` on the next request; `None` means exhausted. */
+            next_cursor?: string | null;
+        };
         OidcProviderInfo: {
             client_id: string;
             discovery_url: string;
@@ -1356,6 +1500,20 @@ export interface components {
              * @description Omit to act on the caller's active timer.
              */
             session_id?: string | null;
+        };
+        /**
+         * @description One resolved preference row: which chain link supplied it (`user`,
+         *     `org_default`, or `builtin`), the channel toggles, and the quiet-hours
+         *     window with its timezone.
+         */
+        PreferenceView: {
+            email: boolean;
+            in_app: boolean;
+            kind: components["schemas"]["NotificationKind"];
+            quiet_from?: string | null;
+            quiet_until?: string | null;
+            source: string;
+            timezone: string;
         };
         /**
          * @description Industry-standard four-tier priority.
@@ -1416,6 +1574,13 @@ export interface components {
         };
         SetChecklistItemRequest: {
             checked: boolean;
+        };
+        SetTransitionsRequest: {
+            /**
+             * @description The complete allowed matrix. Empty list returns the board to
+             *     floor-mode governance.
+             */
+            edges: components["schemas"]["TransitionEdge"][];
         };
         Site: {
             address?: string | null;
@@ -1663,9 +1828,37 @@ export interface components {
         TotpEnrollVerifyRequest: {
             code: string;
         };
+        /**
+         * @description One directed edge in a board's explicit transition matrix. Both ids must
+         *     belong to statuses of the SAME board (enforced here, and by composite FKs
+         *     in storage).
+         */
+        TransitionEdge: {
+            /** Format: uuid */
+            from_status_id: string;
+            /** Format: uuid */
+            to_status_id: string;
+        };
         UnreadCount: {
             /** Format: int64 */
             count: number;
+        };
+        UpdatePreferenceRequest: {
+            email: boolean;
+            in_app: boolean;
+            kind: components["schemas"]["NotificationKind"];
+            /** @description `HH:MM` pair; both bounds together or neither. */
+            quiet_from?: string | null;
+            quiet_until?: string | null;
+            /** @description IANA timezone for the window; defaults to UTC. */
+            timezone?: string | null;
+        };
+        UpdateStatusRequest: {
+            category?: null | components["schemas"]["TicketStatusCategory"];
+            is_entry?: boolean | null;
+            name?: string | null;
+            /** Format: int32 */
+            sort_order?: number | null;
         };
         UpsertProviderRequest: {
             client_id: string;
@@ -2460,6 +2653,98 @@ export interface operations {
             };
         };
     };
+    boards_delete_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                status_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    boards_update_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                status_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateStatusRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardStatus"];
+                };
+            };
+        };
+    };
+    boards_list_transitions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardTransitionsResponse"];
+                };
+            };
+        };
+    };
+    boards_set_transitions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetTransitionsRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardTransitionsResponse"];
+                };
+            };
+        };
+    };
     clients_list: {
         parameters: {
             query?: never;
@@ -2680,11 +2965,62 @@ export interface operations {
             };
         };
     };
+    notification_prefs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreferenceView"][];
+                };
+            };
+        };
+    };
+    notification_prefs_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePreferenceRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreferenceView"];
+                };
+            };
+            /** @description invalid quiet-hours window or timezone */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     notifications_list: {
         parameters: {
             query?: {
                 unread_only?: boolean;
                 limit?: number;
+                /** @description Opaque keyset cursor from a previous page's `next_cursor`. */
+                cursor?: string | null;
             };
             header?: never;
             path?: never;
@@ -2697,7 +3033,56 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Notification"][];
+                    "application/json": components["schemas"]["NotificationPage"];
+                };
+            };
+        };
+    };
+    notifications_mark_read_bulk: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarkReadBulkRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarkReadResult"];
+                };
+            };
+            /** @description empty or oversized id list */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    notifications_mark_all_read: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarkReadResult"];
                 };
             };
         };

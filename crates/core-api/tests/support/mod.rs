@@ -270,6 +270,7 @@ impl MailHarness {
             pool: app.clone(),
             config: Arc::new(config),
             mail: mail_stack,
+            oidc: core_api::auth::oidc_client::OidcHttpClient::new(),
         };
 
         // Single-org world: default board + SLA + catch-all route + staff.

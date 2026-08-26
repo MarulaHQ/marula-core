@@ -11,8 +11,8 @@
 pub mod audit;
 pub mod boards;
 pub mod clients;
-pub mod mfa;
 pub mod emails;
+pub mod mfa;
 pub mod notifications;
 pub mod oidc;
 pub mod orgs;

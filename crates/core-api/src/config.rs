@@ -125,6 +125,22 @@ impl Config {
                 .unwrap_or_else(|_| "http://localhost:8080".into()),
             web_base_url: std::env::var("WEB_BASE_URL")
                 .unwrap_or_else(|_| "http://localhost:3000".into()),
+            email_inbound_hmac_secret: std::env::var("EMAIL_INBOUND_HMAC_SECRET").ok(),
+            email_internal_token: std::env::var("EMAIL_INTERNAL_TOKEN").ok(),
+            email_transport: TransportKind::parse(
+                &std::env::var("EMAIL_TRANSPORT").unwrap_or_default(),
+                smtp_from_env(),
+                postmark_from_env(),
+            ),
+            email_scan_clamd_addr: match std::env::var("EMAIL_SCAN").as_deref() {
+                Ok("clamd") => {
+                    Some(std::env::var("CLAMD_ADDR").unwrap_or_else(|_| "127.0.0.1:3310".into()))
+                }
+                _ => None,
+            },
+            email_from_address: std::env::var("EMAIL_FROM_ADDRESS")
+                .unwrap_or_else(|_| "support@meridian.local".into()),
+            email_from_name: std::env::var("EMAIL_FROM_NAME").ok(),
         }
     }
 }

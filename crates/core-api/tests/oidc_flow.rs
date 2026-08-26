@@ -47,6 +47,7 @@ async fn test_state() -> AppState {
         pool,
         config: Arc::new(config),
         oidc: OidcHttpClient::new(),
+        mail: std::sync::Arc::new(core_api::email::MailStack::from_config(&Config::from_env())),
     }
 }
 

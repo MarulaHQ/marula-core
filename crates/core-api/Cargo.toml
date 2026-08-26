@@ -8,6 +8,8 @@ license.workspace = true
 tokio = { workspace = true }
 async-trait = { workspace = true }
 testcontainers = { version = "0.23", features = ["reusable-containers"] }
+rsa = { version = "0.9", features = ["sha2"] }
+serial_test = "3"
 
 [[bin]]
 name = "core-api"
@@ -31,9 +33,9 @@ thiserror = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-tokio = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
+tokio = { workspace = true }
 argon2 = { workspace = true }
 jsonwebtoken = { workspace = true }
 rand = { workspace = true }
@@ -47,8 +49,3 @@ url = { workspace = true }
 data-encoding = { workspace = true }
 base32 = "0.5"
 base64 = "0.22"
-subtle = { workspace = true }
-
-[dev-dependencies]
-rsa = { version = "0.9", features = ["sha2"] }
-serial_test = "3"
