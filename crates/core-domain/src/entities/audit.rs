@@ -7,6 +7,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 /// Who performed the audited action. Append-only provenance record.
+/// Portal variants carry the client-side tier so audit trails distinguish
+/// staff actions from client-portal actions at the storage layer
+/// (actor_kind portal_contact / portal_approver / portal_it_manager).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case", tag = "kind", content = "id")]
@@ -17,6 +20,12 @@ pub enum Actor {
     Plugin(String),
     Connector(String),
     System,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    PortalContact(UserId),
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    PortalApprover(UserId),
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    PortalItManager(UserId),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -66,6 +66,14 @@ pub mod types {
     pub const BOARD_MEMBERSHIP_UPDATED: &str = "board.membership_updated";
     pub const BOARD_MEMBERSHIP_REMOVED: &str = "board.membership_removed";
     pub const BOARD_FAVORITE_TOGGLED: &str = "board.favorite_toggled";
+    /// Portal v1 lifecycle: admin provisioned / changed / removed a client
+    /// portal identity, or toggled a board×client exposure. Portal ticket
+    /// replies intentionally reuse `ticket.comment_added` so every staff
+    /// notification path keeps working unchanged.
+    pub const PORTAL_USER_CREATED: &str = "portal_user.created";
+    pub const PORTAL_USER_UPDATED: &str = "portal_user.updated";
+    pub const PORTAL_USER_DELETED: &str = "portal_user.deleted";
+    pub const BOARD_PORTAL_EXPOSURE_UPDATED: &str = "board_portal_exposure.updated";
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

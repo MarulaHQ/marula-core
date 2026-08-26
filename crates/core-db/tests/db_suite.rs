@@ -18,12 +18,12 @@ mod common;
 
 use common::{fixed_uuid, org_tx, test_db, FUTURE, PAST};
 use core_db::{
-    audit, automations, notifications as notif, orgs, outbox, queue, sla, tickets, timers, users,
-    DbError,
+    audit, automations, notifications as notif, orgs, outbox, portal, queue, sla, tickets, timers,
+    users, DbError, DbResult,
 };
 use core_domain::entities::{
-    Actor, AuditEvent, BusinessCalendar, NotificationPreference, SlaCalendar, Ticket, TimeEntry,
-    TimerSession,
+    Actor, AuditEvent, BusinessCalendar, NotificationPreference, PortalRole, PortalUser,
+    PortalUserStatus, SlaCalendar, Ticket, TimeEntry, TimerSession,
 };
 use core_domain::policy::BuiltinRole;
 use core_domain::status::{NoteKind, Priority, TicketStatusCategory};
@@ -3111,12 +3111,221 @@ async fn day_activity_detects_comments_and_overlapping_timer_sessions() {
 
     // A comment inside the window counts.
     let ticket = {
+// --- client portal v1 (TASKLIST 2.13) ----------------------------------------
+//
+// Slots 100–109 are this lane's exclusive seed range. The matrix below pins:
+// RLS on all three new tables, per-CLIENT scoping on top of org RLS (the
+// cross-client isolation contract), exposure gating + status narrowing,
+// the portal session family, and portal-tier audit provenance.
+
+/// Seeds one client in an already-seeded org.
+async fn seed_client(app: &PgPool, s: &Seeded, n: u64, name: &str) -> Uuid {
+    let id = fixed_uuid(n);
+    let mut tx = org_tx(app, s.org).await;
+    core_db::clients::create_client(&mut *tx, s.org, id, name, None)
+        .await
+        .expect("client insert");
+    tx.commit().await.expect("commit client");
+    id
+}
+
+async fn create_portal_user(
+    conn: &mut PgConnection,
+    s: &Seeded,
+    client_id: Uuid,
+    n: u64,
+    email: &str,
+    role: PortalRole,
+) -> DbResult<PortalUser> {
+    portal::create_portal_user(
+        conn,
+        portal::NewPortalUser {
+            id: fixed_uuid(n),
+            org_id: s.org,
+            client_id,
+            email,
+            display_name: "Portal Person",
+            password_hash: "argon2hash",
+            role,
+        },
+    )
+    .await
+}
+
+#[tokio::test]
+async fn portal_users_lifecycle_rls_and_client_scoping() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 100).await;
+    let client_a = seed_client(&db.app, &s, 1010, "Client A").await;
+    let client_b = seed_client(&db.app, &s, 1011, "Client B").await;
+
+    let ua = {
+        let mut tx = org_tx(&db.app, s.org).await;
+        let u = create_portal_user(
+            &mut tx,
+            &s,
+            client_a,
+            1012,
+            "a@client.test",
+            PortalRole::Contact,
+        )
+        .await
+        .expect("insert");
+        tx.commit().await.expect("commit");
+        u
+    };
+    assert_eq!(ua.status, PortalUserStatus::Invited);
+    assert_eq!(ua.role, PortalRole::Contact);
+    assert_eq!(ua.client_id, client_a);
+
+    // Same email under the SAME org → unique violation. Runs in its OWN
+    // transaction: a violated constraint aborts its transaction in
+    // Postgres, and we still need this one afterwards.
+    {
+        let mut dup_tx = org_tx(&db.app, s.org).await;
+        assert!(create_portal_user(
+            &mut dup_tx,
+            &s,
+            client_b,
+            1013,
+            "a@client.test",
+            PortalRole::ItManager
+        )
+        .await
+        .is_err());
+        dup_tx.rollback().await.expect("rollback dup probe");
+    }
+    {
+        let mut tx = org_tx(&db.app, s.org).await;
+        let it = create_portal_user(
+            &mut tx,
+            &s,
+            client_b,
+            1014,
+            "it@client.test",
+            PortalRole::ItManager,
+        )
+        .await
+        .expect("second identity");
+
+        // Client-scoped directory listing.
+        let for_a = portal::list_portal_users(&mut *tx, s.org, Some(client_a))
+            .await
+            .expect("list A");
+        assert_eq!(for_a.len(), 1);
+        assert_eq!(for_a[0].id, ua.id);
+        let for_b = portal::list_portal_users(&mut *tx, s.org, Some(client_b))
+            .await
+            .expect("list B");
+        assert_eq!(for_b.len(), 1);
+        assert_eq!(for_b[0].role, PortalRole::ItManager);
+
+        // Patch: re-tier + activate + password reset.
+        let patched = portal::update_portal_user(
+            &mut *tx,
+            s.org,
+            ua.id,
+            portal::PortalUserPatch {
+                display_name: None,
+                role: Some(PortalRole::Approver),
+                status: Some(PortalUserStatus::Active),
+                password_hash: Some("new-hash".into()),
+            },
+        )
+        .await
+        .expect("patch");
+        assert_eq!(patched.role, PortalRole::Approver);
+        assert_eq!(patched.status, PortalUserStatus::Active);
+
+        // Credentials lookup is case-insensitive and org-scoped.
+        let creds = portal::find_portal_credentials_by_email(&mut *tx, s.org, "IT@CLIENT.TEST")
+            .await
+            .expect("creds")
+            .expect("found");
+        assert_eq!(creds.id, it.id);
+        assert!(
+            portal::find_portal_credentials_by_email(&mut *tx, s.org, "nobody@x.test")
+                .await
+                .expect("creds")
+                .is_none()
+        );
+
+        // First-login activation only flips invited rows.
+        portal::activate_on_first_login(&mut *tx, s.org, it.id)
+            .await
+            .expect("activate");
+        portal::activate_on_first_login(&mut *tx, s.org, it.id)
+            .await
+            .expect("re-activate noop");
+        let active = portal::get_portal_user(&mut *tx, s.org, it.id)
+            .await
+            .expect("get");
+        assert_eq!(active.status, PortalUserStatus::Active);
+        tx.commit().await.expect("commit lifecycle tx");
+    }
+
+    // Foreign org: zero visibility (RLS), even with the exact uuid.
+    let sb = seed_org(&db.app, 105).await;
+    {
+        let mut foreign = org_tx(&db.app, sb.org).await;
+        assert!(matches!(
+            portal::get_portal_user(&mut *foreign, s.org, ua.id).await,
+            Err(DbError::NotFound)
+        ));
+        assert_eq!(
+            count_rows(&mut foreign, "portal_users", ua.id).await,
+            0,
+            "cross-org portal users hidden"
+        );
+        assert_eq!(
+            count_rows(&mut foreign, "board_portal_exposure", fixed_uuid(1020)).await,
+            0
+        );
+        assert_eq!(
+            count_rows(&mut foreign, "portal_sessions", fixed_uuid(1030)).await,
+            0
+        );
+    }
+
+    // Unscoped (virgin pool): default-deny across ALL new tables.
+    {
+        let fresh = db.fresh_app_pool().await;
+        let mut tx = fresh.begin().await.expect("begin unscoped");
+        assert_eq!(count_rows(&mut tx, "portal_users", ua.id).await, 0);
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM board_portal_exposure")
+                .fetch_one(&mut *tx)
+                .await
+                .expect("count"),
+            0
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM portal_sessions")
+                .fetch_one(&mut *tx)
+                .await
+                .expect("count"),
+            0
+        );
+    }
+}
+
+#[tokio::test]
+async fn portal_ticket_reads_never_cross_clients_and_honor_exposure() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 106).await;
+    let client_a = seed_client(&db.app, &s, 1040, "Cross-check Co").await;
+    let client_b = seed_client(&db.app, &s, 1041, "Other Co").await;
+
+    // Two tickets on the SAME board, one per client.
+    let ticket_a = {
         let mut tx = org_tx(&db.app, s.org).await;
         let t = create_ticket(
             &mut tx,
             &s,
             fixed_uuid(6201),
             "Activity probe",
+            fixed_uuid(1042),
+            "Client A issue",
             Priority::P2,
             s.entry_status,
             None,
@@ -3744,4 +3953,371 @@ async fn my_work_annotated_orders_priority_then_sla_due() {
     assert!(!rows
         .iter()
         .any(|r| r.ticket.category == TicketStatusCategory::Closed));
+        // Attach client A via direct update (helper leaves client NULL).
+        sqlx::query("UPDATE tickets SET client_id = $1 WHERE id = $2 AND org_id = $3")
+            .bind(client_a)
+            .bind(fixed_uuid(1042))
+            .bind(s.org)
+            .execute(&mut *tx)
+            .await
+            .expect("attach client");
+        tx.commit().await.expect("commit A");
+        t
+    };
+    let ticket_b = {
+        let mut tx = org_tx(&db.app, s.org).await;
+        let t = create_ticket(
+            &mut tx,
+            &s,
+            fixed_uuid(1043),
+            "Client B secret",
+            Priority::P1,
+            s.entry_status,
+            None,
+        )
+        .await;
+        sqlx::query("UPDATE tickets SET client_id = $1 WHERE id = $2 AND org_id = $3")
+            .bind(client_b)
+            .bind(fixed_uuid(1043))
+            .bind(s.org)
+            .execute(&mut *tx)
+            .await
+            .expect("attach client");
+        tx.commit().await.expect("commit B");
+        t
+    };
+
+    // Exposure exists ONLY for client A.
+    {
+        let mut tx = org_tx(&db.app, s.org).await;
+        portal::upsert_exposure(
+            &mut *tx,
+            portal::NewExposure {
+                org_id: s.org,
+                board_id: s.board,
+                client_id: client_a,
+                exposed: true,
+                visible_status_ids: vec![],
+            },
+        )
+        .await
+        .expect("expose board to A");
+        tx.commit().await.expect("commit exposure");
+    }
+
+    // Client A sees its own ticket; client B's ticket is NotFound — same
+    // org, same board, different client. This is THE isolation matrix row.
+    {
+        let mut tx = org_tx(&db.app, s.org).await;
+        let listed = portal::list_client_tickets(
+            &mut *tx,
+            s.org,
+            client_a,
+            portal::PortalTicketFilter {
+                board_id: None,
+                category: None,
+                limit: 50,
+                offset: 0,
+            },
+        )
+        .await
+        .expect("list for A");
+        assert_eq!(listed.len(), 1, "only own ticket");
+        assert_eq!(listed[0].id, ticket_a.id);
+
+        assert!(matches!(
+            portal::get_client_ticket(&mut *tx, s.org, client_a, ticket_b.id).await,
+            Err(DbError::NotFound)
+        ));
+        assert!(
+            matches!(
+                portal::get_client_ticket(&mut *tx, s.org, client_b, ticket_b.id).await,
+                Err(DbError::NotFound),
+            ),
+            "unexposed board hides client B's own ticket too"
+        );
+    }
+
+    // Status narrowing: expose to B restricted to the ENTRY status only —
+    // a waiting-status ticket disappears from the list.
+    {
+        let waiting = {
+            let mut tx = org_tx(&db.app, s.org).await;
+            let t = create_ticket(
+                &mut tx,
+                &s,
+                fixed_uuid(1044),
+                "Client B waiting",
+                Priority::P3,
+                s.waiting_status,
+                None,
+            )
+            .await;
+            sqlx::query("UPDATE tickets SET client_id = $1 WHERE id = $2 AND org_id = $3")
+                .bind(client_b)
+                .bind(fixed_uuid(1044))
+                .bind(s.org)
+                .execute(&mut *tx)
+                .await
+                .expect("attach client");
+            tx.commit().await.expect("commit");
+            t
+        };
+        let mut tx = org_tx(&db.app, s.org).await;
+        portal::upsert_exposure(
+            &mut *tx,
+            portal::NewExposure {
+                org_id: s.org,
+                board_id: s.board,
+                client_id: client_b,
+                exposed: true,
+                visible_status_ids: vec![s.entry_status],
+            },
+        )
+        .await
+        .expect("narrow exposure");
+        tx.commit().await.expect("commit narrow");
+
+        let mut tx = org_tx(&db.app, s.org).await;
+        let listed = portal::list_client_tickets(
+            &mut *tx,
+            s.org,
+            client_b,
+            portal::PortalTicketFilter {
+                board_id: None,
+                category: None,
+                limit: 50,
+                offset: 0,
+            },
+        )
+        .await
+        .expect("list for B");
+        assert_eq!(listed.len(), 1, "narrowed status hides the waiting ticket");
+        assert_eq!(listed[0].id, ticket_b.id);
+        assert!(matches!(
+            portal::get_client_ticket(&mut *tx, s.org, client_b, waiting.id).await,
+            Err(DbError::NotFound)
+        ));
+    }
+
+    // Category filter path stays consistent with the join.
+    let mut tx = org_tx(&db.app, s.org).await;
+    let open_only = portal::list_client_tickets(
+        &mut *tx,
+        s.org,
+        client_a,
+        portal::PortalTicketFilter {
+            board_id: None,
+            category: Some(TicketStatusCategory::Open),
+            limit: 50,
+            offset: 0,
+        },
+    )
+    .await
+    .expect("category list");
+    assert_eq!(open_only.len(), 1);
+}
+
+#[tokio::test]
+async fn portal_sessions_are_a_disjoint_token_family() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 107).await;
+    let client = seed_client(&db.app, &s, 1050, "Session Co").await;
+    let pu = {
+        let mut tx = org_tx(&db.app, s.org).await;
+        let u = create_portal_user(
+            &mut tx,
+            &s,
+            client,
+            1051,
+            "sess@client.test",
+            PortalRole::Contact,
+        )
+        .await
+        .expect("insert");
+        portal::update_portal_user(
+            &mut *tx,
+            s.org,
+            u.id,
+            portal::PortalUserPatch {
+                display_name: None,
+                role: None,
+                status: Some(PortalUserStatus::Active),
+                password_hash: None,
+            },
+        )
+        .await
+        .expect("activate");
+        tx.commit().await.expect("commit");
+        u
+    };
+
+    let session_id = fixed_uuid(1052);
+    let refresh_hash = "deadbeef-hash";
+    {
+        let mut tx = org_tx(&db.app, s.org).await;
+        portal::create_session(
+            &mut *tx,
+            session_id,
+            s.org,
+            pu.id,
+            refresh_hash,
+            Some("test-agent"),
+            FUTURE,
+        )
+        .await
+        .expect("session insert");
+        tx.commit().await.expect("commit session");
+    }
+
+    // Live session resolves through the SECURITY DEFINER bridge.
+    let resolved = sqlx::query_as::<_, (Uuid, Uuid, Uuid)>(
+        "SELECT portal_user_id, org_id, client_id FROM portal_resolve_session($1, $2)",
+    )
+    .bind(session_id)
+    .bind(refresh_hash)
+    .fetch_optional(&db.admin)
+    .await
+    .expect("resolve");
+    assert_eq!(resolved, Some((pu.id, s.org, client)));
+
+    // Wrong token hash resolves to nothing.
+    let wrong = sqlx::query_as::<_, (Uuid, Uuid, Uuid)>(
+        "SELECT portal_user_id, org_id, client_id FROM portal_resolve_session($1, $2)",
+    )
+    .bind(session_id)
+    .bind("not-the-hash")
+    .fetch_optional(&db.admin)
+    .await
+    .expect("resolve");
+    assert_eq!(wrong, None);
+
+    // Rotation revokes; replay then fails closed.
+    {
+        let mut tx = org_tx(&db.app, s.org).await;
+        portal::revoke_session(&mut *tx, session_id)
+            .await
+            .expect("revoke");
+        tx.commit().await.expect("commit revoke");
+    }
+    let replayed = sqlx::query_as::<_, (Uuid, Uuid, Uuid)>(
+        "SELECT portal_user_id, org_id, client_id FROM portal_resolve_session($1, $2)",
+    )
+    .bind(session_id)
+    .bind(refresh_hash)
+    .fetch_optional(&db.admin)
+    .await
+    .expect("resolve after revoke");
+    assert_eq!(replayed, None);
+
+    // Login resolver skips disabled identities entirely.
+    let login = sqlx::query_as::<_, (Uuid, Uuid, Uuid)>(
+        "SELECT portal_user_id, org_id, client_id FROM portal_resolve_login($1)",
+    )
+    .bind("sess@client.test")
+    .fetch_optional(&db.admin)
+    .await
+    .expect("login resolve");
+    assert_eq!(login, Some((pu.id, s.org, client)));
+    {
+        let mut tx = org_tx(&db.app, s.org).await;
+        portal::update_portal_user(
+            &mut *tx,
+            s.org,
+            pu.id,
+            portal::PortalUserPatch {
+                display_name: None,
+                role: None,
+                status: Some(PortalUserStatus::Disabled),
+                password_hash: None,
+            },
+        )
+        .await
+        .expect("disable");
+        tx.commit().await.expect("commit disable");
+    }
+    let disabled = sqlx::query_as::<_, (Uuid, Uuid, Uuid)>(
+        "SELECT portal_user_id, org_id, client_id FROM portal_resolve_login($1)",
+    )
+    .bind("sess@client.test")
+    .fetch_optional(&db.admin)
+    .await
+    .expect("login resolve disabled");
+    assert_eq!(disabled, None, "disabled identities never resolve");
+}
+
+#[tokio::test]
+async fn portal_audit_provenance_roundtrips_per_tier() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 108).await;
+    let actors = [
+        (Actor::PortalContact(fixed_uuid(1060)), "portal_contact"),
+        (Actor::PortalApprover(fixed_uuid(1061)), "portal_approver"),
+        (
+            Actor::PortalItManager(fixed_uuid(1062)),
+            "portal_it_manager",
+        ),
+    ];
+    {
+        let mut tx = org_tx(&db.app, s.org).await;
+        for (actor, _) in &actors {
+            audit::insert(
+                &mut *tx,
+                &AuditEvent {
+                    id: Uuid::now_v7(),
+                    org_id: s.org,
+                    actor: actor.clone(),
+                    action: "portal.ticket_reply".into(),
+                    entity_type: Some("ticket_comment".into()),
+                    entity_id: Some(Uuid::now_v7().to_string()),
+                    detail: serde_json::json!({}),
+                    ip: None,
+                    occurred_at: chrono::Utc::now(),
+                },
+            )
+            .await
+            .expect("audit insert");
+        }
+        tx.commit().await.expect("commit audits");
+    }
+    let mut tx = org_tx(&db.app, s.org).await;
+    let events = audit::list(&mut *tx, s.org, 100, None).await.expect("list");
+    for (actor, expected_kind) in &actors {
+        let stored = events
+            .iter()
+            .find(|e| e.actor == *actor)
+            .unwrap_or_else(|| {
+                panic!("actor {expected_kind} round-tripped");
+            });
+        // The stored actor must deserialize back to the SAME tier variant —
+        // provenance survives the storage layer exactly.
+        let kind_in_db: String = sqlx::query_scalar(
+            "SELECT actor_kind FROM audit_events WHERE org_id = $1 AND actor_id = $2",
+        )
+        .bind(s.org)
+        .bind(match actor {
+            Actor::PortalContact(u) | Actor::PortalApprover(u) | Actor::PortalItManager(u) => {
+                u.to_string()
+            }
+            _ => unreachable!(),
+        })
+        .fetch_one(&mut *tx)
+        .await
+        .expect("kind");
+        assert_eq!(kind_in_db.as_str(), *expected_kind);
+        assert!(stored.action.starts_with("portal."));
+    }
+
+    // The widened CHECK still rejects unknown kinds.
+    let rejected = sqlx::query(
+        "INSERT INTO audit_events (id, org_id, actor_kind, action) VALUES ($1, $2, 'wizard', 'x')",
+    )
+    .bind(Uuid::now_v7())
+    .bind(s.org)
+    .execute(&mut *tx)
+    .await;
+    assert!(
+        rejected.is_err(),
+        "unknown actor_kind must violate the CHECK"
+    );
 }

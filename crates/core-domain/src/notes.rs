@@ -1,11 +1,12 @@
 //! Structured-notes taxonomy + pre-close checklist gate — pure policy core.
 //!
 //! Purpose: the single source of truth for (a) which note kinds a viewing
-//! audience may see, and (b) whether a ticket may close given its required
-//! checklist state and the board's enforcement posture. Both decisions are
-//! pure functions over injected data, so portal surfaces, staff UI, API
-//! routes, and reports all inherit one auditable verdict instead of
-//! re-implementing visibility ad hoc.
+//! audience may see — including the portal v1 tiers where even the client
+//! IT-manager tier can NEVER read `internal` — and (b) whether a ticket may
+//! close given its required checklist state and the board's enforcement
+//! posture. Both decisions are pure functions over injected data, so portal
+//! surfaces, staff UI, API routes, and reports all inherit one auditable
+//! verdict instead of re-implementing visibility ad hoc.
 //!
 //! Non-purpose: no persistence, no HTTP, no permission checks against
 //! roles (that is `policy`) — callers fetch items/templates and feed them
@@ -15,23 +16,32 @@ use crate::entities::ChecklistItem;
 use crate::status::NoteKind;
 
 /// A surface's note-visibility class. Staff surfaces see the full taxonomy;
-/// client-facing surfaces (portal v1, client emails) are hard-limited to
-/// client-visible notes.
+/// client-facing surfaces (portal v1, client emails) are hard-limited:
+/// plain portal tiers get client-visible notes only, and the portal
+/// IT-manager tier additionally gets in-house updates. NO portal audience
+/// can ever read `internal` notes — this is the enforcement contract the
+/// API layer consumes, not a UI convention.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NoteAudience {
     /// Internal staff surface: internal notes, in-house updates, and
     /// client-visible notes are all readable.
     Staff,
     /// Client-facing surface: ONLY `client_visible` notes are readable.
-    /// `in_house_update` is deliberately NOT portal-readable — it is a
-    /// staff-only coordination variant distinct from internal notes for
-    /// reporting/filtering.
+    /// `in_house_update` is deliberately NOT readable at this tier — it is
+    /// a staff-coordination variant reserved for the IT-manager tier below.
     Portal,
+    /// Portal IT-manager tier (portal v1): `client_visible` PLUS
+    /// `in_house_update`. The widening is deliberate and narrow — in-house
+    /// updates are the "here's what we're doing internally" coordination
+    /// notes an MSP shares with its client's IT lead; `internal` remains
+    /// staff-only for EVERY portal role, without exception.
+    PortalItManager,
 }
 
 /// The kinds an audience may read, in taxonomy order. Portal returns
-/// exactly one kind — this slice IS the enforcement contract consumed by
-/// query filters (`core-db` passes it as the kind whitelist).
+/// exactly one kind at the contact tier (two at the IT-manager tier) —
+/// this slice IS the enforcement contract consumed by query filters
+/// (`core-db` passes it as the kind whitelist).
 pub const fn visible_kinds(audience: NoteAudience) -> &'static [NoteKind] {
     match audience {
         NoteAudience::Staff => &[
@@ -40,6 +50,7 @@ pub const fn visible_kinds(audience: NoteAudience) -> &'static [NoteKind] {
             NoteKind::InHouseUpdate,
         ],
         NoteAudience::Portal => &[NoteKind::ClientVisible],
+        NoteAudience::PortalItManager => &[NoteKind::ClientVisible, NoteKind::InHouseUpdate],
     }
 }
 
@@ -47,10 +58,13 @@ pub const fn visible_kinds(audience: NoteAudience) -> &'static [NoteKind] {
 /// `visible_kinds` for queries; use this for per-row decisions (e.g.
 /// filtering already-fetched lists or guarding a single-note fetch).
 pub const fn visible_to(kind: NoteKind, audience: NoteAudience) -> bool {
-    matches!(
-        (kind, audience),
-        (_, NoteAudience::Staff) | (NoteKind::ClientVisible, NoteAudience::Portal)
-    )
+    match audience {
+        NoteAudience::Staff => true,
+        NoteAudience::Portal => matches!(kind, NoteKind::ClientVisible),
+        NoteAudience::PortalItManager => {
+            matches!(kind, NoteKind::ClientVisible | NoteKind::InHouseUpdate)
+        }
+    }
 }
 
 /// Why a close attempt was refused. `missing` carries the unchecked
@@ -128,6 +142,25 @@ mod tests {
     }
 
     #[test]
+    fn portal_it_manager_gets_in_house_updates_but_never_internal() {
+        // The v1 IT-manager rule, pinned here: the tier widens visibility
+        // by EXACTLY one kind. `internal` is unreachable from any portal
+        // audience — if this assertion ever fails, the portal has a leak.
+        assert_eq!(
+            visible_kinds(NoteAudience::PortalItManager),
+            [NoteKind::ClientVisible, NoteKind::InHouseUpdate]
+        );
+        assert!(!visible_to(
+            NoteKind::Internal,
+            NoteAudience::PortalItManager
+        ));
+        assert!(visible_to(
+            NoteKind::InHouseUpdate,
+            NoteAudience::PortalItManager
+        ));
+    }
+
+    #[test]
     fn per_row_visibility_matrix_is_exact() {
         const ALL: [NoteKind; 3] = [
             NoteKind::Internal,
@@ -140,6 +173,11 @@ mod tests {
                 visible_to(kind, NoteAudience::Portal),
                 kind == NoteKind::ClientVisible,
                 "{kind:?} for portal"
+            );
+            assert_eq!(
+                visible_to(kind, NoteAudience::PortalItManager),
+                matches!(kind, NoteKind::ClientVisible | NoteKind::InHouseUpdate),
+                "{kind:?} for portal it_manager"
             );
         }
     }

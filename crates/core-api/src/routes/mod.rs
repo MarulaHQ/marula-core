@@ -11,6 +11,8 @@ pub mod internal;
 pub mod notifications;
 pub mod oidc;
 pub mod openapi;
+pub mod portal;
+pub mod portal_admin;
 pub mod settings;
 pub mod sla_admin;
 pub mod tickets;
@@ -73,6 +75,23 @@ pub fn build_router(state: AppState) -> Router {
             "/api/internal/time/gap-audit/run",
             post(internal::run_gap_audit),
         );
+
+    // Client-portal v1: public auth endpoints + a DEDICATED middleware for
+    // the authenticated surface. Portal tokens (kind:"portal") never pass
+    // require_auth, staff tokens never pass require_portal_auth.
+    let portal_protected = Router::new()
+        .route("/api/portal/me", get(portal::me))
+        .route("/api/portal/tickets", get(portal::list_tickets))
+        .route("/api/portal/tickets/{id}", get(portal::get_ticket))
+        .route("/api/portal/tickets/{id}/reply", post(portal::reply))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            portal::require_portal_auth,
+        ));
+    let public = public
+        .route("/api/portal/login", post(portal::login))
+        .route("/api/portal/refresh", post(portal::refresh))
+        .merge(portal_protected);
 
     let protected = Router::new()
         .route("/api/me", get(auth_handlers::me))
@@ -287,6 +306,20 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/boards/{id}/inbound-address",
             put(email_admin::put_board_inbound_address),
+        )
+        // portal administration (staff, PortalAdmin grant)
+        .route(
+            "/api/clients/{id}/portal-users",
+            get(portal_admin::list_portal_users).post(portal_admin::create_portal_user),
+        )
+        .route(
+            "/api/portal-users/{id}",
+            axum::routing::patch(portal_admin::patch_portal_user)
+                .delete(portal_admin::delete_portal_user),
+        )
+        .route(
+            "/api/clients/{id}/board-exposures",
+            get(portal_admin::list_board_exposures).put(portal_admin::put_board_exposure),
         )
         .layer(middleware::from_fn_with_state(state.clone(), require_auth));
 

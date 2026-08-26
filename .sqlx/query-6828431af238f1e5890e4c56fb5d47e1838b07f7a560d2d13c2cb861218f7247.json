@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE portal_users SET status = 'active', updated_at = now()\n           WHERE org_id = $1 AND id = $2 AND status = 'invited'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6828431af238f1e5890e4c56fb5d47e1838b07f7a560d2d13c2cb861218f7247"
+}

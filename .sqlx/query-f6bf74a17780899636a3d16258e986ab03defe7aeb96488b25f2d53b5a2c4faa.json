@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO portal_sessions (id, org_id, portal_user_id, refresh_token_hash, user_agent, expires_at)\n           VALUES ($1, $2, $3, $4, $5, $6)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f6bf74a17780899636a3d16258e986ab03defe7aeb96488b25f2d53b5a2c4faa"
+}
