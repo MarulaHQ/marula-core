@@ -12,6 +12,8 @@ path = "src/main.rs"
 core-db = { path = "../core-db" }
 core-domain = { path = "../core-domain", features = ["openapi"] }
 core-events = { path = "../core-events" }
+core-mail = { path = "../core-mail" }
+subtle = { workspace = true }
 axum = { workspace = true }
 sqlx = { workspace = true }
 serde = { workspace = true }

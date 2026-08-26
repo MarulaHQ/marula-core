@@ -11,6 +11,7 @@
 pub mod audit;
 pub mod boards;
 pub mod clients;
+pub mod emails;
 pub mod notifications;
 pub mod orgs;
 pub mod outbox;

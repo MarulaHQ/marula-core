@@ -71,6 +71,8 @@ impl ClaimedOutbound {
 pub struct SendResult {
     pub id: uuid::Uuid,
     pub ok: bool,
+    /// Attempts the worker made for this claim batch (drives backoff).
+    pub attempts: i32,
     #[serde(default)]
     pub provider_message_id: Option<String>,
     /// Error detail when `ok` is false — persisted as last_error.
@@ -114,6 +116,7 @@ mod tests {
             results: vec![SendResult {
                 id: claimed.id,
                 ok: false,
+                attempts: 1,
                 provider_message_id: None,
                 error: Some("smtp down".into()),
             }],

@@ -92,3 +92,10 @@ CREATE POLICY email_outbound_org ON email_outbound
 ALTER TABLE email_inbound_settings ENABLE ROW LEVEL SECURITY;
 CREATE POLICY email_inbound_settings_org ON email_inbound_settings
   USING (org_id = current_setting('app.org_id', true)::uuid);
+
+-- The outbound send pipeline claims due messages across ALL orgs inside
+-- core-api, whose login (`meridian_app`) is deliberately RLS-constrained.
+-- This membership lets core-api `SET LOCAL ROLE meridian` for exactly the
+-- claim/report transactions — single-writer preserved, RLS still applies
+-- to every user-facing request path.
+GRANT meridian TO meridian_app;

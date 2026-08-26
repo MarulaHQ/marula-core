@@ -67,6 +67,12 @@ mod tests {
             access_ttl_secs: 900,
             refresh_ttl_secs: 86_400,
             cors_origin: None,
+            email_inbound_hmac_secret: None,
+            email_internal_token: None,
+            email_transport: core_mail::TransportKind::None,
+            email_scan_clamd_addr: None,
+            email_from_address: "support@meridian.local".into(),
+            email_from_name: None,
         }
     }
 

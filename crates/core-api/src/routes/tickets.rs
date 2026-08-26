@@ -454,6 +454,8 @@ pub async fn add_comment(
     }
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
+    let requester_email = authed.principal.user.email.clone();
+    let mail = std::sync::Arc::clone(&state.mail);
 
     let comment = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         let comment = core_db::tickets::insert_comment(
@@ -491,6 +493,39 @@ pub async fn add_comment(
                 Some(req.body.trim()),
             )
             .await?;
+        }
+
+        // Email-out v1: client-visible replies notify the requester
+        // (skipped when the author IS the requester or the requester has
+        // no account email). Enqueue-only here; the worker transports.
+        if req.kind == NoteKind::ClientVisible {
+            if let Ok(ticket) = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id).await {
+                if let Some(requester_id) = ticket.requester_id {
+                    if let Ok(requester) =
+                        core_db::users::get_user(&mut *ctx.tx, org_id, requester_id).await
+                    {
+                        if requester.is_active
+                            && !requester.email.eq_ignore_ascii_case(&requester_email)
+                        {
+                            crate::email::enqueue_outbound(
+                                &mut ctx.tx,
+                                &mail,
+                                org_id,
+                                &[requester.email],
+                                &core_mail::outbound::OutboundKind::CommentNotification {
+                                    ticket_number: ticket.number.0.clone(),
+                                    ticket_title: ticket.title.clone(),
+                                    excerpt: core_mail::outbound::excerpt(req.body.trim(), 280),
+                                },
+                                None,
+                                Vec::new(),
+                                Some(id),
+                            )
+                            .await?;
+                        }
+                    }
+                }
+            }
         }
 
         ctx.emit(
