@@ -846,6 +846,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/boards/{id}/fields": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/boards/{id}/fields — active ticket definitions governing this
+         *     board (org-wide plus board-owned), sort-order stable.
+         */
+        get: operations["fields_list_for_board"];
+        put?: never;
+        /**
+         * POST /api/boards/{id}/fields — creates a board-scoped definition
+         *     (board-admin gated); emits `custom_field.def_created`.
+         */
+        post: operations["fields_create_def"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/boards/{id}/fields/{field_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/boards/{id}/fields/{field_id} — removes the definition and
+         *     cascades its stored values; emits `custom_field.def_removed`.
+         */
+        delete: operations["fields_delete_def"];
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/boards/{id}/fields/{field_id} — partial edit of a board-owned
+         *     definition. Kind is immutable (it would orphan stored values); emit
+         *     `custom_field.def_updated` on success.
+         */
+        patch: operations["fields_update_def"];
+        trace?: never;
+    };
     "/api/boards/{id}/group": {
         parameters: {
             query?: never;
@@ -1825,12 +1874,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** GET /api/tickets — filtered, priority-ordered list. */
+        /**
+         * GET /api/tickets — filtered, priority-ordered list; each row carries its
+         *     custom-field values (TASKLIST 2.17) fetched in one batched query.
+         */
         get: operations["tickets_list"];
         put?: never;
         /**
          * POST /api/tickets — allocates the human ticket number, initializes SLA
-         *     clocks, and emits `ticket.created` — all in one transaction.
+         *     clocks, validates + stores any initial custom-field values (REQUIRED
+         *     definitions enforced), and emits `ticket.created` — all in one transaction.
          */
         post: operations["tickets_create"];
         delete?: never;
@@ -1875,8 +1928,10 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * PATCH /api/tickets/{id} — partial update; emits `ticket.updated` and
-         *     `ticket.assigned` when the assignee changes.
+         * PATCH /api/tickets/{id} — partial update; validates + upserts any
+         *     provided custom-field values; emits `ticket.updated`,
+         *     `ticket.field_set` (per changed field), and `ticket.assigned` when the
+         *     assignee changes.
          */
         patch: operations["tickets_patch"];
         trace?: never;
@@ -1988,6 +2043,31 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tickets/{id}/fields/{field_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * PUT /api/tickets/{id}/fields/{field_id} — validates the incoming JSON
+         *     against the definition (kind coercion, option membership) and stores the
+         *     canonical encoding; emits `ticket.field_set`.
+         */
+        put: operations["fields_set_ticket_value"];
+        post?: never;
+        /**
+         * DELETE /api/tickets/{id}/fields/{field_id} — clears one value; refuses
+         *     (422) to empty a REQUIRED definition; emits `ticket.field_cleared`.
+         */
+        delete: operations["fields_clear_ticket_value"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2325,80 +2405,6 @@ export interface paths {
          */
         post: operations["webhooks_test_fire"];
         delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/boards/{id}/fields": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * GET /api/boards/{id}/fields — active ticket definitions governing this
-         *     board (org-wide plus board-owned), sort-order stable.
-         */
-        get: operations["fields_list_for_board"];
-        put?: never;
-        /**
-         * POST /api/boards/{id}/fields — creates a board-scoped definition
-         *     (board-admin gated); emits `custom_field.def_created`.
-         */
-        post: operations["fields_create_def"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/boards/{id}/fields/{field_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * DELETE /api/boards/{id}/fields/{field_id} — removes the definition and
-         *     cascades its stored values; emits `custom_field.def_removed`.
-         */
-        delete: operations["fields_delete_def"];
-        options?: never;
-        head?: never;
-        /**
-         * PATCH /api/boards/{id}/fields/{field_id} — partial edit of a board-owned
-         *     definition. Kind is immutable (it would orphan stored values); emit
-         *     `custom_field.def_updated` on success.
-         */
-        patch: operations["fields_update_def"];
-        trace?: never;
-    };
-    "/api/tickets/{id}/fields/{field_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * PUT /api/tickets/{id}/fields/{field_id} — validates the incoming JSON
-         *     against the definition (kind coercion, option membership) and stores the
-         *     canonical encoding; emits `ticket.field_set`.
-         */
-        put: operations["fields_set_ticket_value"];
-        post?: never;
-        /**
-         * DELETE /api/tickets/{id}/fields/{field_id} — clears one value; refuses
-         *     (422) to empty a REQUIRED definition; emits `ticket.field_cleared`.
-         */
-        delete: operations["fields_clear_ticket_value"];
         options?: never;
         head?: never;
         patch?: never;
@@ -3150,6 +3156,14 @@ export interface components {
             /** Format: uuid */
             user_id?: string | null;
         };
+        CreateFieldDefRequest: {
+            kind: components["schemas"]["FieldKindWire"];
+            name: string;
+            options?: string[];
+            required?: boolean;
+            /** Format: int32 */
+            sort_order?: number;
+        };
         CreateGroupRequest: {
             name: string;
             /** Format: int32 */
@@ -3221,17 +3235,17 @@ export interface components {
             client_id?: string | null;
             /** Format: uuid */
             contact_id?: string | null;
+            /**
+             * @description Initial custom-field values; each is validated against its
+             *     definition. REQUIRED definitions must all be present (TASKLIST 2.17).
+             */
+            custom_fields?: components["schemas"]["TicketFieldInput"][];
             /** Format: date-time */
             due_at?: string | null;
             priority: components["schemas"]["Priority"];
             /** Format: uuid */
             site_id?: string | null;
             title: string;
-            /**
-             * @description Initial custom-field values; each is validated against its
-             *     definition. REQUIRED definitions must all be present (TASKLIST 2.17).
-             */
-            custom_fields?: components["schemas"]["TicketFieldInput"][];
         };
         CreateTimeEntryRequest: {
             billable: boolean;
@@ -3366,6 +3380,35 @@ export interface components {
             board_id: string;
             favorite: boolean;
         };
+        /**
+         * @description Wire view of one field definition; choice kinds carry their closed
+         *     option set so generated clients can render editors directly.
+         */
+        FieldDefView: {
+            /**
+             * Format: uuid
+             * @description Owning board (`None` = org-wide; v1 always creates board-scoped).
+             */
+            board_id?: string | null;
+            entity: string;
+            /** Format: uuid */
+            id: string;
+            kind: string;
+            name: string;
+            /** @description Closed option set for select/multiselect; empty otherwise. */
+            options: string[];
+            /** Format: uuid */
+            org_id: string;
+            required: boolean;
+            /** Format: int32 */
+            sort_order: number;
+        };
+        /**
+         * @description The definition kinds (mirror of migration 0009's CHECK set). Kept as a
+         *     string-newtype wire enum so unknown kinds fail validation, not deserialization.
+         * @enum {string}
+         */
+        FieldKindWire: "text" | "number" | "date" | "select" | "multiselect" | "bool" | "url" | "user";
         GapDayView: {
             activity: boolean;
             /** @description Local calendar day (YYYY-MM-DD). */
@@ -3638,17 +3681,17 @@ export interface components {
             client_id?: string | null;
             /** Format: uuid */
             contact_id?: string | null;
+            /**
+             * @description Custom-field values to upsert. Partial semantics: only listed fields
+             *     change, each validated against its definition.
+             */
+            custom_fields?: components["schemas"]["TicketFieldInput"][] | null;
             /** Format: date-time */
             due_at?: string | null;
             priority?: null | components["schemas"]["Priority"];
             /** Format: uuid */
             site_id?: string | null;
             title?: string | null;
-            /**
-             * @description Custom-field values to upsert. Partial semantics: only listed fields
-             *     change, each validated against its definition.
-             */
-            custom_fields?: components["schemas"]["TicketFieldInput"][] | null;
         };
         PauseTimerRequest: {
             /** @description Optional reason, preserved on the segment forever. */
@@ -3918,6 +3961,9 @@ export interface components {
         SetChecklistItemRequest: {
             checked: boolean;
         };
+        SetTicketFieldValueRequest: {
+            value: unknown;
+        };
         SetTransitionsRequest: {
             /**
              * @description The complete allowed matrix. Empty list returns the board to
@@ -4127,6 +4173,26 @@ export interface components {
             /** Format: date-time */
             updated_at?: string | null;
         };
+        /** @description One stored ticket value with its definition context. */
+        TicketCustomFieldValue: {
+            /** Format: uuid */
+            field_id: string;
+            kind: string;
+            name: string;
+            required: boolean;
+            /** Format: int32 */
+            sort_order: number;
+            value: unknown;
+        };
+        /**
+         * @description One value assignment on a ticket create/patch: raw JSON validated against
+         *     its definition server-side.
+         */
+        TicketFieldInput: {
+            /** Format: uuid */
+            field_id: string;
+            value: unknown;
+        };
         TicketListQuery: {
             /** Format: uuid */
             assignee_id?: string | null;
@@ -4195,6 +4261,10 @@ export interface components {
          * @enum {string}
          */
         TicketStatusCategory: "open" | "in_progress" | "waiting" | "closed";
+        /** @description A ticket payload enriched with its custom-field values (detail + list). */
+        TicketWithFields: components["schemas"]["Ticket"] & {
+            custom_fields: components["schemas"]["TicketCustomFieldValue"][];
+        };
         /**
          * @description A durable, reviewable record of worked time. Created from a timer session
          *     or entered manually; subject to bulk review and approval workflows.
@@ -4320,6 +4390,14 @@ export interface components {
             name?: string | null;
             timezone?: string | null;
             windows?: unknown;
+        };
+        UpdateFieldDefRequest: {
+            name?: string | null;
+            /** @description Replaces the option set for choice kinds. */
+            options?: string[] | null;
+            required?: boolean | null;
+            /** Format: int32 */
+            sort_order?: number | null;
         };
         UpdateGroupRequest: {
             name?: string | null;
@@ -4454,78 +4532,6 @@ export interface components {
             /** Format: uuid */
             id: string;
             url: string;
-        };
-        CreateFieldDefRequest: {
-            kind: components["schemas"]["FieldKindWire"];
-            name: string;
-            options?: string[];
-            required?: boolean;
-            /** Format: int32 */
-            sort_order?: number;
-        };
-        /**
-         * @description Wire view of one field definition; choice kinds carry their closed
-         *     option set so generated clients can render editors directly.
-         */
-        FieldDefView: {
-            /**
-             * Format: uuid
-             * @description Owning board (`None` = org-wide; v1 always creates board-scoped).
-             */
-            board_id?: string | null;
-            entity: string;
-            /** Format: uuid */
-            id: string;
-            kind: string;
-            name: string;
-            /** @description Closed option set for select/multiselect; empty otherwise. */
-            options: string[];
-            /** Format: uuid */
-            org_id: string;
-            required: boolean;
-            /** Format: int32 */
-            sort_order: number;
-        };
-        /**
-         * @description The definition kinds (mirror of migration 0009's CHECK set). Kept as a
-         *     string-newtype wire enum so unknown kinds fail validation, not deserialization.
-         * @enum {string}
-         */
-        FieldKindWire: "text" | "number" | "date" | "select" | "multiselect" | "bool" | "url" | "user";
-        SetTicketFieldValueRequest: {
-            value: unknown;
-        };
-        /** @description One stored ticket value with its definition context. */
-        TicketCustomFieldValue: {
-            /** Format: uuid */
-            field_id: string;
-            kind: string;
-            name: string;
-            required: boolean;
-            /** Format: int32 */
-            sort_order: number;
-            value: unknown;
-        };
-        /**
-         * @description One value assignment on a ticket create/patch: raw JSON validated against
-         *     its definition server-side.
-         */
-        TicketFieldInput: {
-            /** Format: uuid */
-            field_id: string;
-            value: unknown;
-        };
-        /** @description A ticket payload enriched with its custom-field values (detail + list). */
-        TicketWithFields: components["schemas"]["Ticket"] & {
-            custom_fields: components["schemas"]["TicketCustomFieldValue"][];
-        };
-        UpdateFieldDefRequest: {
-            name?: string | null;
-            /** @description Replaces the option set for choice kinds. */
-            options?: string[] | null;
-            required?: boolean | null;
-            /** Format: int32 */
-            sort_order?: number | null;
         };
     };
     responses: never;
@@ -5817,6 +5823,105 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    fields_list_for_board: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FieldDefView"][];
+                };
+            };
+        };
+    };
+    fields_create_def: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateFieldDefRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FieldDefView"];
+                };
+            };
+            /** @description invalid definition */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    fields_delete_def: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                field_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    fields_update_def: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                field_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateFieldDefRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FieldDefView"];
+                };
             };
         };
     };
@@ -7519,7 +7624,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Ticket"][];
+                    "application/json": components["schemas"]["TicketWithFields"][];
                 };
             };
         };
@@ -7542,7 +7647,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Ticket"];
+                    "application/json": components["schemas"]["TicketWithFields"];
                 };
             };
             /** @description missing required custom fields or invalid value */
@@ -7815,6 +7920,66 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Attachment"][];
                 };
+            };
+        };
+    };
+    fields_set_ticket_value: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                field_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetTicketFieldValueRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketCustomFieldValue"];
+                };
+            };
+            /** @description value does not validate against the definition */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    fields_clear_ticket_value: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                field_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description field is required and cannot be emptied */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -8298,165 +8463,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["TestFireResponse"];
                 };
-            };
-        };
-    };
-    fields_list_for_board: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FieldDefView"][];
-                };
-            };
-        };
-    };
-    fields_create_def: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateFieldDefRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FieldDefView"];
-                };
-            };
-            /** @description invalid definition */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    fields_delete_def: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-                field_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    fields_update_def: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-                field_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateFieldDefRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FieldDefView"];
-                };
-            };
-        };
-    };
-    fields_set_ticket_value: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-                field_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SetTicketFieldValueRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TicketCustomFieldValue"];
-                };
-            };
-            /** @description value does not validate against the definition */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    fields_clear_ticket_value: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-                field_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description field is required and cannot be emptied */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
         };
     };
