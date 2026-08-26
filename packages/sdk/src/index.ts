@@ -7,6 +7,8 @@ export type {
   MeridianClientOptions,
   MeridianPaths,
   LoginRequest,
+  LoginResult,
+  MfaRequired,
   RegisterRequest,
   TokenPair,
 } from "./client";

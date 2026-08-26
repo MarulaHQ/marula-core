@@ -38,6 +38,19 @@ export interface LoginRequest {
   password: string;
 }
 
+/** Returned when any second factor is enrolled for the account. */
+export interface MfaRequired {
+  mfa_required: true;
+  /** Short-lived bridge token — pass to /api/auth/mfa/verify or the
+   * WebAuthn begin endpoints. Grants NO API access by itself. */
+  mfa_token: string;
+  /** Second factors able to satisfy this login. */
+  methods: string[];
+}
+
+/** Login either yields tokens directly or an MFA challenge bridge. */
+export type LoginResult = TokenPair | MfaRequired;
+
 /**
  * Typed Meridian API client. Generated types come from `paths`; the wrapper
  * adds bearer-token management and the auth endpoints' convenience methods.
@@ -84,8 +97,19 @@ export class MeridianClient {
   }
 
   /** POST /api/auth/login. */
-  async login(body: LoginRequest): Promise<TokenPair> {
-    return this.authCall("/api/auth/login", body);
+  async login(body: LoginRequest): Promise<LoginResult> {
+    const result = await this.authCall("/api/auth/login", body);
+    // MFA-gated logins return a bridge token instead of a token pair.
+    if ("mfa_required" in result && result.mfa_required) {
+      return result;
+    }
+    this.setTokens(result);
+    return result;
+  }
+
+  /** POST /api/auth/mfa/verify — completes an MFA-gated login. */
+  async mfaVerify(body: { mfa_token: string; code: string }): Promise<TokenPair> {
+    return this.authCall("/api/auth/mfa/verify", body);
   }
 
   /** POST /api/auth/refresh — rotates the stored refresh token in place. */
@@ -112,7 +136,12 @@ export class MeridianClient {
   }
 
   private async authCall(
-    path: "/api/auth/register" | "/api/auth/login" | "/api/auth/refresh" | "/api/auth/logout",
+    path:
+      | "/api/auth/register"
+      | "/api/auth/login"
+      | "/api/auth/mfa/verify"
+      | "/api/auth/refresh"
+      | "/api/auth/logout",
     body: unknown,
   ): Promise<TokenPair> {
     const response = await this.fetchFn(`${this.baseUrl}${path}`, {
