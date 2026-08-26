@@ -11,6 +11,10 @@ pub enum DomainError {
     InvalidPriority(String),
     #[error("invalid note kind: {0}")]
     InvalidNoteKind(String),
+    #[error("invalid portal role: {0}")]
+    InvalidPortalRole(String),
+    #[error("invalid portal status: {0}")]
+    InvalidPortalStatus(String),
     #[error("money overflow: {0} + {1}")]
     MoneyOverflow(String, String),
     #[error("currency mismatch: {0} vs {1}")]
