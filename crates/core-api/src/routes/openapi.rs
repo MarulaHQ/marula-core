@@ -84,6 +84,13 @@ use utoipa::OpenApi;
         crate::routes::oidc::callback,
         crate::routes::oidc::link_begin,
         crate::routes::oidc::sso_exchange,
+        crate::routes::settings::get_registry,
+        crate::routes::settings::org_values_get,
+        crate::routes::settings::org_value_put,
+        crate::routes::settings::user_values_get,
+        crate::routes::settings::user_value_put,
+        crate::routes::settings::org_profile_get,
+        crate::routes::settings::org_profile_patch,
     ),
     components(schemas(
         crate::auth::handlers::RegisterRequest,
@@ -159,6 +166,14 @@ use utoipa::OpenApi;
         crate::routes::oidc::SsoExchangeRequest,
         crate::routes::oidc::SsoExchangeResponse,
         crate::routes::audit::AuditPage,
+        crate::routes::settings::RegistryResponse,
+        crate::routes::settings::DeclarationView,
+        crate::routes::settings::ValueView,
+        crate::routes::settings::UpdateSettingRequest,
+        crate::routes::settings::OrgProfileResponse,
+        crate::routes::settings::PatchOrgRequest,
+        core_domain::settings::SettingKind,
+        core_domain::settings::SettingValue,
     ),
     ),
     tags(
@@ -168,6 +183,7 @@ use utoipa::OpenApi;
         (name = "tickets", description = "Ticketing: lifecycle, notes, checklists"),
         (name = "timers", description = "Single-active-timer workflow + time entries"),
         (name = "notifications", description = "Notification center"),
+        (name = "settings", description = "Typed settings registry: org + user scoped values"),
         (name = "audit", description = "Append-only audit log with filters + cursor pagination (admin)"),
     )
 )]
