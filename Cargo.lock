@@ -3929,14 +3929,19 @@ name = "worker"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum 0.8.9",
  "core-db",
  "core-events",
+ "core-mail",
  "redis",
+ "reqwest",
+ "serde",
  "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
