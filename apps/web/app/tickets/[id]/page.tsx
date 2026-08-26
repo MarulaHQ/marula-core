@@ -26,9 +26,11 @@ import { PanelLayout, usePanelLayout } from "@meridian/layout";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { AppHeader } from "../../../components/app-header";
+import { TicketCustomFields } from "../../../components/ticket-custom-fields";
+import { api, useRequireAuth } from "../../../lib/api";
 import { api, downloadAttachment, uploadAttachment, useRequireAuth } from "../../../lib/api";
 
-type Ticket = components["schemas"]["Ticket"];
+type Ticket = components["schemas"]["TicketWithFields"];
 type MyWorkItem = components["schemas"]["MyWorkItem"];
 type TicketComment = components["schemas"]["TicketComment"];
 type ChecklistItem = components["schemas"]["ChecklistItem"];
@@ -343,6 +345,16 @@ export default function TicketWorkspacePage() {
                       </>
                     )}
                   </dl>
+
+                  {/* Custom fields (TASKLIST 2.17): definitions for this
+                      board with kind-appropriate inputs; server verdicts
+                      render inline. */}
+                  <TicketCustomFields
+                    ticketId={ticket.id}
+                    boardId={ticket.board_id}
+                    values={ticket.custom_fields ?? []}
+                    onChanged={() => void refreshTicket()}
+                  />
 
                   <fieldset className="grid gap-3">
                     <legend className="mb-1 text-xs font-medium">Move to status</legend>

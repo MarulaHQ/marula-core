@@ -10,6 +10,7 @@ pub mod boards;
 pub mod calendar;
 pub mod checklists;
 pub mod clients;
+pub mod custom_fields;
 pub mod email_admin;
 pub mod internal;
 pub mod notifications;
@@ -213,6 +214,19 @@ pub fn build_router(state: AppState) -> Router {
             get(checklists::get_template)
                 .put(checklists::put_template)
                 .delete(checklists::delete_template),
+        )
+        // custom fields / dynamic forms (TASKLIST 2.17)
+        .route(
+            "/api/boards/{id}/fields",
+            get(custom_fields::list_defs).post(custom_fields::create_def),
+        )
+        .route(
+            "/api/boards/{id}/fields/{field_id}",
+            axum::routing::patch(custom_fields::update_def).delete(custom_fields::delete_def),
+        )
+        .route(
+            "/api/tickets/{id}/fields/{field_id}",
+            put(custom_fields::set_ticket_value).delete(custom_fields::clear_ticket_value),
         )
         // tickets
         .route("/api/tickets", get(tickets::list).post(tickets::create))

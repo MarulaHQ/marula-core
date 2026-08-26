@@ -21,6 +21,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use super::board_access::authorize_board_op;
+use super::custom_fields::{TicketFieldInput, TicketWithFields};
 use core_domain::policy::BoardOp;
 
 fn tickets(action: core_domain::policy::Action) -> Permission {
@@ -59,6 +60,10 @@ pub struct CreateTicketRequest {
     pub contact_id: Option<Uuid>,
     pub assignee_id: Option<Uuid>,
     pub due_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Initial custom-field values; each is validated against its
+    /// definition. REQUIRED definitions must all be present (TASKLIST 2.17).
+    #[serde(default)]
+    pub custom_fields: Vec<TicketFieldInput>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -72,6 +77,9 @@ pub struct PatchTicketRequest {
     pub site_id: Option<Option<Uuid>>,
     pub contact_id: Option<Option<Uuid>>,
     pub due_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
+    /// Custom-field values to upsert. Partial semantics: only listed fields
+    /// change, each validated against its definition.
+    pub custom_fields: Option<Vec<TicketFieldInput>>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -128,23 +136,25 @@ fn default_limit() -> i64 {
     50
 }
 
-/// GET /api/tickets — filtered, priority-ordered list.
+/// GET /api/tickets — filtered, priority-ordered list; each row carries its
+/// custom-field values (TASKLIST 2.17) fetched in one batched query.
 #[utoipa::path(operation_id = "tickets_list", get, path = "/api/tickets", tag = "tickets", security(("bearer" = [])),
     params(TicketListQuery),
-    responses((status = 200, body = [core_domain::entities::Ticket])))]
+    responses((status = 200, body = [TicketWithFields])))]
 pub async fn list(
     State(state): State<AppState>,
     extensions: Extensions,
     Query(q): Query<TicketListQuery>,
-) -> ApiResult<Json<Vec<core_domain::entities::Ticket>>> {
+) -> ApiResult<Json<Vec<TicketWithFields>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(
         &authed.principal,
         tickets(core_domain::policy::Action::View),
     )?;
+    let org_id = authed.principal.user.org_id;
     let rows = core_db::tickets::list_tickets(
         &state.pool,
-        authed.principal.user.org_id,
+        org_id,
         core_db::tickets::TicketFilter {
             board_id: q.board_id,
             assignee_id: q.assignee_id,
@@ -156,7 +166,8 @@ pub async fn list(
         },
     )
     .await?;
-    Ok(Json(rows))
+    let enriched = TicketWithFields::load_many(&state.pool, org_id, rows).await?;
+    Ok(Json(enriched))
 }
 
 /// GET /api/tickets/my-work — everything assigned to me, not closed,
@@ -227,15 +238,17 @@ impl MyWorkItem {
 }
 
 /// POST /api/tickets — allocates the human ticket number, initializes SLA
-/// clocks, and emits `ticket.created` — all in one transaction.
+/// clocks, validates + stores any initial custom-field values (REQUIRED
+/// definitions enforced), and emits `ticket.created` — all in one transaction.
 #[utoipa::path(operation_id = "tickets_create", post, path = "/api/tickets", tag = "tickets", security(("bearer" = [])),
     request_body = CreateTicketRequest,
-    responses((status = 200, body = core_domain::entities::Ticket)))]
+    responses((status = 200, body = TicketWithFields),
+              (status = 422, description = "missing required custom fields or invalid value")))]
 pub async fn create(
     State(state): State<AppState>,
     extensions: Extensions,
     Json(req): Json<CreateTicketRequest>,
-) -> ApiResult<Json<core_domain::entities::Ticket>> {
+) -> ApiResult<Json<TicketWithFields>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(
         &authed.principal,
@@ -247,7 +260,7 @@ pub async fn create(
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
 
-    let ticket = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+    let enriched = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         // Board-level RBAC first (deny wins): a viewer-role membership row
         // blocks creation even when the org matrix would allow it.
         authorize_board_op(
@@ -317,43 +330,79 @@ pub async fn create(
         )
         .await?;
 
-        Ok((ctx, ticket))
+        // Initial custom-field values: validated per definition, stored
+        // canonically, then the REQUIRED set is completeness-checked.
+        let applied = super::custom_fields::apply_ticket_field_inputs(
+            &mut ctx.tx,
+            org_id,
+            req.board_id,
+            ticket.id,
+            &req.custom_fields,
+        )
+        .await?;
+        for value in &applied {
+            ctx.emit(
+                types::TICKET_FIELD_SET,
+                "ticket",
+                Some(ticket.id.to_string().as_str()),
+                &serde_json::json!({
+                    "ticket_id": ticket.id,
+                    "field_id": value.field_id,
+                    "value": value.value,
+                }),
+            )
+            .await?;
+        }
+        super::custom_fields::enforce_required_present(
+            &mut ctx.tx,
+            org_id,
+            req.board_id,
+            ticket.id,
+        )
+        .await?;
+
+        let enriched = TicketWithFields::new(ticket, applied);
+        Ok((ctx, enriched))
     })
     .await?;
 
-    Ok(Json(ticket))
+    Ok(Json(enriched))
 }
 
 /// GET /api/tickets/{id}
 #[utoipa::path(operation_id = "tickets_get_one", get, path = "/api/tickets/{id}", tag = "tickets", security(("bearer" = [])),
     params(("id" = Uuid, Path)),
-    responses((status = 200, body = core_domain::entities::Ticket)))]
+    responses((status = 200, body = TicketWithFields)))]
 pub async fn get_one(
     State(state): State<AppState>,
     extensions: Extensions,
     Path(id): Path<Uuid>,
-) -> ApiResult<Json<core_domain::entities::Ticket>> {
+) -> ApiResult<Json<TicketWithFields>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(
         &authed.principal,
         tickets(core_domain::policy::Action::View),
     )?;
-    let ticket =
-        core_db::tickets::get_ticket(&state.pool, authed.principal.user.org_id, id).await?;
-    Ok(Json(ticket))
+    let org_id = authed.principal.user.org_id;
+    let ticket = core_db::tickets::get_ticket(&state.pool, org_id, id).await?;
+    let enriched = TicketWithFields::load(&state.pool, org_id, ticket).await?;
+    Ok(Json(enriched))
 }
 
-/// PATCH /api/tickets/{id} — partial update; emits `ticket.updated` and
-/// `ticket.assigned` when the assignee changes.
+/// PATCH /api/tickets/{id} — partial update; validates + upserts any
+/// provided custom-field values; emits `ticket.updated`,
+/// `ticket.field_set` (per changed field), and `ticket.assigned` when the
+/// assignee changes.
 #[utoipa::path(operation_id = "tickets_patch", patch, path = "/api/tickets/{id}", tag = "tickets", security(("bearer" = [])),
     params(("id" = Uuid, Path)), request_body = PatchTicketRequest,
-    responses((status = 200, body = core_domain::entities::Ticket)))]
+    responses((status = 200, body = TicketWithFields),
+              (status = 422, description = "invalid custom-field value")))]
 pub async fn patch(
     State(state): State<AppState>,
     extensions: Extensions,
     Path(id): Path<Uuid>,
     Json(req): Json<PatchTicketRequest>,
-) -> ApiResult<Json<core_domain::entities::Ticket>> {
+) -> ApiResult<Json<TicketWithFields>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(
         &authed.principal,
@@ -362,7 +411,7 @@ pub async fn patch(
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
 
-    let ticket = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+    let enriched = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         let before = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id).await?;
         authorize_board_op(
             &mut ctx.tx,
@@ -389,6 +438,33 @@ pub async fn patch(
         .await?;
         let after = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id).await?;
 
+        // Partial custom-field update: only listed fields change; each is
+        // validated against its definition before storage. Clearing a
+        // REQUIRED value stays blocked at the dedicated clear endpoint.
+        if let Some(inputs) = &req.custom_fields {
+            let applied = super::custom_fields::apply_ticket_field_inputs(
+                &mut ctx.tx,
+                org_id,
+                after.board_id,
+                id,
+                inputs,
+            )
+            .await?;
+            for value in &applied {
+                ctx.emit(
+                    types::TICKET_FIELD_SET,
+                    "ticket",
+                    Some(after.id.to_string().as_str()),
+                    &serde_json::json!({
+                        "ticket_id": after.id,
+                        "field_id": value.field_id,
+                        "value": value.value,
+                    }),
+                )
+                .await?;
+            }
+        }
+
         ctx.emit(
             types::TICKET_UPDATED,
             "ticket",
@@ -410,11 +486,12 @@ pub async fn patch(
             )
             .await?;
         }
-        Ok((ctx, after))
+        let enriched = TicketWithFields::load(&mut *ctx.tx, org_id, after).await?;
+        Ok((ctx, enriched))
     })
     .await?;
 
-    Ok(Json(ticket))
+    Ok(Json(enriched))
 }
 
 /// POST /api/tickets/{id}/status — the guarded lifecycle transition:

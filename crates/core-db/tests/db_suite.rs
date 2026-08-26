@@ -5728,3 +5728,331 @@ async fn rls_isolates_attachments_table() {
         .unwrap_or_else(|e| panic!("unscoped count attachments: {e}"));
     assert_eq!(count, 0, "unscoped reads on attachments are default-deny");
 }
+
+// --- Custom fields v1 (TASKLIST 2.17; seed slots 140–149) --------------------
+
+use core_db::custom_fields;
+
+fn field_def(
+    org: Uuid,
+    board: Option<Uuid>,
+    id: Uuid,
+    name: &str,
+    kind: &str,
+    config: serde_json::Value,
+    required: bool,
+) -> custom_fields::FieldDefRow {
+    custom_fields::FieldDefRow {
+        id,
+        org_id: org,
+        board_id: board,
+        entity: "ticket".into(),
+        name: name.into(),
+        kind: kind.into(),
+        config,
+        required,
+        sort_order: 0,
+    }
+}
+
+#[tokio::test]
+async fn custom_field_defs_crud_board_scoping_and_cascade() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 140).await;
+    let owned = fixed_uuid(1401);
+    let org_wide = fixed_uuid(1402);
+    let foreign_board = fixed_uuid(1499);
+
+    {
+        let mut tx = org_tx(&db.app, s.org).await;
+        custom_fields::insert_def(
+            &mut tx,
+            &field_def(
+                s.org,
+                Some(s.board),
+                owned,
+                "Tier",
+                "select",
+                serde_json::json!({"options": ["Gold"]}),
+                true,
+            ),
+        )
+        .await
+        .expect("insert board-scoped def");
+        custom_fields::insert_def(
+            &mut tx,
+            &field_def(
+                s.org,
+                None,
+                org_wide,
+                "Notes",
+                "text",
+                serde_json::json!({}),
+                false,
+            ),
+        )
+        .await
+        .expect("insert org-wide def");
+
+        // Board view unions its own defs with the org-wide ones.
+        let listed = custom_fields::list_defs_for_board(&mut *tx, s.org, s.board)
+            .await
+            .expect("list defs");
+        let ids: Vec<Uuid> = listed.iter().map(|d| d.id).collect();
+        assert!(ids.contains(&owned) && ids.contains(&org_wide));
+
+        // A different board sees only the org-wide def.
+        let other_view = custom_fields::list_defs_for_board(&mut *tx, s.org, foreign_board)
+            .await
+            .expect("list defs other board");
+        assert_eq!(other_view.len(), 1);
+        assert_eq!(other_view[0].id, org_wide);
+
+        // Partial update flips required and renames; untouched columns stay.
+        let updated = custom_fields::update_def(
+            &mut tx,
+            s.org,
+            owned,
+            &custom_fields::DefPatch {
+                name: Some("Support tier"),
+                config: None,
+                required: None,
+                sort_order: Some(7),
+            },
+        )
+        .await
+        .expect("update def");
+        assert_eq!(updated.name, "Support tier");
+        assert!(updated.required, "required unchanged");
+        assert_eq!(updated.sort_order, 7);
+
+        // Archived defs drop out of the active read.
+        sqlx::query("UPDATE custom_field_defs SET archived_at = now() WHERE id = $1")
+            .bind(org_wide)
+            .execute(&mut *tx)
+            .await
+            .expect("archive");
+        let active = custom_fields::list_defs_for_board(&mut *tx, s.org, s.board)
+            .await
+            .expect("list active");
+        assert_eq!(active.len(), 1, "archived def hidden");
+
+        // get_def misses archived rows too.
+        match custom_fields::get_def(&mut tx, s.org, org_wide).await {
+            Err(DbError::NotFound) => {}
+            other => panic!("archived def must be NotFound, got {other:?}"),
+        }
+        tx.commit().await.expect("commit");
+    }
+
+    // Deleting a definition cascades its stored values.
+    {
+        let mut tx = org_tx(&db.app, s.org).await;
+        let ticket = create_ticket(
+            &mut tx,
+            &s,
+            fixed_uuid(1403),
+            "cascade host",
+            Priority::P2,
+            s.entry_status,
+            None,
+        )
+        .await;
+        custom_fields::upsert_value(&mut tx, s.org, owned, ticket.id, &serde_json::json!("Gold"))
+            .await
+            .expect("store value");
+        tx.commit().await.expect("commit value");
+        let mut tx = org_tx(&db.app, s.org).await;
+        custom_fields::delete_def(&mut tx, s.org, owned)
+            .await
+            .expect("delete def cascades");
+        let remaining = custom_fields::list_values(&mut *tx, s.org, ticket.id)
+            .await
+            .expect("values after cascade");
+        assert!(remaining.is_empty(), "values cascade-deleted");
+        // Second delete is NotFound.
+        match custom_fields::delete_def(&mut tx, s.org, owned).await {
+            Err(DbError::NotFound) => {}
+            other => panic!("double delete must be NotFound, got {other:?}"),
+        }
+        tx.commit().await.expect("commit delete");
+    }
+}
+
+#[tokio::test]
+async fn custom_field_values_upsert_clear_and_batch_fetch() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 141).await;
+    let def_a = fixed_uuid(1411);
+    let def_b = fixed_uuid(1412);
+    let t1 = fixed_uuid(1413);
+    let t2 = fixed_uuid(1414);
+
+    {
+        let mut tx = org_tx(&db.app, s.org).await;
+        custom_fields::insert_def(
+            &mut tx,
+            &field_def(
+                s.org,
+                Some(s.board),
+                def_a,
+                "Channel",
+                "select",
+                serde_json::json!({"options": ["Email", "Phone"]}),
+                false,
+            ),
+        )
+        .await
+        .expect("def a");
+        custom_fields::insert_def(
+            &mut tx,
+            &field_def(
+                s.org,
+                None,
+                def_b,
+                "Hours",
+                "number",
+                serde_json::json!({}),
+                false,
+            ),
+        )
+        .await
+        .expect("def b");
+        for t in [t1, t2] {
+            create_ticket(
+                &mut tx,
+                &s,
+                t,
+                "batch host",
+                Priority::P2,
+                s.entry_status,
+                None,
+            )
+            .await;
+        }
+        tx.commit().await.expect("seed commit");
+    }
+
+    {
+        let mut tx = org_tx(&db.app, s.org).await;
+        // Upsert writes then overwrites (ON CONFLICT path).
+        custom_fields::upsert_value(&mut tx, s.org, def_a, t1, &serde_json::json!("Email"))
+            .await
+            .expect("first write");
+        custom_fields::upsert_value(&mut tx, s.org, def_a, t1, &serde_json::json!("Phone"))
+            .await
+            .expect("overwrite");
+        custom_fields::upsert_value(&mut tx, s.org, def_b, t1, &serde_json::json!(4.5))
+            .await
+            .expect("second field");
+        custom_fields::upsert_value(&mut tx, s.org, def_a, t2, &serde_json::json!("Email"))
+            .await
+            .expect("other ticket");
+
+        // One batched query groups values per ticket.
+        let grouped = custom_fields::list_values_many(&mut *tx, s.org, &[t1, t2])
+            .await
+            .expect("batch fetch");
+        assert_eq!(grouped[&t1].len(), 2);
+        assert_eq!(grouped[&t2].len(), 1);
+        assert_eq!(
+            grouped[&t1][0].value,
+            serde_json::json!("Phone"),
+            "overwritten"
+        );
+        // Definition context rides along.
+        assert_eq!(grouped[&t1][0].name, "Channel");
+
+        // Empty id slice short-circuits to an empty map.
+        let none = custom_fields::list_values_many(&mut *tx, s.org, &[])
+            .await
+            .expect("empty batch");
+        assert!(none.is_empty());
+
+        // Clear removes exactly one (field, ticket) pair.
+        let removed = custom_fields::clear_value(&mut tx, s.org, def_a, t1)
+            .await
+            .expect("clear");
+        assert!(removed);
+        let after = custom_fields::list_values(&mut *tx, s.org, t1)
+            .await
+            .expect("after clear");
+        assert_eq!(after.len(), 1);
+        assert_eq!(after[0].field_id, def_b);
+        // Clearing again reports nothing removed.
+        let again = custom_fields::clear_value(&mut tx, s.org, def_a, t1)
+            .await
+            .expect("clear again");
+        assert!(!again);
+        tx.commit().await.expect("commit");
+    }
+}
+
+#[tokio::test]
+async fn custom_fields_rls_blocks_cross_org_and_unscoped() {
+    let db = test_db().await;
+    let sa = seed_org(&db.app, 142).await;
+    let sb = seed_org(&db.app, 143).await;
+    let def_a = fixed_uuid(1421);
+
+    {
+        let mut tx = org_tx(&db.app, sa.org).await;
+        custom_fields::insert_def(
+            &mut tx,
+            &field_def(
+                sa.org,
+                Some(sa.board),
+                def_a,
+                "Secret tier",
+                "text",
+                serde_json::json!({}),
+                false,
+            ),
+        )
+        .await
+        .expect("org A def");
+        let ticket = create_ticket(
+            &mut tx,
+            &sa,
+            fixed_uuid(1422),
+            "rls host",
+            Priority::P2,
+            sa.entry_status,
+            None,
+        )
+        .await;
+        custom_fields::upsert_value(&mut tx, sa.org, def_a, ticket.id, &serde_json::json!("x"))
+            .await
+            .expect("org A value");
+        tx.commit().await.expect("commit");
+    }
+
+    // Foreign org scope hides both the definition and the value row.
+    {
+        let mut tx = org_tx(&db.app, sb.org).await;
+        assert_eq!(
+            count_rows(&mut tx, "custom_field_defs", def_a).await,
+            0,
+            "cross-org defs hidden"
+        );
+    }
+
+    // No scope at all: default-deny on both tables.
+    {
+        let fresh = db.fresh_app_pool().await;
+        let mut tx = fresh.begin().await.expect("begin unscoped");
+        assert_eq!(
+            count_rows(&mut tx, "custom_field_defs", def_a).await,
+            0,
+            "defs hidden unscoped"
+        );
+        let values = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM custom_field_values WHERE field_id = $1",
+        )
+        .bind(def_a)
+        .fetch_one(&mut *tx)
+        .await
+        .expect("count values");
+        assert_eq!(values, 0, "values hidden unscoped");
+    }
+}

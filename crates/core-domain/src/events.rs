@@ -91,6 +91,13 @@ pub mod types {
     pub const ATTACHMENT_ADDED: &str = "attachment.added";
     pub const ATTACHMENT_LINKED: &str = "attachment.linked";
     pub const ATTACHMENT_DELETED: &str = "attachment.deleted";
+    /// Custom fields / dynamic forms v1 (TASKLIST 2.17): definition CRUD
+    /// through the board settings surface and typed ticket-value writes.
+    pub const CUSTOM_FIELD_DEF_CREATED: &str = "custom_field.def_created";
+    pub const CUSTOM_FIELD_DEF_UPDATED: &str = "custom_field.def_updated";
+    pub const CUSTOM_FIELD_DEF_REMOVED: &str = "custom_field.def_removed";
+    pub const TICKET_FIELD_SET: &str = "ticket.field_set";
+    pub const TICKET_FIELD_CLEARED: &str = "ticket.field_cleared";
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

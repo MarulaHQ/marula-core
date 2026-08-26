@@ -8,7 +8,7 @@
 "use client";
 
 import type { components } from "@meridian/sdk";
-import { Spinner, StatusTag } from "@meridian/ui";
+import { Button, Spinner, StatusTag } from "@meridian/ui";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AppHeader } from "../../../components/app-header";
@@ -140,7 +140,16 @@ export default function BoardPage() {
           className="flex min-w-0 flex-1 flex-col gap-4 overflow-auto p-4"
           style={{ borderLeft: "1px solid var(--m-border)" }}
         >
-          <h1 className="text-sm font-semibold">Board</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-sm font-semibold">Board</h1>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => router.push(`/boards/${params?.id ?? ""}/fields`)}
+            >
+              Custom fields
+            </Button>
+          </div>
 
           <MembersPanel boardId={params?.id ?? ""} />
 

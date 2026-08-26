@@ -14,6 +14,7 @@ pub mod automations;
 pub mod boards;
 pub mod checklists;
 pub mod clients;
+pub mod custom_fields;
 pub mod emails;
 pub mod mfa;
 pub mod notifications;
