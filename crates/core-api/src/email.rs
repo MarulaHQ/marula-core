@@ -130,11 +130,11 @@ pub async fn process_inbound(
     let recipients = msg.recipients_in_priority_order();
 
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
-    core_db::emails::assume_table_owner(&mut *tx).await?;
 
-    // --- routing (board address beats org catch-all) ---
+    // --- routing (board address beats org catch-all); SECURITY DEFINER
+    // seam because no org scope exists yet ---
     let Some(InboundRoute { org_id, board_id }) =
-        emails::resolve_inbound_route(&mut tx, &recipients).await?
+        emails::resolve_inbound_route_for_app(&mut tx, &recipients).await?
     else {
         return Ok(InboundStatus::Unroutable);
     };

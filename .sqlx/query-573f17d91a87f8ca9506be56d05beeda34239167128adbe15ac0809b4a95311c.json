@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO email_inbound_settings\n             (id, org_id, catchall_address, catchall_board_id)\n           VALUES ($1, $2, $3, $4)\n           ON CONFLICT (org_id) DO UPDATE\n             SET catchall_address = EXCLUDED.catchall_address,\n                 catchall_board_id = EXCLUDED.catchall_board_id",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "573f17d91a87f8ca9506be56d05beeda34239167128adbe15ac0809b4a95311c"
+}

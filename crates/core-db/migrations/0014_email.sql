@@ -93,9 +93,89 @@ ALTER TABLE email_inbound_settings ENABLE ROW LEVEL SECURITY;
 CREATE POLICY email_inbound_settings_org ON email_inbound_settings
   USING (org_id = current_setting('app.org_id', true)::uuid);
 
--- The outbound send pipeline claims due messages across ALL orgs inside
--- core-api, whose login (`meridian_app`) is deliberately RLS-constrained.
--- This membership lets core-api `SET LOCAL ROLE meridian` for exactly the
--- claim/report transactions — single-writer preserved, RLS still applies
--- to every user-facing request path.
-GRANT meridian TO meridian_app;
+-- Cross-org seams for the send pipeline and inbound routing, WITHOUT
+-- weakening RLS: a role membership grant to `meridian_app` would exempt it
+-- from row security everywhere (Postgres exempts roles that have the table
+-- owner's privileges), so instead these three narrow SECURITY DEFINER
+-- helpers run AS the table owner internally and nothing else does. All
+-- other statements stay fully RLS-constrained.
+
+-- Recipient address → (org, board): board-level exact addresses win over
+-- the org catch-all; both are globally unique by index.
+CREATE FUNCTION resolve_inbound_email_route(p_addresses text[])
+RETURNS TABLE (r_org_id uuid, r_board_id uuid)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $fn$
+  SELECT x.r_org_id, x.r_board_id FROM (
+    SELECT b.org_id AS r_org_id, b.id AS r_board_id, 1 AS prio
+      FROM boards b
+     WHERE lower(b.inbound_address) = ANY (p_addresses)
+    UNION ALL
+    SELECT s.org_id, s.catchall_board_id, 2
+      FROM email_inbound_settings s
+     WHERE s.enabled AND lower(s.catchall_address) = ANY (p_addresses)
+  ) x
+  ORDER BY x.prio
+  LIMIT 1
+$fn$;
+
+-- Atomically claims due sends (queued past backoff, plus abandoned leases)
+-- across ALL orgs; FOR UPDATE SKIP LOCKED keeps parallel workers honest.
+CREATE FUNCTION claim_due_email_outbound(p_limit integer, p_lease interval)
+RETURNS TABLE (
+  r_ledger_id uuid, r_org_id uuid, r_attempts integer, r_max_attempts integer,
+  r_rfc_message_id text, r_from_address text, r_from_name text,
+  r_to_addresses text[], r_subject text, r_body_text text,
+  r_in_reply_to text, r_refs text[]
+)
+LANGUAGE sql SECURITY DEFINER SET search_path = public AS $fn$
+  WITH claimed AS (
+    UPDATE email_outbound AS q
+       SET status = 'sending', claimed_at = now(), updated_at = now(),
+           attempts = q.attempts + 1
+     WHERE q.id IN (
+           SELECT c.id FROM email_outbound c
+            WHERE (c.status = 'queued' AND c.next_attempt_at <= now())
+               OR (c.status = 'sending' AND c.claimed_at < now() - p_lease)
+            ORDER BY c.next_attempt_at
+            LIMIT LEAST(GREATEST(p_limit, 1), 1000)
+            FOR UPDATE SKIP LOCKED
+     )
+     RETURNING q.id, q.org_id, q.attempts, q.max_attempts, q.email_message_id
+  )
+  SELECT cl.id, cl.org_id, cl.attempts, cl.max_attempts,
+         m.rfc_message_id, m.from_address, m.from_name, m.to_addresses,
+         m.subject, m.body_text, m.in_reply_to, m.email_refs
+    FROM claimed cl
+    JOIN email_messages m ON m.id = cl.email_message_id
+   ORDER BY cl.id
+$fn$;
+
+-- Applies one worker report; guards on status='sending' so late/duplicate
+-- reports after lease recovery are inert. Returns whether a row changed.
+CREATE FUNCTION apply_email_send_result(
+  p_id uuid, p_ok boolean, p_provider_id text, p_error text, p_delay interval
+)
+RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $fn$
+BEGIN
+  IF p_ok THEN
+    UPDATE email_outbound
+       SET status = 'sent', provider_message_id = p_provider_id,
+           last_error = NULL, claimed_at = NULL, updated_at = now()
+     WHERE id = p_id AND status = 'sending';
+  ELSE
+    UPDATE email_outbound
+       SET status = CASE WHEN attempts >= max_attempts THEN 'dead' ELSE 'queued' END,
+           next_attempt_at = CASE WHEN attempts >= max_attempts THEN next_attempt_at
+                                  ELSE now() + p_delay END,
+           last_error = p_error, provider_message_id = NULL,
+           claimed_at = NULL, updated_at = now()
+     WHERE id = p_id AND status = 'sending';
+  END IF;
+  RETURN FOUND;
+END
+$fn$;
+
+GRANT EXECUTE ON FUNCTION resolve_inbound_email_route(text[]) TO meridian_app;
+GRANT EXECUTE ON FUNCTION claim_due_email_outbound(integer, interval) TO meridian_app;
+GRANT EXECUTE ON FUNCTION apply_email_send_result(uuid, boolean, text, text, interval) TO meridian_app;

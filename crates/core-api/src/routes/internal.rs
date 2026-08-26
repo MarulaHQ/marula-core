@@ -64,8 +64,8 @@ pub async fn claim_outbound(
     let lease_secs = req.lease_secs.clamp(30, 3_600) as f64;
 
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
-    core_db::emails::assume_table_owner(&mut *tx).await?;
-    let rows = core_db::emails::claim_due_outbound(&mut *tx, limit as i64, lease_secs).await?;
+    let rows =
+        core_db::emails::claim_due_outbound_for_app(&mut tx, limit, lease_secs as i64).await?;
     tx.commit().await.map_err(ApiError::from)?;
 
     Ok(Json(ClaimResponse {
@@ -111,8 +111,7 @@ pub async fn report_results(
         // Each report in its own short transaction: one poisoned row must
         // not roll back the whole batch.
         let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
-        core_db::emails::assume_table_owner(&mut *tx).await?;
-        if core_db::emails::apply_send_outcome(&mut *tx, &outcome).await? {
+        if core_db::emails::apply_send_outcome_for_app(&mut tx, &outcome).await? {
             applied += 1;
         }
         tx.commit().await.map_err(ApiError::from)?;

@@ -16,19 +16,6 @@ use core_domain::entities::{EmailDirection, EmailMessage, ScanStatus};
 use sqlx::PgConnection;
 use uuid::Uuid;
 
-/// Escalates this transaction to the TABLE OWNER role (`meridian`).
-///
-/// Required ONLY by cross-org system paths — the outbound claim/report
-/// endpoints and inbound webhook routing — whose queries span all orgs and
-/// therefore cannot pass RLS as the constrained `meridian_app` login.
-/// Membership is granted by migration 0014; `SET LOCAL` scopes the switch
-/// to the current transaction, auto-reverting on commit/rollback. User
-/// request paths must never call this.
-pub async fn assume_table_owner(conn: &mut PgConnection) -> DbResult<()> {
-    sqlx::query("SET LOCAL ROLE meridian").execute(conn).await?;
-    Ok(())
-}
-
 /// Domain suffix for Meridian-generated outbound Message-IDs. Stored bare
 /// (`uuid@meridian.local`); transport adapters add RFC angle brackets.
 pub const OUTBOUND_ID_SUFFIX: &str = "meridian.local";
@@ -280,6 +267,85 @@ pub async fn resolve_inbound_route(
     Ok(catchall.map(|(org_id, board_id)| InboundRoute { org_id, board_id }))
 }
 
+// --- SECURITY DEFINER seams (the only cross-org statements) ------------------
+
+/// Production route resolution for the RLS-constrained `meridian_app`
+/// login: runs `resolve_inbound_email_route` (SECURITY DEFINER, migration
+/// 0014). Takes a connection usable inside the caller's transaction.
+pub async fn resolve_inbound_route_for_app(
+    conn: &mut PgConnection,
+    addresses: &[String],
+) -> DbResult<Option<InboundRoute>> {
+    if addresses.is_empty() {
+        return Ok(None);
+    }
+    let row: Option<(Uuid, Uuid)> =
+        sqlx::query_as("SELECT r_org_id, r_board_id FROM resolve_inbound_email_route($1)")
+            .bind(addresses)
+            .fetch_optional(conn)
+            .await?;
+    Ok(row.map(|(org_id, board_id)| InboundRoute { org_id, board_id }))
+}
+
+/// Production claim path: calls `claim_due_email_outbound` (SECURITY
+/// DEFINER). Works from any login without weakening RLS elsewhere. The
+/// clock is the database's now() — deterministic tests and the CI harness
+/// use [`claim_due_outbound`] on an owner-role connection instead.
+pub async fn claim_due_outbound_for_app(
+    conn: &mut PgConnection,
+    limit: i32,
+    lease_secs: i64,
+) -> DbResult<Vec<ClaimedOutboundRow>> {
+    let rows = sqlx::query!(
+        r#"SELECT r_ledger_id, r_org_id, r_attempts, r_max_attempts,
+                  r_rfc_message_id, r_from_address, r_from_name, r_to_addresses,
+                  r_subject, r_body_text, r_in_reply_to, r_refs
+           FROM claim_due_email_outbound($1, make_interval(secs => $2))"#,
+        limit,
+        lease_secs as f64,
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| ClaimedOutboundRow {
+            // RETURNS TABLE columns are nullable to SQL; the function
+            // guarantees values, so defaults only satisfy types.
+            id: r.r_ledger_id.unwrap_or_default(),
+            org_id: r.r_org_id.unwrap_or_default(),
+            attempts: r.r_attempts.unwrap_or(0),
+            max_attempts: r.r_max_attempts.unwrap_or(8),
+            rfc_message_id: r.r_rfc_message_id.unwrap_or_default(),
+            from_address: r.r_from_address.unwrap_or_default(),
+            from_name: r.r_from_name,
+            to_addresses: r.r_to_addresses.unwrap_or_default(),
+            subject: r.r_subject,
+            body_text: r.r_body_text,
+            in_reply_to: r.r_in_reply_to,
+            references: r.r_refs.unwrap_or_default(),
+        })
+        .collect())
+}
+
+/// Production result-application path via `apply_email_send_result`
+/// (SECURITY DEFINER). Returns whether the report changed a row.
+pub async fn apply_send_outcome_for_app(
+    conn: &mut PgConnection,
+    o: &SendOutcome,
+) -> DbResult<bool> {
+    let applied: Option<bool> = sqlx::query_scalar(
+        "SELECT apply_email_send_result($1, $2, $3, $4, make_interval(secs => $5))",
+    )
+    .bind(o.id)
+    .bind(o.ok)
+    .bind(o.provider_message_id.clone())
+    .bind(o.error.clone())
+    .bind(o.retry_delay_secs as f64)
+    .fetch_one(conn)
+    .await?;
+    Ok(applied.unwrap_or(false))
+}
+
 // --- settings ---------------------------------------------------------------
 
 pub struct InboundSettings {
@@ -432,16 +498,17 @@ pub struct ClaimedOutboundRow {
     pub references: Vec<String>,
 }
 
-/// Atomically claims due sends: queued rows past their backoff deadline,
-/// plus abandoned `sending` rows whose lease expired. MUST run inside a
-/// transaction that executed `SET LOCAL ROLE meridian` — it spans all
-/// orgs and therefore cannot pass RLS as `meridian_app`. `FOR UPDATE SKIP
-/// LOCKED` keeps parallel workers honest; each claim increments `attempts`
-/// so result handling can decide sent/dead/retry.
+/// Owner-connection variant of the claim used by tests and the CI mail
+/// harness where the simulated clock must be injected (`as_of`). Requires
+/// an owner-role connection (table owner bypasses RLS absent FORCE);
+/// production endpoints call [`claim_due_outbound_for_app`] instead.
+/// `org_filter` scopes the batch to one org (`None` = every org).
 pub async fn claim_due_outbound<'e, E>(
     executor: E,
+    org_filter: Option<Uuid>,
     limit: i64,
     lease_secs: f64,
+    as_of: chrono::DateTime<chrono::Utc>,
 ) -> DbResult<Vec<ClaimedOutboundRow>>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
@@ -449,12 +516,13 @@ where
     let rows = sqlx::query!(
         r#"WITH claimed AS (
              UPDATE email_outbound
-             SET status = 'sending', claimed_at = now(), updated_at = now(),
+             SET status = 'sending', claimed_at = $3, updated_at = $3,
                  attempts = attempts + 1
              WHERE id IN (
                SELECT id FROM email_outbound
-               WHERE (status = 'queued' AND next_attempt_at <= now())
-                  OR (status = 'sending' AND claimed_at < now() - make_interval(secs => $2))
+               WHERE (($4::uuid IS NULL OR org_id = $4)
+                 AND ((status = 'queued' AND next_attempt_at <= $3)
+                   OR (status = 'sending' AND claimed_at < $3 - make_interval(secs => $2))))
                ORDER BY next_attempt_at
                LIMIT $1
                FOR UPDATE SKIP LOCKED
@@ -469,6 +537,8 @@ where
            ORDER BY c.id"#,
         limit,
         lease_secs,
+        as_of,
+        org_filter,
     )
     .fetch_all(executor)
     .await?;
@@ -503,10 +573,15 @@ pub struct SendOutcome {
     pub retry_delay_secs: i64,
 }
 
-/// Applies one result. Guards on `status='sending'` so late/duplicate
-/// reports after lease recovery cannot corrupt state. Returns whether a
-/// row was updated.
-pub async fn apply_send_outcome<'e, E>(executor: E, o: &SendOutcome) -> DbResult<bool>
+/// Owner-connection result application with injectable clock — the test/
+/// harness counterpart of [`apply_send_outcome_for_app`]. Guards on
+/// `status='sending'` so late/duplicate reports after lease recovery are
+/// inert. Returns whether a row was updated.
+pub async fn apply_send_outcome<'e, E>(
+    executor: E,
+    o: &SendOutcome,
+    as_of: chrono::DateTime<chrono::Utc>,
+) -> DbResult<bool>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
@@ -514,10 +589,11 @@ where
         sqlx::query!(
             r#"UPDATE email_outbound
                SET status = 'sent', provider_message_id = $2, last_error = NULL,
-                   claimed_at = NULL, updated_at = now()
+                   claimed_at = NULL, updated_at = $3
                WHERE id = $1 AND status = 'sending'"#,
             o.id,
             o.provider_message_id,
+            as_of,
         )
         .execute(executor)
         .await?
@@ -526,13 +602,14 @@ where
             r#"UPDATE email_outbound
                SET status = CASE WHEN attempts >= max_attempts THEN 'dead' ELSE 'queued' END,
                    next_attempt_at = CASE WHEN attempts >= max_attempts THEN next_attempt_at
-                                          ELSE now() + make_interval(secs => $3) END,
+                                          ELSE ($4::timestamptz + make_interval(secs => $3)) END,
                    last_error = $2, provider_message_id = NULL,
-                   claimed_at = NULL, updated_at = now()
+                   claimed_at = NULL, updated_at = $4
                WHERE id = $1 AND status = 'sending'"#,
             o.id,
             o.error,
             o.retry_delay_secs as f64,
+            as_of,
         )
         .execute(executor)
         .await?
