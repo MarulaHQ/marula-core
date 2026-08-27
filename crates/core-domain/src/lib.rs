@@ -13,6 +13,7 @@ pub mod entities;
 pub mod error;
 pub mod events;
 pub mod ids;
+pub mod import_core;
 pub mod mentions;
 pub mod money;
 pub mod notes;

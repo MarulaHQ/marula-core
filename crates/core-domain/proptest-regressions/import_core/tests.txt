@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 6ce1b58974dc5921643f637eaf201a97ed3d7ca2817a7691e1f38280d237d5f1 # shrinks to key = "a", name = " ", notes = None, lat = None, lon = None
+cc b05b6550b5fae046d001b2dc9c4b19334f5f5d6a3651e01172bf5863d83b3971 # shrinks to cell = ","
+cc 4c1d455e561ad4e76dac3339085180cedb54e0637800fbf3beba1e06f4efb3d4 # shrinks to key = "a", name = "A ", notes = None, lat = None, lon = None
+cc 0039a5e3accd62c7dbe6e17c1c2b0a91437106286615b9c15262d29d293b9d91 # shrinks to key = "A", name = "a", notes = Some(""), lat = None, lon = None
