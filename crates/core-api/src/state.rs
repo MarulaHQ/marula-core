@@ -47,8 +47,9 @@ impl AppState {
         if database_url.contains("meridian_app:") {
             return database_url.to_string();
         }
-        let (scheme_rest, rest) =
-            database_url.split_once("://").unwrap_or(("postgres", database_url));
+        let (scheme_rest, rest) = database_url
+            .split_once("://")
+            .unwrap_or(("postgres", database_url));
         match rest.split_once('@') {
             Some((_creds, host)) => format!("{scheme_rest}://meridian_app:meridian_app@{host}"),
             None => format!("{scheme_rest}://meridian_app:meridian_app@{rest}"),

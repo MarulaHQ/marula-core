@@ -44,8 +44,8 @@ async fn test_state() -> (AppState, Router) {
         oidc: OidcHttpClient::new(),
         mail: Arc::new(core_api::email::MailStack::from_config(&Config::from_env())),
         store: Arc::new(core_store::memory::MemoryStore::new()),
-            reporting: core_api::state::AppState::reporting_pool_lazy(&reporting_url)
-                .expect("lazy reporting pool"),
+        reporting: core_api::state::AppState::reporting_pool_lazy(&reporting_url)
+            .expect("lazy reporting pool"),
     };
     let app = core_api::routes::build_router(state.clone());
     (state, app)

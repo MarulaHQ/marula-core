@@ -51,8 +51,8 @@ async fn test_state() -> (AppState, Arc<core_store::memory::MemoryStore>) {
         oidc: OidcHttpClient::new(),
         mail: Arc::new(core_api::email::MailStack::from_config(&Config::from_env())),
         store: std::sync::Arc::clone(&store) as Arc<dyn core_store::ObjectStore>,
-            reporting: core_api::state::AppState::reporting_pool_lazy(&reporting_url)
-                .expect("lazy reporting pool"),
+        reporting: core_api::state::AppState::reporting_pool_lazy(&reporting_url)
+            .expect("lazy reporting pool"),
     };
     (state, store)
 }

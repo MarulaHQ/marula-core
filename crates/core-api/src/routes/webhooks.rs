@@ -77,7 +77,7 @@ mod tests {
                 .connect_lazy(&config.database_url)
                 .expect("lazy pool"),
             reporting: crate::state::AppState::reporting_pool_lazy(
-                &"postgres://meridian_app:meridian_app@localhost:1/never_connected",
+                "postgres://meridian_app:meridian_app@localhost:1/never_connected",
             )
             .expect("lazy reporting pool"),
             config: std::sync::Arc::new(config),

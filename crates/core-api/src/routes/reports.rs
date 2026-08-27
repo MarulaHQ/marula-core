@@ -134,8 +134,12 @@ pub async fn report(
 
     // Cursor derives from the last row of THIS page under the kind's key
     // layout; absent when the page was short (exhaustion) or unpaged kind.
-    let next_cursor =
-        next_cursor_for_kind(kind, &compiled, decoded.last(), decoded.len() < limit as usize);
+    let next_cursor = next_cursor_for_kind(
+        kind,
+        &compiled,
+        decoded.last(),
+        decoded.len() < limit as usize,
+    );
 
     match want_csv {
         false => {
