@@ -13,6 +13,7 @@ pub mod clients;
 pub mod custom_fields;
 pub mod dispatch;
 pub mod email_admin;
+pub mod imports;
 pub mod internal;
 pub mod notifications;
 pub mod oidc;
@@ -342,6 +343,36 @@ pub fn build_router(state: AppState) -> Router {
         )
         // unified search (TASKLIST 2.16)
         .route("/api/search", get(search::search))
+        // import framework (TASKLIST D2): org-admin gated CSV/JSON mapper.
+        // The two payload-heavy posts raise axum's default body cap like
+        // attachments do; chunk/batch ids flow through the path.
+        .route(
+            "/api/imports/dry-run",
+            post(imports::dry_run).layer(axum::extract::DefaultBodyLimit::max(
+                state
+                    .config
+                    .max_upload_bytes
+                    .max(core_domain::import_core::MAX_CHUNK_BYTES as i64) as usize,
+            )),
+        )
+        .route(
+            "/api/imports/batches",
+            get(imports::list_batches).post(imports::create_batch),
+        )
+        .route("/api/imports/batches/{batch_id}", get(imports::get_batch))
+        .route(
+            "/api/imports/batches/{batch_id}/chunks",
+            post(imports::post_chunk).layer(axum::extract::DefaultBodyLimit::max(
+                state
+                    .config
+                    .max_upload_bytes
+                    .max(core_domain::import_core::MAX_CHUNK_BYTES as i64) as usize,
+            )),
+        )
+        .route(
+            "/api/imports/batches/{batch_id}/finish",
+            post(imports::finish_batch),
+        )
         // audit (admin)
         .route("/api/audit-events", get(audit::list))
         // plugin runtime v1: signed webhooks OUT + API keys (admin;
