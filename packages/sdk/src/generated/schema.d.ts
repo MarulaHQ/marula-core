@@ -1300,6 +1300,99 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/imports/batches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/imports/batches */
+        get: operations["imports_list_batches"];
+        put?: never;
+        /** POST /api/imports/batches */
+        post: operations["imports_create_batch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/imports/batches/{batch_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/imports/batches/{id} */
+        get: operations["imports_get_batch"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/imports/batches/{batch_id}/chunks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/imports/batches/{id}/chunks — plans then executes ONE chunk
+         *     atomically. A fail-policy chunk with any conflict persists nothing and
+         *     returns 409 with the full per-row report.
+         */
+        post: operations["imports_post_chunk"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/imports/batches/{batch_id}/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/imports/batches/{id}/finish — closes the span, emits
+         *     `import.batch_finished`, and records cumulative counters in audit.
+         */
+        post: operations["imports_finish_batch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/imports/dry-run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/imports/dry-run */
+        post: operations["imports_dry_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/internal/effects": {
         parameters: {
             query?: never;
@@ -2516,6 +2609,17 @@ export interface components {
             id: string;
             /** @enum {string} */
             kind: "portal_it_manager";
+        } | {
+            /**
+             * @description Bulk-import runs (TASKLIST D2): the descriptor names the driving
+             *     identity without pretending it row-walked — `"user:<uuid>"` for
+             *     admin JWT runs, `"api-key:<key-id>""` for machine pushes. Row-level
+             *     mutations still emit their ordinary domain events; the import actor
+             *     owns batch-lifecycle provenance (kind "import" in audit storage).
+             */
+            id: string;
+            /** @enum {string} */
+            kind: "import";
         };
         AddChecklistItemRequest: {
             text: string;
@@ -2780,6 +2884,36 @@ export interface components {
             user_id: string;
             /** Format: int32 */
             weekday: number;
+        };
+        BatchCreatedResponse: {
+            /** Format: uuid */
+            batch_id: string;
+            label: string;
+        };
+        BatchViewResponse: {
+            conflict_policy: components["schemas"]["ConflictPolicy"];
+            dry_run: boolean;
+            entity_kind: components["schemas"]["EntityKind"];
+            /** Format: date-time */
+            finished_at?: string | null;
+            /** Format: uuid */
+            id: string;
+            label: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: int32 */
+            rows_created: number;
+            /** Format: int32 */
+            rows_failed: number;
+            /** Format: int32 */
+            rows_skipped: number;
+            /** Format: int32 */
+            rows_total: number;
+            /** Format: int32 */
+            rows_updated: number;
+            source_note?: string | null;
+            /** Format: date-time */
+            started_at: string;
         };
         Board: {
             /**
@@ -3086,6 +3220,23 @@ export interface components {
             require_checklist_close: boolean;
             template?: null | components["schemas"]["ChecklistTemplate"];
         };
+        ChunkRequest: components["schemas"]["RowsPayload"];
+        /**
+         * @description u32-friendly mirror of [`core_domain::import_core::ChunkSummary`] so the
+         *     generated SDK gets plain integers without overflow caveats.
+         */
+        ChunkSummaryWire: {
+            /** Format: int32 */
+            failed: number;
+            /** Format: int32 */
+            ok: number;
+            /** Format: int32 */
+            total: number;
+            /** Format: int32 */
+            would_skip: number;
+            /** Format: int32 */
+            would_update: number;
+        };
         Client: {
             /** Format: date-time */
             created_at: string;
@@ -3123,6 +3274,12 @@ export interface components {
             conflicts: components["schemas"]["ConflictView"][];
             has_conflict: boolean;
         };
+        /**
+         * @description Per-entity conflict semantics when an external key already maps to a
+         *     live row whose content differs from the incoming spec.
+         * @enum {string}
+         */
+        ConflictPolicy: "skip" | "update" | "fail";
         /** @description One blocking booking named by the dry-run. */
         ConflictView: {
             /** Format: uuid */
@@ -3205,6 +3362,16 @@ export interface components {
              * @description 0 = Monday … 6 = Sunday.
              */
             weekday: number;
+        };
+        /**
+         * @description POST /api/imports/batches — opens a committed-run span. Chunks then land
+         *     through `/chunks` until `/finish` closes the batch.
+         */
+        CreateBatchRequest: {
+            conflict_policy: components["schemas"]["ConflictPolicy"];
+            entity_kind: components["schemas"]["EntityKind"];
+            label?: string | null;
+            source_note?: string | null;
         };
         CreateBoardRequest: {
             description?: string | null;
@@ -3477,6 +3644,17 @@ export interface components {
              */
             unassigned: components["schemas"]["MyWorkItem"][];
         };
+        /**
+         * @description POST /api/imports/dry-run request: validate a full payload and report
+         *     what each row WOULD do before any data write. The probe is recorded as a
+         *     finished dry-run batch for operator history.
+         */
+        DryRunRequest: components["schemas"]["RowsPayload"] & {
+            conflict_policy: components["schemas"]["ConflictPolicy"];
+            entity_kind: components["schemas"]["EntityKind"];
+            /** @description Free-form run label recorded with the dry-run history entry. */
+            label?: string | null;
+        };
         EffectsRequest: {
             /** @description AutomationAction documents, parsed and validated via core-domain. */
             actions: unknown;
@@ -3487,6 +3665,13 @@ export interface components {
             /** Format: uuid */
             ticket_id: string;
         };
+        /**
+         * @description Which entity family a batch targets. One batch = exactly one kind; the
+         *     parent-before-child ordering across batches (clients → sites → contacts)
+         *     keeps foreign references resolvable without cross-batch transactions.
+         * @enum {string}
+         */
+        EntityKind: "client" | "site" | "contact";
         /** @description One escalation ladder step as stored (`sla_escalation_steps`). */
         EscalationStep: {
             /** Format: int64 */
@@ -4033,6 +4218,64 @@ export interface components {
         };
         ReplaceLadderRequest: {
             steps: components["schemas"]["LadderStepSpec"][];
+        };
+        /**
+         * @description Wire format selector for an import payload.
+         * @enum {string}
+         */
+        RowFormat: "json" | "csv";
+        RowOutcome: {
+            /** @enum {string} */
+            status: "ok";
+        } | {
+            /** @enum {string} */
+            status: "would_update";
+        } | {
+            reason: string;
+            /** @enum {string} */
+            status: "would_skip";
+        } | {
+            errors: string[];
+            /** @enum {string} */
+            status: "failed";
+        };
+        /**
+         * @description Per-row dry-run/commit report entry. The wire shape contract from D2:
+         *     every row maps to exactly one of `errors[]`, `ok`, `would_skip`,
+         *     `would_update`.
+         */
+        RowReport: {
+            external_key?: string | null;
+            outcome: components["schemas"]["RowOutcome"];
+            /** Format: int64 */
+            row_index: number;
+        };
+        /** @description The encoded row source shared by dry-run and chunk posts. */
+        RowsPayload: {
+            /**
+             * @description Full CSV text including header row (`format=csv`). UTF-8, BOM
+             *     tolerated; RFC 4180 quoting supported.
+             */
+            csv?: string | null;
+            format: components["schemas"]["RowFormat"];
+            /**
+             * @description Row objects as a JSON array of flat objects (`format=json`). Nulls
+             *     behave exactly like absent keys.
+             */
+            json_rows: Record<string, never>;
+        };
+        /**
+         * @description Per-row fate report — the D2 contract shape
+         *     (`row_index → errors[] | ok | would_skip | would_update`).
+         */
+        RunReportResponse: {
+            /** Format: uuid */
+            batch_id: string;
+            conflict_policy: components["schemas"]["ConflictPolicy"];
+            dry_run: boolean;
+            entity_kind: components["schemas"]["EntityKind"];
+            rows: components["schemas"]["RowReport"][];
+            summary: components["schemas"]["ChunkSummaryWire"];
         };
         SearchQuery: {
             /** Format: int64 */
@@ -6868,6 +7111,138 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DispatchDayView"];
+                };
+            };
+        };
+    };
+    imports_list_batches: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchViewResponse"][];
+                };
+            };
+        };
+    };
+    imports_create_batch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateBatchRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchCreatedResponse"];
+                };
+            };
+        };
+    };
+    imports_get_batch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchViewResponse"];
+                };
+            };
+        };
+    };
+    imports_post_chunk: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChunkRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunReportResponse"];
+                };
+            };
+        };
+    };
+    imports_finish_batch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchViewResponse"];
+                };
+            };
+        };
+    };
+    imports_dry_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DryRunRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunReportResponse"];
                 };
             };
         };

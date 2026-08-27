@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO contacts (id, org_id, client_id, name, email, phone)\n           VALUES ($1, $2, $3, $4, $5, $6)\n           RETURNING id, org_id, client_id, site_id, name, email, phone, title,\n                     is_primary, created_at",
+  "query": "SELECT id, org_id, client_id, site_id, tag, name, kind, status,\n                    created_at, updated_at\n           FROM device_assets WHERE org_id = $1 AND client_id = $2 ORDER BY tag",
   "describe": {
     "columns": [
       {
@@ -25,43 +25,39 @@
       },
       {
         "ordinal": 4,
-        "name": "name",
+        "name": "tag",
         "type_info": "Text"
       },
       {
         "ordinal": 5,
-        "name": "email",
+        "name": "name",
         "type_info": "Text"
       },
       {
         "ordinal": 6,
-        "name": "phone",
+        "name": "kind",
         "type_info": "Text"
       },
       {
         "ordinal": 7,
-        "name": "title",
+        "name": "status",
         "type_info": "Text"
       },
       {
         "ordinal": 8,
-        "name": "is_primary",
-        "type_info": "Bool"
+        "name": "created_at",
+        "type_info": "Timestamptz"
       },
       {
         "ordinal": 9,
-        "name": "created_at",
+        "name": "updated_at",
         "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
         "Uuid",
-        "Uuid",
-        "Uuid",
-        "Text",
-        "Text",
-        "Text"
+        "Uuid"
       ]
     },
     "nullable": [
@@ -70,12 +66,12 @@
       false,
       true,
       false,
-      true,
-      true,
-      true,
+      false,
+      false,
+      false,
       false,
       false
     ]
   },
-  "hash": "41ce035839d6a1947b23577374a7221713545218f4d178871cf6afb43efb8e06"
+  "hash": "5f575503571d0826ffab461bfb6b5b5bb684c41e4bc8447899a12d78bdeb915c"
 }

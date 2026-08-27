@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO sites (id, org_id, client_id, name)\n           VALUES ($1, $2, $3, $4)\n           RETURNING id, org_id, client_id, name, address, city, region, postal_code,\n                     country, latitude, longitude, timezone, created_at",
+  "query": "UPDATE sites SET name = $3, address = $4, city = $5, region = $6,\n                            postal_code = $7, country = $8, latitude = $9,\n                            longitude = $10, timezone = $11\n           WHERE org_id = $1 AND id = $2\n           RETURNING id, org_id, client_id, name, address, city, region, postal_code,\n                      country, latitude, longitude, timezone, created_at",
   "describe": {
     "columns": [
       {
@@ -73,7 +73,14 @@
       "Left": [
         "Uuid",
         "Uuid",
-        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Float8",
+        "Float8",
         "Text"
       ]
     },
@@ -93,5 +100,5 @@
       false
     ]
   },
-  "hash": "4ecda45bda34d3898f2e5dddb31a2a2cad0cee0c326a28acda66a80a44928ab5"
+  "hash": "d1e9c2adce8f7b9cc85e6412b987f95c12f55c5fa699d6bf6054826e4a646823"
 }

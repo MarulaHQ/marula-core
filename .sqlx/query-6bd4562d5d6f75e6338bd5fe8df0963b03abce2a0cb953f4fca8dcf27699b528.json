@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT external_key, internal_id FROM external_ids\n           WHERE org_id = $1 AND entity_kind = $2 AND external_key = ANY($3)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "external_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "internal_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "6bd4562d5d6f75e6338bd5fe8df0963b03abce2a0cb953f4fca8dcf27699b528"
+}
