@@ -629,6 +629,7 @@ dependencies = [
  "core-events",
  "core-mail",
  "core-otel",
+ "core-reports",
  "core-store",
  "data-encoding",
  "futures-util",
@@ -786,6 +787,14 @@ version = "0.1.0"
 [[package]]
 name = "core-reports"
 version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "proptest",
+ "serde",
+ "serde_json",
+ "uuid",
+]
 
 [[package]]
 name = "core-store"

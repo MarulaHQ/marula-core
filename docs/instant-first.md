@@ -1,0 +1,45 @@
+# Instant-first interaction (binding)
+
+The dominant path has no Save clicks, no full-page reloads, and no waiting on the client to round-trip before work feels committed. This is a product tenet — a thing the core guarantees — not a client ornament. If the core can't support it, clients fake it with pessimistic reloads and read-your-write hacks that make an MSP feel slow.
+
+## What the UI must deliver
+
+- **Autosave, no explicit Save.** Editable fields are debounced autosave mutations in the dominant path. "Durable" means "the user stopped typing," not "the user found and pressed Save."
+- **Optimistic render, authoritative reconcile.** The UI shows the intended new state immediately; the server is source of truth. A rejected or time-shifted write returns a typed outcome and the client reconciles (or offers undo), never silently invalidates.
+- **Reload the cache, not the page.** A view hydrates once from its snapshot read model, then lives through WebSocket events that mutate the client cache. Navigating to already-known data must not refetch and must not flash a loading state. Offline, writes queue locally and replay in order on reconnect.
+
+## What the core must provide (support contract)
+
+- **Idempotent autosave writes.** Create/update requests carry an idempotency key and an entity `version`; the server enforces `If-Match`-style semantics so debounce and retry are safe, and only a fully resolved entity is persisted.
+- **Read-your-write on the cheap.** The returned mutation carries the applied entity snapshot, `updated_at`, and a monotonic `seq` so the client keys its optimistic state to the server answer and reconciles orderings across the event stream.
+- **Side-effects off the write path.** SLA evaluation, automation, billing, timers, AI summaries, and email run post-commit on the event bus/worker. The synchronous write path is only the write.
+- **Snapshot + delta read model.** Each collection (board, ticket detail, list, calendar) exposes a cheap snapshot; clients hydrate fully from it and treat subsequent events as deltas. This is what lets a client know it already has the truth and skip refetches.
+- **Typed error/conflict envelope.** Not-found, authz, RLS-sparse, and `conflict/version-mismatch` come back as typed codes a client branches on, not prose to parse.
+- **Offline replay.** Reconnected clients replay buffered writes in order and get a per-op `accepted`/`rejected` result they can surface.
+
+## Undo is the escape hatch
+
+Removing explicit Save transfers the safety burden to Undo. It is not a nicety; it is what makes autosave *feel* safe, so it is a first-class core capability, not a client-side stack.
+
+- **Step through reconciled autosaves.** The user's record keeps a per-field, per-record history of applied states. Ctrl/Cmd+Z walks back through edits that already committed to the server, not just unsaved ones. Undo of an applied autosave is itself a normal, authorized write — the same idempotent mutation path as any edit — so it translates cleanly across devices and sessions.
+- **Near-total before close, bounded after.** While a record is open, undo is near-total: walk any field back to any prior value. Closing a record is a checkpoint. After close the record is governed; the audit trail is the authoritative history, and undo is limited to explicit, actioned reverts, never silent rewrites of the past. Open record = undo freely; closed record = revert through the trail.
+- **Undo and the audit trail cooperate, never conflict.** Undoing is not rewriting the audit trail. Every revert emits a normal, audited event — "user reverted field X to its value at T" — via the same event bus as every other mutation. The trail is always append-only; undo is a new action in it, not an erase.
+- **Server returns old + new on every write.** The read-your-write response carries the prior value and the new value so a client can build faithful undo even after optimistic reconciling and after events the user was detached from.
+
+## Agent-authored changes default to approval
+
+Autosave changes what an agent acting "on your behalf" means. If an agent rewrites ticket note wording and it instantly reconciles, the prior text can evaporate before you've seen it, and the open-record undo window just closed without you. So agent-originated changes to your records are governed by the involvement dial, **with the default at the approval position**:
+
+- **Default: propose, require approval.** When an agent acts on a user's behalf in a record — rewording notes, drafting or sending a reply, editing custom fields, adjusting an appointment — the change is emitted as a *proposed change* awaiting human approval by default. Nothing commits until the owner (or a permitted approver) approves. The proposal snapshot carries the before value, the proposed after value, the agent identity, the skill and its version, and the applicable rule-set hash (see [`10-agent-platform.md`](10-agent-platform.md)).
+- **Approval levels are customizable, not fixed.** Keep the dial, but the default is per-tenant configurable by action type, by entity, by field, and by client-visible or commit-sensitive classification. A tenant can raise or lower the bar per surface. Autonomous mode is an explicit, per-capability grant, never a global switch.
+- **Proposed changes and undo share the pipeline.** A declined proposal produces no write at all; an approved proposal produces a normal autosave write through the idempotent path above, so everything proposed and then approved remains undoable.
+- **Never bypass a human on client-visible or external commitments.** Anything a client will see or that commits externally (a status that pushes, an external email, a reply the client reads, a booking placed with the resource) always threads an approval or a clearly-notified confirm step.
+
+## Management intelligence data foundation
+
+The instant client is one consumer of the core's read models; management intelligence is the far noisier consumer of that same foundation. "How's the team actually doing?", "why is this project over budget?", "which inventory do we keep running out of?", and "who changed this, and to what, and why?" all bottom out in read models the core owns. If that data isn't in queryable, named shape, no layer on top can be smart about it.
+
+- **Operational read models are core deliverables.** Deterministic operational read models — labor/effort actuals per project and phase, stock levels and consumption velocity, utilization/capacity/backlog, time-entry compliance — are computed by the core from its own data and exposed as named read models through the public query/read-model API. The closed layer adds scoring, forecasting, and narrative on top. It never invents the underlying quantities.
+- **Audit is a queryable read model, not a log dump.** Autosave, agent actions, and undo mean the trail grows fast; "who did this" must be an answer, not a sift. The core exposes an audit/provenance read model indexed for exactly these questions: who, which record and field, before and after value, actor (human, agent, API key, undo), the session/skill and rule-set hash for agent writes, and when. Storage is append-only; read-model projections feed query and aggregation so upper builders never scan raw rows. The answer to "who did this" is a query, not a dig.
+- **Standalone read models, optional external engines.** The core's read models work on their own; external analytics engines are optional consumers of an open surface. Reading your own operational data never requires a paid engine.
+- **Deterministic facts vs. judgment.** Facts (labour cost so far, stock on hand, actuals vs. plan) are the core's fixtures. Judgment ("we under-invested in onboarding this sprint", "this vendor is drifting") is an add-on over the facts. The core keeps the line first-class so a number is never presented as fact when it is opinion — the two are surfaced separately, and the audit trail always shows where the judgment came from.

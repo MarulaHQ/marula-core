@@ -32,13 +32,16 @@ async fn test_state() -> AppState {
     let pool = connect(&admin_url).await.expect("pool");
     core_db::run_migrations(&pool).await.expect("migrations");
     let mut config = Config::from_env();
-    config.database_url = admin_url;
+    config.database_url = admin_url.clone();
+    let reporting_url = admin_url;
     AppState {
         pool,
         config: Arc::new(config),
         oidc: OidcHttpClient::new(),
         mail: Arc::new(core_api::email::MailStack::from_config(&Config::from_env())),
         store: Arc::new(core_store::memory::MemoryStore::new()),
+        reporting: core_api::state::AppState::reporting_pool_lazy(&reporting_url)
+            .expect("lazy reporting pool"),
     }
 }
 

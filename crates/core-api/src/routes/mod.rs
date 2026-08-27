@@ -54,6 +54,7 @@ pub mod oidc;
 pub mod openapi;
 pub mod portal;
 pub mod portal_admin;
+pub mod reports;
 pub mod scheduling;
 pub mod search;
 pub mod settings;
@@ -472,6 +473,8 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(&rp("/search"), get(search::search))
         // audit (admin)
         .route(&rp("/audit-events"), get(audit::list))
+        // operational reports (TASKLIST R1): read-model views only
+        .route(&rp("/reports/{kind}"), get(reports::report))
         // plugin runtime v1: signed webhooks OUT + API keys (admin;
         // x-api-key machine auth is handled inside require_auth)
         .route(

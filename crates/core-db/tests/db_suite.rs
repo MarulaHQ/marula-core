@@ -16,6 +16,7 @@
 
 mod common;
 
+use common::TestDb;
 use common::{fixed_uuid, org_tx, test_db, FUTURE, PAST};
 use core_db::{
     audit, automations, notifications as notif, orgs, outbox, portal, queue, search, sla, tickets,
@@ -6054,5 +6055,562 @@ async fn custom_fields_rls_blocks_cross_org_and_unscoped() {
         .await
         .expect("count values");
         assert_eq!(values, 0, "values hidden unscoped");
+    }
+}
+
+// ===========================================================================
+// Read-model reporting views (TASKLIST R0 / migration 0026) — fixture math
+// against hand-computed expectations, plus RLS-through-views isolation.
+//
+// Seed-slot discipline (lane contract): the ONLY fixed_uuid anchors used
+// here are 180..=189. Child entities derive deterministic ids by offsetting
+// slot 184's u128, preserving cross-lane collision-freedom without
+// consuming extra fixed slots.
+// ===========================================================================
+
+fn lane_uuid(k: u64) -> Uuid {
+    Uuid::from_u128(fixed_uuid(184).as_u128() + k as u128)
+}
+
+fn view_day() -> chrono::NaiveDate {
+    chrono::NaiveDate::from_ymd_opt(2026, 6, 10).unwrap()
+}
+
+/// Wall-clock anchor for fixtures: 2026-06-10T<hour>:00:00Z.
+fn view_at(hour: i64) -> chrono::DateTime<chrono::Utc> {
+    use chrono::TimeZone;
+    chrono::Utc
+        .with_ymd_and_hms(2026, 6, 10, hour as u32, 0, 0)
+        .unwrap()
+}
+
+#[allow(dead_code)]
+struct ViewFixtures {
+    org_a: Seeded,
+    org_b: Seeded,
+    user_a1: Uuid,
+    user_a2: Uuid,
+}
+
+/// Shared ONCE across the two view tests: they would otherwise race on the
+/// same deterministic org ids (parallel #[tokio::test]s share one database).
+static VIEW_FIXTURES: tokio::sync::OnceCell<ViewFixtures> = tokio::sync::OnceCell::const_new();
+
+async fn view_fixtures(db: &TestDb) -> &'static ViewFixtures {
+    VIEW_FIXTURES
+        .get_or_init(|| async { seed_view_fixtures_impl(db).await })
+        .await
+}
+
+async fn seed_view_fixtures_impl(db: &TestDb) -> ViewFixtures {
+    let org_a = seed_org(&db.app, 180).await;
+    let org_b = seed_org(&db.app, 181).await;
+    let user_a1 = fixed_uuid(182);
+    let user_a2 = fixed_uuid(183);
+    let client_a = lane_uuid(0);
+
+    // Users + client in org A.
+    let mut tx = org_tx(&db.app, org_a.org).await;
+    users::create_user(
+        &mut *tx,
+        user_a1,
+        org_a.org,
+        "a1@views.test",
+        "Alpha One",
+        "argon2hash",
+        "UTC",
+    )
+    .await
+    .expect("user a1");
+    users::create_user(
+        &mut *tx,
+        user_a2,
+        org_a.org,
+        "a2@views.test",
+        "Beta Two",
+        "argon2hash",
+        "Europe/Berlin",
+    )
+    .await
+    .expect("user a2");
+    sqlx::query("INSERT INTO clients (id, org_id, name) VALUES ($1,$2,'Client Alpha')")
+        .bind(client_a)
+        .bind(org_a.org)
+        .execute(&mut *tx)
+        .await
+        .expect("client");
+    tx.commit().await.expect("users commit");
+
+    let mut tx = org_tx(&db.app, org_a.org).await;
+
+    // Anchor creations on the fixture day so latency/window math is
+    // hand-computable regardless of wall clock.
+    // Tickets through the public insert path (number allocation included).
+    let t_closed = create_ticket(
+        &mut tx,
+        &org_a,
+        lane_uuid(1),
+        "closed promptly",
+        Priority::P3,
+        org_a.entry_status,
+        Some(user_a1),
+    )
+    .await;
+    let t_wait = create_ticket(
+        &mut tx,
+        &org_a,
+        lane_uuid(2),
+        "client shouted first",
+        Priority::P3,
+        org_a.waiting_status,
+        None,
+    )
+    .await;
+    let t_open_breach = create_ticket(
+        &mut tx,
+        &org_a,
+        lane_uuid(3),
+        "breached open",
+        Priority::P1,
+        org_a.entry_status,
+        Some(user_a2),
+    )
+    .await;
+
+    for t in [&t_closed.id, &t_wait.id] {
+        sqlx::query("UPDATE tickets SET created_at = $2 WHERE id = $1")
+            .bind(t)
+            .bind(view_at(0))
+            .execute(&mut *tx)
+            .await
+            .expect("created pin");
+    }
+    sqlx::query("UPDATE tickets SET created_at = $2 WHERE id = $1")
+        .bind(t_open_breach.id)
+        .bind(view_at(0))
+        .execute(&mut *tx)
+        .await
+        .expect("created pin");
+
+    // Closed ticket: real workflow move into the closed category (sets the
+    // denormalized category + resolved_at transactionally), then pin the
+    // resolution instant for hand-computed latency math. The board's
+    // resolved-status id is fetched under the same org scope.
+    let resolved_status_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM board_statuses WHERE board_id=$1 AND category='closed' LIMIT 1",
+    )
+    .bind(org_a.board)
+    .fetch_one(&mut *tx)
+    .await
+    .expect("resolved status");
+    tickets::update_status(&mut *tx, org_a.org, t_closed.id, resolved_status_id)
+        .await
+        .expect("close move");
+    sqlx::query("UPDATE tickets SET resolved_at = $2 WHERE id = $1")
+        .bind(t_closed.id)
+        .bind(view_at(8))
+        .execute(&mut *tx)
+        .await
+        .expect("resolve pin");
+
+    // Portal-style reply BEFORE any staff comment: author_id NULL ⇒ never a
+    // staff response.
+    sqlx::query(
+        "INSERT INTO ticket_comments (id, org_id, ticket_id, author_id, kind, body, created_at)
+         VALUES ($1,$2,$3,NULL,'client_visible','portal question',$4)",
+    )
+    .bind(lane_uuid(4))
+    .bind(org_a.org)
+    .bind(t_wait.id)
+    .bind(view_at(2))
+    .execute(&mut *tx)
+    .await
+    .expect("portal comment");
+
+    // Staff internal comment at h6 → the true first response for t_wait.
+    sqlx::query(
+        "INSERT INTO ticket_comments (id, org_id, ticket_id, author_id, kind, body, created_at)
+         VALUES ($1,$2,$3,$4,'internal','we are on it',$5)",
+    )
+    .bind(lane_uuid(5))
+    .bind(org_a.org)
+    .bind(t_wait.id)
+    .bind(user_a1)
+    .bind(view_at(6))
+    .execute(&mut *tx)
+    .await
+    .expect("staff comment");
+
+    // Time entries with hand-computable sums (60m billable / 30m not).
+    sqlx::query(
+        "INSERT INTO time_entries (id, org_id, ticket_id, user_id, started_at, ended_at, minutes, billable)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,true)",
+    )
+    .bind(lane_uuid(10))
+    .bind(org_a.org)
+    .bind(t_closed.id)
+    .bind(user_a1)
+    .bind(view_at(9))
+    .bind(view_at(10))
+    .bind(60i32)
+    .execute(&mut *tx)
+    .await
+    .expect("entry billable");
+
+    sqlx::query(
+        "INSERT INTO time_entries (id, org_id, ticket_id, user_id, started_at, ended_at, minutes, billable)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,false)",
+    )
+    .bind(lane_uuid(11))
+    .bind(org_a.org)
+    .bind(t_wait.id)
+    .bind(user_a2)
+    .bind(view_at(11))
+    .bind(view_at(11) + chrono::Duration::minutes(30))
+    .bind(30i32)
+    .execute(&mut *tx)
+    .await
+    .expect("entry non-billable");
+
+    // SLA state: closed ticket fully met; open ticket breached/unresolved.
+    sqlx::query(
+        "INSERT INTO ticket_sla_state
+           (ticket_id, org_id, policy_id, first_response_due, first_responded_at,
+            resolution_due, breached)
+         SELECT $1,$2,p.id,$3,$4,$5,false FROM sla_policies p WHERE p.org_id=$2 LIMIT 1",
+    )
+    .bind(t_closed.id)
+    .bind(org_a.org)
+    .bind(view_at(4))
+    .bind(view_at(1))
+    .bind(view_at(12))
+    .execute(&mut *tx)
+    .await
+    .expect("sla met row");
+
+    sqlx::query(
+        "INSERT INTO ticket_sla_state
+           (ticket_id, org_id, policy_id, first_response_due, resolution_due, breached)
+         SELECT $1,$2,p.id,$3,$4,true FROM sla_policies p WHERE p.org_id=$2 LIMIT 1",
+    )
+    .bind(t_open_breach.id)
+    .bind(org_a.org)
+    .bind(view_at(2))
+    .bind(view_at(12))
+    .execute(&mut *tx)
+    .await
+    .expect("sla breach row");
+
+    // Gap audit ledger: one clean day + one gap day for a1.
+    for (id_slot, day, logged, gap) in [
+        (lane_uuid(12), view_day(), 300i32, false),
+        (
+            lane_uuid(13),
+            view_day() - chrono::Duration::days(1),
+            120i32,
+            true,
+        ),
+    ] {
+        sqlx::query(
+            "INSERT INTO time_gap_audits (id, org_id, user_id, day, activity, logged_minutes, expected_minutes, has_gap)
+             VALUES ($1,$2,$3,$4,true,$5,480,$6)",
+        )
+        .bind(id_slot)
+        .bind(org_a.org)
+        .bind(user_a1)
+        .bind(day)
+        .bind(logged)
+        .bind(gap)
+        .execute(&mut *tx)
+        .await
+        .expect("gap audit row");
+    }
+
+    tx.commit().await.expect("fixture commit");
+
+    ViewFixtures {
+        org_a,
+        org_b,
+        user_a1,
+        user_a2,
+    }
+}
+
+#[derive(sqlx::FromRow, Debug)]
+#[allow(dead_code)]
+struct TicketRow {
+    number: String,
+    status_name: String,
+    category: String,
+    client_name: Option<String>,
+    assignee_name: Option<String>,
+    breached: bool,
+}
+
+#[tokio::test]
+async fn views_project_fixture_math_exactly() {
+    let db = test_db().await;
+    let fx = view_fixtures(&db).await;
+
+    let mut tx = org_tx(&db.app, fx.org_a.org).await;
+
+    // --- ops.v1_tickets ----------------------------------------------------
+    let tickets_rows: Vec<TicketRow> = sqlx::query_as(
+        r#"SELECT number, status_name, category, client_name, assignee_name, breached
+           FROM ops.v1_tickets WHERE org_id = $1 ORDER BY number"#,
+    )
+    .bind(fx.org_a.org)
+    .fetch_all(&mut *tx)
+    .await
+    .expect("v1_tickets scan");
+    assert_eq!(tickets_rows.len(), 3, "{tickets_rows:?}");
+    assert!(
+        tickets_rows
+            .iter()
+            .any(|r| r.category == "closed" && r.status_name == "Resolved" && !r.breached),
+        "closed workflow truth surfaced: {tickets_rows:?}"
+    );
+
+    // SLA columns ride along where state exists and coalesce to false else.
+    let (n_with_sla, n_without): (i64, i64) = sqlx::query_as(
+        r#"SELECT COUNT(*) FILTER (WHERE resolution_due IS NOT NULL),
+                                COUNT(*) FILTER (WHERE resolution_due IS NULL)
+                          FROM ops.v1_tickets WHERE org_id = $1"#,
+    )
+    .bind(fx.org_a.org)
+    .fetch_one(&mut *tx)
+    .await
+    .expect("sla split");
+    assert_eq!((n_with_sla, n_without), (2, 1));
+
+    // --- ops.v1_time_entries ----------------------------------------------
+    #[derive(sqlx::FromRow, Debug)]
+    #[allow(dead_code)]
+    struct EntryRow {
+        minutes: i32,
+        billable: bool,
+        ticket_number: String,
+        user_display_name: Option<String>,
+    }
+    let entry_rows: Vec<EntryRow> = sqlx::query_as(
+        r#"SELECT minutes, billable, ticket_number, user_display_name
+           FROM ops.v1_time_entries WHERE org_id = $1 ORDER BY started_at"#,
+    )
+    .bind(fx.org_a.org)
+    .fetch_all(&mut *tx)
+    .await
+    .expect("v1_time_entries scan");
+    assert_eq!(entry_rows.len(), 2, "{entry_rows:?}");
+    assert_eq!((entry_rows[0].minutes, entry_rows[0].billable), (60, true));
+    assert_eq!(
+        entry_rows[0].user_display_name.as_deref(),
+        Some("Alpha One")
+    );
+    assert_eq!(entry_rows[1].user_display_name.as_deref(), Some("Beta Two"));
+
+    // --- ops.v1_sla_outcomes ----------------------------------------------
+    #[derive(sqlx::FromRow, Debug)]
+    struct OutcomeRow {
+        response_met: Option<bool>,
+        resolution_met: Option<bool>,
+        breached: bool,
+        calendar_name: Option<String>,
+    }
+    let outcomes: Vec<OutcomeRow> = sqlx::query_as(
+        r#"SELECT response_met, resolution_met, breached, calendar_name
+           FROM ops.v1_sla_outcomes WHERE org_id = $1"#,
+    )
+    .bind(fx.org_a.org)
+    .fetch_all(&mut *tx)
+    .await
+    .expect("v1_sla_outcomes scan");
+    assert_eq!(outcomes.len(), 2);
+    let met_row = outcomes.iter().find(|r| !r.breached).expect("met row");
+    assert_eq!(met_row.response_met, Some(true));
+    assert_eq!(met_row.resolution_met, Some(true));
+    assert_eq!(
+        met_row.calendar_name, None,
+        "embedded-calendar policy has no attached calendar"
+    );
+    let breach_row = outcomes.iter().find(|r| r.breached).expect("breach row");
+    assert_eq!(
+        breach_row.resolution_met, None,
+        "unresolved ⇒ three-valued NULL"
+    );
+
+    // --- ops.v1_first_response --------------------------------------------
+    #[derive(sqlx::FromRow, Debug)]
+    #[allow(dead_code)]
+    struct FirstResponseRow {
+        ticket_number: String,
+        created_at: chrono::DateTime<chrono::Utc>,
+        first_staff_comment_at: Option<chrono::DateTime<chrono::Utc>>,
+        first_response_secs: Option<i64>,
+    }
+    let fr_rows: Vec<FirstResponseRow> = sqlx::query_as(
+        r#"SELECT ticket_number, created_at, first_staff_comment_at, first_response_secs
+           FROM ops.v1_first_response WHERE org_id = $1 ORDER BY ticket_number"#,
+    )
+    .bind(fx.org_a.org)
+    .fetch_all(&mut *tx)
+    .await
+    .expect("v1_first_response scan");
+    assert_eq!(fr_rows.len(), 3);
+
+    let wait_row = fr_rows
+        .iter()
+        .find(|r| r.first_staff_comment_at.is_some())
+        .expect("answered");
+    assert_eq!(
+        wait_row.first_staff_comment_at.unwrap(),
+        view_at(6),
+        "portal reply at h2 is EXCLUDED; staff at h6 measured"
+    );
+    assert_eq!(
+        wait_row.first_response_secs.unwrap(),
+        (view_at(6) - view_at(0)).num_seconds(),
+        "latency anchored on creation"
+    );
+    for unanswered in fr_rows
+        .iter()
+        .filter(|r| r.first_staff_comment_at.is_none())
+    {
+        assert!(
+            unanswered.first_response_secs.is_none(),
+            "unanswered ⇒ NULL latency"
+        );
+    }
+
+    // --- ops.v1_gap_days ----------------------------------------------------
+    #[derive(sqlx::FromRow, Debug, PartialEq)]
+    struct GapRow {
+        has_gap: bool,
+        logged_minutes: i32,
+        expected_minutes: i32,
+        user_timezone: String,
+    }
+    let gaps: Vec<GapRow> = sqlx::query_as(
+        r#"SELECT has_gap, logged_minutes, expected_minutes, user_timezone
+           FROM ops.v1_gap_days WHERE org_id = $1 ORDER BY day"#,
+    )
+    .bind(fx.org_a.org)
+    .fetch_all(&mut *tx)
+    .await
+    .expect("v1_gap_days scan");
+    assert_eq!(gaps.len(), 2);
+    // ORDER BY day ASC ⇒ June 9 (gap) first, June 10 clean second.
+    assert_eq!(
+        gaps[0],
+        GapRow {
+            has_gap: true,
+            logged_minutes: 120,
+            expected_minutes: 480,
+            user_timezone: "UTC".into()
+        }
+    );
+    assert_eq!(
+        gaps[1],
+        GapRow {
+            has_gap: false,
+            logged_minutes: 300,
+            expected_minutes: 480,
+            user_timezone: "UTC".into()
+        }
+    );
+
+    tx.commit().await.ok();
+}
+
+#[tokio::test]
+async fn rls_through_views_isolates_cross_org_and_unscoped_sessions() {
+    let db = test_db().await;
+    let fx = view_fixtures(&db).await;
+
+    // Org B gets its own ticket + entry + comment (same physical tables).
+    let mut tx = org_tx(&db.app, fx.org_b.org).await;
+    let user_b = fixed_uuid(185);
+    users::create_user(
+        &mut *tx,
+        user_b,
+        fx.org_b.org,
+        "b1@views.test",
+        "Rival Tech",
+        "argon2hash",
+        "UTC",
+    )
+    .await
+    .expect("org b user");
+    let t_b = create_ticket(
+        &mut tx,
+        &fx.org_b,
+        lane_uuid(20),
+        "rival ticket",
+        Priority::P2,
+        fx.org_b.entry_status,
+        None,
+    )
+    .await;
+    sqlx::query(
+        "INSERT INTO time_entries (id, org_id, ticket_id, user_id, started_at, ended_at, minutes, billable)
+         SELECT $1,$2,t.id,u.id,$3,$4,90,true FROM tickets t CROSS JOIN users u
+         WHERE t.id=$5 AND u.org_id=$2 LIMIT 1",
+    )
+    .bind(lane_uuid(21))
+    .bind(fx.org_b.org)
+    .bind(view_at(9))
+    .bind(view_at(10))
+    .bind(t_b.id)
+    .execute(&mut *tx)
+    .await
+    .expect("org b entry");
+    tx.commit().await.expect("org b commit");
+
+    // Scoped org A session: EVERY view returns zero org B rows.
+    let mut tx = org_tx(&db.app, fx.org_a.org).await;
+    for (view, key_col) in [
+        ("ops.v1_tickets", "id"),
+        ("ops.v1_time_entries", "id"),
+        ("ops.v1_sla_outcomes", "ticket_id"),
+        ("ops.v1_gap_days", "id"),
+        ("ops.v1_first_response", "ticket_id"),
+    ] {
+        let foreign: i64 =
+            sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {view} WHERE {key_col} = $1"))
+                .bind(t_b.id)
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap_or_else(|e| panic!("{view}: {e}"));
+        assert_eq!(foreign, 0, "{view} leaked org B rows through RLS");
+    }
+
+    // Org B scope sees ONLY org B data: one ticket, one entry, no gap days.
+    drop(tx);
+    let mut tx = org_tx(&db.app, fx.org_b.org).await;
+    let (b_tickets, b_entries, b_gaps): (i64, i64, i64) = sqlx::query_as(
+        r#"SELECT (SELECT COUNT(*) FROM ops.v1_tickets WHERE org_id=$1),
+                  (SELECT COUNT(*) FROM ops.v1_time_entries WHERE org_id=$1),
+                  (SELECT COUNT(*) FROM ops.v1_gap_days WHERE org_id=$1)"#,
+    )
+    .bind(fx.org_b.org)
+    .fetch_one(&mut *tx)
+    .await
+    .expect("org b counts");
+    assert_eq!((b_tickets, b_entries, b_gaps), (1, 1, 0));
+
+    // Unscoped session (no app.org_id ever set): default deny on every view.
+    drop(tx);
+    let fresh = db.fresh_app_pool().await;
+    for view in [
+        "ops.v1_tickets",
+        "ops.v1_time_entries",
+        "ops.v1_sla_outcomes",
+        "ops.v1_gap_days",
+        "ops.v1_first_response",
+    ] {
+        let count: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {view}"))
+            .fetch_one(&fresh)
+            .await
+            .unwrap_or_else(|e| panic!("{view} unscoped scan failed: {e}"));
+        assert_eq!(count, 0, "{view} leaked rows without an org binding");
     }
 }

@@ -33,6 +33,7 @@ async fn test_state() -> (AppState, Router) {
         .await
         .expect("RLS coverage holds with scheduling tables");
     let mut config = Config::from_env();
+    let reporting_url = config.database_url.clone();
     config.database_url = admin_url;
     let state = AppState {
         pool,
@@ -40,6 +41,8 @@ async fn test_state() -> (AppState, Router) {
         oidc: OidcHttpClient::new(),
         mail: Arc::new(core_api::email::MailStack::from_config(&Config::from_env())),
         store: Arc::new(core_store::memory::MemoryStore::new()),
+        reporting: core_api::state::AppState::reporting_pool_lazy(&reporting_url)
+            .expect("lazy reporting pool"),
     };
     let app = core_api::routes::build_router(state.clone());
     (state, app)

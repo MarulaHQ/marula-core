@@ -42,13 +42,16 @@ async fn test_state() -> AppState {
     // table-owner role (RLS-exempt); the constrained meridian_app role is
     // exercised per-transaction by the core-db suites.
     let mut config = Config::from_env();
-    config.database_url = admin_url;
+    config.database_url = admin_url.clone();
+    let reporting_url = admin_url;
     AppState {
         pool,
         config: Arc::new(config),
         oidc: OidcHttpClient::new(),
         mail: std::sync::Arc::new(core_api::email::MailStack::from_config(&Config::from_env())),
         store: Arc::new(core_store::memory::MemoryStore::new()),
+        reporting: core_api::state::AppState::reporting_pool_lazy(&reporting_url)
+            .expect("lazy reporting pool"),
     }
 }
 

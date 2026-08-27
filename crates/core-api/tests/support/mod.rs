@@ -276,6 +276,8 @@ impl MailHarness {
             mail: mail_stack,
             store: std::sync::Arc::clone(&store) as std::sync::Arc<dyn core_store::ObjectStore>,
             oidc: core_api::auth::oidc_client::OidcHttpClient::new(),
+            reporting: core_api::state::AppState::reporting_pool_lazy(&app_url(&b.admin_url))
+                .expect("lazy reporting pool"),
         };
 
         // Single-org world: default board + SLA + catch-all route + staff.
