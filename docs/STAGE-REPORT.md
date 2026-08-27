@@ -180,3 +180,35 @@ acceptance **18/18** incl. WS push chain and p95 ≤ 15.2 ms.
 Tagged at Stage-2 close per upgrade-policy §3/U10: strict semver anchor for
 the N−2 chain (U7), release notes carry an empty "Breaking & deprecated"
 section (§7) — no released API existed before this tag to break.
+
+## Wave 7 — Phase-3 opener (U1 · R0/R1 · D2 core · website)
+
+**Status: merged and validated on main (`74a6eb4`).** Four parallel lanes off
+`225b81c`, three of four completed first-run; import-core required one revival
+(docker outage recovery) then shipped clean.
+
+| Item | Lane | Highlights |
+|---|---|---|
+| U1 API path versioning | `p3-api-versioning` | `/api/v1` canonical mount beside one-generation legacy aliases via shared path-builder; spec documents v1 ONLY (128 paths); parity tests (payloads, 401 shapes, mounts); acceptance harness proves aliases keep CI green unchanged; shipped `dump-openapi` bin + served-spec drift guard test |
+| R0+R1 Reporting | `p3-reports` | `0026_reports_read_model.sql`: security-invoker `ops.v1_*` views (tickets/time/SLA outcomes/gap days/first-response) with per-column docs; `core-reports` field catalog + typed report kinds + parameterized compiler (no raw identifiers); CSV streaming; self/manager RBAC; read-only BI role recipe documented (ADR 0001 realized) |
+| D2 core Import | `p3-import-core` | `0027_import_framework.sql` mappings/batches w/ RLS; pure engine — CSV/JSON parsing matrix, conflict policies (skip/update/fail), proptests; idempotency via external-ids; `Actor::Import` audit provenance; dry-run then chunked batch lifecycle endpoints (org-admin gated) for clients/sites/contacts |
+| Website phase 1 | `p3-website` | Standalone waitlist site (own pnpm package): double opt-in with hashed tokens + SMTP none-mode fallback, public-safe roadmap copy from repo docs only, theme-token styling without product-code imports, 32 vitest incl. live-PG happy path |
+
+### Validation on merged main
+
+fmt · clippy `-D warnings` clean · **63 Rust suites / 0 failures** · web vitest
+green (74 app + 34 website) · TS 0 errors · spec snapshot **128 paths
+(v1-only)** regenerated authoritatively · acceptance **18/18** incl. WS push.
+
+### Integration fixes (coordinator)
+
+1. `default-run = core-api` — new `dump_openapi` bin broke plain `cargo run -p core-api`.
+2. Reporting-pool field added to two e2e AppState initializers missed by lane rebases.
+3. Route-literal → `rp()` idiom conversions during conflict resolution.
+4. Stale-fingerprint quirk after migrations landed: forced `core-db` rebuild re-embedded migrator.
+
+### Open ops item
+
+U7 fixture capture for v0.1.0: worktree checked out at
+`../meridian-fixture-v0.1.0`; build→seed→dump into `fixtures/upgrades/`
+remains the next coordinator task before Wave 8.
