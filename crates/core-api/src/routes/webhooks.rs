@@ -76,6 +76,10 @@ mod tests {
                 .max_connections(1)
                 .connect_lazy(&config.database_url)
                 .expect("lazy pool"),
+            reporting: crate::state::AppState::reporting_pool_lazy(
+                &"postgres://meridian_app:meridian_app@localhost:1/never_connected",
+            )
+            .expect("lazy reporting pool"),
             config: std::sync::Arc::new(config),
             mail: std::sync::Arc::new(MailStack::from_config(&Config::from_env())),
             store: std::sync::Arc::new(core_store::memory::MemoryStore::new()),

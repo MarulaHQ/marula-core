@@ -28,6 +28,7 @@ async fn main() -> anyhow::Result<()> {
         config: std::sync::Arc::clone(&config),
         oidc: core_api::auth::oidc_client::OidcHttpClient::new(),
         mail: std::sync::Arc::new(core_api::email::MailStack::from_config(&config)),
+        reporting: core_api::state::AppState::reporting_pool(&config.database_url).await,
         store: {
             let choice = config.object_store.clone();
             tracing::info!(?choice, "object store selected");

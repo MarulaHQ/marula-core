@@ -120,7 +120,13 @@ pub async fn report(
     let compiled = core_reports::compile(kind, &params, scope, q.cursor.as_deref(), limit, win)
         .map_err(|e| ApiError::Validation(e.to_string()))?;
 
-    let rows = run_rows(&state.pool, &compiled.sql, &compiled.binds).await?;
+    let rows = run_rows(
+        &state.reporting,
+        &compiled.sql,
+        &compiled.binds,
+        authed.user.org_id,
+    )
+    .await?;
     let decoded: Vec<Value> = rows
         .iter()
         .map(|r| row_json(r, &compiled.columns))
@@ -128,12 +134,18 @@ pub async fn report(
 
     // Cursor derives from the last row of THIS page under the kind's key
     // layout; absent when the page was short (exhaustion) or unpaged kind.
-    let next_cursor = next_cursor_for_kind(kind, &compiled, decoded.last());
+    let next_cursor =
+        next_cursor_for_kind(kind, &compiled, decoded.last(), decoded.len() < limit as usize);
 
     match want_csv {
         false => {
-            let summary =
-                run_rows(&state.pool, &compiled.summary_sql, &compiled.summary_binds).await?;
+            let summary = run_summary(
+                &state.reporting,
+                &compiled.summary_sql,
+                &compiled.summary_binds,
+                authed.user.org_id,
+            )
+            .await?;
             let summary_json = match summary.first() {
                 Some(row) => dynamic_row_json(row),
                 None => json!({}),
@@ -204,13 +216,36 @@ fn kind_params(kind: ReportKind, q: &ReportQuery, now: DateTime<Utc>) -> ApiResu
 
 // --- execution helpers ---------------------------------------------------------
 
-/// Executes a compiled statement binding every [`Bind`] in order. There is
-/// deliberately NO other mechanism — statements go verbatim to Postgres.
+/// Tags pool-side failures so logs name the failing phase during triage.
+fn tag_pool_err(phase: &'static str) -> impl Fn(sqlx::Error) -> sqlx::Error {
+    move |e| match &e {
+        sqlx::Error::PoolTimedOut => {
+            tracing::error!(phase, "reporting pool exhausted");
+            e
+        }
+        _ => e,
+    }
+}
+
+/// Executes a compiled statement binding every [`Bind`] in order, inside a
+/// transaction explicitly bound to the caller's org (`app.org_id` GUC).
+///
+/// The generated SQL intentionally carries NO literal org filter — tenancy
+/// flows through row-level security of the base tables under the
+/// security-invoker views. Binding the GUC here makes that dependency
+/// explicit and keeps correctness even for roles whose privileges later
+/// drift. There is deliberately NO other execution mechanism — statements
+/// go verbatim to Postgres.
 async fn run_rows(
     pool: &PgPool,
     sql: &str,
     binds: &[Bind],
+    org_id: Uuid,
 ) -> Result<Vec<sqlx::postgres::PgRow>, sqlx::Error> {
+    let mut tx = pool.begin().await.map_err(tag_pool_err("begin"))?;
+    core_db::set_org(&mut tx, org_id)
+        .await
+        .map_err(|e| sqlx::Error::Configuration(format!("set_org:{e}").into()))?;
     let mut q = sqlx::query(sql);
     for b in binds {
         q = match b {
@@ -221,7 +256,20 @@ async fn run_rows(
             Bind::Bool(b) => q.bind(*b),
         };
     }
-    q.fetch_all(pool).await
+    let rows = q.fetch_all(&mut *tx).await?;
+    // Read-only request: rollback is both correct and free.
+    tx.rollback().await?;
+    Ok(rows)
+}
+
+/// Same scoped pattern for the single-row summary statements.
+async fn run_summary(
+    pool: &PgPool,
+    sql: &str,
+    binds: &[Bind],
+    org_id: Uuid,
+) -> Result<Vec<sqlx::postgres::PgRow>, sqlx::Error> {
+    run_rows(pool, sql, binds, org_id).await
 }
 
 /// Decodes a main-result row according to its declared output types. All
@@ -286,7 +334,11 @@ fn next_cursor_for_kind(
     kind: ReportKind,
     compiled: &CompiledReport,
     last_row: Option<&Value>,
+    page_shorter_than_limit: bool,
 ) -> Option<String> {
+    if page_shorter_than_limit {
+        return None;
+    }
     let last = last_row?;
     match compiled.cursor_shape {
         CursorShape::None => None,
