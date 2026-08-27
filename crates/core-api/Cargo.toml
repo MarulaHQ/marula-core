@@ -18,6 +18,7 @@ path = "src/main.rs"
 [dependencies]
 core-db = { path = "../core-db" }
 core-domain = { path = "../core-domain", features = ["openapi"] }
+core-reports = { path = "../core-reports" }
 core-events = { path = "../core-events" }
 core-mail = { path = "../core-mail" }
 core-otel = { path = "../core-otel" }

@@ -105,7 +105,9 @@ impl PageKey {
             .decode(raw.as_bytes())
             .map_err(|_| ReportsError::InvalidCursor)?;
         let text = String::from_utf8(decoded).map_err(|_| ReportsError::InvalidCursor)?;
-        let rest = text.strip_prefix("v1|").ok_or(ReportsError::InvalidCursor)?;
+        let rest = text
+            .strip_prefix("v1|")
+            .ok_or(ReportsError::InvalidCursor)?;
         let parts: Vec<&str> = rest.split('|').collect();
         if parts.len() != 3 {
             return Err(ReportsError::InvalidCursor);
@@ -225,12 +227,24 @@ pub fn compile(
             limit,
             win,
         ),
-        (ReportKind::TimeByClient, KindParams::TimeByClient(p)) => {
-            compile_time_rollup(RollupKey::Client, scope, p.user_id, None, cursor_raw, limit, win)
-        }
-        (ReportKind::TimeByTicket, KindParams::TimeByTicket(p)) => {
-            compile_time_rollup(RollupKey::Ticket, scope, p.user_id, None, cursor_raw, limit, win)
-        }
+        (ReportKind::TimeByClient, KindParams::TimeByClient(p)) => compile_time_rollup(
+            RollupKey::Client,
+            scope,
+            p.user_id,
+            None,
+            cursor_raw,
+            limit,
+            win,
+        ),
+        (ReportKind::TimeByTicket, KindParams::TimeByTicket(p)) => compile_time_rollup(
+            RollupKey::Ticket,
+            scope,
+            p.user_id,
+            None,
+            cursor_raw,
+            limit,
+            win,
+        ),
         (ReportKind::SlaAttainment, KindParams::SlaAttainment(p)) => {
             compile_sla_attainment(scope, p.policy_id, p.user_id, cursor_raw, limit, win)
         }
@@ -311,8 +325,9 @@ fn compile_time_rollup(
     );
 
     let mut sql = format!("SELECT agg.* FROM (\n{inner}\n) agg");
-    if let Some(PageKey::MetricGroup { metric, group }) =
-        cursor_raw.map(|raw| decode_cursor(raw, CursorShape::MetricGroup)).transpose()?
+    if let Some(PageKey::MetricGroup { metric, group }) = cursor_raw
+        .map(|raw| decode_cursor(raw, CursorShape::MetricGroup))
+        .transpose()?
     {
         let m = b.ph(Bind::Int(metric));
         let g = b.ph(Bind::Uuid(group));
@@ -394,14 +409,15 @@ fn compile_sla_attainment(
     }
 
     let inner = format!(
-        "SELECT so.policy_id AS group_id,\n       MAX(so.policy_name) AS label,\n       COUNT(*)::bigint AS metric,\n       SUM(CASE WHEN so.resolution_met THEN 1 ELSE 0 END)::bigint AS resolutions_met,\n       ROUND(100.0 * SUM(CASE WHEN so.resolution_met THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 1) AS attainment_pct\nFROM {}\nso\nWHERE {}\nGROUP BY so.policy_id",
+        "SELECT so.policy_id AS group_id,\n       MAX(so.policy_name) AS label,\n       COUNT(*)::bigint AS metric,\n       SUM(CASE WHEN so.resolution_met THEN 1 ELSE 0 END)::bigint AS resolutions_met,\n       ROUND(100.0 * SUM(CASE WHEN so.resolution_met THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 1)::float8 AS attainment_pct\nFROM {}\nso\nWHERE {}\nGROUP BY so.policy_id",
         ViewId::SlaOutcomes.qualified_name(),
         conds.join("\n  AND "),
     );
 
     let mut sql = format!("SELECT agg.* FROM (\n{inner}\n) agg");
-    if let Some(PageKey::MetricGroup { metric, group }) =
-        cursor_raw.map(|raw| decode_cursor(raw, CursorShape::MetricGroup)).transpose()?
+    if let Some(PageKey::MetricGroup { metric, group }) = cursor_raw
+        .map(|raw| decode_cursor(raw, CursorShape::MetricGroup))
+        .transpose()?
     {
         let m = b.ph(Bind::Int(metric));
         let g = b.ph(Bind::Uuid(group));
@@ -437,7 +453,7 @@ fn compile_sla_attainment(
         sql,
         binds: b.binds,
         summary_sql: format!(
-            "SELECT COALESCE(COUNT(*), 0)::bigint AS resolutions_total,\n       COALESCE(SUM(CASE WHEN so.resolution_met THEN 1 ELSE 0 END), 0)::bigint AS resolutions_met,\n       ROUND(100.0 * COALESCE(SUM(CASE WHEN so.resolution_met THEN 1 ELSE 0 END), 0) / NULLIF(COUNT(*), 0), 1) AS attainment_pct\nFROM {}\nso\nWHERE {}",
+            "SELECT COALESCE(COUNT(*), 0)::bigint AS resolutions_total,\n       COALESCE(SUM(CASE WHEN so.resolution_met THEN 1 ELSE 0 END), 0)::bigint AS resolutions_met,\n       ROUND(100.0 * COALESCE(SUM(CASE WHEN so.resolution_met THEN 1 ELSE 0 END), 0) / NULLIF(COUNT(*), 0), 1)::float8 AS attainment_pct\nFROM {}\nso\nWHERE {}",
             ViewId::SlaOutcomes.qualified_name(),
             s_conds.join("\n  AND "),
         ),
@@ -483,8 +499,9 @@ fn compile_sla_breaches(
         let n = b.ph(Bind::Uuid(a));
         conds.push(format!("so.assignee_id = {n}"));
     }
-    if let Some(key @ PageKey::Ticket { .. }) =
-        cursor_raw.map(|raw| decode_cursor(raw, CursorShape::TicketAsc)).transpose()?
+    if let Some(key @ PageKey::Ticket { .. }) = cursor_raw
+        .map(|raw| decode_cursor(raw, CursorShape::TicketAsc))
+        .transpose()?
     {
         let PageKey::Ticket { ts, ticket } = key else {
             return Err(ReportsError::InvalidCursor);
@@ -659,7 +676,7 @@ fn compile_aging(
     // Sub-select computes age in (fractional) days; outer groups into the
     // fixed v1 buckets. bucket_ordinal keeps the presentation order stable.
     let inner = format!(
-        "SELECT CASE\n         WHEN d.age < 1 THEN 'under_1d'\n         WHEN d.age < 3 THEN 'd1_3'\n         WHEN d.age < 7 THEN 'd3_7'\n         WHEN d.age < 30 THEN 'd7_30'\n         ELSE 'over_30d'\n       END AS bucket,\n       CASE\n         WHEN d.age < 1 THEN 0\n         WHEN d.age < 3 THEN 1\n         WHEN d.age < 7 THEN 2\n         WHEN d.age < 30 THEN 3\n         ELSE 4\n       END AS bucket_ordinal,\n       COUNT(*)::bigint AS open_count,\n       FLOOR(MAX(d.age))::bigint AS oldest_age_days,\n       ROUND(AVG(d.age)::numeric, 1) AS avg_age_days\nFROM (\n  SELECT v.id, EXTRACT(epoch FROM ({now} - v.created_at)) / 86400.0 AS age\n  FROM {view}\nv\n  WHERE {sub_cond}\n) d\nGROUP BY 1, 2",
+        "SELECT CASE\n         WHEN d.age < 1 THEN 'under_1d'\n         WHEN d.age < 3 THEN 'd1_3'\n         WHEN d.age < 7 THEN 'd3_7'\n         WHEN d.age < 30 THEN 'd7_30'\n         ELSE 'over_30d'\n       END AS bucket,\n       CASE\n         WHEN d.age < 1 THEN 0\n         WHEN d.age < 3 THEN 1\n         WHEN d.age < 7 THEN 2\n         WHEN d.age < 30 THEN 3\n         ELSE 4\n       END AS bucket_ordinal,\n       COUNT(*)::bigint AS open_count,\n       FLOOR(MAX(d.age))::bigint AS oldest_age_days,\n       ROUND(AVG(d.age)::numeric, 1)::float8 AS avg_age_days\nFROM (\n  SELECT v.id, EXTRACT(epoch FROM ({now} - v.created_at)) / 86400.0 AS age\n  FROM {view}\nv\n  WHERE {sub_cond}\n) d\nGROUP BY 1, 2",
         view = ViewId::Tickets.qualified_name(),
     );
 
@@ -721,8 +738,9 @@ fn compile_first_response(
         let n = b.ph(Bind::Uuid(a));
         conds.push(format!("fr.assignee_id = {n}"));
     }
-    if let Some(key @ PageKey::Ticket { .. }) =
-        cursor_raw.map(|raw| decode_cursor(raw, CursorShape::TicketDesc)).transpose()?
+    if let Some(key @ PageKey::Ticket { .. }) = cursor_raw
+        .map(|raw| decode_cursor(raw, CursorShape::TicketDesc))
+        .transpose()?
     {
         let PageKey::Ticket { ts, ticket } = key else {
             return Err(ReportsError::InvalidCursor);
@@ -884,8 +902,17 @@ mod tests {
             "reports must be reads only; got {sql}"
         );
         for banned in [
-            "insert ", "update ", "delete ", "drop ", "alter ", "truncate ",
-            "grant ", "revoke ", ";", "--", "/*",
+            "insert ",
+            "update ",
+            "delete ",
+            "drop ",
+            "alter ",
+            "truncate ",
+            "grant ",
+            "revoke ",
+            ";",
+            "--",
+            "/*",
         ] {
             assert!(
                 !lower.contains(banned),
@@ -944,13 +971,14 @@ mod tests {
             // A valid-shaped key: metric cursor for grouped kinds, ticket
             // cursor for tabular kinds. Encode via next_cursor first.
             let shape_key = match kind.view() {
-                ViewId::TimeEntries | ViewId::SlaOutcomes if matches!(
-                    kind,
-                    ReportKind::SlaAttainment
-                        | ReportKind::TimeByUser
-                        | ReportKind::TimeByClient
-                        | ReportKind::TimeByTicket
-                ) =>
+                ViewId::TimeEntries | ViewId::SlaOutcomes
+                    if matches!(
+                        kind,
+                        ReportKind::SlaAttainment
+                            | ReportKind::TimeByUser
+                            | ReportKind::TimeByClient
+                            | ReportKind::TimeByTicket
+                    ) =>
                 {
                     next_cursor(
                         kind,
@@ -967,8 +995,15 @@ mod tests {
                 .expect("ticket cursor"),
             };
 
-            let unpaged = compile(kind, &params_for(kind, NOW), Scope::OrgWide, None, 50, win_default(NOW))
-                .expect("base compile");
+            let unpaged = compile(
+                kind,
+                &params_for(kind, NOW),
+                Scope::OrgWide,
+                None,
+                50,
+                win_default(NOW),
+            )
+            .expect("base compile");
             let paged = compile(
                 kind,
                 &params_for(kind, NOW),
@@ -986,8 +1021,15 @@ mod tests {
         }
 
         for kind in [ReportKind::TicketThroughput, ReportKind::TicketAging] {
-            let _ = compile(kind, &params_for(kind, NOW), Scope::OrgWide, None, 50, win_default(NOW))
-                .expect("unpaged kinds still compile");
+            let _ = compile(
+                kind,
+                &params_for(kind, NOW),
+                Scope::OrgWide,
+                None,
+                50,
+                win_default(NOW),
+            )
+            .expect("unpaged kinds still compile");
         }
     }
 
@@ -1024,8 +1066,7 @@ pub(crate) mod tests_support {
     pub fn open_for_test(raw: &str) -> Result<(), crate::error::ReportsError> {
         // Route through the same decode used in production for any shape;
         // both expect kind-appropriate layout, hostile text never passes.
-        match super::PageKey::open(raw)? {
-            _ => Ok(()),
-        }
+        let _ = super::PageKey::open(raw)?;
+        Ok(())
     }
 }

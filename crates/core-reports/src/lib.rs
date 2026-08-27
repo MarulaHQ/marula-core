@@ -24,14 +24,17 @@ pub mod error;
 pub mod kinds;
 pub mod params;
 
-pub use builder::{next_cursor, Bind, CompiledReport, CursorShape, OutType, OutputColumn};
+pub use builder::{compile, next_cursor, Bind, CompiledReport, CursorShape, OutType, OutputColumn};
 pub use catalog::{lookup_column, resolve_filter_column, ViewId};
 pub use error::ReportsError;
 pub use kinds::{
-    AgingParams, FirstResponseParams, KindParams, ReportKind, SlaOutcomesParams,
-    ThroughputParams, TimeByUserParams, TimeReportParams, WindowParams,
+    AgingParams, FirstResponseParams, KindParams, ReportKind, SlaOutcomesParams, ThroughputParams,
+    TimeByUserParams, TimeReportParams, WindowParams,
 };
-pub use params::{clamp_limit, resolve_window, Scope, Window, PAGE_LIMIT_DEFAULT, PAGE_LIMIT_MAX, WINDOW_MAX_DAYS};
+pub use params::{
+    clamp_limit, resolve_window, validate_limit_raw, Scope, Window, PAGE_LIMIT_DEFAULT,
+    PAGE_LIMIT_MAX, WINDOW_MAX_DAYS,
+};
 
 #[cfg(test)]
 mod tests {

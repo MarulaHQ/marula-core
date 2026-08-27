@@ -305,7 +305,9 @@ mod tests {
         for view in ViewId::ALL {
             let name = view.qualified_name();
             assert!(name.starts_with("ops.v1_"), "{name} lost its version");
-            assert!(name[name.len() - name.len()..].chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.'));
+            assert!(name[name.len() - name.len()..]
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.'));
         }
     }
 }

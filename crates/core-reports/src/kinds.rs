@@ -109,7 +109,10 @@ pub struct TimeByUserParams {
 
 impl From<&TimeReportParams> for TimeByUserParams {
     fn from(base: &TimeReportParams) -> Self {
-        Self { base: base.clone(), billable: None }
+        Self {
+            base: base.clone(),
+            billable: None,
+        }
     }
 }
 

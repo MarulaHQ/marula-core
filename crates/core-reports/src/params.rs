@@ -71,10 +71,7 @@ pub fn resolve_window(
 ) -> Result<Window, ReportsError> {
     let today = now.date_naive();
     let (from, to) = match (from, to) {
-        (None, None) => (
-            today - Duration::days(WINDOW_DEFAULT_DAYS - 1),
-            today,
-        ),
+        (None, None) => (today - Duration::days(WINDOW_DEFAULT_DAYS - 1), today),
         (Some(f), None) => (f, f),
         (None, Some(t)) => (t, t),
         (Some(f), Some(t)) => (f, t),
@@ -90,15 +87,14 @@ pub fn resolve_window(
             "window spans {span} days; maximum is {WINDOW_MAX_DAYS}"
         )));
     }
-    let start = from.and_hms_opt(0, 0, 0).map(|n| n.and_utc()).ok_or_else(|| {
-        ReportsError::InvalidWindow("unrepresentable from-date".to_string())
-    })?;
+    let start = from
+        .and_hms_opt(0, 0, 0)
+        .map(|n| n.and_utc())
+        .ok_or_else(|| ReportsError::InvalidWindow("unrepresentable from-date".to_string()))?;
     let end_exclusive = (to + Duration::days(1))
         .and_hms_opt(0, 0, 0)
         .map(|n| n.and_utc())
-        .ok_or_else(|| {
-            ReportsError::InvalidWindow("unrepresentable to-date".to_string())
-        })?;
+        .ok_or_else(|| ReportsError::InvalidWindow("unrepresentable to-date".to_string()))?;
     Ok(Window {
         start,
         end: end_exclusive,
@@ -128,7 +124,10 @@ mod tests {
     fn defaults_cover_trailing_30_days_inclusive() {
         let w = resolve_window(None, None, anchor()).unwrap();
         assert_eq!(w.span_days(), WINDOW_DEFAULT_DAYS);
-        assert_eq!(w.end.date_naive(), anchor().date_naive() + Duration::days(1));
+        assert_eq!(
+            w.end.date_naive(),
+            anchor().date_naive() + Duration::days(1)
+        );
         assert_eq!(
             w.start.date_naive(),
             anchor().date_naive() - Duration::days(WINDOW_DEFAULT_DAYS - 1)

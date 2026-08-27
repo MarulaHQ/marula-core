@@ -85,6 +85,7 @@ use utoipa::OpenApi;
         crate::routes::notifications::prefs_get,
         crate::routes::notifications::prefs_update,
         crate::routes::audit::list,
+        crate::routes::reports::report,
         crate::auth::handlers::list_sessions,
         crate::auth::handlers::revoke_session,
         crate::auth::mfa_handlers::totp_enroll_begin,
