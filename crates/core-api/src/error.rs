@@ -39,6 +39,13 @@ pub enum ApiError {
     /// surfaces such as the internal effect surface without its token).
     #[error("service unavailable: {0}")]
     Unavailable(String),
+    /// A fail-policy import chunk was rejected transactionally (TASKLIST
+    /// D2): nothing from that chunk was written; the full per-row report
+    /// rides the 409 so clients can correct and retry without re-upload.
+    #[error("import chunk rejected by conflict_policy=fail")]
+    ImportChunkRejected {
+        report: crate::routes::imports::RunReportResponse,
+    },
     #[error("internal error")]
     Internal(#[from] anyhow::Error),
 }
@@ -96,6 +103,11 @@ impl IntoResponse for ApiError {
                     "appointment_id": appointment_id,
                     "blocker_title": blocker_title,
                 })),
+            ),
+            ApiError::ImportChunkRejected { report } => (
+                StatusCode::CONFLICT,
+                "import chunk rejected by conflict_policy=fail".to_string(),
+                Some(json!({ "report": report })),
             ),
             ApiError::Unavailable(m) => (StatusCode::SERVICE_UNAVAILABLE, m.clone(), None),
             ApiError::Internal(_) => (

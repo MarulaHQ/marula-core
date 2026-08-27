@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, org_id, client_id, site_id, tag, name, kind, status,\n                   created_at, updated_at\n           FROM device_assets WHERE org_id = $1 AND client_id = $2 ORDER BY tag",
+  "query": "UPDATE contacts SET name = $3, email = $4, phone = $5, title = $6,\n                               is_primary = $7\n           WHERE org_id = $1 AND id = $2\n           RETURNING id, org_id, client_id, site_id, name, email, phone, title,\n                      is_primary, created_at",
   "describe": {
     "columns": [
       {
@@ -25,39 +25,44 @@
       },
       {
         "ordinal": 4,
-        "name": "tag",
-        "type_info": "Text"
-      },
-      {
-        "ordinal": 5,
         "name": "name",
         "type_info": "Text"
       },
       {
+        "ordinal": 5,
+        "name": "email",
+        "type_info": "Text"
+      },
+      {
         "ordinal": 6,
-        "name": "kind",
+        "name": "phone",
         "type_info": "Text"
       },
       {
         "ordinal": 7,
-        "name": "status",
+        "name": "title",
         "type_info": "Text"
       },
       {
         "ordinal": 8,
-        "name": "created_at",
-        "type_info": "Timestamptz"
+        "name": "is_primary",
+        "type_info": "Bool"
       },
       {
         "ordinal": 9,
-        "name": "updated_at",
+        "name": "created_at",
         "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
         "Uuid",
-        "Uuid"
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Bool"
       ]
     },
     "nullable": [
@@ -66,12 +71,12 @@
       false,
       true,
       false,
-      false,
-      false,
-      false,
+      true,
+      true,
+      true,
       false,
       false
     ]
   },
-  "hash": "7d4e6696c12d16e72b43ac9d156611c9f28d0dbf8bc52526843cbcbd1585a7e9"
+  "hash": "9bbe8f417a4c7f49afb1a0f6950b0db1ff0ef0f2d0641ceb5e60b30d08195783"
 }

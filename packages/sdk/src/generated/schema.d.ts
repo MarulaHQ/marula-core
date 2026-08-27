@@ -1,5 +1,5 @@
 export interface paths {
-    "/api/v1/api-keys": {
+    "/api/api-keys": {
         parameters: {
             query?: never;
             header?: never;
@@ -17,7 +17,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/api-keys/{id}": {
+    "/api/api-keys/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -37,7 +37,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/appointments": {
+    "/api/appointments": {
         parameters: {
             query?: never;
             header?: never;
@@ -54,7 +54,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/appointments/{id}": {
+    "/api/appointments/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -75,7 +75,7 @@ export interface paths {
         patch: operations["appointment_patch"];
         trace?: never;
     };
-    "/api/v1/appointments/{id}/cancel": {
+    "/api/appointments/{id}/cancel": {
         parameters: {
             query?: never;
             header?: never;
@@ -95,7 +95,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/appointments/{id}/move": {
+    "/api/appointments/{id}/move": {
         parameters: {
             query?: never;
             header?: never;
@@ -116,7 +116,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/attachments/{id}": {
+    "/api/attachments/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -137,7 +137,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/attachments/{id}/download": {
+    "/api/attachments/{id}/download": {
         parameters: {
             query?: never;
             header?: never;
@@ -158,7 +158,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/audit-events": {
+    "/api/audit-events": {
         parameters: {
             query?: never;
             header?: never;
@@ -178,7 +178,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/login": {
+    "/api/auth/login": {
         parameters: {
             query?: never;
             header?: never;
@@ -200,7 +200,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/logout": {
+    "/api/auth/logout": {
         parameters: {
             query?: never;
             header?: never;
@@ -217,7 +217,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/mfa/recovery-codes/regenerate": {
+    "/api/auth/mfa/recovery-codes/regenerate": {
         parameters: {
             query?: never;
             header?: never;
@@ -237,7 +237,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/mfa/totp/disable": {
+    "/api/auth/mfa/totp/disable": {
         parameters: {
             query?: never;
             header?: never;
@@ -257,7 +257,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/mfa/totp/enroll-begin": {
+    "/api/auth/mfa/totp/enroll-begin": {
         parameters: {
             query?: never;
             header?: never;
@@ -277,7 +277,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/mfa/totp/enroll-verify": {
+    "/api/auth/mfa/totp/enroll-verify": {
         parameters: {
             query?: never;
             header?: never;
@@ -297,7 +297,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/mfa/verify": {
+    "/api/auth/mfa/verify": {
         parameters: {
             query?: never;
             header?: never;
@@ -318,7 +318,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/mfa/webauthn/begin": {
+    "/api/auth/mfa/webauthn/begin": {
         parameters: {
             query?: never;
             header?: never;
@@ -338,7 +338,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/mfa/webauthn/credentials": {
+    "/api/auth/mfa/webauthn/credentials": {
         parameters: {
             query?: never;
             header?: never;
@@ -355,7 +355,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/mfa/webauthn/credentials/{id}/remove": {
+    "/api/auth/mfa/webauthn/credentials/{id}/remove": {
         parameters: {
             query?: never;
             header?: never;
@@ -375,7 +375,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/mfa/webauthn/finish": {
+    "/api/auth/mfa/webauthn/finish": {
         parameters: {
             query?: never;
             header?: never;
@@ -395,7 +395,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/mfa/webauthn/register/begin": {
+    "/api/auth/mfa/webauthn/register/begin": {
         parameters: {
             query?: never;
             header?: never;
@@ -415,7 +415,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/mfa/webauthn/register/finish": {
+    "/api/auth/mfa/webauthn/register/finish": {
         parameters: {
             query?: never;
             header?: never;
@@ -435,7 +435,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/oidc/providers": {
+    "/api/auth/oidc/providers": {
         parameters: {
             query?: never;
             header?: never;
@@ -452,7 +452,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/oidc/providers/public": {
+    "/api/auth/oidc/providers/public": {
         parameters: {
             query?: never;
             header?: never;
@@ -472,7 +472,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/oidc/providers/{name}": {
+    "/api/auth/oidc/providers/{name}": {
         parameters: {
             query?: never;
             header?: never;
@@ -493,7 +493,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/oidc/{name}/callback": {
+    "/api/auth/oidc/{name}/callback": {
         parameters: {
             query?: never;
             header?: never;
@@ -514,7 +514,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/oidc/{name}/link": {
+    "/api/auth/oidc/{name}/link": {
         parameters: {
             query?: never;
             header?: never;
@@ -534,7 +534,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/oidc/{name}/login": {
+    "/api/auth/oidc/{name}/login": {
         parameters: {
             query?: never;
             header?: never;
@@ -554,7 +554,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/refresh": {
+    "/api/auth/refresh": {
         parameters: {
             query?: never;
             header?: never;
@@ -575,7 +575,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/register": {
+    "/api/auth/register": {
         parameters: {
             query?: never;
             header?: never;
@@ -596,7 +596,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/sessions": {
+    "/api/auth/sessions": {
         parameters: {
             query?: never;
             header?: never;
@@ -616,7 +616,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/sessions/{id}/revoke": {
+    "/api/auth/sessions/{id}/revoke": {
         parameters: {
             query?: never;
             header?: never;
@@ -636,7 +636,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/automation-rules": {
+    "/api/automation-rules": {
         parameters: {
             query?: never;
             header?: never;
@@ -658,7 +658,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/automation-rules/{id}": {
+    "/api/automation-rules/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -676,7 +676,7 @@ export interface paths {
         patch: operations["automation_rules_update"];
         trace?: never;
     };
-    "/api/v1/availability": {
+    "/api/availability": {
         parameters: {
             query?: never;
             header?: never;
@@ -694,7 +694,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/availability/{id}": {
+    "/api/availability/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -711,7 +711,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/board-groups": {
+    "/api/board-groups": {
         parameters: {
             query?: never;
             header?: never;
@@ -735,7 +735,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/board-groups/{id}": {
+    "/api/board-groups/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -760,7 +760,7 @@ export interface paths {
         patch: operations["board_groups_update"];
         trace?: never;
     };
-    "/api/v1/boards": {
+    "/api/boards": {
         parameters: {
             query?: never;
             header?: never;
@@ -778,7 +778,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/boards/favorite": {
+    "/api/boards/favorite": {
         parameters: {
             query?: never;
             header?: never;
@@ -799,7 +799,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/boards/nav": {
+    "/api/boards/nav": {
         parameters: {
             query?: never;
             header?: never;
@@ -819,7 +819,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/boards/{id}/checklist-template": {
+    "/api/boards/{id}/checklist-template": {
         parameters: {
             query?: never;
             header?: never;
@@ -846,7 +846,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/boards/{id}/fields": {
+    "/api/boards/{id}/fields": {
         parameters: {
             query?: never;
             header?: never;
@@ -870,7 +870,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/boards/{id}/fields/{field_id}": {
+    "/api/boards/{id}/fields/{field_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -895,7 +895,7 @@ export interface paths {
         patch: operations["fields_update_def"];
         trace?: never;
     };
-    "/api/v1/boards/{id}/group": {
+    "/api/boards/{id}/group": {
         parameters: {
             query?: never;
             header?: never;
@@ -915,7 +915,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/boards/{id}/members": {
+    "/api/boards/{id}/members": {
         parameters: {
             query?: never;
             header?: never;
@@ -936,7 +936,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/boards/{id}/members/{user_id}": {
+    "/api/boards/{id}/members/{user_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -957,7 +957,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/boards/{id}/statuses": {
+    "/api/boards/{id}/statuses": {
         parameters: {
             query?: never;
             header?: never;
@@ -978,7 +978,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/boards/{id}/statuses/{status_id}": {
+    "/api/boards/{id}/statuses/{status_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1003,7 +1003,7 @@ export interface paths {
         patch: operations["boards_update_status"];
         trace?: never;
     };
-    "/api/v1/boards/{id}/transitions": {
+    "/api/boards/{id}/transitions": {
         parameters: {
             query?: never;
             header?: never;
@@ -1025,7 +1025,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/calendar-exclusions": {
+    "/api/calendar-exclusions": {
         parameters: {
             query?: never;
             header?: never;
@@ -1043,7 +1043,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/calendar-exclusions/{id}": {
+    "/api/calendar-exclusions/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1060,7 +1060,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/calendar/day": {
+    "/api/calendar/day": {
         parameters: {
             query?: never;
             header?: never;
@@ -1077,7 +1077,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/calendar/team": {
+    "/api/calendar/team": {
         parameters: {
             query?: never;
             header?: never;
@@ -1094,7 +1094,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/calendar/week": {
+    "/api/calendar/week": {
         parameters: {
             query?: never;
             header?: never;
@@ -1111,7 +1111,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/clients": {
+    "/api/clients": {
         parameters: {
             query?: never;
             header?: never;
@@ -1129,7 +1129,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/clients/{id}": {
+    "/api/clients/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1146,7 +1146,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/clients/{id}/assets": {
+    "/api/clients/{id}/assets": {
         parameters: {
             query?: never;
             header?: never;
@@ -1164,7 +1164,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/clients/{id}/board-exposures": {
+    "/api/clients/{id}/board-exposures": {
         parameters: {
             query?: never;
             header?: never;
@@ -1185,7 +1185,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/clients/{id}/contacts": {
+    "/api/clients/{id}/contacts": {
         parameters: {
             query?: never;
             header?: never;
@@ -1203,7 +1203,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/clients/{id}/portal-users": {
+    "/api/clients/{id}/portal-users": {
         parameters: {
             query?: never;
             header?: never;
@@ -1221,7 +1221,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/clients/{id}/sites": {
+    "/api/clients/{id}/sites": {
         parameters: {
             query?: never;
             header?: never;
@@ -1239,7 +1239,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/dispatch/assign": {
+    "/api/dispatch/assign": {
         parameters: {
             query?: never;
             header?: never;
@@ -1260,7 +1260,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/dispatch/bulk-move": {
+    "/api/dispatch/bulk-move": {
         parameters: {
             query?: never;
             header?: never;
@@ -1283,7 +1283,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/dispatch/day": {
+    "/api/dispatch/day": {
         parameters: {
             query?: never;
             header?: never;
@@ -1300,7 +1300,100 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/internal/effects": {
+    "/api/imports/batches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/imports/batches */
+        get: operations["imports_list_batches"];
+        put?: never;
+        /** POST /api/imports/batches */
+        post: operations["imports_create_batch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/imports/batches/{batch_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/imports/batches/{id} */
+        get: operations["imports_get_batch"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/imports/batches/{batch_id}/chunks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/imports/batches/{id}/chunks — plans then executes ONE chunk
+         *     atomically. A fail-policy chunk with any conflict persists nothing and
+         *     returns 409 with the full per-row report.
+         */
+        post: operations["imports_post_chunk"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/imports/batches/{batch_id}/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/imports/batches/{id}/finish — closes the span, emits
+         *     `import.batch_finished`, and records cumulative counters in audit.
+         */
+        post: operations["imports_finish_batch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/imports/dry-run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/imports/dry-run */
+        post: operations["imports_dry_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/internal/effects": {
         parameters: {
             query?: never;
             header?: never;
@@ -1322,7 +1415,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/internal/sla/verdict": {
+    "/api/internal/sla/verdict": {
         parameters: {
             query?: never;
             header?: never;
@@ -1343,7 +1436,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/me": {
+    "/api/me": {
         parameters: {
             query?: never;
             header?: never;
@@ -1360,7 +1453,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/notification-preferences": {
+    "/api/notification-preferences": {
         parameters: {
             query?: never;
             header?: never;
@@ -1386,7 +1479,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/notifications": {
+    "/api/notifications": {
         parameters: {
             query?: never;
             header?: never;
@@ -1406,7 +1499,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/notifications/mark-read": {
+    "/api/notifications/mark-read": {
         parameters: {
             query?: never;
             header?: never;
@@ -1426,7 +1519,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/notifications/read-all": {
+    "/api/notifications/read-all": {
         parameters: {
             query?: never;
             header?: never;
@@ -1443,7 +1536,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/notifications/unread-count": {
+    "/api/notifications/unread-count": {
         parameters: {
             query?: never;
             header?: never;
@@ -1460,7 +1553,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/notifications/{id}/read": {
+    "/api/notifications/{id}/read": {
         parameters: {
             query?: never;
             header?: never;
@@ -1480,7 +1573,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/on-call-blocks": {
+    "/api/on-call-blocks": {
         parameters: {
             query?: never;
             header?: never;
@@ -1498,7 +1591,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/on-call-blocks/{id}": {
+    "/api/on-call-blocks/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1515,7 +1608,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/org": {
+    "/api/org": {
         parameters: {
             query?: never;
             header?: never;
@@ -1536,7 +1629,7 @@ export interface paths {
         patch: operations["org_profile_patch"];
         trace?: never;
     };
-    "/api/v1/portal-users/{id}": {
+    "/api/portal-users/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1560,7 +1653,7 @@ export interface paths {
         patch: operations["portal_users_patch"];
         trace?: never;
     };
-    "/api/v1/portal/login": {
+    "/api/portal/login": {
         parameters: {
             query?: never;
             header?: never;
@@ -1581,7 +1674,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/portal/me": {
+    "/api/portal/me": {
         parameters: {
             query?: never;
             header?: never;
@@ -1598,7 +1691,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/portal/refresh": {
+    "/api/portal/refresh": {
         parameters: {
             query?: never;
             header?: never;
@@ -1619,7 +1712,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/portal/tickets": {
+    "/api/portal/tickets": {
         parameters: {
             query?: never;
             header?: never;
@@ -1639,7 +1732,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/portal/tickets/{id}": {
+    "/api/portal/tickets/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1660,7 +1753,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/portal/tickets/{id}/attachments": {
+    "/api/portal/tickets/{id}/attachments": {
         parameters: {
             query?: never;
             header?: never;
@@ -1681,7 +1774,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/portal/tickets/{id}/attachments/{attachment_id}/download": {
+    "/api/portal/tickets/{id}/attachments/{attachment_id}/download": {
         parameters: {
             query?: never;
             header?: never;
@@ -1702,7 +1795,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/portal/tickets/{id}/reply": {
+    "/api/portal/tickets/{id}/reply": {
         parameters: {
             query?: never;
             header?: never;
@@ -1726,29 +1819,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/reports/{kind}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * GET /api/reports/{kind} — prebuilt operational report over the read-model
-         *     views. Kinds: time_by_user | time_by_client | time_by_ticket |
-         *     sla_attainment | sla_breaches | ticket_throughput | ticket_aging |
-         *     first_response.
-         */
-        get: operations["report_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/scheduling/conflict-check": {
+    "/api/scheduling/conflict-check": {
         parameters: {
             query?: never;
             header?: never;
@@ -1768,7 +1839,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/search": {
+    "/api/search": {
         parameters: {
             query?: never;
             header?: never;
@@ -1788,7 +1859,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/settings/org": {
+    "/api/settings/org": {
         parameters: {
             query?: never;
             header?: never;
@@ -1812,7 +1883,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/settings/registry": {
+    "/api/settings/registry": {
         parameters: {
             query?: never;
             header?: never;
@@ -1832,7 +1903,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/settings/user": {
+    "/api/settings/user": {
         parameters: {
             query?: never;
             header?: never;
@@ -1853,7 +1924,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/sla/calendars": {
+    "/api/sla/calendars": {
         parameters: {
             query?: never;
             header?: never;
@@ -1871,7 +1942,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/sla/calendars/{id}": {
+    "/api/sla/calendars/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1895,7 +1966,7 @@ export interface paths {
         patch: operations["sla_calendars_update"];
         trace?: never;
     };
-    "/api/v1/sla/policies": {
+    "/api/sla/policies": {
         parameters: {
             query?: never;
             header?: never;
@@ -1912,7 +1983,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/sla/policies/{id}/ladder": {
+    "/api/sla/policies/{id}/ladder": {
         parameters: {
             query?: never;
             header?: never;
@@ -1930,7 +2001,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/sso/exchange": {
+    "/api/sso/exchange": {
         parameters: {
             query?: never;
             header?: never;
@@ -1950,7 +2021,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tickets": {
+    "/api/tickets": {
         parameters: {
             query?: never;
             header?: never;
@@ -1975,7 +2046,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tickets/my-work": {
+    "/api/tickets/my-work": {
         parameters: {
             query?: never;
             header?: never;
@@ -1996,7 +2067,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tickets/{id}": {
+    "/api/tickets/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -2019,7 +2090,7 @@ export interface paths {
         patch: operations["tickets_patch"];
         trace?: never;
     };
-    "/api/v1/tickets/{id}/attachments": {
+    "/api/tickets/{id}/attachments": {
         parameters: {
             query?: never;
             header?: never;
@@ -2043,7 +2114,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tickets/{id}/checklist": {
+    "/api/tickets/{id}/checklist": {
         parameters: {
             query?: never;
             header?: never;
@@ -2067,7 +2138,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tickets/{id}/checklist/{item_id}": {
+    "/api/tickets/{id}/checklist/{item_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -2087,7 +2158,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tickets/{id}/comments": {
+    "/api/tickets/{id}/comments": {
         parameters: {
             query?: never;
             header?: never;
@@ -2111,7 +2182,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tickets/{id}/comments/{comment_id}/attachments": {
+    "/api/tickets/{id}/comments/{comment_id}/attachments": {
         parameters: {
             query?: never;
             header?: never;
@@ -2131,7 +2202,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tickets/{id}/fields/{field_id}": {
+    "/api/tickets/{id}/fields/{field_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -2156,7 +2227,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tickets/{id}/sla": {
+    "/api/tickets/{id}/sla": {
         parameters: {
             query?: never;
             header?: never;
@@ -2180,7 +2251,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tickets/{id}/status": {
+    "/api/tickets/{id}/status": {
         parameters: {
             query?: never;
             header?: never;
@@ -2202,7 +2273,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/tickets/{id}/time-entries": {
+    "/api/tickets/{id}/time-entries": {
         parameters: {
             query?: never;
             header?: never;
@@ -2219,7 +2290,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/time-entries": {
+    "/api/time-entries": {
         parameters: {
             query?: never;
             header?: never;
@@ -2237,7 +2308,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/time-gaps": {
+    "/api/time-gaps": {
         parameters: {
             query?: never;
             header?: never;
@@ -2257,7 +2328,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/time-gaps/me": {
+    "/api/time-gaps/me": {
         parameters: {
             query?: never;
             header?: never;
@@ -2277,7 +2348,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/time-settings": {
+    "/api/time-settings": {
         parameters: {
             query?: never;
             header?: never;
@@ -2295,7 +2366,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/timers/active": {
+    "/api/timers/active": {
         parameters: {
             query?: never;
             header?: never;
@@ -2312,7 +2383,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/timers/pause": {
+    "/api/timers/pause": {
         parameters: {
             query?: never;
             header?: never;
@@ -2332,7 +2403,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/timers/resume": {
+    "/api/timers/resume": {
         parameters: {
             query?: never;
             header?: never;
@@ -2349,7 +2420,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/timers/start": {
+    "/api/timers/start": {
         parameters: {
             query?: never;
             header?: never;
@@ -2370,7 +2441,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/timers/stop": {
+    "/api/timers/stop": {
         parameters: {
             query?: never;
             header?: never;
@@ -2390,7 +2461,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/timers/working-set": {
+    "/api/timers/working-set": {
         parameters: {
             query?: never;
             header?: never;
@@ -2410,7 +2481,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/webhooks": {
+    "/api/webhooks": {
         parameters: {
             query?: never;
             header?: never;
@@ -2431,7 +2502,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/webhooks/{id}": {
+    "/api/webhooks/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -2452,7 +2523,7 @@ export interface paths {
         patch: operations["webhooks_update"];
         trace?: never;
     };
-    "/api/v1/webhooks/{id}/deliveries": {
+    "/api/webhooks/{id}/deliveries": {
         parameters: {
             query?: never;
             header?: never;
@@ -2472,7 +2543,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/webhooks/{id}/test": {
+    "/api/webhooks/{id}/test": {
         parameters: {
             query?: never;
             header?: never;
@@ -2538,6 +2609,17 @@ export interface components {
             id: string;
             /** @enum {string} */
             kind: "portal_it_manager";
+        } | {
+            /**
+             * @description Bulk-import runs (TASKLIST D2): the descriptor names the driving
+             *     identity without pretending it row-walked — `"user:<uuid>"` for
+             *     admin JWT runs, `"api-key:<key-id>""` for machine pushes. Row-level
+             *     mutations still emit their ordinary domain events; the import actor
+             *     owns batch-lifecycle provenance (kind "import" in audit storage).
+             */
+            id: string;
+            /** @enum {string} */
+            kind: "import";
         };
         AddChecklistItemRequest: {
             text: string;
@@ -2802,6 +2884,36 @@ export interface components {
             user_id: string;
             /** Format: int32 */
             weekday: number;
+        };
+        BatchCreatedResponse: {
+            /** Format: uuid */
+            batch_id: string;
+            label: string;
+        };
+        BatchViewResponse: {
+            conflict_policy: components["schemas"]["ConflictPolicy"];
+            dry_run: boolean;
+            entity_kind: components["schemas"]["EntityKind"];
+            /** Format: date-time */
+            finished_at?: string | null;
+            /** Format: uuid */
+            id: string;
+            label: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: int32 */
+            rows_created: number;
+            /** Format: int32 */
+            rows_failed: number;
+            /** Format: int32 */
+            rows_skipped: number;
+            /** Format: int32 */
+            rows_total: number;
+            /** Format: int32 */
+            rows_updated: number;
+            source_note?: string | null;
+            /** Format: date-time */
+            started_at: string;
         };
         Board: {
             /**
@@ -3108,6 +3220,23 @@ export interface components {
             require_checklist_close: boolean;
             template?: null | components["schemas"]["ChecklistTemplate"];
         };
+        ChunkRequest: components["schemas"]["RowsPayload"];
+        /**
+         * @description u32-friendly mirror of [`core_domain::import_core::ChunkSummary`] so the
+         *     generated SDK gets plain integers without overflow caveats.
+         */
+        ChunkSummaryWire: {
+            /** Format: int32 */
+            failed: number;
+            /** Format: int32 */
+            ok: number;
+            /** Format: int32 */
+            total: number;
+            /** Format: int32 */
+            would_skip: number;
+            /** Format: int32 */
+            would_update: number;
+        };
         Client: {
             /** Format: date-time */
             created_at: string;
@@ -3145,6 +3274,12 @@ export interface components {
             conflicts: components["schemas"]["ConflictView"][];
             has_conflict: boolean;
         };
+        /**
+         * @description Per-entity conflict semantics when an external key already maps to a
+         *     live row whose content differs from the incoming spec.
+         * @enum {string}
+         */
+        ConflictPolicy: "skip" | "update" | "fail";
         /** @description One blocking booking named by the dry-run. */
         ConflictView: {
             /** Format: uuid */
@@ -3227,6 +3362,16 @@ export interface components {
              * @description 0 = Monday … 6 = Sunday.
              */
             weekday: number;
+        };
+        /**
+         * @description POST /api/imports/batches — opens a committed-run span. Chunks then land
+         *     through `/chunks` until `/finish` closes the batch.
+         */
+        CreateBatchRequest: {
+            conflict_policy: components["schemas"]["ConflictPolicy"];
+            entity_kind: components["schemas"]["EntityKind"];
+            label?: string | null;
+            source_note?: string | null;
         };
         CreateBoardRequest: {
             description?: string | null;
@@ -3499,6 +3644,17 @@ export interface components {
              */
             unassigned: components["schemas"]["MyWorkItem"][];
         };
+        /**
+         * @description POST /api/imports/dry-run request: validate a full payload and report
+         *     what each row WOULD do before any data write. The probe is recorded as a
+         *     finished dry-run batch for operator history.
+         */
+        DryRunRequest: components["schemas"]["RowsPayload"] & {
+            conflict_policy: components["schemas"]["ConflictPolicy"];
+            entity_kind: components["schemas"]["EntityKind"];
+            /** @description Free-form run label recorded with the dry-run history entry. */
+            label?: string | null;
+        };
         EffectsRequest: {
             /** @description AutomationAction documents, parsed and validated via core-domain. */
             actions: unknown;
@@ -3509,6 +3665,13 @@ export interface components {
             /** Format: uuid */
             ticket_id: string;
         };
+        /**
+         * @description Which entity family a batch targets. One batch = exactly one kind; the
+         *     parent-before-child ordering across batches (clients → sites → contacts)
+         *     keeps foreign references resolvable without cross-batch transactions.
+         * @enum {string}
+         */
+        EntityKind: "client" | "site" | "contact";
         /** @description One escalation ladder step as stored (`sla_escalation_steps`). */
         EscalationStep: {
             /** Format: int64 */
@@ -4056,21 +4219,63 @@ export interface components {
         ReplaceLadderRequest: {
             steps: components["schemas"]["LadderStepSpec"][];
         };
-        /** @description JSON envelope for a report page. */
-        ReportPage: {
+        /**
+         * @description Wire format selector for an import payload.
+         * @enum {string}
+         */
+        RowFormat: "json" | "csv";
+        RowOutcome: {
+            /** @enum {string} */
+            status: "ok";
+        } | {
+            /** @enum {string} */
+            status: "would_update";
+        } | {
+            reason: string;
+            /** @enum {string} */
+            status: "would_skip";
+        } | {
+            errors: string[];
+            /** @enum {string} */
+            status: "failed";
+        };
+        /**
+         * @description Per-row dry-run/commit report entry. The wire shape contract from D2:
+         *     every row maps to exactly one of `errors[]`, `ok`, `would_skip`,
+         *     `would_update`.
+         */
+        RowReport: {
+            external_key?: string | null;
+            outcome: components["schemas"]["RowOutcome"];
+            /** Format: int64 */
+            row_index: number;
+        };
+        /** @description The encoded row source shared by dry-run and chunk posts. */
+        RowsPayload: {
             /**
-             * @description Stable column order (JSON objects here preserve insertion order via
-             *     serde_json preserve_order feature transparently at runtime).
+             * @description Full CSV text including header row (`format=csv`). UTF-8, BOM
+             *     tolerated; RFC 4180 quoting supported.
              */
-            columns: string[];
-            kind: string;
-            /** @description Pass back as `cursor`; absent when exhausted or unpaged. */
-            next_cursor?: string | null;
-            rows: unknown[];
-            /** @description Whole-window aggregates (never paginated). */
-            summary: unknown;
-            /** @description Versioned read-model view backing this kind (documentation parity). */
-            view: string;
+            csv?: string | null;
+            format: components["schemas"]["RowFormat"];
+            /**
+             * @description Row objects as a JSON array of flat objects (`format=json`). Nulls
+             *     behave exactly like absent keys.
+             */
+            json_rows: Record<string, never>;
+        };
+        /**
+         * @description Per-row fate report — the D2 contract shape
+         *     (`row_index → errors[] | ok | would_skip | would_update`).
+         */
+        RunReportResponse: {
+            /** Format: uuid */
+            batch_id: string;
+            conflict_policy: components["schemas"]["ConflictPolicy"];
+            dry_run: boolean;
+            entity_kind: components["schemas"]["EntityKind"];
+            rows: components["schemas"]["RowReport"][];
+            summary: components["schemas"]["ChunkSummaryWire"];
         };
         SearchQuery: {
             /** Format: int64 */
@@ -6910,6 +7115,138 @@ export interface operations {
             };
         };
     };
+    imports_list_batches: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchViewResponse"][];
+                };
+            };
+        };
+    };
+    imports_create_batch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateBatchRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchCreatedResponse"];
+                };
+            };
+        };
+    };
+    imports_get_batch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchViewResponse"];
+                };
+            };
+        };
+    };
+    imports_post_chunk: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChunkRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunReportResponse"];
+                };
+            };
+        };
+    };
+    imports_finish_batch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchViewResponse"];
+                };
+            };
+        };
+    };
+    imports_dry_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DryRunRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunReportResponse"];
+                };
+            };
+        };
+    };
     internal_effects: {
         parameters: {
             query?: never;
@@ -7534,50 +7871,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-        };
-    };
-    report_get: {
-        parameters: {
-            query?: {
-                /** @description Inclusive window start (UTC day, YYYY-MM-DD). Default: 30 trailing days. */
-                from?: string | null;
-                /** @description Inclusive window end (UTC day). Max span with `from`: 366 days. */
-                to?: string | null;
-                /** @description Opaque keyset cursor from a previous page's `next_cursor`. */
-                cursor?: string | null;
-                /** @description Page size, clamped to [1, 500]. */
-                limit?: number;
-                /** @description `"csv"` streams text/csv instead of the JSON envelope. */
-                format?: string | null;
-                /**
-                 * @description Manager-only narrowing onto one staff member; non-managers are
-                 *     ALWAYS forced onto themselves regardless of this parameter.
-                 */
-                user_id?: string | null;
-                /** @description SLA kinds: restrict to one governing policy. */
-                policy_id?: string | null;
-                /** @description Time rollups: filter billable/non-billable entries. */
-                billable?: boolean | null;
-                /** @description ticket_aging only: snapshot instant for ages (default: now). */
-                as_of?: string | null;
-            };
-            header?: never;
-            path: {
-                kind: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Report page (JSON envelope or CSV stream) */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReportPage"];
-                };
             };
         };
     };

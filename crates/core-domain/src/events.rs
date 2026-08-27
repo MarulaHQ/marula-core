@@ -15,7 +15,16 @@ pub mod types {
     pub const CLIENT_CREATED: &str = "client.created";
     pub const CLIENT_UPDATED: &str = "client.updated";
     pub const SITE_CREATED: &str = "site.created";
+    /// A site row was updated in place (import framework, TASKLIST D2).
+    pub const SITE_UPDATED: &str = "site.updated";
     pub const CONTACT_CREATED: &str = "contact.created";
+    /// A contact row was updated in place (import framework, TASKLIST D2).
+    pub const CONTACT_UPDATED: &str = "contact.updated";
+    /// Import batch lifecycle (TASKLIST D2): a run opened / closed so
+    /// webhook consumers can bracket bulk-change windows. Row-level
+    /// mutations inside the batch keep emitting their ordinary events.
+    pub const IMPORT_BATCH_STARTED: &str = "import.batch_started";
+    pub const IMPORT_BATCH_FINISHED: &str = "import.batch_finished";
     pub const BOARD_CREATED: &str = "board.created";
     pub const BOARD_STATUS_ADDED: &str = "board.status_added";
     pub const BOARD_STATUS_UPDATED: &str = "board.status_updated";
@@ -211,6 +220,52 @@ pub struct ContactCreated {
     pub contact_id: ContactId,
     pub client_id: ClientId,
     pub name: String,
+}
+
+/// A client was updated in place (payload for `client.updated`; import
+/// framework update policy and future staff edit surfaces).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientUpdated {
+    pub client_id: ClientId,
+    pub name: String,
+}
+
+/// A site was updated in place (payload for `site.updated`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SiteUpdated {
+    pub site_id: SiteId,
+    pub client_id: ClientId,
+    pub name: String,
+}
+
+/// A contact was updated in place (payload for `contact.updated`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContactUpdated {
+    pub contact_id: ContactId,
+    pub client_id: ClientId,
+    pub name: String,
+}
+
+/// An import run opened (payload for `import.batch_started`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportBatchStarted {
+    pub batch_id: crate::ids::ImportBatchId,
+    pub entity_kind: String,
+    pub conflict_policy: String,
+    pub label: String,
+}
+
+/// An import run finished (payload for `import.batch_finished`). Counters
+/// are cumulative over every committed chunk.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportBatchFinished {
+    pub batch_id: crate::ids::ImportBatchId,
+    pub entity_kind: String,
+    pub rows_total: i32,
+    pub rows_created: i32,
+    pub rows_updated: i32,
+    pub rows_skipped: i32,
+    pub rows_failed: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

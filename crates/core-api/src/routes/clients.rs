@@ -173,9 +173,22 @@ pub async fn create_site(
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     let site = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        let site =
-            core_db::clients::create_site(&mut *ctx.tx, org_id, Uuid::now_v7(), id, &req.name)
-                .await?;
+        let site = core_db::clients::create_site(
+            &mut *ctx.tx,
+            org_id,
+            Uuid::now_v7(),
+            id,
+            &req.name,
+            req.address.as_deref(),
+            req.city.as_deref(),
+            req.region.as_deref(),
+            req.postal_code.as_deref(),
+            req.country.as_deref(),
+            req.latitude,
+            req.longitude,
+            req.timezone.as_deref(),
+        )
+        .await?;
         ctx.emit(
             types::SITE_CREATED,
             "site",
@@ -230,9 +243,12 @@ pub async fn create_contact(
             org_id,
             Uuid::now_v7(),
             id,
+            None,
             &req.name,
             req.email.as_deref(),
             req.phone.as_deref(),
+            None,
+            false,
         )
         .await?;
         ctx.emit(

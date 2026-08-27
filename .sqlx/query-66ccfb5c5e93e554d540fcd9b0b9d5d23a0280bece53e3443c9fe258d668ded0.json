@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO import_batches (id, org_id, label, source_note, entity_kind,\n                                       conflict_policy, dry_run, created_by, created_by_kind)\n           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "66ccfb5c5e93e554d540fcd9b0b9d5d23a0280bece53e3443c9fe258d668ded0"
+}

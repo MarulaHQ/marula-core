@@ -71,6 +71,10 @@ pub struct AuthedUser {
     pub principal: Principal,
     /// Session id from the access token (`sid`) when present.
     pub session_id: Option<Uuid>,
+    /// True when the request authenticated through an `x-api-key` scope
+    /// instead of a staff JWT — surfaces like bulk imports gate these two
+    /// planes differently (admins vs scoped machine keys).
+    pub via_api_key: bool,
 }
 
 impl std::ops::Deref for AuthedUser {

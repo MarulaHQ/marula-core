@@ -110,6 +110,7 @@ pub async fn require_auth(
                 permissions,
             },
             session_id: None,
+            via_api_key: true,
         });
         return Ok(next.run(request).await);
     }
@@ -143,6 +144,7 @@ pub async fn require_auth(
             permissions,
         },
         session_id: Some(claims.sid),
+        via_api_key: false,
     });
 
     Ok(next.run(request).await)
@@ -150,7 +152,10 @@ pub async fn require_auth(
 
 /// Read-only prefixes where `x-api-key` auth is accepted. Everything else
 /// (mutations, admin surfaces, self-scoped endpoints) is JWT-only.
-const API_KEY_PATHS: &[&str] = &["/api/tickets", "/api/clients"];
+/// `/api/imports` is the deliberate mutation exception (TASKLIST D2/D3):
+/// scoped migration pushes are a documented machine flow, gated in-handler
+/// by scope checks on top of this prefix allowance.
+const API_KEY_PATHS: &[&str] = &["/api/tickets", "/api/clients", "/api/imports"];
 
 /// Maps capability scopes onto the permission matrix. Unknown scopes are
 /// ignored here (they cannot be created — validated at key creation).
