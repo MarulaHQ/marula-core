@@ -4380,6 +4380,47 @@
         ],
         "type": "object"
       },
+      "ReportPage": {
+        "description": "JSON envelope for a report page.",
+        "properties": {
+          "columns": {
+            "description": "Stable column order (JSON objects here preserve insertion order via\nserde_json preserve_order feature transparently at runtime).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "next_cursor": {
+            "description": "Pass back as `cursor`; absent when exhausted or unpaged.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rows": {
+            "items": {},
+            "type": "array"
+          },
+          "summary": {
+            "description": "Whole-window aggregates (never paginated)."
+          },
+          "view": {
+            "description": "Versioned read-model view backing this kind (documentation parity).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "view",
+          "columns",
+          "rows",
+          "summary"
+        ],
+        "type": "object"
+      },
       "SearchQuery": {
         "properties": {
           "limit": {
@@ -10649,6 +10690,153 @@
         "summary": "POST /api/portal/tickets/{id}/reply — ALWAYS creates a `client_visible`\ncomment regardless of tier, authored under portal audit provenance\n(`actor_kind = portal_contact | portal_approver | portal_it_manager`;\n`author_id` stays NULL because portal identities are not staff rows).\nEmits the SAME `ticket.comment_added` event as staff replies so every\ndownstream notification path works unchanged.",
         "tags": [
           "portal"
+        ]
+      }
+    },
+    "/api/v1/reports/{kind}": {
+      "get": {
+        "operationId": "report_get",
+        "parameters": [
+          {
+            "description": "Inclusive window start (UTC day, YYYY-MM-DD). Default: 30 trailing days.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "format": "date",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Inclusive window end (UTC day). Max span with `from`: 366 days.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "format": "date",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Opaque keyset cursor from a previous page's `next_cursor`.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Page size, clamped to [1, 500].",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "`\"csv\"` streams text/csv instead of the JSON envelope.",
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Manager-only narrowing onto one staff member; non-managers are\nALWAYS forced onto themselves regardless of this parameter.",
+            "in": "query",
+            "name": "user_id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "SLA kinds: restrict to one governing policy.",
+            "in": "query",
+            "name": "policy_id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Time rollups: filter billable/non-billable entries.",
+            "in": "query",
+            "name": "billable",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "ticket_aging only: snapshot instant for ages (default: now).",
+            "in": "query",
+            "name": "as_of",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportPage"
+                }
+              }
+            },
+            "description": "Report page (JSON envelope or CSV stream)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/reports/{kind} — prebuilt operational report over the read-model\nviews. Kinds: time_by_user | time_by_client | time_by_ticket |\nsla_attainment | sla_breaches | ticket_throughput | ticket_aging |\nfirst_response.",
+        "tags": [
+          "reports"
         ]
       }
     },

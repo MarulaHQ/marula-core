@@ -41,6 +41,14 @@ settings hub (org settings + user preferences pages).
 - Rules evaluate in layers before EVERY tool call:
   platform → org → role/skill → session consent. Deny wins; evaluation is
   logged.
+- **Agent actions on a user's behalf default to approval.** Because writes are
+  autosaved and instantly reconciled, an agent acting "on your behalf" must not
+  silently rewrite a user's records: agent-originated changes default to
+  *proposed, awaiting approval*, keyed to the involvement dial and customizable
+  per action type, per entity, per field, and by client-visible or commit-sensitive
+  classification. Autonomous mode is an explicit, per-capability grant, never a
+  global switch. Client-visible or external commitments never bypass a human.
+  See [`instant-first.md`](instant-first.md).
 - Untrusted/retrieved content never renders raw and never reaches tools
   without scoping (§4.8 of BUILD-PROMPT applies to agents doubly).
 
@@ -49,6 +57,14 @@ settings hub (org settings + user preferences pages).
 Append-only audit records actor provenance for humans AND agents alike:
 `{actor_kind: human|agent|mcp|plugin, actor_id, skill_version, session_id,
 tool, scopes_used, decision}`. Audit is queryable in the admin UI.
+
+- **"Who did this" is a query, not a sift.** Because undo, autosave, and agent
+  actions keep many small events flowing, the audit is exposed as a queryable
+  provenance read model indexed by who, which record/field, before and after
+  value, actor (human, agent, API key, undo), session/skill and rule-set hash,
+  and when — never a raw-log scan (see [`instant-first.md`](instant-first.md)).
+- Undo of a change emits a normal audited "reverted field X to its value at T"
+  event; the trail is always append-only and undo never rewrites it.
 
 ## 6. Documents
 

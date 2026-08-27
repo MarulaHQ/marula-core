@@ -67,6 +67,8 @@ async fn test_state() -> AppState {
     config.database_url = admin_url;
     AppState {
         pool,
+        reporting: core_api::state::AppState::reporting_pool_lazy(&config.database_url)
+            .expect("reporting pool"),
         config: Arc::new(config),
         oidc: OidcHttpClient::new(),
         mail: Arc::new(core_api::email::MailStack::from_config(&Config::from_env())),

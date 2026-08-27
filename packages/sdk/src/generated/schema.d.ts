@@ -1726,6 +1726,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/{kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/reports/{kind} — prebuilt operational report over the read-model
+         *     views. Kinds: time_by_user | time_by_client | time_by_ticket |
+         *     sla_attainment | sla_breaches | ticket_throughput | ticket_aging |
+         *     first_response.
+         */
+        get: operations["report_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/scheduling/conflict-check": {
         parameters: {
             query?: never;
@@ -4033,6 +4055,22 @@ export interface components {
         };
         ReplaceLadderRequest: {
             steps: components["schemas"]["LadderStepSpec"][];
+        };
+        /** @description JSON envelope for a report page. */
+        ReportPage: {
+            /**
+             * @description Stable column order (JSON objects here preserve insertion order via
+             *     serde_json preserve_order feature transparently at runtime).
+             */
+            columns: string[];
+            kind: string;
+            /** @description Pass back as `cursor`; absent when exhausted or unpaged. */
+            next_cursor?: string | null;
+            rows: unknown[];
+            /** @description Whole-window aggregates (never paginated). */
+            summary: unknown;
+            /** @description Versioned read-model view backing this kind (documentation parity). */
+            view: string;
         };
         SearchQuery: {
             /** Format: int64 */
@@ -7496,6 +7534,50 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    report_get: {
+        parameters: {
+            query?: {
+                /** @description Inclusive window start (UTC day, YYYY-MM-DD). Default: 30 trailing days. */
+                from?: string | null;
+                /** @description Inclusive window end (UTC day). Max span with `from`: 366 days. */
+                to?: string | null;
+                /** @description Opaque keyset cursor from a previous page's `next_cursor`. */
+                cursor?: string | null;
+                /** @description Page size, clamped to [1, 500]. */
+                limit?: number;
+                /** @description `"csv"` streams text/csv instead of the JSON envelope. */
+                format?: string | null;
+                /**
+                 * @description Manager-only narrowing onto one staff member; non-managers are
+                 *     ALWAYS forced onto themselves regardless of this parameter.
+                 */
+                user_id?: string | null;
+                /** @description SLA kinds: restrict to one governing policy. */
+                policy_id?: string | null;
+                /** @description Time rollups: filter billable/non-billable entries. */
+                billable?: boolean | null;
+                /** @description ticket_aging only: snapshot instant for ages (default: now). */
+                as_of?: string | null;
+            };
+            header?: never;
+            path: {
+                kind: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Report page (JSON envelope or CSV stream) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportPage"];
+                };
             };
         };
     };

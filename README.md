@@ -23,9 +23,9 @@ Some things we care about enough to enforce in CI:
 
 **Time that actually gets billed.** One active timer per tech. End-of-day missing-time audits. Approvals before invoices go out. The gap between hours worked and hours logged stops being a mystery.
 
-**Agents you can audit.** Skills are versioned manifests, not prompt spaghetti. Guardrail rules evaluate in layers before every tool call. The audit log records who did what — human or agent — and it's append-only. There's an MCP server too, so Claude, DeepSeek, or your own scripts can work inside the PSA under the same rules as everyone else.
+**Agents you can audit, and that default to asking.** Skills are versioned manifests, not prompt spaghetti. Guardrail rules evaluate in layers before every tool call. Agent-originated changes to a record default to *proposed, awaiting approval* — nothing silently rewrites your work, and client-visible or external actions never bypass a human. The audit log records who did what — human or agent — and it's append-only. "Who changed this" is a query, not a sift. There's an MCP server too, so Claude, DeepSeek, or your own scripts can work inside the PSA under the same rules as everyone else. See [`docs/instant-first.md`](docs/instant-first.md) and [`docs/10-agent-platform.md`](docs/10-agent-platform.md).
 
-**Fast, measurably.** Ticket list p95 under 150 ms at 50k tickets. WebSocket delivery under 100 ms. These are CI gates, not aspirations.
+**Fast, measurably — and there's no Save button to slow you down.** Ticket list p95 under 150 ms at 50k tickets. WebSocket delivery under 100 ms. These are CI gates, not aspirations. The dominant path is autosave with optimistic render and rich undo: you never chase a Save button or a page reload to feel committed, and Ctrl/Cmd+Z walks back through edits the server already accepted.
 
 ## Quick start
 
@@ -77,6 +77,7 @@ One writer. Every mutation emits a versioned domain event. REST, WebSocket, webh
 |---|---|
 | Install & self-host | [`docs/`](docs/) — install guide, config reference, upgrade runbooks |
 | Upgrades & compatibility | [`docs/upgrade-compatibility-policy.md`](docs/upgrade-compatibility-policy.md) — support windows, breaking-change rules, what's guaranteed |
+| Interaction contract | [`docs/instant-first.md`](docs/instant-first.md) — autosave/undo, agent approval-by-default, the core's read models |
 | API reference | Generated from OpenAPI (`utoipa` → Scalar UI on `core-api`) |
 | Build plugins & connectors | [`packages/plugin-kit`](packages/plugin-kit/) · [`connectors/`](connectors/) reference implementations |
 | Architecture decisions | [`docs/adr/`](docs/adr/) |
