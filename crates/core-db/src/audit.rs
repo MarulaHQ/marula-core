@@ -32,6 +32,9 @@ where
         Actor::PortalContact(u) => ("portal_contact".into(), Some(u.to_string())),
         Actor::PortalApprover(u) => ("portal_approver".into(), Some(u.to_string())),
         Actor::PortalItManager(u) => ("portal_it_manager".into(), Some(u.to_string())),
+        // Import runs (TASKLIST D2): descriptor names the driving identity,
+        // e.g. "user:<uuid>" or "api-key:<key-id>".
+        Actor::Import(desc) => ("import".into(), Some(desc.clone())),
     };
     sqlx::query!(
         r#"INSERT INTO audit_events (id, org_id, actor_kind, actor_id, action,
@@ -67,6 +70,7 @@ fn event_from_row(row: sqlx::postgres::PgRow) -> AuditEvent {
         ("portal_it_manager", Some(id)) => {
             Actor::PortalItManager(id.parse().unwrap_or(Uuid::nil()))
         }
+        ("import", Some(desc)) => Actor::Import(desc),
         _ => Actor::System,
     };
     AuditEvent {
