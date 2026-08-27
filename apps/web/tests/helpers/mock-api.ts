@@ -119,7 +119,7 @@ export function seedAuthTokens(): void {
   window.localStorage.setItem("meridian-tokens-exp", String(Date.now() + 60_000));
 }
 
-/** Standard /api/me answer matching MeResponse (owner-permissioned). */
+/** Standard /api/v1/me answer matching MeResponse (owner-permissioned). */
 export const ME_FIXTURE = {
   user_id: "00000000-0000-4000-8000-000000000001",
   org_id: "00000000-0000-4000-8000-000000000002",

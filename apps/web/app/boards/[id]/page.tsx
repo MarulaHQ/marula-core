@@ -35,7 +35,7 @@ function MembersPanel({ boardId }: { boardId: string }) {
   const [hidden, setHidden] = useState(false);
 
   const refresh = useCallback(async () => {
-    const res = await api.api.GET("/api/boards/{id}/members", {
+    const res = await api.api.GET("/api/v1/boards/{id}/members", {
       params: { path: { id: boardId } },
     });
     if (res.response.status === 403) {
@@ -51,7 +51,7 @@ function MembersPanel({ boardId }: { boardId: string }) {
   }, [refresh]);
 
   async function changeRole(userId: string, role: string) {
-    await api.api.PUT("/api/boards/{id}/members", {
+    await api.api.PUT("/api/v1/boards/{id}/members", {
       params: { path: { id: boardId } },
       body: { user_id: userId, role: role as (typeof ROLES)[number] },
     });
@@ -103,12 +103,12 @@ export default function BoardPage() {
   const refresh = useCallback(async () => {
     if (typeof params?.id !== "string") return;
     try {
-      const st = await api.api.GET("/api/boards/{id}/statuses", {
+      const st = await api.api.GET("/api/v1/boards/{id}/statuses", {
         params: { path: { id: params.id } },
       });
       if (st.error !== undefined) throw new Error("failed to load board");
       setStatuses(st.data);
-      const tk = await api.api.GET("/api/tickets", {
+      const tk = await api.api.GET("/api/v1/tickets", {
         params: { query: { board_id: params.id, limit: 100 } },
       });
       if (tk.error !== undefined) throw new Error("failed to load tickets");

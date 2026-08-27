@@ -1,6 +1,6 @@
 // /settings/api-keys — machine credential management (TASKLIST 2.6).
 //
-// Purpose: create scoped API keys over the existing /api/api-keys
+// Purpose: create scoped API keys over the existing /api/v1/api-keys
 // endpoints (name + capability-scope picker from the server's known
 // scope list), surface the raw bearer material exactly once at creation,
 // show the non-secret prefix, created/last-used/revoked columns, and
@@ -71,7 +71,7 @@ export default function ApiKeysSettingsPage() {
   const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set());
 
   const refresh = async () => {
-    const res = await api.api.GET("/api/api-keys");
+    const res = await api.api.GET("/api/v1/api-keys");
     if (res.error !== undefined || res.data === undefined) {
       setLoadError("Failed to load API keys.");
       setLoading(false);
@@ -98,7 +98,7 @@ export default function ApiKeysSettingsPage() {
     setBusy(true);
     setFormError(null);
     try {
-      const res = await api.api.POST("/api/api-keys", {
+      const res = await api.api.POST("/api/v1/api-keys", {
         body: { name: name.trim(), scopes: [...scopes].sort() },
       });
       if (!res.data) throw new Error("key creation was rejected");
@@ -117,7 +117,7 @@ export default function ApiKeysSettingsPage() {
     const id = confirmingRevokeId;
     if (id === null) return;
     try {
-      const res = await api.api.DELETE("/api/api-keys/{id}", { params: { path: { id } } });
+      const res = await api.api.DELETE("/api/v1/api-keys/{id}", { params: { path: { id } } });
       if (res.error) throw new Error("revocation failed");
       setConfirmingRevokeId(null);
       await refresh();

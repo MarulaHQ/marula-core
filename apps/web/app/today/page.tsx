@@ -97,8 +97,8 @@ export default function TodayPage() {
   const refresh = useCallback(async () => {
     try {
       const [mine, gaps] = await Promise.all([
-        api.api.GET("/api/tickets/my-work"),
-        api.api.GET("/api/time-gaps/me"),
+        api.api.GET("/api/v1/tickets/my-work"),
+        api.api.GET("/api/v1/time-gaps/me"),
       ]);
       if (mine.error !== undefined) throw new Error("failed to load tickets");
       setItems(mine.data);
@@ -328,7 +328,7 @@ function QuickLogForm({
     }
     setBusy(true);
     try {
-      const { error: apiError } = await api.api.POST("/api/time-entries", {
+      const { error: apiError } = await api.api.POST("/api/v1/time-entries", {
         body: {
           ticket_id: ticketId,
           started_at: started.toISOString(),

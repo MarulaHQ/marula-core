@@ -2,7 +2,7 @@
 //
 // Purpose: consolidates the account-level surfaces in one place: theme is
 // a REAL registry setting (appearance.theme, user scope) written through
-// /api/settings/user AND applied locally via the Workbench theme hook;
+// /api/v1/settings/user AND applied locally via the Workbench theme hook;
 // notification channel preferences deep-link to the existing dedicated
 // screen rather than duplicating its components.
 //
@@ -29,7 +29,7 @@ export default function UserPreferencesPage() {
   useEffect(() => {
     if (auth.status !== "authed") return;
     void (async () => {
-      const { data } = await api.api.GET("/api/settings/user");
+      const { data } = await api.api.GET("/api/v1/settings/user");
       if (!data) return;
       const row = (data ?? []).find((v) => v.key === "appearance.theme");
       if (row && typeof row.value === "string") setRegistryTheme(row.value);
@@ -42,7 +42,7 @@ export default function UserPreferencesPage() {
     setError(null);
     setSaved(false);
     try {
-      const res = await api.api.PUT("/api/settings/user", {
+      const res = await api.api.PUT("/api/v1/settings/user", {
         body: { key: "appearance.theme", value: next },
       });
       if (res.error) {

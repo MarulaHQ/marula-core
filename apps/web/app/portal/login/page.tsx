@@ -1,6 +1,6 @@
 // /portal/login — client-portal sign-in.
 //
-// Purpose: email + password against /api/portal/login (the DEDICATED
+// Purpose: email + password against /api/v1/portal/login (the DEDICATED
 // portal token family — a staff account cannot log in here and vice
 // versa). No MFA in portal v1 (documented deferral).
 // Non-purpose: no staff login, no registration, no SSO — the portal is an

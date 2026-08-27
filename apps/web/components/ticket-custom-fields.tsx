@@ -50,7 +50,7 @@ export function TicketCustomFields({
 
   const refresh = useCallback(async () => {
     if (boardId === "") return;
-    const res = await api.api.GET("/api/boards/{id}/fields", {
+    const res = await api.api.GET("/api/v1/boards/{id}/fields", {
       params: { path: { id: boardId } },
     });
     if (res.error !== undefined) {
@@ -79,7 +79,7 @@ export function TicketCustomFields({
   async function put(def: FieldDef, value: unknown) {
     setSavingId(def.id);
     setFieldErrors((e) => ({ ...e, [def.id]: "" }));
-    const res = await api.api.PUT("/api/tickets/{id}/fields/{field_id}", {
+    const res = await api.api.PUT("/api/v1/tickets/{id}/fields/{field_id}", {
       params: { path: { id: ticketId, field_id: def.id } },
       body: { value: value as never },
     });
@@ -94,7 +94,7 @@ export function TicketCustomFields({
 
   async function clear(def: FieldDef) {
     setSavingId(def.id);
-    const res = await api.api.DELETE("/api/tickets/{id}/fields/{field_id}", {
+    const res = await api.api.DELETE("/api/v1/tickets/{id}/fields/{field_id}", {
       params: { path: { id: ticketId, field_id: def.id } },
     });
     setSavingId(null);

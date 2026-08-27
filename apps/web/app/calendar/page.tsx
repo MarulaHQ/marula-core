@@ -65,14 +65,14 @@ export default function CalendarPage() {
     setError(null);
     try {
       if (mode === "personal") {
-        const { data } = await api.api.GET("/api/calendar/week", {
+        const { data } = await api.api.GET("/api/v1/calendar/week", {
           params: { query: { date: isoDay(weekStart) } },
         });
         setView((data ?? null) as CalView | null);
       } else {
         const to = new Date(weekStart);
         to.setDate(to.getDate() + 7);
-        const { data } = await api.api.GET("/api/calendar/team", {
+        const { data } = await api.api.GET("/api/v1/calendar/team", {
           params: {
             query: { from: weekStart.toISOString(), to: to.toISOString() },
           },
@@ -307,8 +307,8 @@ function NewAppointmentDialog({
         return;
       }
       // Dry-run first: name clashes before anything is written.
-      const me = await api.api.GET("/api/me");
-      const check = await api.api.POST("/api/scheduling/conflict-check", {
+      const me = await api.api.GET("/api/v1/me");
+      const check = await api.api.POST("/api/v1/scheduling/conflict-check", {
         body: {
           user_id: (me.data as { user_id: string }).user_id,
           starts_at: startsAt.toISOString(),
@@ -320,7 +320,7 @@ function NewAppointmentDialog({
         setWarning(`Conflicts with: ${names}. Pick another slot.`);
         return;
       }
-      const created = await api.api.POST("/api/appointments", {
+      const created = await api.api.POST("/api/v1/appointments", {
         body: {
           title,
           starts_at: startsAt.toISOString(),

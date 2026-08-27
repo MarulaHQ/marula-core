@@ -1,6 +1,6 @@
 // /search — unified search across tickets, comments and clients (2.16).
 //
-// Purpose: one query box over GET /api/search; results render grouped
+// Purpose: one query box over GET /api/v1/search; results render grouped
 // (Tickets / Comments / Clients) in server rank order, linking to ticket
 // detail pages; client-hierarchy hits stay informational rows until a
 // clients page exists. Tokens only — renders correctly in both themes.
@@ -67,7 +67,7 @@ export default function SearchPage() {
       return;
     }
     try {
-      const { data, error: apiError } = await api.api.GET("/api/search", {
+      const { data, error: apiError } = await api.api.GET("/api/v1/search", {
         params: { query: { q, limit: 50 } },
       });
       if (apiError !== undefined) throw new Error("search failed");

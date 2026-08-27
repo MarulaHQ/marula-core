@@ -99,7 +99,7 @@ export default function NotificationPreferencesPage() {
   useEffect(() => {
     if (auth.status !== "authed") return;
     void (async () => {
-      const { data } = await api.api.GET("/api/notification-preferences");
+      const { data } = await api.api.GET("/api/v1/notification-preferences");
       if (data) {
         setPrefs(data);
         setDrafts(Object.fromEntries(data.map((p) => [p.kind, draftOf(p)])));
@@ -137,7 +137,7 @@ export default function NotificationPreferencesPage() {
         // Quiet bounds are a pair: blanking one side blanks both.
         const quiet_from = d.quiet_from === "" ? null : d.quiet_from;
         const quiet_until = d.quiet_until === "" ? null : d.quiet_until;
-        const res = await api.api.PUT("/api/notification-preferences", {
+        const res = await api.api.PUT("/api/v1/notification-preferences", {
           body: {
             kind: kind as never,
             in_app: d.in_app,
@@ -154,7 +154,7 @@ export default function NotificationPreferencesPage() {
           throw new Error(`${kindLabel(kind)}: ${message}`);
         }
       }
-      const { data } = await api.api.GET("/api/notification-preferences");
+      const { data } = await api.api.GET("/api/v1/notification-preferences");
       if (data) {
         setPrefs(data);
         setDrafts(Object.fromEntries(data.map((p) => [p.kind, draftOf(p)])));

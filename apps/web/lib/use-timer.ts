@@ -67,7 +67,7 @@ export function useTimer() {
   const socketRef = useRef<WebSocket | null>(null);
 
   const refresh = useCallback(async () => {
-    const ws = await api.api.GET("/api/timers/working-set");
+    const ws = await api.api.GET("/api/v1/timers/working-set");
     if (ws.data) setSessions(ws.data);
   }, []);
 

@@ -4,7 +4,7 @@
 // shown once), disable flow (password + current code), passkey
 // registration/removal, live refresh-session list with revocation, and
 // OIDC SSO administration riding the EXISTING provider CRUD APIs verbatim.
-// Non-purpose: no new auth logic here — every action calls an /api/auth/*
+// Non-purpose: no new auth logic here — every action calls an /api/v1/auth/*
 // endpoint owned by the auth-hardening lane.
 
 "use client";
@@ -15,6 +15,10 @@ import Link from "next/link";
 import { useAuth, useRequireAuth } from "../../../lib/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+
+/** Request paths on the canonical versioned surface only — this helper
+ * cannot target undocumented legacy aliases even by mistake. */
+type ApiV1Path = `/api/v1/${string}`;
 
 interface CredentialInfo {
   id: string;
@@ -58,7 +62,7 @@ function bufferToB64url(buffer: ArrayBuffer): string {
 }
 
 async function apiCall<T>(
-  path: string,
+  path: ApiV1Path,
   method: "POST" | "GET",
   body?: unknown,
 ): Promise<T> {
@@ -109,11 +113,11 @@ export default function SecuritySettingsPage() {
   const refreshStatus = useCallback(async () => {
     try {
       const creds = await apiCall<CredentialInfo[]>(
-        "/api/auth/mfa/webauthn/credentials",
+        "/api/v1/auth/mfa/webauthn/credentials",
         "GET",
       );
       setCredentials(creds);
-      const list = await apiCall<SessionRow[]>("/api/auth/sessions", "GET");
+      const list = await apiCall<SessionRow[]>("/api/v1/auth/sessions", "GET");
       setSessions(list);
     } catch (err) {
       setError(
@@ -123,7 +127,7 @@ export default function SecuritySettingsPage() {
     // Providers are admin-scoped; a 403 simply hides the section.
     try {
       const providerList = await apiCall<OidcProvider[]>(
-        "/api/auth/oidc/providers",
+        "/api/v1/auth/oidc/providers",
         "GET",
       );
       setProviders(providerList);
@@ -152,7 +156,7 @@ export default function SecuritySettingsPage() {
 
   const beginTotp = guard(async () => {
     const begin = await apiCall<{ secret_base32: string; otpauth_url: string }>(
-      "/api/auth/mfa/totp/enroll-begin",
+      "/api/v1/auth/mfa/totp/enroll-begin",
       "POST",
     );
     setSetupSecret(begin.secret_base32);
@@ -162,7 +166,7 @@ export default function SecuritySettingsPage() {
 
   const confirmTotp = guard(async () => {
     const result = await apiCall<{ recovery_codes: string[] }>(
-      "/api/auth/mfa/totp/enroll-verify",
+      "/api/v1/auth/mfa/totp/enroll-verify",
       "POST",
       { code: confirmCode.trim() },
     );
@@ -174,7 +178,7 @@ export default function SecuritySettingsPage() {
   });
 
   const disableTotp = guard(async () => {
-    await apiCall("/api/auth/mfa/totp/disable", "POST", {
+    await apiCall("/api/v1/auth/mfa/totp/disable", "POST", {
       password,
       code: disableCode.trim(),
     });
@@ -185,7 +189,7 @@ export default function SecuritySettingsPage() {
 
   const regenerateCodes = guard(async () => {
     const result = await apiCall<{ recovery_codes: string[] }>(
-      "/api/auth/mfa/recovery-codes/regenerate",
+      "/api/v1/auth/mfa/recovery-codes/regenerate",
       "POST",
       { password, code: disableCode.trim() },
     );
@@ -202,7 +206,7 @@ export default function SecuritySettingsPage() {
         unknown
       >;
       challenge_token: string;
-    }>("/api/auth/mfa/webauthn/register/begin", "POST");
+    }>("/api/v1/auth/mfa/webauthn/register/begin", "POST");
 
     const envelope = begin.public_key as {
       publicKey?: Record<string, unknown>;
@@ -233,7 +237,7 @@ export default function SecuritySettingsPage() {
     response.clientDataJSON = bufferToB64url(attestation.clientDataJSON);
     response.attestationObject = bufferToB64url(attestation.attestationObject);
 
-    await apiCall("/api/auth/mfa/webauthn/register/finish", "POST", {
+    await apiCall("/api/v1/auth/mfa/webauthn/register/finish", "POST", {
       challenge_token: begin.challenge_token,
       label: passkeyLabel.trim() || undefined,
       credential: serialized,
@@ -425,7 +429,7 @@ export default function SecuritySettingsPage() {
                   variant="ghost"
                   onClick={guard(async () => {
                     await apiCall(
-                      `/api/auth/mfa/webauthn/credentials/${c.id}/remove`,
+                      `/api/v1/auth/mfa/webauthn/credentials/${c.id}/remove`,
                       "POST",
                       {
                         password,
@@ -475,7 +479,7 @@ export default function SecuritySettingsPage() {
                 <Button
                   variant="ghost"
                   onClick={guard(async () => {
-                    await apiCall(`/api/auth/sessions/${s.id}/revoke`, "POST");
+                    await apiCall(`/api/v1/auth/sessions/${s.id}/revoke`, "POST");
                     await refreshStatus();
                   })}
                   disabled={busy}

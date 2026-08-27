@@ -41,10 +41,10 @@ const LADDER_STEPS = [
 
 function setupApi(): MockApi {
   const mock = new MockApi();
-  mock.on("GET", "/api/me", () => ({ json: ME_FIXTURE }));
-  mock.on("GET", "/api/sla/calendars", () => ({ json: [CALENDAR] }));
-  mock.on("GET", "/api/sla/policies", () => ({ json: POLICIES }));
-  mock.on("GET", `/api/sla/policies/${POLICY_A}/ladder`, () => ({ json: LADDER_STEPS }));
+  mock.on("GET", "/api/v1/me", () => ({ json: ME_FIXTURE }));
+  mock.on("GET", "/api/v1/sla/calendars", () => ({ json: [CALENDAR] }));
+  mock.on("GET", "/api/v1/sla/policies", () => ({ json: POLICIES }));
+  mock.on("GET", `/api/v1/sla/policies/${POLICY_A}/ladder`, () => ({ json: LADDER_STEPS }));
   mock.install();
   return mock;
 }
@@ -89,13 +89,13 @@ describe("/settings/sla integration", () => {
     // Clicking the holiday chip removes it from the draft.
     fireEvent.click(screen.getByText("2026-12-25 ✕"));
     expect(screen.queryByText("2026-12-25 ✕")).not.toBeInTheDocument();
-    expect(mock.callsTo("GET", "/api/sla/calendars").length).toBe(1);
+    expect(mock.callsTo("GET", "/api/v1/sla/calendars").length).toBe(1);
     cleanup();
   });
 
   it("opens a ladder, shows fire-once note + disabled flag, and saves via PUT", async () => {
     const mock = setupApi();
-    mock.on("PUT", `/api/sla/policies/${POLICY_A}/ladder`, () => ({ json: LADDER_STEPS }));
+    mock.on("PUT", `/api/v1/sla/policies/${POLICY_A}/ladder`, () => ({ json: LADDER_STEPS }));
 
     render(
       <AuthProvider>
@@ -113,7 +113,7 @@ describe("/settings/sla integration", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Save ladder" }));
     await waitFor(() => {
-      const puts = mock.callsTo("PUT", `/api/sla/policies/${POLICY_A}/ladder`);
+      const puts = mock.callsTo("PUT", `/api/v1/sla/policies/${POLICY_A}/ladder`);
       expect(puts.length).toBe(1);
       const body = puts[0]?.body as
         | { steps: { at_pct: number; trigger_kind: string; step_index: number }[] }
@@ -146,9 +146,9 @@ describe("/settings/sla integration", () => {
 
   it("renders an empty state when no policies exist", async () => {
     const mock = new MockApi();
-    mock.on("GET", "/api/me", () => ({ json: ME_FIXTURE }));
-    mock.on("GET", "/api/sla/calendars", () => ({ json: [] }));
-    mock.on("GET", "/api/sla/policies", () => ({ json: [] }));
+    mock.on("GET", "/api/v1/me", () => ({ json: ME_FIXTURE }));
+    mock.on("GET", "/api/v1/sla/calendars", () => ({ json: [] }));
+    mock.on("GET", "/api/v1/sla/policies", () => ({ json: [] }));
     mock.install();
     render(
       <AuthProvider>

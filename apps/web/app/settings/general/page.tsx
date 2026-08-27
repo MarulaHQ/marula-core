@@ -1,9 +1,9 @@
 // /settings/general — org profile + registry-backed org settings.
 //
 // Purpose: one page for the tenant-level General section: identity fields
-// (name, ticket prefix) via /api/org and every UI-visible org-scope
+// (name, ticket prefix) via /api/v1/org and every UI-visible org-scope
 // declaration rendered FROM the registry payload (kind → control), saved
-// through /api/settings/org. Defaults-first: values shown are the
+// through /api/v1/settings/org. Defaults-first: values shown are the
 // effective chain (declared default unless overridden).
 //
 // Non-purpose: user-scope preferences (Preferences page), notification
@@ -139,9 +139,9 @@ export default function GeneralSettingsPage() {
     if (auth.status !== "authed") return;
     void (async () => {
       const [profileRes, registryRes, valuesRes] = await Promise.all([
-        api.api.GET("/api/org"),
-        api.api.GET("/api/settings/registry"),
-        api.api.GET("/api/settings/org"),
+        api.api.GET("/api/v1/org"),
+        api.api.GET("/api/v1/settings/registry"),
+        api.api.GET("/api/v1/settings/org"),
       ]);
       if (profileRes.data) {
         setProfile(profileRes.data);
@@ -186,7 +186,7 @@ export default function GeneralSettingsPage() {
     setError(null);
     try {
       if (profileDirty && profileDraft) {
-        const res = await api.api.PATCH("/api/org", {
+        const res = await api.api.PATCH("/api/v1/org", {
           body: {
             name: profileDraft.name.trim(),
             ticket_prefix: profileDraft.ticket_prefix.trim(),
@@ -202,7 +202,7 @@ export default function GeneralSettingsPage() {
         }
       }
       for (const key of dirtyKeys) {
-        const res = await api.api.PUT("/api/settings/org", {
+        const res = await api.api.PUT("/api/v1/settings/org", {
           body: { key, value: values[key] },
         });
         if (res.error) {

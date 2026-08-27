@@ -164,13 +164,13 @@ export default function TicketWorkspacePage() {
   const refreshTicket = useCallback(async () => {
     if (ticketId === "") return;
     const [t, c, cl, sla, atts] = await Promise.all([
-      api.api.GET("/api/tickets/{id}", { params: { path: { id: ticketId } } }),
-      api.api.GET("/api/tickets/{id}/comments", { params: { path: { id: ticketId } } }),
-      api.api.GET("/api/tickets/{id}/checklist", { params: { path: { id: ticketId } } }),
+      api.api.GET("/api/v1/tickets/{id}", { params: { path: { id: ticketId } } }),
+      api.api.GET("/api/v1/tickets/{id}/comments", { params: { path: { id: ticketId } } }),
+      api.api.GET("/api/v1/tickets/{id}/checklist", { params: { path: { id: ticketId } } }),
       // SLA clock readout; absent (no policy) renders no badge.
-      api.api.GET("/api/tickets/{id}/sla", { params: { path: { id: ticketId } } }),
+      api.api.GET("/api/v1/tickets/{id}/sla", { params: { path: { id: ticketId } } }),
       // Attachments (2.14); absent only on older servers.
-      api.api.GET("/api/tickets/{id}/attachments", { params: { path: { id: ticketId } } }),
+      api.api.GET("/api/v1/tickets/{id}/attachments", { params: { path: { id: ticketId } } }),
     ]);
     if (t.error !== undefined) {
       setError("Ticket not found in your organization");
@@ -186,10 +186,10 @@ export default function TicketWorkspacePage() {
       // Statuses + the board's effective workflow arrive together so the
       // status control can group by category and pre-disable illegal moves.
       const [s, tr] = await Promise.all([
-        api.api.GET("/api/boards/{id}/statuses", {
+        api.api.GET("/api/v1/boards/{id}/statuses", {
           params: { path: { id: t.data.board_id } },
         }),
-        api.api.GET("/api/boards/{id}/transitions", {
+        api.api.GET("/api/v1/boards/{id}/transitions", {
           params: { path: { id: t.data.board_id } },
         }),
       ]);
@@ -203,7 +203,7 @@ export default function TicketWorkspacePage() {
   }, [auth.status, refreshTicket]);
 
   async function changeStatus(statusId: string) {
-    const res = await api.api.POST("/api/tickets/{id}/status", {
+    const res = await api.api.POST("/api/v1/tickets/{id}/status", {
       params: { path: { id: ticketId } },
       body: { status_id: statusId },
     });
@@ -216,11 +216,11 @@ export default function TicketWorkspacePage() {
   }
 
   async function startTimer() {
-    await api.api.POST("/api/timers/start", { body: { ticket_id: ticketId } });
+    await api.api.POST("/api/v1/timers/start", { body: { ticket_id: ticketId } });
   }
 
   async function stopTimer() {
-    await api.api.POST("/api/timers/stop", { body: {} });
+    await api.api.POST("/api/v1/timers/stop", { body: {} });
   }
 
   async function postComment() {
@@ -233,7 +233,7 @@ export default function TicketWorkspacePage() {
       for (const file of stagedFiles) {
         uploaded.push((await uploadAttachment(ticketId, file)).id);
       }
-      await api.api.POST("/api/tickets/{id}/comments", {
+      await api.api.POST("/api/v1/tickets/{id}/comments", {
         params: { path: { id: ticketId } },
         body: { body, kind: "internal", attachment_ids: uploaded },
       });
@@ -275,7 +275,7 @@ export default function TicketWorkspacePage() {
   async function addChecklistItem() {
     const text = checklistDraft.trim();
     if (text === "") return;
-    await api.api.POST("/api/tickets/{id}/checklist", {
+    await api.api.POST("/api/v1/tickets/{id}/checklist", {
       params: { path: { id: ticketId } },
       body: { text },
     });
@@ -284,7 +284,7 @@ export default function TicketWorkspacePage() {
   }
 
   async function toggleChecklistItem(itemId: string, checked: boolean) {
-    await api.api.POST("/api/tickets/{id}/checklist/{item_id}", {
+    await api.api.POST("/api/v1/tickets/{id}/checklist/{item_id}", {
       params: { path: { id: ticketId, item_id: itemId } },
       body: { checked },
     });
@@ -545,7 +545,7 @@ function MyWorkList({ selectedId, onSelect }: { selectedId: string; onSelect(id:
 
   useEffect(() => {
     let cancelled = false;
-    void api.api.GET("/api/tickets/my-work").then((res) => {
+    void api.api.GET("/api/v1/tickets/my-work").then((res) => {
       if (!cancelled && res.error === undefined) setTickets(res.data);
     });
     return () => {

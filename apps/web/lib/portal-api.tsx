@@ -2,7 +2,7 @@
 //
 // Purpose: token persistence under a SEPARATE localStorage family
 // ("meridian-portal-tokens" — never the staff key), typed fetch helpers for
-// the /api/portal/* surface, and a React context owning portal auth state.
+// the /api/v1/portal/* surface, and a React context owning portal auth state.
 // Deliberately independent of lib/api.tsx so staff and portal sessions can
 // never bleed into each other in one browser profile.
 // Non-purpose: no SDK client usage (the portal is a small dedicated
@@ -13,6 +13,11 @@
 import { useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+
+/** Request paths on the canonical versioned surface only. The portal owns
+ * hand-written transport (no generated client), so this is the narrow
+ * anchor keeping it off undocumented legacy aliases forever. */
+type PortalPath = `/api/v1/portal/${string}`;
 
 const TOKENS_KEY = "meridian-portal-tokens";
 
@@ -89,7 +94,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
  * rotates the refresh token once on 401, and clears state on hard logout.
  */
 async function portalFetch<T>(
-  path: string,
+  path: PortalPath,
   init: RequestInit & { tokens?: PortalTokens | null },
 ): Promise<T> {
   const { tokens, ...rest } = init;
@@ -104,7 +109,7 @@ async function portalFetch<T>(
   });
   if (response.status === 401 && stored) {
     // Single rotation attempt; a second 401 means truly logged out.
-    const rotated = await fetch(`${API_BASE}/api/portal/refresh`, {
+    const rotated = await fetch(`${API_BASE}/api/v1/portal/refresh`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -153,7 +158,7 @@ export const portalApi = {
   async login(email: string, password: string): Promise<PortalTokens & { portal_user: PortalProfile }> {
     const result = await portalFetch<
       PortalTokens & { portal_user: PortalProfile }
-    >("/api/portal/login", {
+    >("/api/v1/portal/login", {
       method: "POST",
       tokens: null,
       body: JSON.stringify({ email, password }),
@@ -163,19 +168,19 @@ export const portalApi = {
   },
 
   me(): Promise<PortalProfile> {
-    return portalFetch<PortalProfile>("/api/portal/me", {});
+    return portalFetch<PortalProfile>("/api/v1/portal/me", {});
   },
 
   listTickets(): Promise<PortalTicket[]> {
-    return portalFetch<PortalTicket[]>("/api/portal/tickets?limit=200", {});
+    return portalFetch<PortalTicket[]>("/api/v1/portal/tickets?limit=200", {});
   },
 
   getTicket(id: string): Promise<PortalTicketDetail> {
-    return portalFetch<PortalTicketDetail>(`/api/portal/tickets/${id}`, {});
+    return portalFetch<PortalTicketDetail>(`/api/v1/portal/tickets/${id}`, {});
   },
 
   reply(id: string, body: string): Promise<PortalComment> {
-    return portalFetch<PortalComment>(`/api/portal/tickets/${id}/reply`, {
+    return portalFetch<PortalComment>(`/api/v1/portal/tickets/${id}/reply`, {
       method: "POST",
       body: JSON.stringify({ body }),
     });
@@ -194,7 +199,7 @@ const PortalAuthContext = createContext<PortalAuthState>({
   signOut: () => {},
 });
 
-/** Wraps the /portal tree: restores stored tokens and validates them via /api/portal/me. */
+/** Wraps the /portal tree: restores stored tokens and validates them via /api/v1/portal/me. */
 export function PortalAuthProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<PortalProfile | null>(null);
   const [status, setStatus] = useState<PortalAuthState["status"]>("loading");
