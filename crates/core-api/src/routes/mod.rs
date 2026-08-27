@@ -1,5 +1,40 @@
 //! HTTP routes: router assembly and the OpenAPI document (utoipa derives
 //! the spec from the handlers; Scalar serves interactive docs from it).
+//!
+//! ## API path versioning (TASKLIST U1, policy §2/§3)
+//!
+//! Every `/api` handler surface is mounted TWICE by [`build_router`]:
+//!
+//! - `/api/v1/...` — the CANONICAL, documented contract. The OpenAPI
+//!   document (and therefore `@meridian/sdk`) describes v1 paths only.
+//! - `/api/...` — the unversioned LEGACY ALIAS from before versioning was
+//!   introduced. It hits the very same handlers through the same middleware
+//!   sequence with identical payloads, status codes, auth behavior and error
+//!   shapes; nothing extra is added on top of it (deprecation/sunset warning
+//!   headers are U4 territory, deliberately not here).
+//!
+//! Compatibility stance (docs/upgrade-compatibility-policy.md §2/§3): the
+//! alias lives for at least one generation — removal happens NO EARLIER
+//! than the next major version after its deprecation is announced in the
+//! release notes' "Breaking & deprecated" section. Do not add new routes to
+//! only one mount, and never change one mount's behavior without the other.
+//! When new endpoints land on later lanes they follow the same two-mount
+//! rule automatically, because registration goes through [`api_surface`].
+//!
+//! Non-purpose: no per-generation behavior forking, no response-shaping
+//! differences, and no runtime deprecation headers here (that is the
+//! deprecation-metadata work item, TASKLIST U4).
+//!
+//! Implementation note: both mounts are produced by running ONE builder
+//! ([`api_surface`]) twice over an [`ApiGeneration`] tag rather than via
+//! `Router::nest`. Nesting would strip full route templates from telemetry
+//! (`MatchedPath` would see only the inner segment), give unmatched nested
+//! requests a different fallback shape than today's top-level 404, and
+//! cannot re-prefix an already-pathed router anyway. Building twice means
+//! middleware ordering is identical across mounts *by construction* (the
+//! exact same statement sequence runs per generation) and legacy byte
+//! parity holds because the legacy generation reconstructs the historical
+//! literal paths.
 
 pub mod api_keys;
 pub mod attachments;
@@ -39,424 +74,56 @@ use axum::{
     Router,
 };
 
+/// Which URL base a router build targets.
+///
+/// Mounts built for [`ApiGeneration::LegacyAlias`] and
+/// [`ApiGeneration::Canonical`] run the same handlers through the same
+/// layer sequence; they differ ONLY in their URL base.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum ApiGeneration {
+    /// `/api/v1` — canonical documented contract (OpenAPI/SDK source).
+    Canonical,
+    /// `/api` — unversioned compatibility alias; removed no earlier than
+    /// the next major per upgrade-compatibility-policy.md §2/§3. Not part
+    /// of the documented contract: the spec never lists these paths.
+    LegacyAlias,
+}
+
+impl ApiGeneration {
+    /// The URL base this generation mounts under.
+    pub const fn base(self) -> &'static str {
+        match self {
+            Self::LegacyAlias => "/api",
+            Self::Canonical => "/api/v1",
+        }
+    }
+}
+
+/// Joins a generation's base onto a handler-local tail. Tails start at the
+/// namespace segment (`"/health"`, `"/tickets/{id}"`) — historically that
+/// was embedded after a bare `"/api"` string inside each `.route()` call.
+///
+/// Plain concatenation instead of `format!` so wildcard braces like `{id}`
+/// stay inert literals rather than format escapes.
+fn route_path(gen: ApiGeneration, tail: &str) -> String {
+    let mut out = String::with_capacity(gen.base().len() + tail.len());
+    out.push_str(gen.base());
+    out.push_str(tail);
+    out
+}
+
 pub fn build_router(state: AppState) -> Router {
-    let public = Router::new()
-        .route("/api/health", get(health))
-        .route("/api/auth/register", post(auth_handlers::register))
-        .route("/api/auth/login", post(auth_handlers::login))
-        .route("/api/auth/refresh", post(auth_handlers::refresh))
-        .route("/api/auth/logout", post(auth_handlers::logout))
-        // MFA completion of a password login.
-        .route("/api/auth/mfa/verify", post(mfa::mfa_verify))
-        .route(
-            "/api/auth/mfa/webauthn/begin",
-            post(mfa::webauthn_login_begin),
-        )
-        .route(
-            "/api/auth/mfa/webauthn/finish",
-            post(mfa::webauthn_login_finish),
-        )
-        // OIDC SSO (config-driven; no providers configured ⇒ 404s).
-        .route(
-            "/api/auth/oidc/providers/public",
-            get(oidc::providers_public),
-        )
-        .route("/api/auth/oidc/{name}/login", get(oidc::login_redirect))
-        .route("/api/auth/oidc/{name}/callback", get(oidc::callback))
-        .route("/api/sso/exchange", post(oidc::sso_exchange))
-        // Machine-to-machine surfaces with their own auth (HMAC webhook,
-        // internal worker token) — never behind JWT middleware.
-        .route("/api/webhooks/email-inbound", post(webhooks::email_inbound))
-        .route(
-            "/api/internal/email/outbound/claim",
-            post(internal::claim_outbound),
-        )
-        .route(
-            "/api/internal/email/outbound/results",
-            post(internal::report_results),
-        )
-        // Machine surface for the worker (token-gated inside the handlers,
-        // NOT behind the JWT middleware — §4.1: worker effects enter
-        // through core-api, never direct DB writes).
-        .route("/api/internal/sla/verdict", post(internal::sla_verdict))
-        .route("/api/internal/effects", post(internal::effects))
-        .route(
-            "/api/internal/time/gap-audit/run",
-            post(internal::run_gap_audit),
-        )
-        .route(
-            "/api/internal/webhook/deliveries",
-            post(internal::webhook_deliveries),
-        );
-
-    // Client-portal v1: public auth endpoints + a DEDICATED middleware for
-    // the authenticated surface. Portal tokens (kind:"portal") never pass
-    // require_auth, staff tokens never pass require_portal_auth.
-    let portal_protected = Router::new()
-        .route("/api/portal/me", get(portal::me))
-        .route("/api/portal/tickets", get(portal::list_tickets))
-        .route("/api/portal/tickets/{id}", get(portal::get_ticket))
-        .route("/api/portal/tickets/{id}/reply", post(portal::reply))
-        // Portal-visible attachments (TASKLIST 2.14): metadata + streamed
-        // download only; hidden/internal files are indistinguishable 404s.
-        .route(
-            "/api/portal/tickets/{id}/attachments",
-            get(portal::list_attachments),
-        )
-        .route(
-            "/api/portal/tickets/{id}/attachments/{attachment_id}/download",
-            get(portal::download_attachment),
-        )
-        // Stamps org_id onto the current request span (telemetry) once the
-        // portal auth middleware below has resolved it.
-        .layer(middleware::from_fn(crate::otel_http::record_org))
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            portal::require_portal_auth,
-        ));
-    let public = public
-        .route("/api/portal/login", post(portal::login))
-        .route("/api/portal/refresh", post(portal::refresh))
-        .merge(portal_protected);
-
-    let protected = Router::new()
-        .route("/api/me", get(auth_handlers::me))
-        // session management (security settings)
-        .route("/api/auth/sessions", get(auth_handlers::list_sessions))
-        .route(
-            "/api/auth/sessions/{id}/revoke",
-            post(auth_handlers::revoke_session),
-        )
-        // TOTP enrollment + recovery codes
-        .route(
-            "/api/auth/mfa/totp/enroll-begin",
-            post(mfa::totp_enroll_begin),
-        )
-        .route(
-            "/api/auth/mfa/totp/enroll-verify",
-            post(mfa::totp_enroll_verify),
-        )
-        .route("/api/auth/mfa/totp/disable", post(mfa::totp_disable))
-        .route(
-            "/api/auth/mfa/recovery-codes/regenerate",
-            post(mfa::regenerate_recovery_codes),
-        )
-        // WebAuthn credential management
-        .route(
-            "/api/auth/mfa/webauthn/register/begin",
-            post(mfa::webauthn_register_begin),
-        )
-        .route(
-            "/api/auth/mfa/webauthn/register/finish",
-            post(mfa::webauthn_register_finish),
-        )
-        .route(
-            "/api/auth/mfa/webauthn/credentials",
-            get(mfa::webauthn_credentials_list),
-        )
-        .route(
-            "/api/auth/mfa/webauthn/credentials/{id}/remove",
-            post(mfa::webauthn_credential_remove),
-        )
-        // OIDC provider admin + explicit linking
-        .route("/api/auth/oidc/providers", get(oidc::providers_list))
-        .route(
-            "/api/auth/oidc/providers/{name}",
-            put(oidc::providers_upsert).delete(oidc::providers_delete),
-        )
-        .route("/api/auth/oidc/{name}/link", post(oidc::link_begin))
-        // clients
-        .route("/api/clients", get(clients::list).post(clients::create))
-        .route("/api/clients/{id}", get(clients::get_one))
-        .route(
-            "/api/clients/{id}/sites",
-            get(clients::list_sites).post(clients::create_site),
-        )
-        .route(
-            "/api/clients/{id}/contacts",
-            get(clients::list_contacts).post(clients::create_contact),
-        )
-        .route(
-            "/api/clients/{id}/assets",
-            get(clients::list_assets).post(clients::create_asset),
-        )
-        // boards + statuses + workflow customization + organization/RBAC
-        .route("/api/boards", get(boards::list).post(boards::create))
-        .route("/api/boards/nav", get(board_access::nav))
-        .route(
-            "/api/board-groups",
-            get(board_access::list_groups).post(board_access::create_group),
-        )
-        .route(
-            "/api/board-groups/{id}",
-            axum::routing::patch(board_access::update_group).delete(board_access::delete_group),
-        )
-        .route("/api/boards/{id}/group", put(board_access::assign_group))
-        .route(
-            "/api/boards/{id}/members",
-            get(board_access::list_members).put(board_access::upsert_member),
-        )
-        .route(
-            "/api/boards/{id}/members/{user_id}",
-            axum::routing::delete(board_access::remove_member),
-        )
-        .route(
-            "/api/boards/{id}/statuses",
-            get(boards::list_statuses).post(boards::add_status),
-        )
-        .route(
-            "/api/boards/{id}/statuses/{status_id}",
-            axum::routing::patch(boards::update_status).delete(boards::delete_status),
-        )
-        .route(
-            "/api/boards/{id}/transitions",
-            get(boards::list_transitions).put(boards::set_transitions),
-        )
-        .route("/api/boards/{id}/favorite", post(boards::toggle_favorite))
-        .route(
-            "/api/boards/{id}/checklist-template",
-            get(checklists::get_template)
-                .put(checklists::put_template)
-                .delete(checklists::delete_template),
-        )
-        // custom fields / dynamic forms (TASKLIST 2.17)
-        .route(
-            "/api/boards/{id}/fields",
-            get(custom_fields::list_defs).post(custom_fields::create_def),
-        )
-        .route(
-            "/api/boards/{id}/fields/{field_id}",
-            axum::routing::patch(custom_fields::update_def).delete(custom_fields::delete_def),
-        )
-        .route(
-            "/api/tickets/{id}/fields/{field_id}",
-            put(custom_fields::set_ticket_value).delete(custom_fields::clear_ticket_value),
-        )
-        // tickets
-        .route("/api/tickets", get(tickets::list).post(tickets::create))
-        .route("/api/tickets/my-work", get(tickets::my_work))
-        .route(
-            "/api/tickets/{id}",
-            get(tickets::get_one).patch(tickets::patch),
-        )
-        .route("/api/tickets/{id}/status", post(tickets::change_status))
-        .route("/api/tickets/{id}/sla", get(tickets::sla_status))
-        // sla configuration (admin)
-        .route(
-            "/api/sla/calendars",
-            get(sla_admin::list_calendars).post(sla_admin::create_calendar),
-        )
-        .route(
-            "/api/sla/calendars/{id}",
-            axum::routing::patch(sla_admin::update_calendar).delete(sla_admin::delete_calendar),
-        )
-        .route("/api/sla/policies", get(sla_admin::list_policies))
-        .route(
-            "/api/sla/policies/{id}/ladder",
-            get(sla_admin::get_ladder).put(sla_admin::replace_ladder),
-        )
-        // automation rules (admin)
-        .route(
-            "/api/automation-rules",
-            get(sla_admin::list_rules).post(sla_admin::create_rule),
-        )
-        .route(
-            "/api/automation-rules/{id}",
-            axum::routing::patch(sla_admin::update_rule).delete(sla_admin::delete_rule),
-        )
-        .route(
-            "/api/tickets/{id}/comments",
-            get(tickets::list_comments).post(tickets::add_comment),
-        )
-        // attachments (TASKLIST 2.14): raw-body upload needs a per-route
-        // limit override because axum's default caps bodies at 2 MB.
-        .route(
-            "/api/tickets/{id}/attachments",
-            get(attachments::list_for_ticket)
-                .post(attachments::upload)
-                .layer(axum::extract::DefaultBodyLimit::max(
-                    state.config.max_upload_bytes.max(1024 * 1024) as usize,
-                )),
-        )
-        .route(
-            "/api/tickets/{id}/comments/{comment_id}/attachments",
-            get(attachments::list_for_comment),
-        )
-        .route("/api/attachments/{id}/download", get(attachments::download))
-        .route(
-            "/api/attachments/{id}",
-            axum::routing::delete(attachments::remove),
-        )
-        .route(
-            "/api/tickets/{id}/checklist",
-            get(tickets::get_checklist).post(tickets::add_checklist_item),
-        )
-        .route(
-            "/api/tickets/{id}/checklist/{item_id}",
-            post(tickets::set_checklist_item),
-        )
-        .route(
-            "/api/tickets/{id}/time-entries",
-            get(tickets::ticket_time_entries),
-        )
-        // timers (single-active-timer workflow)
-        .route("/api/timers/active", get(timers::active))
-        .route("/api/timers/working-set", get(timers::working_set))
-        .route("/api/timers/start", post(timers::start))
-        .route("/api/timers/pause", post(timers::pause))
-        .route("/api/timers/resume", post(timers::resume))
-        .route("/api/timers/stop", post(timers::stop))
-        // time entries
-        .route(
-            "/api/time-entries",
-            get(timers::list_entries).post(timers::create_entry),
-        )
-        // time discipline (settings + missing-time gap reports)
-        .route(
-            "/api/time-settings",
-            get(time::get_settings).put(time::put_settings),
-        )
-        .route("/api/time-gaps/me", get(time::my_gaps))
-        .route("/api/time-gaps", get(time::user_gaps))
-        // notifications
-        .route("/api/notifications", get(notifications::list))
-        .route(
-            "/api/notifications/unread-count",
-            get(notifications::unread_count),
-        )
-        .route(
-            "/api/notifications/mark-read",
-            post(notifications::mark_read_bulk),
-        )
-        .route(
-            "/api/notifications/read-all",
-            post(notifications::mark_all_read),
-        )
-        .route(
-            "/api/notifications/{id}/read",
-            post(notifications::mark_read),
-        )
-        .route(
-            "/api/notification-preferences",
-            get(notifications::prefs_get).put(notifications::prefs_update),
-        )
-        // unified search (TASKLIST 2.16)
-        .route("/api/search", get(search::search))
-        // audit (admin)
-        .route("/api/audit-events", get(audit::list))
-        // plugin runtime v1: signed webhooks OUT + API keys (admin;
-        // x-api-key machine auth is handled inside require_auth)
-        .route(
-            "/api/webhooks",
-            get(webhook_admin::list).post(webhook_admin::create),
-        )
-        .route(
-            "/api/webhooks/{id}",
-            axum::routing::patch(webhook_admin::update).delete(webhook_admin::remove),
-        )
-        .route(
-            "/api/webhooks/{id}/deliveries",
-            get(webhook_admin::deliveries),
-        )
-        .route("/api/webhooks/{id}/test", post(webhook_admin::test_fire))
-        .route("/api/api-keys", get(api_keys::list).post(api_keys::create))
-        .route(
-            "/api/api-keys/{id}",
-            axum::routing::delete(api_keys::revoke),
-        )
-        // settings hub: typed registry + org/user scoped values + org profile
-        .route("/api/settings/registry", get(settings::get_registry))
-        .route(
-            "/api/settings/org",
-            get(settings::org_values_get).put(settings::org_value_put),
-        )
-        .route(
-            "/api/settings/user",
-            get(settings::user_values_get).put(settings::user_value_put),
-        )
-        .route(
-            "/api/org",
-            get(settings::org_profile_get).patch(settings::org_profile_patch),
-        )
-        // email inbound routing settings (admin)
-        .route(
-            "/api/email/inbound-settings",
-            get(email_admin::get_inbound_settings).put(email_admin::put_inbound_settings),
-        )
-        .route(
-            "/api/boards/{id}/inbound-address",
-            put(email_admin::put_board_inbound_address),
-        )
-        // portal administration (staff, PortalAdmin grant)
-        .route(
-            "/api/clients/{id}/portal-users",
-            get(portal_admin::list_portal_users).post(portal_admin::create_portal_user),
-        )
-        .route(
-            "/api/portal-users/{id}",
-            axum::routing::patch(portal_admin::patch_portal_user)
-                .delete(portal_admin::delete_portal_user),
-        )
-        .route(
-            "/api/clients/{id}/board-exposures",
-            get(portal_admin::list_board_exposures).put(portal_admin::put_board_exposure),
-        )
-        // scheduling/calendars/availability (TASKLIST 2.12)
-        .route("/api/appointments", post(scheduling::create_appointment))
-        .route(
-            "/api/appointments/{id}",
-            get(scheduling::get_appointment).patch(scheduling::patch_appointment),
-        )
-        .route(
-            "/api/appointments/{id}/move",
-            post(scheduling::move_appointment),
-        )
-        .route(
-            "/api/appointments/{id}/cancel",
-            post(scheduling::cancel_appointment),
-        )
-        .route(
-            "/api/scheduling/conflict-check",
-            post(scheduling::conflict_check),
-        )
-        .route("/api/calendar/day", get(calendar::calendar_day))
-        .route("/api/calendar/week", get(calendar::calendar_week))
-        .route("/api/calendar/team", get(calendar::calendar_team))
-        .route(
-            "/api/availability",
-            get(availability::list_availability).post(availability::create_availability),
-        )
-        .route(
-            "/api/availability/{id}",
-            axum::routing::delete(availability::delete_availability),
-        )
-        .route(
-            "/api/on-call-blocks",
-            get(availability::list_on_call).post(availability::create_on_call),
-        )
-        .route(
-            "/api/on-call-blocks/{id}",
-            axum::routing::delete(availability::delete_on_call),
-        )
-        .route(
-            "/api/calendar-exclusions",
-            get(availability::list_exclusions).post(availability::create_exclusion),
-        )
-        .route(
-            "/api/calendar-exclusions/{id}",
-            axum::routing::delete(availability::delete_exclusion),
-        )
-        // Stamps org_id onto the current request span (telemetry) once the
-        // auth middleware below has resolved it.
-        .layer(middleware::from_fn(crate::otel_http::record_org))
-        // dispatch board (TASKLIST 2.19)
-        .route("/api/dispatch/day", get(dispatch::dispatch_day))
-        .route("/api/dispatch/bulk-move", post(dispatch::bulk_move))
-        .route("/api/dispatch/assign", post(dispatch::assign))
-        .layer(middleware::from_fn_with_state(state.clone(), require_auth));
+    // Canonical + alias share one builder; prefixes are disjoint so merge
+    // order cannot shadow either mount.
+    let api = Router::new()
+        .merge(api_surface(ApiGeneration::Canonical, state.clone()))
+        .merge(api_surface(ApiGeneration::LegacyAlias, state.clone()));
 
     // Machine-to-machine effect surface (§4.1): token-guarded, NOT behind
     // the JWT middleware, and deliberately absent from OpenAPI/the SDK.
+    // It sits outside the /api namespace entirely, so it stays UNVERSIONED:
+    // worker↔core wiring is an internal seam, not a public boundary (policy
+    // §2 lists exactly four stable boundaries; this is none of them).
     let internal = Router::new()
         .route("/internal/search/upsert", post(internal::upsert))
         .route("/internal/search/delete", post(internal::delete));
@@ -468,12 +135,455 @@ pub fn build_router(state: AppState) -> Router {
     // attrs and `meridian.http.*` metrics. Unmatched routes collapse to
     // the constant "unmatched" — never raw paths (redact module docs).
     Router::new()
-        .merge(public)
-        .merge(protected)
+        .merge(api)
         .merge(internal)
         .merge(docs)
         .layer(middleware::from_fn(crate::otel_http::track))
         .with_state(state)
+}
+
+/// Builds ALL `/api`-namespaced surfaces (public auth/machine endpoints,
+/// client portal, staff protected routes) under ONE generation's base.
+///
+/// Called once per [`ApiGeneration`] so every mount gets the identical
+/// route set and identical middleware stack ordering — keep statement order
+/// below exactly as-is when touching routes: axum layers apply to routes
+/// added before them on this sub-router, so reordering changes semantics
+/// for BOTH generations simultaneously.
+fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
+    // Local shorthand keeps call sites close to their previous shape.
+    let rp = |tail: &str| route_path(gen, tail);
+
+    let public = Router::new()
+        .route(&rp("/health"), get(health))
+        .route(&rp("/auth/register"), post(auth_handlers::register))
+        .route(&rp("/auth/login"), post(auth_handlers::login))
+        .route(&rp("/auth/refresh"), post(auth_handlers::refresh))
+        .route(&rp("/auth/logout"), post(auth_handlers::logout))
+        // MFA completion of a password login.
+        .route(&rp("/auth/mfa/verify"), post(mfa::mfa_verify))
+        .route(
+            &rp("/auth/mfa/webauthn/begin"),
+            post(mfa::webauthn_login_begin),
+        )
+        .route(
+            &rp("/auth/mfa/webauthn/finish"),
+            post(mfa::webauthn_login_finish),
+        )
+        // OIDC SSO (config-driven; no providers configured ⇒ 404s).
+        .route(
+            &rp("/auth/oidc/providers/public"),
+            get(oidc::providers_public),
+        )
+        .route(&rp("/auth/oidc/{name}/login"), get(oidc::login_redirect))
+        .route(&rp("/auth/oidc/{name}/callback"), get(oidc::callback))
+        .route(&rp("/sso/exchange"), post(oidc::sso_exchange))
+        // Machine-to-machine surfaces with their own auth (HMAC webhook,
+        // internal worker token) — never behind JWT middleware.
+        .route(
+            &rp("/webhooks/email-inbound"),
+            post(webhooks::email_inbound),
+        )
+        .route(
+            &rp("/internal/email/outbound/claim"),
+            post(internal::claim_outbound),
+        )
+        .route(
+            &rp("/internal/email/outbound/results"),
+            post(internal::report_results),
+        )
+        // Machine surface for the worker (token-gated inside the handlers,
+        // NOT behind the JWT middleware — §4.1: worker effects enter
+        // through core-api, never direct DB writes).
+        .route(&rp("/internal/sla/verdict"), post(internal::sla_verdict))
+        .route(&rp("/internal/effects"), post(internal::effects))
+        .route(
+            &rp("/internal/time/gap-audit/run"),
+            post(internal::run_gap_audit),
+        )
+        .route(
+            &rp("/internal/webhook/deliveries"),
+            post(internal::webhook_deliveries),
+        );
+
+    // Client-portal v1: public auth endpoints + a DEDICATED middleware for
+    // the authenticated surface. Portal tokens (kind:"portal") never pass
+    // require_auth, staff tokens never pass require_portal_auth.
+    let portal_protected = Router::new()
+        .route(&rp("/portal/me"), get(portal::me))
+        .route(&rp("/portal/tickets"), get(portal::list_tickets))
+        .route(&rp("/portal/tickets/{id}"), get(portal::get_ticket))
+        .route(&rp("/portal/tickets/{id}/reply"), post(portal::reply))
+        // Portal-visible attachments (TASKLIST 2.14): metadata + streamed
+        // download only; hidden/internal files are indistinguishable 404s.
+        .route(
+            &rp("/portal/tickets/{id}/attachments"),
+            get(portal::list_attachments),
+        )
+        .route(
+            &rp("/portal/tickets/{id}/attachments/{attachment_id}/download"),
+            get(portal::download_attachment),
+        )
+        // Stamps org_id onto the current request span (telemetry) once the
+        // portal auth middleware below has resolved it.
+        .layer(middleware::from_fn(crate::otel_http::record_org))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            portal::require_portal_auth,
+        ));
+    let public = public
+        .route(&rp("/portal/login"), post(portal::login))
+        .route(&rp("/portal/refresh"), post(portal::refresh))
+        .merge(portal_protected);
+
+    let protected = Router::new()
+        .route(&rp("/me"), get(auth_handlers::me))
+        // session management (security settings)
+        .route(&rp("/auth/sessions"), get(auth_handlers::list_sessions))
+        .route(
+            &rp("/auth/sessions/{id}/revoke"),
+            post(auth_handlers::revoke_session),
+        )
+        // TOTP enrollment + recovery codes
+        .route(
+            &rp("/auth/mfa/totp/enroll-begin"),
+            post(mfa::totp_enroll_begin),
+        )
+        .route(
+            &rp("/auth/mfa/totp/enroll-verify"),
+            post(mfa::totp_enroll_verify),
+        )
+        .route(&rp("/auth/mfa/totp/disable"), post(mfa::totp_disable))
+        .route(
+            &rp("/auth/mfa/recovery-codes/regenerate"),
+            post(mfa::regenerate_recovery_codes),
+        )
+        // WebAuthn credential management
+        .route(
+            &rp("/auth/mfa/webauthn/register/begin"),
+            post(mfa::webauthn_register_begin),
+        )
+        .route(
+            &rp("/auth/mfa/webauthn/register/finish"),
+            post(mfa::webauthn_register_finish),
+        )
+        .route(
+            &rp("/auth/mfa/webauthn/credentials"),
+            get(mfa::webauthn_credentials_list),
+        )
+        .route(
+            &rp("/auth/mfa/webauthn/credentials/{id}/remove"),
+            post(mfa::webauthn_credential_remove),
+        )
+        // OIDC provider admin + explicit linking
+        .route(&rp("/auth/oidc/providers"), get(oidc::providers_list))
+        .route(
+            &rp("/auth/oidc/providers/{name}"),
+            put(oidc::providers_upsert).delete(oidc::providers_delete),
+        )
+        .route(&rp("/auth/oidc/{name}/link"), post(oidc::link_begin))
+        // clients
+        .route(&rp("/clients"), get(clients::list).post(clients::create))
+        .route(&rp("/clients/{id}"), get(clients::get_one))
+        .route(
+            &rp("/clients/{id}/sites"),
+            get(clients::list_sites).post(clients::create_site),
+        )
+        .route(
+            &rp("/clients/{id}/contacts"),
+            get(clients::list_contacts).post(clients::create_contact),
+        )
+        .route(
+            &rp("/clients/{id}/assets"),
+            get(clients::list_assets).post(clients::create_asset),
+        )
+        // boards + statuses + workflow customization + organization/RBAC
+        .route(&rp("/boards"), get(boards::list).post(boards::create))
+        .route(&rp("/boards/nav"), get(board_access::nav))
+        .route(
+            &rp("/board-groups"),
+            get(board_access::list_groups).post(board_access::create_group),
+        )
+        .route(
+            &rp("/board-groups/{id}"),
+            axum::routing::patch(board_access::update_group).delete(board_access::delete_group),
+        )
+        .route(&rp("/boards/{id}/group"), put(board_access::assign_group))
+        .route(
+            &rp("/boards/{id}/members"),
+            get(board_access::list_members).put(board_access::upsert_member),
+        )
+        .route(
+            &rp("/boards/{id}/members/{user_id}"),
+            axum::routing::delete(board_access::remove_member),
+        )
+        .route(
+            &rp("/boards/{id}/statuses"),
+            get(boards::list_statuses).post(boards::add_status),
+        )
+        .route(
+            &rp("/boards/{id}/statuses/{status_id}"),
+            axum::routing::patch(boards::update_status).delete(boards::delete_status),
+        )
+        .route(
+            &rp("/boards/{id}/transitions"),
+            get(boards::list_transitions).put(boards::set_transitions),
+        )
+        // Favorite toggle: the handler is BODY-driven (board_id rides in
+        // FavoriteRequest), so the documented v1 contract is
+        // /boards/favorite. The {id} shape below is a compat shim from
+        // v0.1.x which accepted an ignored path id; it stays mounted (both
+        // generations) for this alias lifetime and is removed no earlier
+        // than the next major — ONE handler, ONE documented path, never
+        // list the shim in the spec.
+        .route(&rp("/boards/favorite"), post(boards::toggle_favorite))
+        .route(&rp("/boards/{id}/favorite"), post(boards::toggle_favorite))
+        .route(
+            &rp("/boards/{id}/checklist-template"),
+            get(checklists::get_template)
+                .put(checklists::put_template)
+                .delete(checklists::delete_template),
+        )
+        // custom fields / dynamic forms (TASKLIST 2.17)
+        .route(
+            &rp("/boards/{id}/fields"),
+            get(custom_fields::list_defs).post(custom_fields::create_def),
+        )
+        .route(
+            &rp("/boards/{id}/fields/{field_id}"),
+            axum::routing::patch(custom_fields::update_def).delete(custom_fields::delete_def),
+        )
+        .route(
+            &rp("/tickets/{id}/fields/{field_id}"),
+            put(custom_fields::set_ticket_value).delete(custom_fields::clear_ticket_value),
+        )
+        // tickets
+        .route(&rp("/tickets"), get(tickets::list).post(tickets::create))
+        .route(&rp("/tickets/my-work"), get(tickets::my_work))
+        .route(
+            &rp("/tickets/{id}"),
+            get(tickets::get_one).patch(tickets::patch),
+        )
+        .route(&rp("/tickets/{id}/status"), post(tickets::change_status))
+        .route(&rp("/tickets/{id}/sla"), get(tickets::sla_status))
+        // sla configuration (admin)
+        .route(
+            &rp("/sla/calendars"),
+            get(sla_admin::list_calendars).post(sla_admin::create_calendar),
+        )
+        .route(
+            &rp("/sla/calendars/{id}"),
+            axum::routing::patch(sla_admin::update_calendar).delete(sla_admin::delete_calendar),
+        )
+        .route(&rp("/sla/policies"), get(sla_admin::list_policies))
+        .route(
+            &rp("/sla/policies/{id}/ladder"),
+            get(sla_admin::get_ladder).put(sla_admin::replace_ladder),
+        )
+        // automation rules (admin)
+        .route(
+            &rp("/automation-rules"),
+            get(sla_admin::list_rules).post(sla_admin::create_rule),
+        )
+        .route(
+            &rp("/automation-rules/{id}"),
+            axum::routing::patch(sla_admin::update_rule).delete(sla_admin::delete_rule),
+        )
+        .route(
+            &rp("/tickets/{id}/comments"),
+            get(tickets::list_comments).post(tickets::add_comment),
+        )
+        // attachments (TASKLIST 2.14): raw-body upload needs a per-route
+        // limit override because axum's default caps bodies at 2 MB.
+        .route(
+            &rp("/tickets/{id}/attachments"),
+            get(attachments::list_for_ticket)
+                .post(attachments::upload)
+                .layer(axum::extract::DefaultBodyLimit::max(
+                    state.config.max_upload_bytes.max(1024 * 1024) as usize,
+                )),
+        )
+        .route(
+            &rp("/tickets/{id}/comments/{comment_id}/attachments"),
+            get(attachments::list_for_comment),
+        )
+        .route(
+            &rp("/attachments/{id}/download"),
+            get(attachments::download),
+        )
+        .route(
+            &rp("/attachments/{id}"),
+            axum::routing::delete(attachments::remove),
+        )
+        .route(
+            &rp("/tickets/{id}/checklist"),
+            get(tickets::get_checklist).post(tickets::add_checklist_item),
+        )
+        .route(
+            &rp("/tickets/{id}/checklist/{item_id}"),
+            post(tickets::set_checklist_item),
+        )
+        .route(
+            &rp("/tickets/{id}/time-entries"),
+            get(tickets::ticket_time_entries),
+        )
+        // timers (single-active-timer workflow)
+        .route(&rp("/timers/active"), get(timers::active))
+        .route(&rp("/timers/working-set"), get(timers::working_set))
+        .route(&rp("/timers/start"), post(timers::start))
+        .route(&rp("/timers/pause"), post(timers::pause))
+        .route(&rp("/timers/resume"), post(timers::resume))
+        .route(&rp("/timers/stop"), post(timers::stop))
+        // time entries
+        .route(
+            &rp("/time-entries"),
+            get(timers::list_entries).post(timers::create_entry),
+        )
+        // time discipline (settings + missing-time gap reports)
+        .route(
+            &rp("/time-settings"),
+            get(time::get_settings).put(time::put_settings),
+        )
+        .route(&rp("/time-gaps/me"), get(time::my_gaps))
+        .route(&rp("/time-gaps"), get(time::user_gaps))
+        // notifications
+        .route(&rp("/notifications"), get(notifications::list))
+        .route(
+            &rp("/notifications/unread-count"),
+            get(notifications::unread_count),
+        )
+        .route(
+            &rp("/notifications/mark-read"),
+            post(notifications::mark_read_bulk),
+        )
+        .route(
+            &rp("/notifications/read-all"),
+            post(notifications::mark_all_read),
+        )
+        .route(
+            &rp("/notifications/{id}/read"),
+            post(notifications::mark_read),
+        )
+        .route(
+            &rp("/notification-preferences"),
+            get(notifications::prefs_get).put(notifications::prefs_update),
+        )
+        // unified search (TASKLIST 2.16)
+        .route(&rp("/search"), get(search::search))
+        // audit (admin)
+        .route(&rp("/audit-events"), get(audit::list))
+        // plugin runtime v1: signed webhooks OUT + API keys (admin;
+        // x-api-key machine auth is handled inside require_auth)
+        .route(
+            &rp("/webhooks"),
+            get(webhook_admin::list).post(webhook_admin::create),
+        )
+        .route(
+            &rp("/webhooks/{id}"),
+            axum::routing::patch(webhook_admin::update).delete(webhook_admin::remove),
+        )
+        .route(
+            &rp("/webhooks/{id}/deliveries"),
+            get(webhook_admin::deliveries),
+        )
+        .route(&rp("/webhooks/{id}/test"), post(webhook_admin::test_fire))
+        .route(&rp("/api-keys"), get(api_keys::list).post(api_keys::create))
+        .route(
+            &rp("/api-keys/{id}"),
+            axum::routing::delete(api_keys::revoke),
+        )
+        // settings hub: typed registry + org/user scoped values + org profile
+        .route(&rp("/settings/registry"), get(settings::get_registry))
+        .route(
+            &rp("/settings/org"),
+            get(settings::org_values_get).put(settings::org_value_put),
+        )
+        .route(
+            &rp("/settings/user"),
+            get(settings::user_values_get).put(settings::user_value_put),
+        )
+        .route(
+            &rp("/org"),
+            get(settings::org_profile_get).patch(settings::org_profile_patch),
+        )
+        // email inbound routing settings (admin)
+        .route(
+            &rp("/email/inbound-settings"),
+            get(email_admin::get_inbound_settings).put(email_admin::put_inbound_settings),
+        )
+        .route(
+            &rp("/boards/{id}/inbound-address"),
+            put(email_admin::put_board_inbound_address),
+        )
+        // portal administration (staff, PortalAdmin grant)
+        .route(
+            &rp("/clients/{id}/portal-users"),
+            get(portal_admin::list_portal_users).post(portal_admin::create_portal_user),
+        )
+        .route(
+            &rp("/portal-users/{id}"),
+            axum::routing::patch(portal_admin::patch_portal_user)
+                .delete(portal_admin::delete_portal_user),
+        )
+        .route(
+            &rp("/clients/{id}/board-exposures"),
+            get(portal_admin::list_board_exposures).put(portal_admin::put_board_exposure),
+        )
+        // scheduling/calendars/availability (TASKLIST 2.12)
+        .route(&rp("/appointments"), post(scheduling::create_appointment))
+        .route(
+            &rp("/appointments/{id}"),
+            get(scheduling::get_appointment).patch(scheduling::patch_appointment),
+        )
+        .route(
+            &rp("/appointments/{id}/move"),
+            post(scheduling::move_appointment),
+        )
+        .route(
+            &rp("/appointments/{id}/cancel"),
+            post(scheduling::cancel_appointment),
+        )
+        .route(
+            &rp("/scheduling/conflict-check"),
+            post(scheduling::conflict_check),
+        )
+        .route(&rp("/calendar/day"), get(calendar::calendar_day))
+        .route(&rp("/calendar/week"), get(calendar::calendar_week))
+        .route(&rp("/calendar/team"), get(calendar::calendar_team))
+        .route(
+            &rp("/availability"),
+            get(availability::list_availability).post(availability::create_availability),
+        )
+        .route(
+            &rp("/availability/{id}"),
+            axum::routing::delete(availability::delete_availability),
+        )
+        .route(
+            &rp("/on-call-blocks"),
+            get(availability::list_on_call).post(availability::create_on_call),
+        )
+        .route(
+            &rp("/on-call-blocks/{id}"),
+            axum::routing::delete(availability::delete_on_call),
+        )
+        .route(
+            &rp("/calendar-exclusions"),
+            get(availability::list_exclusions).post(availability::create_exclusion),
+        )
+        .route(
+            &rp("/calendar-exclusions/{id}"),
+            axum::routing::delete(availability::delete_exclusion),
+        )
+        // Stamps org_id onto the current request span (telemetry) once the
+        // auth middleware below has resolved it.
+        .layer(middleware::from_fn(crate::otel_http::record_org))
+        // dispatch board (TASKLIST 2.19)
+        .route(&rp("/dispatch/day"), get(dispatch::dispatch_day))
+        .route(&rp("/dispatch/bulk-move"), post(dispatch::bulk_move))
+        .route(&rp("/dispatch/assign"), post(dispatch::assign))
+        .layer(middleware::from_fn_with_state(state.clone(), require_auth));
+
+    public.merge(protected)
 }
 
 async fn health() -> &'static str {

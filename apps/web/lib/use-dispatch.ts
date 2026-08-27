@@ -126,7 +126,7 @@ export function useDispatchBoard(initialDate: string) {
     setLoading(true);
     setLoadError(null);
     try {
-      const { data, error } = await api.api.GET("/api/dispatch/day", {
+      const { data, error } = await api.api.GET("/api/v1/dispatch/day", {
         params: { query: { date: forDate as never } },
       });
       if (error !== undefined || !data) {
@@ -234,7 +234,7 @@ export function useDispatchBoard(initialDate: string) {
   const dropMove = useCallback(
     async (apptId: string, userId: string, startsAt: string, endsAt: string) => {
       dispatch({ type: "drop_move", apptId, userId, startsAt, endsAt });
-      const response = await api.api.POST("/api/dispatch/bulk-move", {
+      const response = await api.api.POST("/api/v1/dispatch/bulk-move", {
         body: {
           moves: [{ appointment_id: apptId, user_id: userId, starts_at: startsAt, ends_at: endsAt }],
         },
@@ -271,7 +271,7 @@ export function useDispatchBoard(initialDate: string) {
         startsAt,
         endsAt,
       });
-      const response = await api.api.POST("/api/dispatch/assign", {
+      const response = await api.api.POST("/api/v1/dispatch/assign", {
         body: {
           ticket_id: ticket.id,
           user_id: userId,

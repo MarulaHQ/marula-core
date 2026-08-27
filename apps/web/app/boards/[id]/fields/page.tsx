@@ -58,7 +58,7 @@ export default function BoardFieldsPage() {
 
   const refresh = useCallback(async () => {
     if (boardId === "") return;
-    const res = await api.api.GET("/api/boards/{id}/fields", {
+    const res = await api.api.GET("/api/v1/boards/{id}/fields", {
       params: { path: { id: boardId } },
     });
     if (res.response.status === 403) {
@@ -96,7 +96,7 @@ export default function BoardFieldsPage() {
       setFormError("Choice fields need at least one option.");
       return;
     }
-    const res = await api.api.POST("/api/boards/{id}/fields", {
+    const res = await api.api.POST("/api/v1/boards/{id}/fields", {
       params: { path: { id: boardId } },
       body: {
         name: trimmed,
@@ -119,7 +119,7 @@ export default function BoardFieldsPage() {
 
   async function patchDef(fieldId: string, patch: Record<string, unknown>) {
     setError(null);
-    const res = await api.api.PATCH("/api/boards/{id}/fields/{field_id}", {
+    const res = await api.api.PATCH("/api/v1/boards/{id}/fields/{field_id}", {
       params: { path: { id: boardId, field_id: fieldId } },
       body: patch,
     });
@@ -137,7 +137,7 @@ export default function BoardFieldsPage() {
       )
     )
       return;
-    const res = await api.api.DELETE("/api/boards/{id}/fields/{field_id}", {
+    const res = await api.api.DELETE("/api/v1/boards/{id}/fields/{field_id}", {
       params: { path: { id: boardId, field_id: fieldId } },
     });
     if (res.error !== undefined) {

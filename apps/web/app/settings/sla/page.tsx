@@ -1,7 +1,7 @@
 // /settings/sla — business-hours calendars + escalation ladders (2.6).
 //
 // Purpose: edit org SLA business-hours calendars (weekday windows,
-// holidays, timezone) over the existing /api/sla/calendars endpoints;
+// holidays, timezone) over the existing /api/v1/sla/calendars endpoints;
 // list SLA policies with a plain-language target summary and each
 // calendar's referenced-by count; edit the escalation ladder per policy
 // (offset % → notification kind, fire-once contract explained) via the
@@ -95,8 +95,8 @@ export default function SlaSettingsPage() {
 
   const refresh = async () => {
     const [calRes, polRes] = await Promise.all([
-      api.api.GET("/api/sla/calendars"),
-      api.api.GET("/api/sla/policies"),
+      api.api.GET("/api/v1/sla/calendars"),
+      api.api.GET("/api/v1/sla/policies"),
     ]);
     if (calRes.error !== undefined || calRes.data === undefined) {
       setLoadError("Failed to load SLA configuration.");
@@ -158,7 +158,7 @@ export default function SlaSettingsPage() {
     const payload = draftToBusinessPayload(calDraft);
     try {
       if (editingId === null) {
-        const res = await api.api.POST("/api/sla/calendars", {
+        const res = await api.api.POST("/api/v1/sla/calendars", {
           body: {
             name: payload.name,
             calendar: {
@@ -172,7 +172,7 @@ export default function SlaSettingsPage() {
         if (res.error || !res.data) throw new Error("the calendar was rejected");
         setEditingId(res.data.id);
       } else {
-        const res = await api.api.PATCH("/api/sla/calendars/{id}", {
+        const res = await api.api.PATCH("/api/v1/sla/calendars/{id}", {
           params: { path: { id: editingId } },
           body: {
             name: payload.name,
@@ -196,7 +196,7 @@ export default function SlaSettingsPage() {
   const deleteCalendar = async () => {
     if (editingId === null) return;
     try {
-      const res = await api.api.DELETE("/api/sla/calendars/{id}", {
+      const res = await api.api.DELETE("/api/v1/sla/calendars/{id}", {
         params: { path: { id: editingId } },
       });
       if (res.error) throw new Error("delete failed");
@@ -215,7 +215,7 @@ export default function SlaSettingsPage() {
     setOpenPolicyId(policyId);
     setLadderError(null);
     setLadderSaved(false);
-    const res = await api.api.GET("/api/sla/policies/{id}/ladder", {
+    const res = await api.api.GET("/api/v1/sla/policies/{id}/ladder", {
       params: { path: { id: policyId } },
     });
     dispatchLadder({ type: "init", steps: res.data ?? [] });
@@ -234,7 +234,7 @@ export default function SlaSettingsPage() {
     setSavingLadder(true);
     setLadderError(null);
     try {
-      const res = await api.api.PUT("/api/sla/policies/{id}/ladder", {
+      const res = await api.api.PUT("/api/v1/sla/policies/{id}/ladder", {
         params: { path: { id: openPolicyId } },
         body: ladderPayload(ladder),
       });

@@ -11,7 +11,7 @@
 //     enforcement toggle.
 // Editing is politely disabled for users without board-admin / org
 // manage-boards rights using real permission state (nav my_role +
-// /api/me permissions); read-only views still render fully.
+// /api/v1/me permissions); read-only views still render fully.
 //
 // Non-purpose: no new backend endpoints, no board-member management, and
 // no SLA/calendar concerns — those live on their own pages.
@@ -118,7 +118,7 @@ export default function WorkflowSettingsPage() {
   useEffect(() => {
     if (auth.status !== "authed") return;
     void (async () => {
-      const { data, error } = await api.api.GET("/api/boards/nav");
+      const { data, error } = await api.api.GET("/api/v1/boards/nav");
       if (error !== undefined || !data) {
         setLoadError("Failed to load boards.");
         return;
@@ -137,9 +137,9 @@ export default function WorkflowSettingsPage() {
     setSectionError({});
     void (async () => {
       const [statusRes, transRes, checkRes] = await Promise.all([
-        api.api.GET("/api/boards/{id}/statuses", { params: { path: { id: boardId } } }),
-        api.api.GET("/api/boards/{id}/transitions", { params: { path: { id: boardId } } }),
-        api.api.GET("/api/boards/{id}/checklist-template", { params: { path: { id: boardId } } }),
+        api.api.GET("/api/v1/boards/{id}/statuses", { params: { path: { id: boardId } } }),
+        api.api.GET("/api/v1/boards/{id}/transitions", { params: { path: { id: boardId } } }),
+        api.api.GET("/api/v1/boards/{id}/checklist-template", { params: { path: { id: boardId } } }),
       ]);
       if (statusRes.data) {
         setStatuses(statusRes.data);
@@ -206,20 +206,20 @@ export default function WorkflowSettingsPage() {
     const plan = planStatusSaves(statuses, statusDraft);
     try {
       for (const del of plan.deletes) {
-        const res = await api.api.DELETE("/api/boards/{id}/statuses/{status_id}", {
+        const res = await api.api.DELETE("/api/v1/boards/{id}/statuses/{status_id}", {
           params: { path: { id: boardId, status_id: del.statusId } },
         });
         if (res.error) throw new Error("a referenced or protected status blocked deletion");
       }
       for (const create of plan.creates) {
-        const res = await api.api.POST("/api/boards/{id}/statuses", {
+        const res = await api.api.POST("/api/v1/boards/{id}/statuses", {
           params: { path: { id: boardId } },
           body: create,
         });
         if (res.error || !res.data) throw new Error("adding a status was rejected");
       }
       for (const upd of plan.updates) {
-        const res = await api.api.PATCH("/api/boards/{id}/statuses/{status_id}", {
+        const res = await api.api.PATCH("/api/v1/boards/{id}/statuses/{status_id}", {
           params: { path: { id: boardId, status_id: upd.statusId } },
           body: upd.body,
         });
@@ -227,8 +227,8 @@ export default function WorkflowSettingsPage() {
       }
       // Re-sync server snapshots + drafts from confirmed state.
       const [refreshed, transRefreshed] = await Promise.all([
-        api.api.GET("/api/boards/{id}/statuses", { params: { path: { id: boardId } } }),
-        api.api.GET("/api/boards/{id}/transitions", { params: { path: { id: boardId } } }),
+        api.api.GET("/api/v1/boards/{id}/statuses", { params: { path: { id: boardId } } }),
+        api.api.GET("/api/v1/boards/{id}/transitions", { params: { path: { id: boardId } } }),
       ]);
       if (refreshed.data) {
         setStatuses(refreshed.data);
@@ -256,7 +256,7 @@ export default function WorkflowSettingsPage() {
     setSavingSection("matrix");
     setSectionError((prev) => ({ ...prev, matrix: undefined }));
     try {
-      const res = await api.api.PUT("/api/boards/{id}/transitions", {
+      const res = await api.api.PUT("/api/v1/boards/{id}/transitions", {
         params: { path: { id: boardId } },
         body: matrixPayload(matrix),
       });
@@ -275,7 +275,7 @@ export default function WorkflowSettingsPage() {
     setSavingSection("checklist");
     setSectionError((prev) => ({ ...prev, checklist: undefined }));
     try {
-      const res = await api.api.PUT("/api/boards/{id}/checklist-template", {
+      const res = await api.api.PUT("/api/v1/boards/{id}/checklist-template", {
         params: { path: { id: boardId } },
         body: checklistPayload(checklistDraft),
       });

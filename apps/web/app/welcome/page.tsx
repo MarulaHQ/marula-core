@@ -29,7 +29,7 @@ export default function WelcomeWizardPage() {
     if (auth.status !== "authed") return;
     void (async () => {
       // Prefill from the live profile so re-runs are true edits.
-      const { data } = await api.api.GET("/api/org");
+      const { data } = await api.api.GET("/api/v1/org");
       if (data) {
         setName(data.name);
         setTicketPrefix(data.ticket_prefix);
@@ -39,7 +39,7 @@ export default function WelcomeWizardPage() {
 
   /** Persists the completion flag; idempotent under replay. */
   const completeWizard = async () => {
-    const res = await api.api.PUT("/api/settings/org", {
+    const res = await api.api.PUT("/api/v1/settings/org", {
       body: { key: WIZARD_KEY, value: true },
     });
     if (res.error) {
@@ -54,7 +54,7 @@ export default function WelcomeWizardPage() {
     setBusy(true);
     setError(null);
     try {
-      const res = await api.api.PATCH("/api/org", {
+      const res = await api.api.PATCH("/api/v1/org", {
         body: {
           name: name.trim(),
           ticket_prefix: ticketPrefix.trim().toUpperCase(),

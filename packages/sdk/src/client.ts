@@ -2,12 +2,21 @@
 // OpenAPI types. All route types derive from packages/sdk/openapi.json;
 // nothing here is hand-declared per endpoint.
 //
+// Versioning stance: every emitted request targets the CANONICAL /api/v1
+// surface documented by the spec. The server also serves unversioned
+// legacy aliases at runtime (upgrade-compatibility-policy.md §2/§3), but
+// they are undocumented compatibility seams — this client never relies on
+// them.
+//
 // Non-purpose: no business logic, no React bindings, no retry/queueing —
 // callers own policies; this owns transport + token lifecycle only.
 import createClient from "openapi-fetch";
 import type { paths } from "./generated/schema.js";
 
 export type MeridianPaths = paths;
+
+/** A typed path key of the canonical /api/v1 contract. */
+export type ApiV1Path = keyof MeridianPaths & `/api/v1/${string}`;
 
 export interface TokenPair {
   access_token: string;
@@ -41,7 +50,7 @@ export interface LoginRequest {
 /** Returned when any second factor is enrolled for the account. */
 export interface MfaRequired {
   mfa_required: true;
-  /** Short-lived bridge token — pass to /api/auth/mfa/verify or the
+  /** Short-lived bridge token — pass to /api/v1/auth/mfa/verify or the
    * WebAuthn begin endpoints. Grants NO API access by itself. */
   mfa_token: string;
   /** Second factors able to satisfy this login. */
@@ -91,14 +100,14 @@ export class MeridianClient {
     return { accessToken: this.accessToken, sessionId: this.sessionId };
   }
 
-  /** POST /api/auth/register — bootstraps an org + its first Owner. */
+  /** POST /api/v1/auth/register — bootstraps an org + its first Owner. */
   async register(body: RegisterRequest): Promise<TokenPair> {
-    return this.authCall("/api/auth/register", body);
+    return this.authCall("/api/v1/auth/register", body);
   }
 
-  /** POST /api/auth/login. */
+  /** POST /api/v1/auth/login. */
   async login(body: LoginRequest): Promise<LoginResult> {
-    const result = await this.authCall("/api/auth/login", body);
+    const result = await this.authCall("/api/v1/auth/login", body);
     // MFA-gated logins return a bridge token instead of a token pair.
     if ("mfa_required" in result && result.mfa_required) {
       return result;
@@ -107,26 +116,26 @@ export class MeridianClient {
     return result;
   }
 
-  /** POST /api/auth/mfa/verify — completes an MFA-gated login. */
+  /** POST /api/v1/auth/mfa/verify — completes an MFA-gated login. */
   async mfaVerify(body: { mfa_token: string; code: string }): Promise<TokenPair> {
-    return this.authCall("/api/auth/mfa/verify", body);
+    return this.authCall("/api/v1/auth/mfa/verify", body);
   }
 
-  /** POST /api/auth/refresh — rotates the stored refresh token in place. */
+  /** POST /api/v1/auth/refresh — rotates the stored refresh token in place. */
   async refresh(): Promise<TokenPair> {
     if (!this.refreshToken || !this.sessionId) {
       throw new Error("no refresh token held — login first");
     }
-    return this.authCall("/api/auth/refresh", {
+    return this.authCall("/api/v1/auth/refresh", {
       refresh_token: this.refreshToken,
       session_id: this.sessionId,
     });
   }
 
-  /** POST /api/auth/logout — revokes the stored refresh session. */
+  /** POST /api/v1/auth/logout — revokes the stored refresh session. */
   async logout(): Promise<void> {
     if (!this.refreshToken || !this.sessionId) return;
-    await this.authCall("/api/auth/logout", {
+    await this.authCall("/api/v1/auth/logout", {
       refresh_token: this.refreshToken,
       session_id: this.sessionId,
     });
@@ -137,11 +146,11 @@ export class MeridianClient {
 
   private async authCall(
     path:
-      | "/api/auth/register"
-      | "/api/auth/login"
-      | "/api/auth/mfa/verify"
-      | "/api/auth/refresh"
-      | "/api/auth/logout",
+      | "/api/v1/auth/register"
+      | "/api/v1/auth/login"
+      | "/api/v1/auth/mfa/verify"
+      | "/api/v1/auth/refresh"
+      | "/api/v1/auth/logout",
     body: unknown,
   ): Promise<TokenPair> {
     const response = await this.fetchFn(`${this.baseUrl}${path}`, {
@@ -149,8 +158,8 @@ export class MeridianClient {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
-    if (response.status === 204 || path === "/api/auth/logout") {
-      if (!response.ok && path !== "/api/auth/logout") {
+    if (response.status === 204 || path === "/api/v1/auth/logout") {
+      if (!response.ok && path !== "/api/v1/auth/logout") {
         throw new Error(`${path} failed (${response.status}): ${await safeError(response)}`);
       }
       return { access_token: "", refresh_token: "", session_id: "", expires_in: 0 };

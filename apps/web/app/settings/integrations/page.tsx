@@ -1,7 +1,7 @@
 // /settings/integrations — webhook manager + API-key registry entry point.
 //
 // Purpose: signed OUTBOUND webhook subscriptions over the existing
-// /api/webhooks endpoints: CRUD, event-type multiselect from the real
+// /api/v1/webhooks endpoints: CRUD, event-type multiselect from the real
 // event catalog, enabled toggle, show-once secrets at creation AND on the
 // explicit rotate flow (create replacement → delete original), a
 // test-fire button whose envelope id can be chased in the per-webhook
@@ -67,7 +67,7 @@ export default function IntegrationsSettingsPage() {
   const [firedEventIds, setFiredEventIds] = useState<Map<string, string>>(new Map());
 
   const refresh = useCallback(async () => {
-    const { data, error } = await api.api.GET("/api/webhooks");
+    const { data, error } = await api.api.GET("/api/v1/webhooks");
     if (error !== undefined || data === undefined) {
       setActionError("Failed to load webhooks.");
       return;
@@ -86,7 +86,7 @@ export default function IntegrationsSettingsPage() {
     setBusy(true);
     setFormError(null);
     try {
-      const res = await api.api.POST("/api/webhooks", {
+      const res = await api.api.POST("/api/v1/webhooks", {
         body: { url, event_types: selectionToPayload(selection.selected) },
       });
       if (!res.data) throw new Error("webhook creation was rejected");
@@ -111,18 +111,18 @@ export default function IntegrationsSettingsPage() {
     setActionError(null);
     try {
       if (action === "toggle" && current) {
-        const res = await api.api.PATCH("/api/webhooks/{id}", {
+        const res = await api.api.PATCH("/api/v1/webhooks/{id}", {
           params: { path: { id } },
           body: { enabled: !current.enabled },
         });
         if (res.error) throw new Error("update failed");
       } else if (action === "delete") {
-        const res = await api.api.DELETE("/api/webhooks/{id}", {
+        const res = await api.api.DELETE("/api/v1/webhooks/{id}", {
           params: { path: { id } },
         });
         if (res.error) throw new Error("delete failed");
       } else {
-        const res = await api.api.POST("/api/webhooks/{id}/test", {
+        const res = await api.api.POST("/api/v1/webhooks/{id}/test", {
           params: { path: { id } },
         });
         if (res.error) throw new Error("test fire failed");
@@ -144,12 +144,12 @@ export default function IntegrationsSettingsPage() {
     if (!target) return;
     setRotateBusy(true);
     try {
-      const res = await api.api.POST("/api/webhooks", {
+      const res = await api.api.POST("/api/v1/webhooks", {
         body: { url: target.url, event_types: [...target.event_types] },
       });
       if (!res.data) throw new Error("replacement creation failed");
       const payload = res.data as WebhookSecretResponse;
-      await api.api.DELETE("/api/webhooks/{id}", { params: { path: { id: target.id } } });
+      await api.api.DELETE("/api/v1/webhooks/{id}", { params: { path: { id: target.id } } });
       setShownSecret({ label: `${payload.webhook.url} (rotated)`, secret: payload.secret });
       setRotatingId(null);
       await refresh();
@@ -163,7 +163,7 @@ export default function IntegrationsSettingsPage() {
   const reloadLog = async (id: string, cursor?: string) => {
     setLogLoading(id);
     try {
-      const res = await api.api.GET("/api/webhooks/{id}/deliveries", {
+      const res = await api.api.GET("/api/v1/webhooks/{id}/deliveries", {
         params: {
           path: { id },
           query: cursor !== undefined ? { limit: PAGE_SIZE, cursor } : { limit: PAGE_SIZE },

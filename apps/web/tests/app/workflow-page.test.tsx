@@ -28,8 +28,8 @@ const STATUSES = [
 
 function setupApi(): MockApi {
   const mock = new MockApi();
-  mock.on("GET", "/api/me", () => ({ json: ME_FIXTURE }));
-  mock.on("GET", "/api/boards/nav", () => ({
+  mock.on("GET", "/api/v1/me", () => ({ json: ME_FIXTURE }));
+  mock.on("GET", "/api/v1/boards/nav", () => ({
     json: [
       {
         id: BOARD_ID,
@@ -43,9 +43,9 @@ function setupApi(): MockApi {
       },
     ],
   }));
-  mock.on("GET", `/api/boards/${BOARD_ID}/statuses`, () => ({ json: STATUSES }));
-  mock.on("GET", `/api/boards/${BOARD_ID}/transitions`, () => ({ json: { mode: "floor", edges: [] } }));
-  mock.on("GET", `/api/boards/${BOARD_ID}/checklist-template`, () => ({
+  mock.on("GET", `/api/v1/boards/${BOARD_ID}/statuses`, () => ({ json: STATUSES }));
+  mock.on("GET", `/api/v1/boards/${BOARD_ID}/transitions`, () => ({ json: { mode: "floor", edges: [] } }));
+  mock.on("GET", `/api/v1/boards/${BOARD_ID}/checklist-template`, () => ({
     json: {
       items: [{ id: "i1", org_id: "o", template_id: "t1", sort_order: 0, text: "Backups verified" }],
       require_checklist_close: true,
@@ -89,8 +89,8 @@ describe("/settings/workflow integration", () => {
   it("read-only member sees editors disabled instead of hidden state", async () => {
     const mock = new MockApi();
     const restrictedMe = { ...ME_FIXTURE, permissions: [] };
-    mock.on("GET", "/api/me", () => ({ json: restrictedMe }));
-    mock.on("GET", "/api/boards/nav", () => ({
+    mock.on("GET", "/api/v1/me", () => ({ json: restrictedMe }));
+    mock.on("GET", "/api/v1/boards/nav", () => ({
       json: [
         {
           id: BOARD_ID,
@@ -104,9 +104,9 @@ describe("/settings/workflow integration", () => {
         },
       ],
     }));
-    mock.on("GET", `/api/boards/${BOARD_ID}/statuses`, () => ({ json: STATUSES }));
-    mock.on("GET", `/api/boards/${BOARD_ID}/transitions`, () => ({ json: { mode: "floor", edges: [] } }));
-    mock.on("GET", `/api/boards/${BOARD_ID}/checklist-template`, () => ({
+    mock.on("GET", `/api/v1/boards/${BOARD_ID}/statuses`, () => ({ json: STATUSES }));
+    mock.on("GET", `/api/v1/boards/${BOARD_ID}/transitions`, () => ({ json: { mode: "floor", edges: [] } }));
+    mock.on("GET", `/api/v1/boards/${BOARD_ID}/checklist-template`, () => ({
       json: { items: [], require_checklist_close: false, template: null },
     }));
     mock.install();
@@ -123,7 +123,7 @@ describe("/settings/workflow integration", () => {
 
   it("toggling one matrix cell saves the full explicit matrix via transitions PUT", async () => {
     const mock = setupApi();
-    mock.on("PUT", `/api/boards/${BOARD_ID}/transitions`, () => ({
+    mock.on("PUT", `/api/v1/boards/${BOARD_ID}/transitions`, () => ({
       json: { mode: "explicit", edges: [] },
     }));
 
@@ -145,7 +145,7 @@ describe("/settings/workflow integration", () => {
     fireEvent.click(saveButton);
 
     await waitFor(() => {
-      const puts = mock.callsTo("PUT", `/api/boards/${BOARD_ID}/transitions`);
+      const puts = mock.callsTo("PUT", `/api/v1/boards/${BOARD_ID}/transitions`);
       expect(puts.length).toBe(1);
       const body = puts[0]?.body as
         | { edges: { from_status_id: string; to_status_id: string }[] }
@@ -172,7 +172,7 @@ describe("/settings/workflow integration", () => {
     expect(await screen.findByText(/Name is required/)).toBeInTheDocument();
     const save = screen.getByRole("button", { name: "Save statuses" });
     expect(save).toBeDisabled();
-    expect(mock.callsTo("PATCH", `/api/boards/${BOARD_ID}/statuses/${S1}`).length).toBe(0);
+    expect(mock.callsTo("PATCH", `/api/v1/boards/${BOARD_ID}/statuses/${S1}`).length).toBe(0);
     cleanup();
   });
 });

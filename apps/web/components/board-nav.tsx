@@ -33,10 +33,10 @@ export function BoardNav() {
 
   const refresh = useCallback(async () => {
     try {
-      const nav = await api.api.GET("/api/boards/nav");
+      const nav = await api.api.GET("/api/v1/boards/nav");
       if (nav.error !== undefined) throw new Error("failed to load boards");
       setEntries(nav.data);
-      const gs = await api.api.GET("/api/board-groups");
+      const gs = await api.api.GET("/api/v1/board-groups");
       if (gs.error === undefined) setGroups([...gs.data]);
       setError(null);
     } catch (err) {
@@ -49,7 +49,7 @@ export function BoardNav() {
   }, [refresh]);
 
   async function toggleFavorite(entry: NavEntry) {
-    await api.api.POST("/api/boards/favorite", {
+    await api.api.POST("/api/v1/boards/favorite", {
       body: { board_id: entry.id, favorite: !entry.favorite },
     });
     void refresh();

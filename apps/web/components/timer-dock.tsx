@@ -73,7 +73,7 @@ export function TimerDock() {
     }
     let cancelled = false;
     void api.api
-      .GET("/api/tickets/{id}", { params: { path: { id: current.ticket_id } } })
+      .GET("/api/v1/tickets/{id}", { params: { path: { id: current.ticket_id } } })
       .then(({ data }) => {
         if (!cancelled) setTicket(data ?? null);
       });
@@ -90,9 +90,9 @@ export function TimerDock() {
 
   async function pauseOrResume() {
     if (live) {
-      await api.api.POST("/api/timers/pause", { body: { session_id: current!.id } });
+      await api.api.POST("/api/v1/timers/pause", { body: { session_id: current!.id } });
     } else {
-      await api.api.POST("/api/timers/resume", { body: { session_id: current!.id } });
+      await api.api.POST("/api/v1/timers/resume", { body: { session_id: current!.id } });
     }
     void refresh();
   }

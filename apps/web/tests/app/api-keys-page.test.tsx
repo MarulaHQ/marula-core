@@ -17,8 +17,8 @@ const KEY_ID = "60000000-0000-4000-8000-000000000001";
 
 function setupApi(): MockApi {
   const mock = new MockApi();
-  mock.on("GET", "/api/me", () => ({ json: ME_FIXTURE }));
-  mock.on("GET", "/api/api-keys", () => ({
+  mock.on("GET", "/api/v1/me", () => ({ json: ME_FIXTURE }));
+  mock.on("GET", "/api/v1/api-keys", () => ({
     json: {
       keys: [
         {
@@ -60,7 +60,7 @@ describe("/settings/api-keys integration", () => {
   it("creates a scoped key, requires at least one scope, shows raw material once", async () => {
     const user = userEvent.setup();
     const mock = setupApi();
-    mock.on("POST", "/api/api-keys", ({ body }) => {
+    mock.on("POST", "/api/v1/api-keys", ({ body }) => {
       expect(body).toEqual({ name: "Hudu export", scopes: ["clients:read"] });
       return {
         status: 201,
@@ -94,7 +94,7 @@ describe("/settings/api-keys integration", () => {
     fireEvent.click(submit);
 
     await waitFor(() => {
-      expect(mock.callsTo("POST", "/api/api-keys").length).toBe(1);
+      expect(mock.callsTo("POST", "/api/v1/api-keys").length).toBe(1);
     });
     expect(await screen.findByText("mrd_ef12gh34deadbeefdeadbeef")).toBeInTheDocument();
 
@@ -106,8 +106,8 @@ describe("/settings/api-keys integration", () => {
   it("revokes through confirmation and re-renders as revoked", async () => {
     const mock = new MockApi();
     let revoked = false;
-    mock.on("GET", "/api/me", () => ({ json: ME_FIXTURE }));
-    mock.on("GET", "/api/api-keys", () => ({
+    mock.on("GET", "/api/v1/me", () => ({ json: ME_FIXTURE }));
+    mock.on("GET", "/api/v1/api-keys", () => ({
       json: {
         keys: [
           {
@@ -122,7 +122,7 @@ describe("/settings/api-keys integration", () => {
         ],
       },
     }));
-    mock.on("DELETE", `/api/api-keys/${KEY_ID}`, () => {
+    mock.on("DELETE", `/api/v1/api-keys/${KEY_ID}`, () => {
       revoked = true;
       return { status: 204, json: null };
     });
@@ -139,7 +139,7 @@ describe("/settings/api-keys integration", () => {
     const confirmButton = await screen.findByRole("button", { name: "Revoke now" });
     fireEvent.click(confirmButton);
     await screen.findByText("revoked");
-    expect(mock.callsTo("DELETE", `/api/api-keys/${KEY_ID}`).length).toBe(1);
+    expect(mock.callsTo("DELETE", `/api/v1/api-keys/${KEY_ID}`).length).toBe(1);
     // Revoked keys offer no further action.
     expect(screen.queryByRole("button", { name: "Revoke" })).not.toBeInTheDocument();
     cleanup();

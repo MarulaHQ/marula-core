@@ -79,7 +79,7 @@ export default function MfaChallengePage() {
     setBusy(true);
     setError(null);
     try {
-      const beginResponse = await fetch(`${API_BASE}/api/auth/mfa/webauthn/begin`, {
+      const beginResponse = await fetch(`${API_BASE}/api/v1/auth/mfa/webauthn/begin`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ mfa_token: mfaToken }),
@@ -116,7 +116,7 @@ export default function MfaChallengePage() {
       response.signature = bufferToB64url(assertion.signature);
       response.userHandle = bufferToB64url((assertion.userHandle ?? new ArrayBuffer(0)) as ArrayBuffer);
 
-      const finishResponse = await fetch(`${API_BASE}/api/auth/mfa/webauthn/finish`, {
+      const finishResponse = await fetch(`${API_BASE}/api/v1/auth/mfa/webauthn/finish`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({

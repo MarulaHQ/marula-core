@@ -43,7 +43,7 @@ export default function LoginPage() {
   // Config-driven SSO: only providers an operator enabled appear here.
   useEffect(() => {
     let cancelled = false;
-    fetch(`${API_BASE}/api/auth/oidc/providers/public`)
+    fetch(`${API_BASE}/api/v1/auth/oidc/providers/public`)
       .then((r) => (r.ok ? r.json() : []))
       .then((list: PublicProvider[]) => {
         if (!cancelled) setProviders(list);
@@ -95,7 +95,7 @@ export default function LoginPage() {
   }
 
   function ssoHref(provider: string): string {
-    return `${API_BASE}/api/auth/oidc/${provider}/login`;
+    return `${API_BASE}/api/v1/auth/oidc/${provider}/login`;
   }
 
   return (

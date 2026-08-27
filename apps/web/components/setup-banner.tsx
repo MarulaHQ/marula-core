@@ -21,7 +21,7 @@ export function SetupBanner() {
     if (auth.status !== "authed") return;
     let cancelled = false;
     void (async () => {
-      const { data } = await api.api.GET("/api/settings/org");
+      const { data } = await api.api.GET("/api/v1/settings/org");
       if (cancelled || !data) return;
       const done = (data ?? []).some(
         (v) => v.key === "onboarding.wizard_completed" && v.value === true,
@@ -38,7 +38,7 @@ export function SetupBanner() {
   const dismiss = async () => {
     setVisible(false);
     // Fire-and-forget: dismissal persists via the registry (idempotent).
-    void api.api.PUT("/api/settings/org", {
+    void api.api.PUT("/api/v1/settings/org", {
       body: { key: "onboarding.wizard_completed", value: true },
     });
   };

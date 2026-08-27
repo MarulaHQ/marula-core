@@ -15,6 +15,10 @@ serial_test = "3"
 name = "core-api"
 path = "src/main.rs"
 
+[[bin]]
+name = "dump-openapi"
+path = "src/bin/dump_openapi.rs"
+
 [dependencies]
 core-db = { path = "../core-db" }
 core-domain = { path = "../core-domain", features = ["openapi"] }

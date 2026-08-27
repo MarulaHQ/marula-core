@@ -40,7 +40,7 @@ function SsoLanding() {
     let cancelled = false;
     (async () => {
       try {
-        const response = await fetch(`${API_BASE}/api/sso/exchange`, {
+        const response = await fetch(`${API_BASE}/api/v1/sso/exchange`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ code }),

@@ -29,8 +29,8 @@ function webhookView(overrides: Record<string, unknown> = {}) {
 
 function setupApi(): MockApi {
   const mock = new MockApi();
-  mock.on("GET", "/api/me", () => ({ json: ME_FIXTURE }));
-  mock.on("GET", "/api/webhooks", () => ({ json: { webhooks: [webhookView()] } }));
+  mock.on("GET", "/api/v1/me", () => ({ json: ME_FIXTURE }));
+  mock.on("GET", "/api/v1/webhooks", () => ({ json: { webhooks: [webhookView()] } }));
   mock.install();
   return mock;
 }
@@ -44,7 +44,7 @@ describe("/settings/integrations integration", () => {
   it("creates a webhook from the multiselect and reveals the signing secret exactly once", async () => {
     const user = userEvent.setup();
     const mock = setupApi();
-    mock.on("POST", "/api/webhooks", ({ body }) => ({
+    mock.on("POST", "/api/v1/webhooks", ({ body }) => ({
       status: 201,
       json: { secret: "whsec-live-value", webhook: webhookView({ id: WH_ID + "-new" }) },
     }));
@@ -64,7 +64,7 @@ describe("/settings/integrations integration", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create webhook" }));
 
     await waitFor(() => {
-      const posts = mock.callsTo("POST", "/api/webhooks");
+      const posts = mock.callsTo("POST", "/api/v1/webhooks");
       expect(posts.length).toBe(1);
       expect(posts[0]?.body).toEqual({
         url: "https://new.endpoint/hook",
@@ -94,7 +94,7 @@ describe("/settings/integrations integration", () => {
         created_at: "2026-01-02T03:04:05Z",
       }));
     let deliveryCalls = 0;
-    mock.on("GET", `/api/webhooks/${WH_ID}/deliveries`, () => {
+    mock.on("GET", `/api/v1/webhooks/${WH_ID}/deliveries`, () => {
       deliveryCalls += 1;
       if (deliveryCalls === 1) {
         return { json: { deliveries: attempts(20, 1), next_cursor: "cursor-page-2" } };
@@ -111,7 +111,7 @@ describe("/settings/integrations integration", () => {
     await screen.findAllByText(/attempt #1/);
     fireEvent.click(screen.getByRole("button", { name: "Load older" }));
     await waitFor(() => {
-      const rows = mock.callsTo("GET", `/api/webhooks/${WH_ID}/deliveries`);
+      const rows = mock.callsTo("GET", `/api/v1/webhooks/${WH_ID}/deliveries`);
       expect(rows.length).toBe(2);
       expect(rows[1]?.query["cursor"]).toBe("cursor-page-2");
     });
@@ -123,7 +123,7 @@ describe("/settings/integrations integration", () => {
     const mock = setupApi();
     // Empty selection on the seeded webhook means wildcard subscription;
     // rotation must carry that config over unchanged.
-    mock.on("POST", "/api/webhooks", ({ body }) => {
+    mock.on("POST", "/api/v1/webhooks", ({ body }) => {
       expect(body).toEqual({
         url: "https://hooks.example.test/meridian",
         event_types: [],
@@ -136,7 +136,7 @@ describe("/settings/integrations integration", () => {
         },
       };
     });
-    mock.on("DELETE", `/api/webhooks/${WH_ID}`, () => ({ status: 204, json: null }));
+    mock.on("DELETE", `/api/v1/webhooks/${WH_ID}`, () => ({ status: 204, json: null }));
 
     render(
       <AuthProvider>
@@ -147,13 +147,13 @@ describe("/settings/integrations integration", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Rotate now" }));
 
     await screen.findByText("rotated-secret");
-    expect(mock.callsTo("DELETE", `/api/webhooks/${WH_ID}`).length).toBe(1);
+    expect(mock.callsTo("DELETE", `/api/v1/webhooks/${WH_ID}`).length).toBe(1);
     cleanup();
   });
 
   it("surfaces test-fire envelope ids next to the log affordance", async () => {
     const mock = setupApi();
-    mock.on("POST", `/api/webhooks/${WH_ID}/test`, () => ({
+    mock.on("POST", `/api/v1/webhooks/${WH_ID}/test`, () => ({
       status: 202,
       json: { event_id: "test-envelope-id-42" },
     }));
@@ -165,7 +165,7 @@ describe("/settings/integrations integration", () => {
     );
     fireEvent.click(await screen.findByRole("button", { name: "Send test" }));
     await screen.findByText(/Test envelope/);
-    const posts = mock.callsTo("POST", `/api/webhooks/${WH_ID}/test`);
+    const posts = mock.callsTo("POST", `/api/v1/webhooks/${WH_ID}/test`);
     expect(posts.length).toBe(1);
     cleanup();
   });

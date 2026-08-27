@@ -70,7 +70,7 @@ const AuthContext = createContext<AuthState>({
 });
 
 /**
- * Wraps the app: restores stored tokens, fetches /api/me once, and rotates
+ * Wraps the app: restores stored tokens, fetches /api/v1/me once, and rotates
  * the refresh token when the access token has expired. Exposes the identity
  * via {@link useAuth}.
  */
@@ -104,7 +104,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
       }
-      const { data, error } = await api.api.GET("/api/me");
+      const { data, error } = await api.api.GET("/api/v1/me");
       if (cancelled) return;
       if (error !== undefined) {
         clearTokens();
@@ -154,6 +154,15 @@ export function useRequireAuth(): AuthState {
 // Raw-byte surfaces (octet-stream upload, streamed download) bypass the
 // generated client on purpose: openapi-fetch models JSON bodies, while
 // attachments are binary with sidecar headers.
+//
+// The URL literals below are `satisfies`-anchored to the canonical /api/v1
+// contract, so a spec rename fails `tsc` here instead of silently 404ing.
+
+import type { MeridianPaths } from "@meridian/sdk";
+
+const TICKET_ATTACHMENTS_PATH = "/api/v1/tickets/{id}/attachments" satisfies keyof MeridianPaths;
+const ATTACHMENT_DOWNLOAD_PATH =
+  "/api/v1/attachments/{id}/download" satisfies keyof MeridianPaths;
 
 /** Auth header for manual fetches against the API base URL. */
 function authHeaders(): HeadersInit {
@@ -178,7 +187,9 @@ export interface UploadedAttachment {
  * message on validation failures — callers surface it verbatim.
  */
 export async function uploadAttachment(ticketId: string, file: File): Promise<UploadedAttachment> {
-  const response = await fetch(`${apiBaseUrl()}/api/tickets/${ticketId}/attachments`, {
+  const response = await fetch(
+    `${apiBaseUrl()}${TICKET_ATTACHMENTS_PATH.replace("{id}", ticketId)}`,
+    {
     method: "POST",
     headers: {
       ...authHeaders(),
@@ -198,9 +209,10 @@ export async function uploadAttachment(ticketId: string, file: File): Promise<Up
 
 /** Streams an attachment through the API and triggers a browser download. */
 export async function downloadAttachment(attachmentId: string, filename: string): Promise<void> {
-  const response = await fetch(`${apiBaseUrl()}/api/attachments/${attachmentId}/download`, {
-    headers: authHeaders(),
-  });
+  const response = await fetch(
+    `${apiBaseUrl()}${ATTACHMENT_DOWNLOAD_PATH.replace("{id}", attachmentId)}`,
+    { headers: authHeaders() },
+  );
   if (!response.ok) throw new Error(`Download failed (${response.status})`);
   const blob = await response.blob();
   const url = URL.createObjectURL(blob);

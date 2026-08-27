@@ -69,10 +69,17 @@ fn is_high_cardinality_segment(segment: &str) -> bool {
     let uuidish =
         segment.len() == 36 && segment.as_bytes().iter().filter(|b| **b == b'-').count() == 4;
     let numeric = segment.chars().all(|c| c.is_ascii_digit());
+    // Opaque ids/tokens are long alnum blobs that virtually always carry
+    // digits (uuids, base64url, snowflakes). Digitless long segments are
+    // prose-like STATIC route words ("notification-preferences",
+    // "calendar-exclusions") and MUST NOT be flagged: the pre-versioning
+    // guard here panicked the track middleware on legitimate parameterless
+    // routes the moment an actual request reached them.
     let tokenish = segment.len() >= 20
         && segment
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        && segment.chars().any(|c| c.is_ascii_digit());
     uuidish || numeric || tokenish
 }
 
@@ -159,6 +166,21 @@ mod tests {
                 ensure_low_cardinality(raw).is_err(),
                 "{raw} must be rejected"
             );
+        }
+    }
+
+    #[test]
+    fn digitless_prose_like_static_routes_pass_the_guard() {
+        // Regression: these parameterless routes panicked the track
+        // middleware before the tokenish rule required a digit — every real
+        // request to them was a 500 instead of its handler.
+        for template in [
+            "/api/notification-preferences",
+            "/api/v1/notification-preferences",
+            "/api/calendar-exclusions/{id}",
+        ] {
+            ensure_low_cardinality(template)
+                .unwrap_or_else(|e| panic!("{template} should pass guard: {e}"));
         }
     }
 

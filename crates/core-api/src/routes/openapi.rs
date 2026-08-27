@@ -1,6 +1,21 @@
 //! OpenAPI document assembly + Scalar UI. The spec is generated from the
 //! handlers — never hand-written (§2 tooling doctrine). The generated TS
 //! SDK (packages/sdk) is produced from this same document.
+//!
+//! ## Versioning stance (TASKLIST U1, policy §2/§3)
+//!
+//! `/api/v1` is the CONTRACT: [`canonicalize_paths`] rewrites every
+//! documented `/api/*` key onto its `/api/v1` twin at assembly time so the
+//! served document and the committed SDK snapshot describe v1 exclusively.
+//! Legacy aliases (see routes::mod) remain reachable at runtime but are
+//! deliberately ABSENT from the spec — an alias is removed no earlier than
+//! the next major version once its deprecation ships in release notes.
+//!
+//! Non-purpose: no multi-version documentation yet. When a second API
+//! generation eventually exists, its paths must be listed alongside v1's
+//! (never swapped); if any future handler ever annotates itself with a
+//! versioned literal (`/api/vN/...`, N ≠ unset), it MUST be excluded here —
+//! the rewrite therefore skips keys that already start with `/api/v`.
 
 use crate::state::AppState;
 use axum::{routing::get, Router};
@@ -401,12 +416,42 @@ use utoipa::OpenApi;
 )]
 pub struct ApiDoc;
 
+/// Rewrites documented path keys onto the canonical `/api/v1` namespace.
+///
+/// Keys starting with `/api/` (the unversioned literals carried by the
+/// `#[utoipa::path]` annotations) become their `/api/v1` twins; keys
+/// already versioned (`/api/v…`) pass through untouched so future handler
+/// generations cannot be silently double-prefixed. Non-`/api` keys — the
+/// top-level `/openapi.json`, `/docs`, and internal machine surfaces
+/// outside the API namespace if any were ever listed — are ignored.
+///
+/// The key COUNT is preserved exactly: this is a rename, not a filter, so
+/// a drift between documented operations and either mount cannot hide in
+/// an off-by-one.
+fn canonicalize_paths(spec: &mut serde_json::Value) {
+    let Some(paths) = spec.get_mut("paths").and_then(|p| p.as_object_mut()) else {
+        return;
+    };
+    let renamed: Vec<String> = paths
+        .keys()
+        .filter(|k| k.starts_with("/api/") && !k.starts_with("/api/v"))
+        .cloned()
+        .collect();
+    for old in renamed {
+        let new = format!("/api/v1{}", &old["/api".len()..]);
+        let entry = paths.remove(&old).expect("key observed above");
+        paths.insert(new, entry);
+    }
+}
+
 pub fn openapi_json() -> serde_json::Value {
-    ApiDoc::openapi()
+    let mut value = ApiDoc::openapi()
         .to_pretty_json()
         .unwrap_or_else(|_| "{}".to_string())
         .parse()
-        .unwrap_or_else(|_| serde_json::json!({}))
+        .unwrap_or_else(|_| serde_json::json!({}));
+    canonicalize_paths(&mut value);
+    value
 }
 
 pub fn scalar_router() -> Router<AppState> {

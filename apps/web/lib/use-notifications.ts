@@ -62,8 +62,8 @@ export function useNotifications() {
     setLoading(true);
     try {
       const [count, page] = await Promise.all([
-        api.api.GET("/api/notifications/unread-count"),
-        api.api.GET("/api/notifications", { params: { query: { limit: 50 } } }),
+        api.api.GET("/api/v1/notifications/unread-count"),
+        api.api.GET("/api/v1/notifications", { params: { query: { limit: 50 } } }),
       ]);
       if (count.data) setUnread(count.data.count);
       if (page.data) {
@@ -132,7 +132,7 @@ export function useNotifications() {
 
   const markRead = useCallback(async (ids: string[]) => {
     if (ids.length === 0) return;
-    await api.api.POST("/api/notifications/mark-read", { body: { ids } });
+    await api.api.POST("/api/v1/notifications/mark-read", { body: { ids } });
     setItems((prev) =>
       prev.map((n) =>
         ids.includes(n.id) ? { ...n, read_at: n.read_at ?? new Date().toISOString() } : n,
@@ -143,7 +143,7 @@ export function useNotifications() {
   }, [refresh]);
 
   const markAllRead = useCallback(async () => {
-    await api.api.POST("/api/notifications/read-all");
+    await api.api.POST("/api/v1/notifications/read-all");
     setItems((prev) =>
       prev.map((n) => ({ ...n, read_at: n.read_at ?? new Date().toISOString() })),
     );
@@ -154,7 +154,7 @@ export function useNotifications() {
     if (!nextCursor || loading) return;
     setLoading(true);
     try {
-      const { data } = await api.api.GET("/api/notifications", {
+      const { data } = await api.api.GET("/api/v1/notifications", {
         params: { query: { limit: 50, cursor: nextCursor } },
       });
       if (data) {

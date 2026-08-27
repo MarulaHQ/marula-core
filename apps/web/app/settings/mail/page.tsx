@@ -6,7 +6,7 @@
 // Non-purpose: no mail logic.
 //
 // Note: org-level inbound routing IS configurable through
-// /api/email/inbound-settings; this page defers to that surface rather
+// /api/v1/email/inbound-settings; this page defers to that surface rather
 // than duplicating it.
 
 import { SettingsPendingPanel } from "../../../components/settings-pending-panel";
