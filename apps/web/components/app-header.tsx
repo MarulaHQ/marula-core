@@ -75,6 +75,9 @@ export function AppHeader() {
       <div className="flex items-center gap-2">
         <SearchLauncher />
         <NotificationDock />
+        <Button variant="ghost" size="sm" onClick={() => router.push("/dashboards")}>
+          Dashboards
+        </Button>
         <Button
           variant="ghost"
           size="sm"
