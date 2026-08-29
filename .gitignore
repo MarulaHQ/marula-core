@@ -21,3 +21,9 @@ Thumbs.db
 # Build artifacts
 *.tsbuildinfo
 .playwright-mcp/
+
+# Shared cargo target dir (agent worktree build cache)
+.kilo/target-shared/
+
+# Graphify knowledge graph (machine-generated; hooks rebuild it locally)
+graphify-out/
