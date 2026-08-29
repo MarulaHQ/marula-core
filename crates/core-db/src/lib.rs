@@ -17,6 +17,7 @@ pub mod clients;
 pub mod custom_fields;
 pub mod emails;
 pub mod imports;
+pub mod manifest;
 pub mod mfa;
 pub mod notifications;
 pub mod oidc;

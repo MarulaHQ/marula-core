@@ -1632,6 +1632,28 @@ export interface paths {
         patch: operations["org_profile_patch"];
         trace?: never;
     };
+    "/api/v1/org/manifest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/org/manifest — the org's customization manifest.
+         * @description Owner/admin gated (policy §5: the manifest is an org-level
+         *     administrative artifact; technicians and dispatchers have no business
+         *     reading the full customization inventory, e.g. webhook URLs).
+         */
+        get: operations["org_manifest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/portal-users/{id}": {
         parameters: {
             query?: never;
@@ -3548,6 +3570,26 @@ export interface components {
             /** @description HTTPS endpoint receiving `POST`s. (http:// allowed for local dev.) */
             url: string;
         };
+        /** @description The customization manifest envelope, `manifest_version` 1. */
+        CustomizationManifest: {
+            /**
+             * Format: date-time
+             * @description Dump instant (excluded from determinism comparisons).
+             */
+            generated_at: string;
+            /**
+             * Format: int32
+             * @description Envelope schema version. Bump ONLY for breaking section reshapes.
+             */
+            manifest_version: number;
+            /**
+             * Format: uuid
+             * @description The org this manifest documents.
+             */
+            org_id: string;
+            /** @description The customization sections. Always fully serialized. */
+            sections: components["schemas"]["ManifestSections"];
+        };
         DayWeekQuery: {
             /**
              * @description Local date in the TARGET user's timezone. Day view: the day itself.
@@ -3858,6 +3900,212 @@ export interface components {
             name: string;
             /** Format: date-time */
             starts_at: string;
+        };
+        /**
+         * @description API-key metadata. `key_hash` (the credential verifier) and the raw key
+         *     material are structurally absent — only the display prefix survives.
+         */
+        ManifestApiKey: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            last_used_at?: string | null;
+            name: string;
+            /** @description Non-secret display identifier (e.g. `mrd_ab12cd34`). */
+            prefix: string;
+            /** Format: date-time */
+            revoked_at?: string | null;
+            /** @description Capability scope strings ("tickets:read", …). */
+            scopes: string[];
+        };
+        /** @description One event-triggered automation rule. */
+        ManifestAutomationRule: {
+            actions: Record<string, never>;
+            /**
+             * Format: uuid
+             * @description Board the rule is scoped to; null = every board in the org.
+             */
+            board_id: string | null;
+            conditions: Record<string, never>;
+            enabled: boolean;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** @description Domain event type from the envelope, e.g. `ticket.created`. */
+            trigger_event: string;
+        };
+        /** @description One board's workflow customization. */
+        ManifestBoard: {
+            /** Format: uuid */
+            id: string;
+            /** @description The org's default intake board. */
+            is_default: boolean;
+            name: string;
+            /** @description Pre-close checklist enforcement toggle (workflow discipline flag). */
+            require_checklist_close: boolean;
+            /**
+             * @description Custom statuses; ALWAYS one per semantic category (defaults-first
+             *     seeding guarantees category coverage, never removed by edits).
+             */
+            statuses: components["schemas"]["ManifestBoardStatus"][];
+            /**
+             * @description Explicit transition adjacency between this board's statuses. Empty
+             *     means the semantic-category floor applies (any→any except identity
+             *     and closed→open), not "no transitions".
+             */
+            transitions: components["schemas"]["ManifestTransition"][];
+        };
+        /**
+         * @description One custom status, bound to its semantic category. Renames and colors
+         *     never change behavior — consumers must branch on `category`, not `name`.
+         */
+        ManifestBoardStatus: {
+            /**
+             * @description Semantic category: open | in_progress | waiting | closed. THE
+             *     binding every SLA/automation/reporting behavior keys on.
+             */
+            category: components["schemas"]["TicketStatusCategory"];
+            color?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** @description Tickets may enter this status directly at creation. */
+            is_entry: boolean;
+            name: string;
+            /** Format: int32 */
+            sort_order: number;
+        };
+        /**
+         * @description One custom field definition. `config` is the kind-specific document
+         *     (select options, validation bounds, …) exactly as stored.
+         */
+        ManifestCustomField: {
+            /**
+             * Format: date-time
+             * @description Present when the definition was archived (still a customization the
+             *     preflight must see; the values it shaped may still exist).
+             */
+            archived_at?: string | null;
+            config: Record<string, never>;
+            /** @description Entity the field attaches to: ticket | client | contact | asset. */
+            entity: string;
+            /** Format: uuid */
+            id: string;
+            /** @description Field kind: text | number | date | select | multiselect | bool | url | user. */
+            kind: string;
+            name: string;
+            required: boolean;
+            /** Format: int32 */
+            sort_order: number;
+        };
+        /** @description One escalation ladder step. */
+        ManifestEscalationStep: {
+            /**
+             * Format: int32
+             * @description Percent of the target's business-time budget consumed at firing.
+             */
+            at_pct: number;
+            enabled: boolean;
+            /** @description JSON array of user ids to notify. */
+            notify_user_ids: Record<string, never>;
+            /** Format: int32 */
+            step_index: number;
+            /** @description risk | breach | escalate. */
+            trigger_kind: string;
+        };
+        /**
+         * @description Section container. All fields are always present; empty org state is an
+         *     empty array, never an absent key. New sections append here.
+         */
+        ManifestSections: {
+            /** @description API-key metadata minus secret material (no hashes, no raw keys). */
+            api_keys: components["schemas"]["ManifestApiKey"][];
+            /** @description Event-triggered automation rules. */
+            automation_rules: components["schemas"]["ManifestAutomationRule"][];
+            /**
+             * @description Per-board workflow: the board identity plus its statuses (each bound
+             *     to a semantic category — the defaults-first guarantee) and its
+             *     explicit transition adjacency. An EMPTY transitions array means the
+             *     semantic-category floor applies, not "no transitions".
+             */
+            boards: components["schemas"]["ManifestBoard"][];
+            /**
+             * @description Custom field definitions across all entities (tickets, clients,
+             *     contacts, assets), including archived ones.
+             */
+            custom_fields: components["schemas"]["ManifestCustomField"][];
+            /**
+             * @description Org-scope settings-registry overrides (user-scope rows are per-user
+             *     preferences, not org customization).
+             */
+            settings: components["schemas"]["ManifestSetting"][];
+            /** @description SLA configuration: calendars and policies with escalation ladders. */
+            sla: components["schemas"]["ManifestSla"];
+            /** @description Webhook subscriptions with event-type filters, never secrets. */
+            webhooks: components["schemas"]["ManifestWebhook"][];
+        };
+        /** @description One org-scope settings-registry override. */
+        ManifestSetting: {
+            key: string;
+            value: Record<string, never>;
+        };
+        /** @description SLA configuration sections. */
+        ManifestSla: {
+            calendars: components["schemas"]["ManifestSlaCalendar"][];
+            policies: components["schemas"]["ManifestSlaPolicy"][];
+        };
+        /** @description One named SLA calendar row with its flattened business calendar body. */
+        ManifestSlaCalendar: {
+            /** @description Timezone / weekday windows / holidays / maintenance document. */
+            calendar: Record<string, never>;
+            /** Format: uuid */
+            id: string;
+            name: string;
+        };
+        /**
+         * @description One SLA policy with its targets document, embedded fallback calendar,
+         *     calendar attachment, and escalation ladder.
+         */
+        ManifestSlaPolicy: {
+            /** @description Embedded fallback calendar; governs while `calendar_id` is null. */
+            calendar: Record<string, never>;
+            /**
+             * Format: uuid
+             * @description Attached named calendar; null keeps the embedded one authoritative.
+             */
+            calendar_id: string | null;
+            /** @description Escalation ladder steps, ordered by `step_index`. */
+            escalation_steps: components["schemas"]["ManifestEscalationStep"][];
+            /** Format: uuid */
+            id: string;
+            is_default: boolean;
+            name: string;
+            /** @description Targets document keyed by priority string. */
+            targets: Record<string, never>;
+        };
+        /** @description One allowed status change, `from` → `to`, both ids from the SAME board. */
+        ManifestTransition: {
+            /** Format: uuid */
+            from_status_id: string;
+            /** Format: uuid */
+            to_status_id: string;
+        };
+        /**
+         * @description One webhook subscription. The HMAC signing secret is structurally
+         *     absent: it exists only at creation time and in the sealed column.
+         */
+        ManifestWebhook: {
+            /** Format: uuid */
+            created_by: string | null;
+            enabled: boolean;
+            /** @description Event-type filter; empty array = wildcard (all event types). */
+            event_types: string[];
+            /** Format: uuid */
+            id: string;
+            url: string;
         };
         MarkReadBulkRequest: {
             ids: string[];
@@ -7746,6 +7994,25 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    org_manifest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomizationManifest"];
+                };
             };
         };
     };

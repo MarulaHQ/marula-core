@@ -6,6 +6,7 @@ pub mod board;
 pub mod checklist;
 pub mod client;
 pub mod email;
+pub mod manifest;
 pub mod notification;
 pub mod org;
 pub mod portal;
