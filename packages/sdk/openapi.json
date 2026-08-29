@@ -2624,6 +2624,38 @@
         ],
         "type": "object"
       },
+      "CustomizationManifest": {
+        "description": "The customization manifest envelope, `manifest_version` 1.",
+        "properties": {
+          "generated_at": {
+            "description": "Dump instant (excluded from determinism comparisons).",
+            "format": "date-time",
+            "type": "string"
+          },
+          "manifest_version": {
+            "description": "Envelope schema version. Bump ONLY for breaking section reshapes.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "org_id": {
+            "description": "The org this manifest documents.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "sections": {
+            "$ref": "#/components/schemas/ManifestSections",
+            "description": "The customization sections. Always fully serialized."
+          }
+        },
+        "required": [
+          "manifest_version",
+          "org_id",
+          "generated_at",
+          "sections"
+        ],
+        "type": "object"
+      },
       "DayWeekQuery": {
         "properties": {
           "date": {
@@ -3423,6 +3455,492 @@
           "name",
           "starts_at",
           "ends_at"
+        ],
+        "type": "object"
+      },
+      "ManifestApiKey": {
+        "description": "API-key metadata. `key_hash` (the credential verifier) and the raw key\nmaterial are structurally absent — only the display prefix survives.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "last_used_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "prefix": {
+            "description": "Non-secret display identifier (e.g. `mrd_ab12cd34`).",
+            "type": "string"
+          },
+          "revoked_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scopes": {
+            "description": "Capability scope strings (\"tickets:read\", …).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "prefix",
+          "scopes",
+          "created_by",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "ManifestAutomationRule": {
+        "description": "One event-triggered automation rule.",
+        "properties": {
+          "actions": {
+            "type": "object"
+          },
+          "board_id": {
+            "description": "Board the rule is scoped to; null = every board in the org.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "conditions": {
+            "type": "object"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "trigger_event": {
+            "description": "Domain event type from the envelope, e.g. `ticket.created`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "board_id",
+          "name",
+          "trigger_event",
+          "conditions",
+          "actions",
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "ManifestBoard": {
+        "description": "One board's workflow customization.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_default": {
+            "description": "The org's default intake board.",
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "require_checklist_close": {
+            "description": "Pre-close checklist enforcement toggle (workflow discipline flag).",
+            "type": "boolean"
+          },
+          "statuses": {
+            "description": "Custom statuses; ALWAYS one per semantic category (defaults-first\nseeding guarantees category coverage, never removed by edits).",
+            "items": {
+              "$ref": "#/components/schemas/ManifestBoardStatus"
+            },
+            "type": "array"
+          },
+          "transitions": {
+            "description": "Explicit transition adjacency between this board's statuses. Empty\nmeans the semantic-category floor applies (any→any except identity\nand closed→open), not \"no transitions\".",
+            "items": {
+              "$ref": "#/components/schemas/ManifestTransition"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "is_default",
+          "require_checklist_close",
+          "statuses",
+          "transitions"
+        ],
+        "type": "object"
+      },
+      "ManifestBoardStatus": {
+        "description": "One custom status, bound to its semantic category. Renames and colors\nnever change behavior — consumers must branch on `category`, not `name`.",
+        "properties": {
+          "category": {
+            "$ref": "#/components/schemas/TicketStatusCategory",
+            "description": "Semantic category: open | in_progress | waiting | closed. THE\nbinding every SLA/automation/reporting behavior keys on."
+          },
+          "color": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_entry": {
+            "description": "Tickets may enter this status directly at creation.",
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sort_order": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "category",
+          "sort_order",
+          "is_entry"
+        ],
+        "type": "object"
+      },
+      "ManifestCustomField": {
+        "description": "One custom field definition. `config` is the kind-specific document\n(select options, validation bounds, …) exactly as stored.",
+        "properties": {
+          "archived_at": {
+            "description": "Present when the definition was archived (still a customization the\npreflight must see; the values it shaped may still exist).",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "config": {
+            "type": "object"
+          },
+          "entity": {
+            "description": "Entity the field attaches to: ticket | client | contact | asset.",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Field kind: text | number | date | select | multiselect | bool | url | user.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "sort_order": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "entity",
+          "name",
+          "kind",
+          "config",
+          "required",
+          "sort_order"
+        ],
+        "type": "object"
+      },
+      "ManifestEscalationStep": {
+        "description": "One escalation ladder step.",
+        "properties": {
+          "at_pct": {
+            "description": "Percent of the target's business-time budget consumed at firing.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "notify_user_ids": {
+            "description": "JSON array of user ids to notify.",
+            "type": "object"
+          },
+          "step_index": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "trigger_kind": {
+            "description": "risk | breach | escalate.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "step_index",
+          "trigger_kind",
+          "at_pct",
+          "notify_user_ids",
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "ManifestSections": {
+        "description": "Section container. All fields are always present; empty org state is an\nempty array, never an absent key. New sections append here.",
+        "properties": {
+          "api_keys": {
+            "description": "API-key metadata minus secret material (no hashes, no raw keys).",
+            "items": {
+              "$ref": "#/components/schemas/ManifestApiKey"
+            },
+            "type": "array"
+          },
+          "automation_rules": {
+            "description": "Event-triggered automation rules.",
+            "items": {
+              "$ref": "#/components/schemas/ManifestAutomationRule"
+            },
+            "type": "array"
+          },
+          "boards": {
+            "description": "Per-board workflow: the board identity plus its statuses (each bound\nto a semantic category — the defaults-first guarantee) and its\nexplicit transition adjacency. An EMPTY transitions array means the\nsemantic-category floor applies, not \"no transitions\".",
+            "items": {
+              "$ref": "#/components/schemas/ManifestBoard"
+            },
+            "type": "array"
+          },
+          "custom_fields": {
+            "description": "Custom field definitions across all entities (tickets, clients,\ncontacts, assets), including archived ones.",
+            "items": {
+              "$ref": "#/components/schemas/ManifestCustomField"
+            },
+            "type": "array"
+          },
+          "settings": {
+            "description": "Org-scope settings-registry overrides (user-scope rows are per-user\npreferences, not org customization).",
+            "items": {
+              "$ref": "#/components/schemas/ManifestSetting"
+            },
+            "type": "array"
+          },
+          "sla": {
+            "$ref": "#/components/schemas/ManifestSla",
+            "description": "SLA configuration: calendars and policies with escalation ladders."
+          },
+          "webhooks": {
+            "description": "Webhook subscriptions with event-type filters, never secrets.",
+            "items": {
+              "$ref": "#/components/schemas/ManifestWebhook"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "custom_fields",
+          "boards",
+          "automation_rules",
+          "webhooks",
+          "api_keys",
+          "settings",
+          "sla"
+        ],
+        "type": "object"
+      },
+      "ManifestSetting": {
+        "description": "One org-scope settings-registry override.",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "key",
+          "value"
+        ],
+        "type": "object"
+      },
+      "ManifestSla": {
+        "description": "SLA configuration sections.",
+        "properties": {
+          "calendars": {
+            "items": {
+              "$ref": "#/components/schemas/ManifestSlaCalendar"
+            },
+            "type": "array"
+          },
+          "policies": {
+            "items": {
+              "$ref": "#/components/schemas/ManifestSlaPolicy"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "calendars",
+          "policies"
+        ],
+        "type": "object"
+      },
+      "ManifestSlaCalendar": {
+        "description": "One named SLA calendar row with its flattened business calendar body.",
+        "properties": {
+          "calendar": {
+            "description": "Timezone / weekday windows / holidays / maintenance document.",
+            "type": "object"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "calendar"
+        ],
+        "type": "object"
+      },
+      "ManifestSlaPolicy": {
+        "description": "One SLA policy with its targets document, embedded fallback calendar,\ncalendar attachment, and escalation ladder.",
+        "properties": {
+          "calendar": {
+            "description": "Embedded fallback calendar; governs while `calendar_id` is null.",
+            "type": "object"
+          },
+          "calendar_id": {
+            "description": "Attached named calendar; null keeps the embedded one authoritative.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "escalation_steps": {
+            "description": "Escalation ladder steps, ordered by `step_index`.",
+            "items": {
+              "$ref": "#/components/schemas/ManifestEscalationStep"
+            },
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "targets": {
+            "description": "Targets document keyed by priority string.",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "is_default",
+          "targets",
+          "calendar",
+          "calendar_id",
+          "escalation_steps"
+        ],
+        "type": "object"
+      },
+      "ManifestTransition": {
+        "description": "One allowed status change, `from` → `to`, both ids from the SAME board.",
+        "properties": {
+          "from_status_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "to_status_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from_status_id",
+          "to_status_id"
+        ],
+        "type": "object"
+      },
+      "ManifestWebhook": {
+        "description": "One webhook subscription. The HMAC signing secret is structurally\nabsent: it exists only at creation time and in the sealed column.",
+        "properties": {
+          "created_by": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "event_types": {
+            "description": "Event-type filter; empty array = wildcard (all event types).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "event_types",
+          "enabled",
+          "created_by"
         ],
         "type": "object"
       },
@@ -10874,6 +11392,33 @@
         "summary": "PATCH /api/org — updates name and/or ticket prefix (Admin:edit).\nIdempotent; emits `org.updated` + audit row.",
         "tags": [
           "settings"
+        ]
+      }
+    },
+    "/api/v1/org/manifest": {
+      "get": {
+        "description": "Owner/admin gated (policy §5: the manifest is an org-level\nadministrative artifact; technicians and dispatchers have no business\nreading the full customization inventory, e.g. webhook URLs).",
+        "operationId": "org_manifest",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomizationManifest"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/org/manifest — the org's customization manifest.",
+        "tags": [
+          "org"
         ]
       }
     },
