@@ -1121,7 +1121,10 @@ export interface paths {
         /** GET /api/clients */
         get: operations["clients_list"];
         put?: never;
-        /** POST /api/clients */
+        /**
+         * POST /api/clients — instant-first (IF1/IF2): idempotency-keyed and
+         *     returns the read-your-write `mutation` metadata.
+         */
         post: operations["clients_create"];
         delete?: never;
         options?: never;
@@ -2060,6 +2063,8 @@ export interface paths {
          * POST /api/tickets — allocates the human ticket number, initializes SLA
          *     clocks, validates + stores any initial custom-field values (REQUIRED
          *     definitions enforced), and emits `ticket.created` — all in one transaction.
+         *     Instant-first (IF1/IF2): routed through the shared idempotency gate and
+         *     returns the read-your-write `mutation` metadata.
          */
         post: operations["tickets_create"];
         delete?: never;
@@ -2107,7 +2112,8 @@ export interface paths {
          * PATCH /api/tickets/{id} — partial update; validates + upserts any
          *     provided custom-field values; emits `ticket.updated`,
          *     `ticket.field_set` (per changed field), and `ticket.assigned` when the
-         *     assignee changes.
+         *     assignee changes. Instant-first (IF1/IF2): idempotency-keyed, version-
+         *     gated, and returns prior + new values for undo.
          */
         patch: operations["tickets_patch"];
         trace?: never;
@@ -2195,7 +2201,8 @@ export interface paths {
         put?: never;
         /**
          * POST /api/tickets/{id}/comments — adds a structured note; @mentions
-         *     fan out into the notification center.
+         *     fan out into the notification center. Instant-first (IF1/IF2):
+         *     idempotency-keyed and returns the read-your-write mutation metadata.
          */
         post: operations["tickets_add_comment"];
         delete?: never;
@@ -2287,6 +2294,7 @@ export interface paths {
          *     domain transition rules, pre-close checklist enforcement (typed 409
          *     listing the incomplete required items when the board enforces), SLA
          *     pause bookkeeping, and the `ticket.status_changed` event, all in one tx.
+         *     Instant-first (IF1/IF2): idempotency-keyed, version-gated, read-your-write.
          */
         post: operations["tickets_change_status"];
         delete?: never;
@@ -2455,6 +2463,7 @@ export interface paths {
          * POST /api/timers/start — starts (or switches to) a timer. If another
          *     session is running it is auto-paused with reason `switched` and stays in
          *     the working set; the DB's partial unique index is the backstop.
+         *     Instant-first (IF1/IF2): idempotency-keyed and read-your-write.
          */
         post: operations["timers_start"];
         delete?: never;
@@ -2646,7 +2655,7 @@ export interface components {
         AddChecklistItemRequest: {
             text: string;
         };
-        AddCommentRequest: {
+        AddCommentRequest: components["schemas"]["MutationParams"] & {
             /**
              * @description Attachments uploaded earlier against this ticket (composer flow:
              *     upload first, link when the comment is created). Absent/empty in
@@ -3145,7 +3154,7 @@ export interface components {
              */
             user_id?: string | null;
         };
-        ChangeStatusRequest: {
+        ChangeStatusRequest: components["schemas"]["MutationParams"] & {
             /** Format: uuid */
             status_id: string;
         };
@@ -3276,6 +3285,13 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        /**
+         * @description Instant-first mutation response (IF2): client fields at the top level
+         *     (unchanged shape) plus the additive `mutation` metadata.
+         */
+        ClientMutationResponse: components["schemas"]["Client"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
         CommentListQuery: {
             kind?: null | components["schemas"]["NoteKind"];
         };
@@ -3405,7 +3421,7 @@ export interface components {
             calendar: components["schemas"]["BusinessCalendar"];
             name: string;
         };
-        CreateClientRequest: {
+        CreateClientRequest: components["schemas"]["MutationParams"] & {
             name: string;
             notes?: string | null;
         };
@@ -3493,7 +3509,7 @@ export interface components {
             /** Format: int32 */
             sort_order: number;
         };
-        CreateTicketRequest: {
+        CreateTicketRequest: components["schemas"]["MutationParams"] & {
             /** Format: uuid */
             assignee_id?: string | null;
             /** Format: uuid */
@@ -3890,6 +3906,57 @@ export interface components {
             user_id: string;
         };
         /**
+         * @description Read-your-write metadata every mutation response carries (IF2), merged
+         *     as the additive `mutation` object alongside the entity fields.
+         */
+        MutationMeta: {
+            /** @description Applied entity snapshot. */
+            after: Record<string, never>;
+            /** @description Prior entity snapshot (the undo substrate). `null` on creates. */
+            before: Record<string, never> | null;
+            /**
+             * @description The idempotency key that claimed this result, when the caller
+             *     supplied one.
+             */
+            idempotency_key?: string | null;
+            /**
+             * Format: int64
+             * @description Monotonic per-entity sequence: strictly increases by one per
+             *     applied write, so clients order reconciliations against the event
+             *     stream.
+             */
+            seq: number;
+            /** @description The applied entity's `updated_at`. */
+            updated_at: string;
+            /**
+             * Format: int64
+             * @description Version token for If-Match-style writes; mirrors `seq`. Echo it in
+             *     the next write's `version` field.
+             */
+            version: number;
+        };
+        /**
+         * @description The autosave mutation parameters every gated create/update body carries
+         *     (flattened into the request struct — purely additive fields).
+         */
+        MutationParams: {
+            /**
+             * @description Idempotency key: the same key with the same payload replays the
+             *     SAME stored result (never double-applies); the same key with a
+             *     different payload is a typed 409. Generate one per user edit
+             *     debounce/retry episode (UUID works).
+             */
+            idempotency_key?: string | null;
+            /**
+             * Format: int64
+             * @description If-Match-style version: the entity `version` the caller last saw
+             *     (the `mutation.version` of the previous response). A mismatch
+             *     rejects the write with a typed 409 `version_conflict` carrying
+             *     `expected`/`provided`; omit for creates and for legacy callers.
+             */
+            version?: number | null;
+        };
+        /**
          * @description One cross-board my-work queue row (TASKLIST 2.11): the ticket plus the
          *     annotations the Today screen renders per the mockup.
          */
@@ -4018,7 +4085,7 @@ export interface components {
             role?: null | components["schemas"]["PortalRole"];
             status?: null | components["schemas"]["PortalUserStatus"];
         };
-        PatchTicketRequest: {
+        PatchTicketRequest: components["schemas"]["MutationParams"] & {
             /**
              * Format: uuid
              * @description `Some(Some(id))` assigns; `Some(None)` unassigns; `None` = no change.
@@ -4497,11 +4564,11 @@ export interface components {
         SsoExchangeResponse: components["schemas"]["TokenPair"] | {
             linked: boolean;
         };
-        StartTimerRequest: {
+        StartTimerRequest: components["schemas"]["MutationParams"] & {
             /** Format: uuid */
             ticket_id: string;
         };
-        StopTimerRequest: {
+        StopTimerRequest: components["schemas"]["MutationParams"] & {
             billable?: boolean | null;
             notes?: string | null;
             reason?: string | null;
@@ -4625,6 +4692,10 @@ export interface components {
             /** Format: date-time */
             updated_at?: string | null;
         };
+        /** @description Same additive envelope for comments (plain comment body). */
+        TicketCommentMutationResponse: components["schemas"]["TicketComment"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
         /** @description One stored ticket value with its definition context. */
         TicketCustomFieldValue: {
             /** Format: uuid */
@@ -4658,6 +4729,15 @@ export interface components {
             /** Format: int64 */
             offset?: number;
             priority?: null | components["schemas"]["Priority"];
+        };
+        /**
+         * @description Instant-first mutation response (IF2): the enriched ticket fields at the
+         *     top level (unchanged shape) plus the additive `mutation` metadata — the
+         *     applied snapshot, monotonic per-entity `seq`/`version`, and the prior
+         *     and new values that make undo a core capability.
+         */
+        TicketMutationResponse: components["schemas"]["TicketWithFields"] & {
+            mutation: components["schemas"]["MutationMeta"];
         };
         /**
          * @description Human-facing ticket number, e.g. `MER-2841`. Globally unique per org,
@@ -4713,6 +4793,10 @@ export interface components {
          * @enum {string}
          */
         TicketStatusCategory: "open" | "in_progress" | "waiting" | "closed";
+        /** @description Same additive envelope for status transitions (plain ticket body). */
+        TicketStatusMutationResponse: components["schemas"]["Ticket"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
         /** @description A ticket payload enriched with its custom-field values (detail + list). */
         TicketWithFields: components["schemas"]["Ticket"] & {
             custom_fields: components["schemas"]["TicketCustomFieldValue"][];
@@ -4750,6 +4834,10 @@ export interface components {
             user_id: string;
             work_type?: string | null;
         };
+        /** @description Same additive envelope for the stop flow (time-entry body). */
+        TimeEntryMutationResponse: components["schemas"]["TimeEntry"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
         TimeSettingsResponse: {
             /**
              * Format: int32
@@ -4762,6 +4850,13 @@ export interface components {
              * @description Active days logging under this many minutes are gap days.
              */
             time_gap_min_minutes: number;
+        };
+        /**
+         * @description Instant-first mutation response (IF2): session fields at the top level
+         *     (unchanged shape) plus the additive `mutation` metadata.
+         */
+        TimerMutationResponse: components["schemas"]["TimerSession"] & {
+            mutation: components["schemas"]["MutationMeta"];
         };
         /** @description A contiguous running interval within a timer session. */
         TimerSegment: {
@@ -6801,8 +6896,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Client"];
+                    "application/json": components["schemas"]["ClientMutationResponse"];
                 };
+            };
+            /** @description idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -8357,8 +8459,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TicketWithFields"];
+                    "application/json": components["schemas"]["TicketMutationResponse"];
                 };
+            };
+            /** @description version conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description missing required custom fields or invalid value */
             422: {
@@ -8429,8 +8538,22 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TicketWithFields"];
+                    "application/json": components["schemas"]["TicketMutationResponse"];
                 };
+            };
+            /** @description ticket not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description invalid custom-field value */
             422: {
@@ -8606,8 +8729,22 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TicketComment"];
+                    "application/json": components["schemas"]["TicketCommentMutationResponse"];
                 };
+            };
+            /** @description ticket not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -8734,10 +8871,17 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Ticket"];
+                    "application/json": components["schemas"]["TicketStatusMutationResponse"];
                 };
             };
-            /** @description pre-close checklist incomplete (board enforces) */
+            /** @description ticket not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description pre-close checklist blocked, version conflict, or idempotency key reused */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -8998,8 +9142,22 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TimerSession"];
+                    "application/json": components["schemas"]["TimerMutationResponse"];
                 };
+            };
+            /** @description ticket not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -9021,8 +9179,22 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TimeEntry"];
+                    "application/json": components["schemas"]["TimeEntryMutationResponse"];
                 };
+            };
+            /** @description session not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
