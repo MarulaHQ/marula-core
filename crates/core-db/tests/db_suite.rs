@@ -6614,3 +6614,173 @@ async fn rls_through_views_isolates_cross_org_and_unscoped_sessions() {
         assert_eq!(count, 0, "{view} leaked rows without an org binding");
     }
 }
+
+// ===========================================================================
+// Instant-first write-path storage (TASKLIST IF1–IF3, migration 0028) —
+// org-scoped RLS on the idempotency/write-trail tables plus the per-entity
+// seq counter contract.
+//
+// Seed-slot discipline (lane contract): fixed_uuid anchors 186 and 187 from
+// this lane's reserved 180..=189 band; child entities derive from 188.
+// ===========================================================================
+
+fn if_uuid(k: u64) -> Uuid {
+    Uuid::from_u128(fixed_uuid(188).as_u128() + k as u128)
+}
+
+static IF_FIXTURES: tokio::sync::OnceCell<(Uuid, Uuid)> = tokio::sync::OnceCell::const_new();
+
+async fn if_fixtures(db: &TestDb) -> (Uuid, Uuid) {
+    *IF_FIXTURES
+        .get_or_init(|| async {
+            let org_a = seed_org(&db.app, 186).await.org;
+            let org_b = seed_org(&db.app, 187).await.org;
+            // Owner-pool writes: one claimed idempotency key + one trail row
+            // + a seq counter per org, so both orgs hold physically distinct
+            // rows with IDENTICAL keys/ids — only RLS can tell them apart.
+            for (org, marker, key_row) in [(org_a, "a", 1), (org_b, "b", 11)] {
+                let entity_id = if_uuid(0);
+                sqlx::query(
+                    "INSERT INTO idempotency_keys (id, org_id, key, entity, entity_id, request_hash, response, actor_id) \
+                     VALUES ($1, $2, 'shared-key', 'ticket', $3, 'hash-' || $4, NULL, $3)",
+                )
+                .bind(if_uuid(key_row))
+                .bind(org)
+                .bind(entity_id)
+                .bind(marker)
+                .execute(&db.admin)
+                .await
+                .expect("seed idempotency key");
+                sqlx::query(
+                    "INSERT INTO entity_writes (id, org_id, entity, entity_id, seq, op, actor_id, before, after) \
+                     VALUES ($1, $2, 'ticket', $3, 1, 'create', $3, NULL, jsonb_build_object('marker', $4))",
+                )
+                .bind(if_uuid(key_row + 1))
+                .bind(org)
+                .bind(entity_id)
+                .bind(marker)
+                .execute(&db.admin)
+                .await
+                .expect("seed trail row");
+                sqlx::query(
+                    "INSERT INTO entity_write_seqs (org_id, entity, entity_id, seq) VALUES ($1, 'ticket', $2, 1)",
+                )
+                .bind(org)
+                .bind(entity_id)
+                .execute(&db.admin)
+                .await
+                .expect("seed counter");
+            }
+            (org_a, org_b)
+        })
+        .await
+}
+
+#[tokio::test]
+async fn instant_first_tables_are_org_scoped_under_rls() {
+    let db = test_db().await;
+    let (org_a, org_b) = if_fixtures(&db).await;
+    let entity_id = if_uuid(0);
+
+    // Scoped to org A: only org A's rows are visible, even though org B's
+    // rows share the key and entity id.
+    let mut tx = org_tx(&db.app, org_a).await;
+    let keys: Vec<String> = sqlx::query_scalar("SELECT key FROM idempotency_keys")
+        .fetch_all(&mut *tx)
+        .await
+        .expect("keys visible to org A");
+    assert_eq!(keys, vec!["shared-key".to_string()]);
+    let hash: String =
+        sqlx::query_scalar("SELECT request_hash FROM idempotency_keys WHERE key = 'shared-key'")
+            .fetch_one(&mut *tx)
+            .await
+            .expect("org A row");
+    assert_eq!(hash, "hash-a", "the visible row is org A's, not org B's");
+    let trail_marker: String = sqlx::query_scalar(
+        "SELECT after->>'marker' FROM entity_writes WHERE entity = 'ticket' AND entity_id = $1",
+    )
+    .bind(entity_id)
+    .fetch_one(&mut *tx)
+    .await
+    .expect("trail row");
+    assert_eq!(trail_marker, "a");
+
+    // Scoped to org B: the mirror image.
+    let mut tx = org_tx(&db.app, org_b).await;
+    let hash: String =
+        sqlx::query_scalar("SELECT request_hash FROM idempotency_keys WHERE key = 'shared-key'")
+            .fetch_one(&mut *tx)
+            .await
+            .expect("org B row");
+    assert_eq!(hash, "hash-b");
+    let counters: Vec<i64> = sqlx::query_scalar("SELECT seq FROM entity_write_seqs")
+        .fetch_all(&mut *tx)
+        .await
+        .expect("counter visible to org B");
+    assert_eq!(counters, vec![1]);
+
+    // Unscoped (no app.org_id binding): default-deny on all three tables.
+    let fresh = db.fresh_app_pool().await;
+    let mut tx = fresh.begin().await.expect("begin unscoped");
+    for table in ["idempotency_keys", "entity_writes", "entity_write_seqs"] {
+        let count: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table}"))
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap_or_else(|e| panic!("{table} unscoped scan failed: {e}"));
+        assert_eq!(count, 0, "{table} leaked rows without an org binding");
+    }
+
+    // Uniqueness contracts on the same fixtures: one test so the suite's
+    // parallel startup holds fewer pools against Postgres max_connections.
+    idempotency_key_is_unique_per_org_and_seq_counter_is_isolated(&db).await;
+}
+
+async fn idempotency_key_is_unique_per_org_and_seq_counter_is_isolated(db: &TestDb) {
+    let (org_a, org_b) = if_fixtures(db).await;
+    let entity_id = if_uuid(0);
+
+    // Same org + same key: the UNIQUE constraint is the replay gate.
+    let duplicate = sqlx::query(
+        "INSERT INTO idempotency_keys (id, org_id, key, entity, entity_id, request_hash, response, actor_id) \
+         VALUES ($1, $2, 'shared-key', 'ticket', $3, 'x', NULL, $3)",
+    )
+    .bind(if_uuid(3))
+    .bind(org_a)
+    .bind(entity_id)
+    .execute(&db.admin)
+    .await;
+    assert!(
+        duplicate.is_err(),
+        "duplicate (org, key) must violate UNIQUE"
+    );
+
+    // Different org, same key: the mirror-image fixture rows prove
+    // idempotency is org-scoped, never global — both orgs hold the key.
+    let keyed_rows: (i64, i64) = sqlx::query_as(
+        "SELECT COUNT(*) FILTER (WHERE org_id = $1), COUNT(*) FILTER (WHERE org_id = $2) \
+         FROM idempotency_keys WHERE key = 'shared-key'",
+    )
+    .bind(org_a)
+    .bind(org_b)
+    .fetch_one(&db.admin)
+    .await
+    .expect("keyed rows");
+    assert_eq!(
+        keyed_rows,
+        (1, 1),
+        "the same key must claim its own row per org"
+    );
+
+    // The (org, entity, entity_id, seq) UNIQUE backing the monotonic
+    // contract: a second write at the same seq in one org is rejected.
+    let duplicate_seq = sqlx::query(
+        "INSERT INTO entity_writes (id, org_id, entity, entity_id, seq, op, actor_id, before, after) \
+         VALUES ($1, $2, 'ticket', $3, 1, 'update', $3, NULL, '{}')",
+    )
+    .bind(if_uuid(5))
+    .bind(org_a)
+    .bind(entity_id)
+    .execute(&db.admin)
+    .await;
+    assert!(duplicate_seq.is_err(), "seq must be unique per entity");
+}
