@@ -46,8 +46,7 @@ pub async fn get(
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     core_db::set_org(&mut tx, org_id).await?;
     let manifest =
-        core_db::manifest::load_customization_manifest(&mut *tx, org_id, chrono::Utc::now())
-            .await?;
+        core_db::manifest::load_customization_manifest(&mut tx, org_id, chrono::Utc::now()).await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(manifest))
 }

@@ -45,8 +45,7 @@ const API_KEY_HASH: &str = "u5-hmac-key-hash-DO-NOT-LEAK-0123456789abcdef";
 /// Deterministic wall-clock stamps for the two consecutive dumps.
 fn stamp(secs: i64) -> chrono::DateTime<chrono::Utc> {
     use chrono::TimeZone;
-    chrono::Utc.with_ymd_and_hms(2026, 1, 15, 12, 0, 0).unwrap()
-        + chrono::Duration::seconds(secs)
+    chrono::Utc.with_ymd_and_hms(2026, 1, 15, 12, 0, 0).unwrap() + chrono::Duration::seconds(secs)
 }
 
 struct Base {
@@ -54,8 +53,6 @@ struct Base {
     board: Uuid,
     user: Uuid,
     policy_id: Uuid,
-    /// Default board's seeded statuses by name.
-    statuses: std::collections::HashMap<String, Uuid>,
 }
 
 /// Org + default roles + default board + default SLA policy, mirroring
@@ -63,11 +60,21 @@ struct Base {
 async fn seed_base(db: &TestDb, n: u64) -> Base {
     let org = fixed_uuid(n);
     let mut tx = org_tx(&db.app, org).await;
-    core_db::orgs::insert_org(&mut *tx, org, "Manifest Co", &format!("manifest-{n}"), "MFT")
+    core_db::orgs::insert_org(
+        &mut *tx,
+        org,
+        "Manifest Co",
+        &format!("manifest-{n}"),
+        "MFT",
+    )
+    .await
+    .expect("org");
+    core_db::orgs::seed_default_roles(&mut tx, org)
         .await
-        .expect("org");
-    core_db::orgs::seed_default_roles(&mut tx, org).await.expect("roles");
-    let board = core_db::orgs::seed_default_board(&mut tx, org).await.expect("board");
+        .expect("roles");
+    let board = core_db::orgs::seed_default_board(&mut tx, org)
+        .await
+        .expect("board");
     let policy_id = core_db::orgs::seed_default_sla_policy(&mut *tx, org)
         .await
         .expect("sla policy");
@@ -83,28 +90,20 @@ async fn seed_base(db: &TestDb, n: u64) -> Base {
     )
     .await
     .expect("user");
-    let rows: Vec<(String, Uuid)> =
-        sqlx::query_as("SELECT name, id FROM board_statuses WHERE board_id = $1")
-            .bind(board)
-            .fetch_all(&mut *tx)
-            .await
-            .expect("statuses");
     tx.commit().await.expect("commit");
     Base {
         org,
         board,
         user,
         policy_id,
-        statuses: rows.into_iter().collect(),
     }
 }
 
 async fn load_manifest(db: &TestDb, org: Uuid, at: chrono::DateTime<chrono::Utc>) -> Value {
     let mut tx = org_tx(&db.app, org).await;
-    let manifest =
-        core_db::manifest::load_customization_manifest(&mut *tx, org, at)
-            .await
-            .expect("manifest loads");
+    let manifest = core_db::manifest::load_customization_manifest(&mut tx, org, at)
+        .await
+        .expect("manifest loads");
     tx.commit().await.expect("commit");
     serde_json::to_value(&manifest).expect("serialize")
 }
@@ -130,12 +129,24 @@ async fn seed_full_org(db: &TestDb, n: u64) -> Base {
     // custom fields: ticket entity names out of order, plus one client
     // field and one ARCHIVED ticket field.
     for (name, entity, kind, config, sort) in [
-        ("Severity", "ticket", "select", json!({"options": ["S1", "S2"]}), 5),
-        ("Escalation Tier", "ticket", "number", json!({"min": 1, "max": 5}), 2),
+        (
+            "Severity",
+            "ticket",
+            "select",
+            json!({"options": ["S1", "S2"]}),
+            5,
+        ),
+        (
+            "Escalation Tier",
+            "ticket",
+            "number",
+            json!({"min": 1, "max": 5}),
+            2,
+        ),
         ("Account Code", "client", "text", json!({}), 0),
     ] {
         core_db::custom_fields::insert_def(
-            &mut *tx,
+            &mut tx,
             &FieldDefRow {
                 id: Uuid::now_v7(),
                 org_id: base.org,
@@ -143,7 +154,7 @@ async fn seed_full_org(db: &TestDb, n: u64) -> Base {
                 entity: entity.into(),
                 name: name.into(),
                 kind: kind.into(),
-                config: config,
+                config,
                 required: false,
                 sort_order: sort,
             },
@@ -153,7 +164,7 @@ async fn seed_full_org(db: &TestDb, n: u64) -> Base {
     }
     let archived_id = Uuid::now_v7();
     core_db::custom_fields::insert_def(
-        &mut *tx,
+        &mut tx,
         &FieldDefRow {
             id: archived_id,
             org_id: base.org,
@@ -188,7 +199,7 @@ async fn seed_full_org(db: &TestDb, n: u64) -> Base {
     .await
     .expect("extra board");
     let escalated = core_db::boards::add_status(
-        &mut *tx,
+        &mut tx,
         base.org,
         Uuid::now_v7(),
         base.board,
@@ -203,7 +214,7 @@ async fn seed_full_org(db: &TestDb, n: u64) -> Base {
     // Two custom statuses on the extra board, then an explicit adjacency
     // (the seeded default board keeps EMPTY transitions = category floor).
     let net_new = core_db::boards::add_status(
-        &mut *tx,
+        &mut tx,
         base.org,
         Uuid::now_v7(),
         net_board,
@@ -215,7 +226,7 @@ async fn seed_full_org(db: &TestDb, n: u64) -> Base {
     .await
     .expect("net status");
     let net_done = core_db::boards::add_status(
-        &mut *tx,
+        &mut tx,
         base.org,
         Uuid::now_v7(),
         net_board,
@@ -227,7 +238,7 @@ async fn seed_full_org(db: &TestDb, n: u64) -> Base {
     .await
     .expect("net status");
     core_db::boards::replace_transitions(
-        &mut *tx,
+        &mut tx,
         base.org,
         net_board,
         &[
@@ -303,7 +314,7 @@ async fn seed_full_org(db: &TestDb, n: u64) -> Base {
     // org-scope settings overrides, keys out of order; plus a USER-scope
     // row that must NOT be exported (per-user preference, not org data).
     core_db::settings::upsert_org_setting(
-        &mut *tx,
+        &mut tx,
         base.org,
         "portal.branding_color",
         &json!("#0a7ea4"),
@@ -312,7 +323,7 @@ async fn seed_full_org(db: &TestDb, n: u64) -> Base {
     .await
     .expect("setting 1");
     core_db::settings::upsert_org_setting(
-        &mut *tx,
+        &mut tx,
         base.org,
         "tickets.default_priority",
         &json!("p3"),
@@ -321,7 +332,7 @@ async fn seed_full_org(db: &TestDb, n: u64) -> Base {
     .await
     .expect("setting 2");
     core_db::settings::upsert_user_setting(
-        &mut *tx,
+        &mut tx,
         base.org,
         base.user,
         "ui.theme",
@@ -361,7 +372,7 @@ async fn seed_full_org(db: &TestDb, n: u64) -> Base {
         .await
         .expect("attach calendar");
     core_db::sla::replace_ladder(
-        &mut *tx,
+        &mut tx,
         base.org,
         base.policy_id,
         &[
@@ -421,13 +432,12 @@ async fn full_org_manifest_covers_every_section() {
         json!({"min": 1, "max": 5}),
         "config document passes through verbatim"
     );
-    assert_eq!(
-        fields
+    assert!(
+        !fields
             .iter()
             .find(|f| f["name"] == "Legacy Board Ref")
             .unwrap()["archived_at"]
             .is_null(),
-        false,
         "archived definitions export with their archived_at"
     );
 
@@ -492,7 +502,10 @@ async fn full_org_manifest_covers_every_section() {
     assert_eq!(rules[0]["name"], "Auto Acknowledge");
     assert_eq!(rules[1]["name"], "Close Stale");
     assert_eq!(rules[0]["board_id"], Value::Null);
-    assert_eq!(rules[1]["board_id"], json!(m["sections"]["boards"][0]["id"]));
+    assert_eq!(
+        rules[1]["board_id"],
+        json!(m["sections"]["boards"][0]["id"])
+    );
     assert_eq!(
         rules[0]["conditions"],
         json!([{"field": "priority", "equals": "p1"}]),
@@ -513,12 +526,19 @@ async fn full_org_manifest_covers_every_section() {
     let keys = m["sections"]["api_keys"].as_array().unwrap();
     assert_eq!(keys.len(), 1);
     assert_eq!(keys[0]["name"], "Provisioning Bot");
-    assert_eq!(keys[0]["prefix"], "mrd_u5key170", "per-slot display prefix round-trips");
+    assert_eq!(
+        keys[0]["prefix"], "mrd_u5key170",
+        "per-slot display prefix round-trips"
+    );
     assert_eq!(keys[0]["scopes"], json!(["tickets:read", "tickets:write"]));
 
     // settings: org-scope rows only, key-ordered.
     let settings = m["sections"]["settings"].as_array().unwrap();
-    assert_eq!(settings.len(), 2, "user-scope rows are NOT org customization");
+    assert_eq!(
+        settings.len(),
+        2,
+        "user-scope rows are NOT org customization"
+    );
     assert_eq!(settings[0]["key"], "portal.branding_color");
     assert_eq!(settings[1]["key"], "tickets.default_priority");
     assert_eq!(settings[0]["value"], json!("#0a7ea4"));
@@ -586,15 +606,30 @@ async fn manifest_ordering_invariants_hold() {
         arr.windows(2)
             .all(|w| w[0][key].as_str() <= w[1][key].as_str())
     };
-    assert!(sorted_by(&sections["custom_fields"].as_array().unwrap().clone(), "name"));
-    assert!(sorted_by(&sections["boards"].as_array().unwrap().clone(), "name"));
+    assert!(sorted_by(
+        &sections["custom_fields"].as_array().unwrap().clone(),
+        "name"
+    ));
+    assert!(sorted_by(
+        &sections["boards"].as_array().unwrap().clone(),
+        "name"
+    ));
     assert!(sorted_by(
         &sections["automation_rules"].as_array().unwrap().clone(),
         "name"
     ));
-    assert!(sorted_by(&sections["webhooks"].as_array().unwrap().clone(), "url"));
-    assert!(sorted_by(&sections["api_keys"].as_array().unwrap().clone(), "name"));
-    assert!(sorted_by(&sections["settings"].as_array().unwrap().clone(), "key"));
+    assert!(sorted_by(
+        &sections["webhooks"].as_array().unwrap().clone(),
+        "url"
+    ));
+    assert!(sorted_by(
+        &sections["api_keys"].as_array().unwrap().clone(),
+        "name"
+    ));
+    assert!(sorted_by(
+        &sections["settings"].as_array().unwrap().clone(),
+        "key"
+    ));
     assert!(sorted_by(
         &sections["sla"]["calendars"].as_array().unwrap().clone(),
         "name"
@@ -630,7 +665,11 @@ async fn empty_org_manifest_sections_are_empty() {
     let boards = sections["boards"].as_array().unwrap();
     assert_eq!(boards.len(), 1, "the default board is part of the org");
     assert_eq!(boards[0]["is_default"], true);
-    assert_eq!(boards[0]["transitions"], json!([]), "category floor applies");
+    assert_eq!(
+        boards[0]["transitions"],
+        json!([]),
+        "category floor applies"
+    );
     let categories: Vec<&str> = boards[0]["statuses"]
         .as_array()
         .unwrap()
@@ -682,7 +721,7 @@ async fn partial_org_manifest_rounds_populated_sections() {
     .await
     .expect("webhook");
     core_db::settings::upsert_org_setting(
-        &mut *tx,
+        &mut tx,
         base.org,
         "portal.enabled",
         &json!(true),
@@ -698,12 +737,12 @@ async fn partial_org_manifest_rounds_populated_sections() {
     // Exactly the two populated sections carry rows.
     assert_eq!(sections["webhooks"].as_array().unwrap().len(), 1);
     assert_eq!(sections["settings"].as_array().unwrap().len(), 1);
-    assert_eq!(sections["webhooks"][0]["event_types"], json!([]), "wildcard filter exports as empty array");
-    for untouched in [
-        "custom_fields",
-        "automation_rules",
-        "api_keys",
-    ] {
+    assert_eq!(
+        sections["webhooks"][0]["event_types"],
+        json!([]),
+        "wildcard filter exports as empty array"
+    );
+    for untouched in ["custom_fields", "automation_rules", "api_keys"] {
         assert_eq!(sections[untouched], json!([]));
     }
     // Boards/sla stay at the defaults-first baseline, not empty.
@@ -734,18 +773,34 @@ async fn manifest_never_contains_secret_material() {
     // Exact key sets: webhook and api-key section objects expose exactly the
     // approved metadata keys and nothing else.
     let hook = &m["sections"]["webhooks"][0];
-    let hook_keys: Vec<&str> = hook.as_object().unwrap().keys().map(String::as_str).collect();
+    let hook_keys: Vec<&str> = hook
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
     assert_eq!(
         hook_keys,
         vec!["created_by", "enabled", "event_types", "id", "url"],
         "webhook manifest objects expose exactly the non-secret metadata"
     );
     let key = &m["sections"]["api_keys"][0];
-    let key_keys: Vec<&str> = key.as_object().unwrap().keys().map(String::as_str).collect();
+    let key_keys: Vec<&str> = key
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
     assert_eq!(
         key_keys,
         vec![
-            "created_at", "created_by", "id", "last_used_at", "name", "prefix", "revoked_at",
+            "created_at",
+            "created_by",
+            "id",
+            "last_used_at",
+            "name",
+            "prefix",
+            "revoked_at",
             "scopes"
         ],
         "api-key manifest objects expose exactly the non-secret metadata"

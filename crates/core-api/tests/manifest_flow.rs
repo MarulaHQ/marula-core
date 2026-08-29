@@ -161,15 +161,15 @@ async fn provision_technician(state: &AppState, app: &Router, org_id: Uuid, emai
     )
     .await;
     assert_eq!(response.status(), 200, "technician login must succeed");
-    body_json(response).await["access_token"].as_str().unwrap().to_string()
+    body_json(response).await["access_token"]
+        .as_str()
+        .unwrap()
+        .to_string()
 }
 
 /// Populates sections through the PUBLIC API and returns the one-time
 /// secrets (webhook signing secret, raw API key) for the leakage checks.
-async fn populate_via_api(
-    app: &Router,
-    token: &str,
-) -> (String, String, Value) {
+async fn populate_via_api(app: &Router, token: &str) -> (String, String, Value) {
     let bearer = [auth(token)];
 
     // Webhook with a filter; the signing secret is returned EXACTLY ONCE.
@@ -186,7 +186,10 @@ async fn populate_via_api(
         )
         .await;
         assert_eq!(response.status(), 201, "webhook create must succeed");
-        body_json(response).await["secret"].as_str().unwrap().to_string()
+        body_json(response).await["secret"]
+            .as_str()
+            .unwrap()
+            .to_string()
     };
 
     // API key with scopes; raw material returned EXACTLY ONCE.
@@ -203,7 +206,10 @@ async fn populate_via_api(
         )
         .await;
         assert_eq!(response.status(), 201, "api-key create must succeed");
-        body_json(response).await["raw_key"].as_str().unwrap().to_string()
+        body_json(response).await["raw_key"]
+            .as_str()
+            .unwrap()
+            .to_string()
     };
 
     // One org-scope registry override (a REAL declared key).
@@ -261,10 +267,19 @@ async fn owner_manifest_round_trip_and_no_secret_leakage() {
     let token = register_org(&app, &slug).await;
 
     let org_id = {
-        let response = send(&app, axum::http::Method::GET, "/api/v1/me", &[auth(&token)], None)
-            .await;
+        let response = send(
+            &app,
+            axum::http::Method::GET,
+            "/api/v1/me",
+            &[auth(&token)],
+            None,
+        )
+        .await;
         assert_eq!(response.status(), 200);
-        body_json(response).await["org_id"].as_str().unwrap().to_string()
+        body_json(response).await["org_id"]
+            .as_str()
+            .unwrap()
+            .to_string()
     };
 
     let (webhook_secret, raw_key, setting) = populate_via_api(&app, &token).await;
@@ -340,7 +355,10 @@ async fn owner_manifest_round_trip_and_no_secret_leakage() {
     assert_eq!(fields.len(), 1);
     assert_eq!(fields[0]["name"], "Impact");
     assert_eq!(fields[0]["kind"], "select");
-    assert_eq!(fields[0]["config"]["options"], json!(["minor", "major", "critical"]));
+    assert_eq!(
+        fields[0]["config"]["options"],
+        json!(["minor", "major", "critical"])
+    );
 
     // The defaults-first baseline: default board with category-covered
     // statuses and the seeded default SLA policy.
@@ -358,7 +376,10 @@ async fn owner_manifest_round_trip_and_no_secret_leakage() {
     // NO secrets anywhere in the dump: not the once-shown webhook signing
     // secret, not the once-shown raw API key, and no secret-shaped fields.
     let serialized = serde_json::to_string(&manifest).unwrap();
-    assert!(!serialized.contains(&webhook_secret), "webhook signing secret leaked");
+    assert!(
+        !serialized.contains(&webhook_secret),
+        "webhook signing secret leaked"
+    );
     assert!(!serialized.contains(&raw_key), "raw API key leaked");
     assert!(!serialized.contains("secret_encrypted"));
     assert!(!serialized.contains("key_hash"));
@@ -372,8 +393,14 @@ async fn technician_is_rejected_from_the_manifest() {
     let token = register_org(&app, &slug).await;
 
     let org_id: Uuid = {
-        let response = send(&app, axum::http::Method::GET, "/api/v1/me", &[auth(&token)], None)
-            .await;
+        let response = send(
+            &app,
+            axum::http::Method::GET,
+            "/api/v1/me",
+            &[auth(&token)],
+            None,
+        )
+        .await;
         body_json(response).await["org_id"]
             .as_str()
             .unwrap()
@@ -381,13 +408,7 @@ async fn technician_is_rejected_from_the_manifest() {
             .parse()
             .unwrap()
     };
-    let tech_token = provision_technician(
-        &state,
-        &app,
-        org_id,
-        &format!("tech@{slug}.test"),
-    )
-    .await;
+    let tech_token = provision_technician(&state, &app, org_id, &format!("tech@{slug}.test")).await;
 
     let response = send(
         &app,
@@ -410,10 +431,20 @@ async fn unauthenticated_manifest_request_is_rejected() {
     let state = test_state().await;
     let app = core_api::routes::build_router(state);
 
-    let response = send(&app, axum::http::Method::GET, "/api/v1/org/manifest", &[], None).await;
+    let response = send(
+        &app,
+        axum::http::Method::GET,
+        "/api/v1/org/manifest",
+        &[],
+        None,
+    )
+    .await;
     assert_eq!(response.status(), 401);
     let body = body_string(response).await;
-    assert!(!body.is_empty(), "auth middleware answers with a JSON body, not a bare 404");
+    assert!(
+        !body.is_empty(),
+        "auth middleware answers with a JSON body, not a bare 404"
+    );
 }
 
 #[tokio::test]

@@ -26,8 +26,8 @@
 use crate::{DbError, DbResult};
 use core_domain::entities::manifest::{
     CustomizationManifest, ManifestApiKey, ManifestAutomationRule, ManifestBoard,
-    ManifestBoardStatus, ManifestCustomField, ManifestEscalationStep, ManifestSla,
-    ManifestSlaCalendar, ManifestSlaPolicy, ManifestSections, ManifestSetting, ManifestTransition,
+    ManifestBoardStatus, ManifestCustomField, ManifestEscalationStep, ManifestSections,
+    ManifestSetting, ManifestSla, ManifestSlaCalendar, ManifestSlaPolicy, ManifestTransition,
     ManifestWebhook,
 };
 use core_domain::status::TicketStatusCategory;
@@ -104,9 +104,7 @@ async fn load_custom_fields(
             archived_at: r.archived_at,
         })
         .collect();
-    out.sort_by(|a, b| {
-        (&a.entity, &a.name, a.id).cmp(&(&b.entity, &b.name, b.id))
-    });
+    out.sort_by(|a, b| (&a.entity, &a.name, a.id).cmp(&(&b.entity, &b.name, b.id)));
     Ok(out)
 }
 
@@ -158,19 +156,23 @@ async fn load_boards(conn: &mut PgConnection, org_id: Uuid) -> DbResult<Vec<Mani
     let mut by_board: std::collections::HashMap<Uuid, Vec<ManifestBoardStatus>> =
         std::collections::HashMap::new();
     for s in statuses {
-        let category = TicketStatusCategory::from_str(&s.category)
-            .map_err(|_| DbError::Sql(sqlx::Error::ColumnDecode {
+        let category = TicketStatusCategory::from_str(&s.category).map_err(|_| {
+            DbError::Sql(sqlx::Error::ColumnDecode {
                 index: "category".into(),
                 source: format!("unknown status category {s:?}").into(),
-            }))?;
-        by_board.entry(s.board_id).or_default().push(ManifestBoardStatus {
-            id: s.id,
-            name: s.name,
-            category,
-            sort_order: s.sort_order,
-            is_entry: s.is_entry,
-            color: s.color,
-        });
+            })
+        })?;
+        by_board
+            .entry(s.board_id)
+            .or_default()
+            .push(ManifestBoardStatus {
+                id: s.id,
+                name: s.name,
+                category,
+                sort_order: s.sort_order,
+                is_entry: s.is_entry,
+                color: s.color,
+            });
     }
     for list in by_board.values_mut() {
         list.sort_by(|a, b| (a.sort_order, &a.name, a.id).cmp(&(b.sort_order, &b.name, b.id)));
@@ -312,7 +314,10 @@ async fn load_org_settings(
     .await?;
     let mut out: Vec<ManifestSetting> = rows
         .into_iter()
-        .map(|r| ManifestSetting { key: r.key, value: r.value })
+        .map(|r| ManifestSetting {
+            key: r.key,
+            value: r.value,
+        })
         .collect();
     out.sort_by(|a, b| a.key.cmp(&b.key));
     Ok(out)
@@ -397,5 +402,8 @@ async fn load_sla(conn: &mut PgConnection, org_id: Uuid) -> DbResult<ManifestSla
         .collect::<DbResult<_>>()?;
     policies.sort_by(|a, b| (&a.name, a.id).cmp(&(&b.name, b.id)));
 
-    Ok(ManifestSla { calendars, policies })
+    Ok(ManifestSla {
+        calendars,
+        policies,
+    })
 }
