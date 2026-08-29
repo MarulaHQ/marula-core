@@ -50,6 +50,7 @@ pub mod dispatch;
 pub mod email_admin;
 pub mod imports;
 pub mod internal;
+pub mod manifest;
 pub mod notifications;
 pub mod oidc;
 pub mod openapi;
@@ -540,6 +541,9 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/org"),
             get(settings::org_profile_get).patch(settings::org_profile_patch),
         )
+        // customization manifest (TASKLIST U5): admin-gated canonical
+        // export; owner/admin checked inside the handler (policy §5).
+        .route(&rp("/org/manifest"), get(manifest::get))
         // email inbound routing settings (admin)
         .route(
             &rp("/email/inbound-settings"),
