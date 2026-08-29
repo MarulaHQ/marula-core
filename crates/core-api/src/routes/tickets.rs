@@ -4,6 +4,7 @@
 
 use crate::auth::middleware::{authed, require_permission};
 use crate::error::{ApiError, ApiResult};
+use crate::instant::{self, InstantClaim, MutationOutcome};
 use crate::org_tx;
 use crate::state::AppState;
 use axum::{
@@ -17,6 +18,7 @@ use core_domain::policy::{Module, Permission};
 use core_domain::status::{NoteKind, Priority, TicketStatusCategory};
 use core_domain::workflow;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -49,7 +51,7 @@ async fn checklist_enforcement(
     Ok(has_template)
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct CreateTicketRequest {
     pub board_id: Uuid,
     pub title: String,
@@ -64,9 +66,13 @@ pub struct CreateTicketRequest {
     /// definition. REQUIRED definitions must all be present (TASKLIST 2.17).
     #[serde(default)]
     pub custom_fields: Vec<TicketFieldInput>,
+    /// Instant-first autosave parameters (IF1): idempotency key + entity
+    /// version. Absent in legacy clients — purely additive.
+    #[serde(flatten, default)]
+    pub instant: instant::MutationParams,
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct PatchTicketRequest {
     pub title: Option<String>,
     pub body: Option<String>,
@@ -80,14 +86,22 @@ pub struct PatchTicketRequest {
     /// Custom-field values to upsert. Partial semantics: only listed fields
     /// change, each validated against its definition.
     pub custom_fields: Option<Vec<TicketFieldInput>>,
+    /// Instant-first autosave parameters (IF1): idempotency key + entity
+    /// version. Absent in legacy clients — purely additive.
+    #[serde(flatten, default)]
+    pub instant: instant::MutationParams,
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct ChangeStatusRequest {
     pub status_id: Uuid,
+    /// Instant-first autosave parameters (IF1): idempotency key + entity
+    /// version. Absent in legacy clients — purely additive.
+    #[serde(flatten, default)]
+    pub instant: instant::MutationParams,
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct AddCommentRequest {
     pub body: String,
     pub kind: NoteKind,
@@ -96,6 +110,11 @@ pub struct AddCommentRequest {
     /// older clients — purely additive.
     #[serde(default)]
     pub attachment_ids: Vec<Uuid>,
+    /// Instant-first autosave parameters (IF1): idempotency key. Absent in
+    /// legacy clients — purely additive. (Comments are fresh entities, so
+    /// there is no version to match.)
+    #[serde(flatten, default)]
+    pub instant: instant::MutationParams,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -119,6 +138,33 @@ pub struct TicketListQuery {
     pub limit: i64,
     #[serde(default)]
     pub offset: i64,
+}
+
+/// Instant-first mutation response (IF2): the enriched ticket fields at the
+/// top level (unchanged shape) plus the additive `mutation` metadata — the
+/// applied snapshot, monotonic per-entity `seq`/`version`, and the prior
+/// and new values that make undo a core capability.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TicketMutationResponse {
+    #[serde(flatten)]
+    pub ticket: TicketWithFields,
+    pub mutation: instant::MutationMeta,
+}
+
+/// Same additive envelope for status transitions (plain ticket body).
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TicketStatusMutationResponse {
+    #[serde(flatten)]
+    pub ticket: core_domain::entities::Ticket,
+    pub mutation: instant::MutationMeta,
+}
+
+/// Same additive envelope for comments (plain comment body).
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TicketCommentMutationResponse {
+    #[serde(flatten)]
+    pub comment: core_domain::entities::TicketComment,
+    pub mutation: instant::MutationMeta,
 }
 
 /// Live SLA clock readout for one ticket (badge + countdown surfaces).
@@ -240,15 +286,18 @@ impl MyWorkItem {
 /// POST /api/tickets — allocates the human ticket number, initializes SLA
 /// clocks, validates + stores any initial custom-field values (REQUIRED
 /// definitions enforced), and emits `ticket.created` — all in one transaction.
+/// Instant-first (IF1/IF2): routed through the shared idempotency gate and
+/// returns the read-your-write `mutation` metadata.
 #[utoipa::path(operation_id = "tickets_create", post, path = "/api/tickets", tag = "tickets", security(("bearer" = [])),
     request_body = CreateTicketRequest,
-    responses((status = 200, body = TicketWithFields),
+    responses((status = 200, body = TicketMutationResponse),
+              (status = 409, description = "version conflict or idempotency key reused"),
               (status = 422, description = "missing required custom fields or invalid value")))]
 pub async fn create(
     State(state): State<AppState>,
     extensions: Extensions,
     Json(req): Json<CreateTicketRequest>,
-) -> ApiResult<Json<TicketWithFields>> {
+) -> ApiResult<Json<TicketMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(
         &authed.principal,
@@ -259,8 +308,23 @@ pub async fn create(
     }
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
+    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    let key = req.instant.idempotency_key.clone();
 
-    let enriched = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+    let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        if let InstantClaim::Replay(stored) = instant::claim(
+            &mut ctx,
+            instant::ClaimSpec {
+                entity: "ticket",
+                entity_id: None,
+                key: key.as_deref(),
+                fingerprint: &fingerprint,
+            },
+        )
+        .await?
+        {
+            return Ok((ctx, MutationOutcome::Replayed(stored)));
+        }
         // Board-level RBAC first (deny wins): a viewer-role membership row
         // blocks creation even when the org matrix would allow it.
         authorize_board_op(
@@ -290,6 +354,19 @@ pub async fn create(
                 assignee_id: req.assignee_id,
                 requester_id: None,
                 due_at: req.due_at,
+            },
+        )
+        .await?;
+        // Fresh entity: allocate the seq the response reports. A create
+        // presenting a non-zero version is a client bug — a fresh entity
+        // can only ever match version 0 — and is rejected before any row
+        // is written.
+        let write_seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: "ticket",
+                entity_id: ticket.id,
+                version: req.instant.version,
             },
         )
         .await?;
@@ -362,11 +439,33 @@ pub async fn create(
         .await?;
 
         let enriched = TicketWithFields::new(ticket, applied);
-        Ok((ctx, enriched))
+        let after = serde_json::to_value(&enriched.ticket).unwrap_or(Value::Null);
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: "ticket",
+                entity_id: enriched.ticket.id,
+                op: "create",
+                seq: write_seq,
+                before: None,
+                after,
+                updated_at: enriched.ticket.updated_at,
+                key: key.as_deref(),
+                payload: &enriched,
+            },
+        )
+        .await?;
+        Ok((
+            ctx,
+            MutationOutcome::Applied(TicketMutationResponse {
+                ticket: enriched,
+                mutation,
+            }),
+        ))
     })
     .await?;
 
-    Ok(Json(enriched))
+    Ok(Json(outcome.into_response()?))
 }
 
 /// GET /api/tickets/{id}
@@ -392,17 +491,20 @@ pub async fn get_one(
 /// PATCH /api/tickets/{id} — partial update; validates + upserts any
 /// provided custom-field values; emits `ticket.updated`,
 /// `ticket.field_set` (per changed field), and `ticket.assigned` when the
-/// assignee changes.
+/// assignee changes. Instant-first (IF1/IF2): idempotency-keyed, version-
+/// gated, and returns prior + new values for undo.
 #[utoipa::path(operation_id = "tickets_patch", patch, path = "/api/tickets/{id}", tag = "tickets", security(("bearer" = [])),
     params(("id" = Uuid, Path)), request_body = PatchTicketRequest,
-    responses((status = 200, body = TicketWithFields),
+    responses((status = 200, body = TicketMutationResponse),
+              (status = 404, description = "ticket not visible in scope (rls_sparse)"),
+              (status = 409, description = "version conflict or idempotency key reused"),
               (status = 422, description = "invalid custom-field value")))]
 pub async fn patch(
     State(state): State<AppState>,
     extensions: Extensions,
     Path(id): Path<Uuid>,
     Json(req): Json<PatchTicketRequest>,
-) -> ApiResult<Json<TicketWithFields>> {
+) -> ApiResult<Json<TicketMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(
         &authed.principal,
@@ -410,14 +512,41 @@ pub async fn patch(
     )?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
+    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    let key = req.instant.idempotency_key.clone();
+    let version = req.instant.version;
 
-    let enriched = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        let before = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id).await?;
+    let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        if let InstantClaim::Replay(stored) = instant::claim(
+            &mut ctx,
+            instant::ClaimSpec {
+                entity: "ticket",
+                entity_id: Some(id),
+                key: key.as_deref(),
+                fingerprint: &fingerprint,
+            },
+        )
+        .await?
+        {
+            return Ok((ctx, MutationOutcome::Replayed(stored)));
+        }
+        let before = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
         authorize_board_op(
             &mut ctx.tx,
             &authed.principal,
             before.board_id,
             BoardOp::WorkTicket,
+        )
+        .await?;
+        let write_seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: "ticket",
+                entity_id: id,
+                version,
+            },
         )
         .await?;
         core_db::tickets::update_ticket(
@@ -487,28 +616,51 @@ pub async fn patch(
             .await?;
         }
         let enriched = TicketWithFields::load(&mut *ctx.tx, org_id, after).await?;
-        Ok((ctx, enriched))
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: "ticket",
+                entity_id: id,
+                op: "update",
+                seq: write_seq,
+                before: Some(serde_json::to_value(&before).unwrap_or(Value::Null)),
+                after: serde_json::to_value(&enriched.ticket).unwrap_or(Value::Null),
+                updated_at: enriched.ticket.updated_at,
+                key: key.as_deref(),
+                payload: &enriched,
+            },
+        )
+        .await?;
+        Ok((
+            ctx,
+            MutationOutcome::Applied(TicketMutationResponse {
+                ticket: enriched,
+                mutation,
+            }),
+        ))
     })
     .await?;
 
-    Ok(Json(enriched))
+    Ok(Json(outcome.into_response()?))
 }
 
 /// POST /api/tickets/{id}/status — the guarded lifecycle transition:
 /// domain transition rules, pre-close checklist enforcement (typed 409
 /// listing the incomplete required items when the board enforces), SLA
 /// pause bookkeeping, and the `ticket.status_changed` event, all in one tx.
+/// Instant-first (IF1/IF2): idempotency-keyed, version-gated, read-your-write.
 #[utoipa::path(operation_id = "tickets_change_status", post, path = "/api/tickets/{id}/status", tag = "tickets", security(("bearer" = [])),
     params(("id" = Uuid, Path)), request_body = ChangeStatusRequest,
-    responses((status = 200, body = core_domain::entities::Ticket),
-              (status = 409, description = "pre-close checklist incomplete (board enforces)"),
+    responses((status = 200, body = TicketStatusMutationResponse),
+              (status = 404, description = "ticket not visible in scope (rls_sparse)"),
+              (status = 409, description = "pre-close checklist blocked, version conflict, or idempotency key reused"),
               (status = 422, description = "invalid transition")))]
 pub async fn change_status(
     State(state): State<AppState>,
     extensions: Extensions,
     Path(id): Path<Uuid>,
     Json(req): Json<ChangeStatusRequest>,
-) -> ApiResult<Json<core_domain::entities::Ticket>> {
+) -> ApiResult<Json<TicketStatusMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(
         &authed.principal,
@@ -516,16 +668,34 @@ pub async fn change_status(
     )?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
+    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    let key = req.instant.idempotency_key.clone();
+    let version = req.instant.version;
 
-    let ticket = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id).await?;
+    let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        if let InstantClaim::Replay(stored) = instant::claim(
+            &mut ctx,
+            instant::ClaimSpec {
+                entity: "ticket",
+                entity_id: Some(id),
+                key: key.as_deref(),
+                fingerprint: &fingerprint,
+            },
+        )
+        .await?
+        {
+            return Ok((ctx, MutationOutcome::Replayed(stored)));
+        }
+        let before = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
         // The board's statuses + explicit transition matrix define what is
         // legal here; with no explicit matrix the semantic-category floor
         // governs (core-domain `workflow`).
-        let statuses = core_db::boards::list_statuses(&mut *ctx.tx, ticket.board_id).await?;
-        let edges = core_db::boards::list_transitions(&mut *ctx.tx, ticket.board_id).await?;
+        let statuses = core_db::boards::list_statuses(&mut *ctx.tx, before.board_id).await?;
+        let edges = core_db::boards::list_transitions(&mut *ctx.tx, before.board_id).await?;
         if let Err(rejection) =
-            workflow::validate_transition(&statuses, &edges, ticket.status_id, req.status_id)
+            workflow::validate_transition(&statuses, &edges, before.status_id, req.status_id)
         {
             return Err(ApiError::Validation(rejection.message()));
         }
@@ -542,7 +712,7 @@ pub async fn change_status(
         authorize_board_op(
             &mut ctx.tx,
             &authed.principal,
-            ticket.board_id,
+            before.board_id,
             if close_op {
                 BoardOp::CloseTicket
             } else {
@@ -557,12 +727,12 @@ pub async fn change_status(
         // complete required set — then apply the pure domain rule. Blocking
         // is a typed 409 that names every unchecked REQUIRED item.
         let instantiated =
-            core_db::checklists::instantiate_missing(&mut ctx.tx, org_id, ticket.board_id, id)
+            core_db::checklists::instantiate_missing(&mut ctx.tx, org_id, before.board_id, id)
                 .await?;
         let checklist = core_db::tickets::list_checklist(&mut *ctx.tx, org_id, id).await?;
         // Only closures are gated; other categories never consult the list.
         if target.category.requires_checklist() {
-            let active = checklist_enforcement(&mut ctx.tx, org_id, ticket.board_id).await?;
+            let active = checklist_enforcement(&mut ctx.tx, org_id, before.board_id).await?;
             if let Err(blocked) = core_domain::notes::enforce_pre_close(&checklist, active) {
                 return Err(ApiError::ChecklistBlocked {
                     missing: blocked.missing,
@@ -602,6 +772,15 @@ pub async fn change_status(
             core_db::sla::upsert_ticket_state(&mut *ctx.tx, &sla_state).await?;
         }
 
+        let write_seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: "ticket",
+                entity_id: id,
+                version,
+            },
+        )
+        .await?;
         core_db::tickets::update_status(&mut *ctx.tx, org_id, id, req.status_id).await?;
         let after = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id).await?;
 
@@ -611,9 +790,9 @@ pub async fn change_status(
             Some(after.id.to_string().as_str()),
             &serde_json::to_value(core_domain::events::TicketStatusChanged {
                 ticket_id: after.id,
-                from_status: ticket.status_id.to_string(),
+                from_status: before.status_id.to_string(),
                 to_status: target.name.clone(),
-                from_category: ticket.category,
+                from_category: before.category,
                 to_category: target.category,
                 changed_by: Some(user_id),
                 occurred_at: now,
@@ -634,7 +813,7 @@ pub async fn change_status(
         // Audit the lifecycle change with full from→to provenance.
         let from_name = statuses
             .iter()
-            .find(|s| s.id == ticket.status_id)
+            .find(|s| s.id == before.status_id)
             .map(|s| s.name.clone())
             .unwrap_or_default();
         core_db::audit::insert(
@@ -648,8 +827,8 @@ pub async fn change_status(
                 entity_id: Some(after.id.to_string()),
                 detail: serde_json::json!({
                     "from_status": from_name,
-                    "from_status_id": ticket.status_id,
-                    "from_category": ticket.category.as_str(),
+                    "from_status_id": before.status_id,
+                    "from_category": before.category.as_str(),
                     "to_status": target.name,
                     "to_status_id": target.id,
                     "to_category": target.category.as_str(),
@@ -660,11 +839,32 @@ pub async fn change_status(
         )
         .await?;
 
-        Ok((ctx, after))
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: "ticket",
+                entity_id: id,
+                op: "status_change",
+                seq: write_seq,
+                before: Some(serde_json::to_value(&before).unwrap_or(Value::Null)),
+                after: serde_json::to_value(&after).unwrap_or(Value::Null),
+                updated_at: after.updated_at,
+                key: key.as_deref(),
+                payload: &after,
+            },
+        )
+        .await?;
+        Ok((
+            ctx,
+            MutationOutcome::Applied(TicketStatusMutationResponse {
+                ticket: after,
+                mutation,
+            }),
+        ))
     })
     .await?;
 
-    Ok(Json(ticket))
+    Ok(Json(outcome.into_response()?))
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams, ToSchema)]
@@ -765,16 +965,19 @@ pub async fn list_comments(
 }
 
 /// POST /api/tickets/{id}/comments — adds a structured note; @mentions
-/// fan out into the notification center.
+/// fan out into the notification center. Instant-first (IF1/IF2):
+/// idempotency-keyed and returns the read-your-write mutation metadata.
 #[utoipa::path(operation_id = "tickets_add_comment", post, path = "/api/tickets/{id}/comments", tag = "tickets", security(("bearer" = [])),
     params(("id" = Uuid, Path)), request_body = AddCommentRequest,
-    responses((status = 200, body = core_domain::entities::TicketComment)))]
+    responses((status = 200, body = TicketCommentMutationResponse),
+              (status = 404, description = "ticket not visible in scope (rls_sparse)"),
+              (status = 409, description = "idempotency key reused")))]
 pub async fn add_comment(
     State(state): State<AppState>,
     extensions: Extensions,
     Path(id): Path<Uuid>,
     Json(req): Json<AddCommentRequest>,
-) -> ApiResult<Json<core_domain::entities::TicketComment>> {
+) -> ApiResult<Json<TicketCommentMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(
         &authed.principal,
@@ -788,9 +991,26 @@ pub async fn add_comment(
     let author_name = authed.principal.user.display_name.clone();
     let requester_email = authed.principal.user.email.clone();
     let mail = std::sync::Arc::clone(&state.mail);
+    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    let key = req.instant.idempotency_key.clone();
 
-    let comment = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id).await?;
+    let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        if let InstantClaim::Replay(stored) = instant::claim(
+            &mut ctx,
+            instant::ClaimSpec {
+                entity: "ticket_comment",
+                entity_id: None,
+                key: key.as_deref(),
+                fingerprint: &fingerprint,
+            },
+        )
+        .await?
+        {
+            return Ok((ctx, MutationOutcome::Replayed(stored)));
+        }
+        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
         authorize_board_op(
             &mut ctx.tx,
             &authed.principal,
@@ -947,11 +1167,38 @@ pub async fn add_comment(
             .unwrap_or_default(),
         )
         .await?;
-        Ok((ctx, comment))
+        let write_seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: "ticket_comment",
+                entity_id: comment.id,
+                version: None,
+            },
+        )
+        .await?;
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: "ticket_comment",
+                entity_id: comment.id,
+                op: "comment_add",
+                seq: write_seq,
+                before: None,
+                after: serde_json::to_value(&comment).unwrap_or(Value::Null),
+                updated_at: comment.created_at,
+                key: key.as_deref(),
+                payload: &comment,
+            },
+        )
+        .await?;
+        Ok((
+            ctx,
+            MutationOutcome::Applied(TicketCommentMutationResponse { comment, mutation }),
+        ))
     })
     .await?;
 
-    Ok(Json(comment))
+    Ok(Json(outcome.into_response()?))
 }
 
 /// First ~140 characters of a note body for notification previews.
