@@ -5,6 +5,7 @@
 
 use crate::auth::middleware::{authed, require_permission};
 use crate::error::{ApiError, ApiResult};
+use crate::instant::{self, InstantClaim, MutationOutcome};
 use crate::org_tx;
 use crate::state::AppState;
 use axum::{
@@ -15,7 +16,8 @@ use axum::{
 use core_domain::entities::{TimeEntry, TimerSession};
 use core_domain::events::types;
 use core_domain::policy::{Action, Module, Permission};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -26,9 +28,13 @@ fn time_perm(action: Action) -> Permission {
     }
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct StartTimerRequest {
     pub ticket_id: Uuid,
+    /// Instant-first autosave parameters (IF1): idempotency key. Absent in
+    /// legacy clients — purely additive. (Creates carry no version.)
+    #[serde(flatten, default)]
+    pub instant: instant::MutationParams,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -39,13 +45,35 @@ pub struct PauseTimerRequest {
     pub session_id: Option<Uuid>,
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct StopTimerRequest {
     pub reason: Option<String>,
     pub billable: Option<bool>,
     pub notes: Option<String>,
     /// Omit to stop the caller's active timer.
     pub session_id: Option<Uuid>,
+    /// Instant-first autosave parameters (IF1): idempotency key + entity
+    /// version. Absent in legacy clients — purely additive. A retried stop
+    /// replays the original time entry instead of failing "no active timer".
+    #[serde(flatten, default)]
+    pub instant: instant::MutationParams,
+}
+
+/// Instant-first mutation response (IF2): session fields at the top level
+/// (unchanged shape) plus the additive `mutation` metadata.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TimerMutationResponse {
+    #[serde(flatten)]
+    pub session: TimerSession,
+    pub mutation: instant::MutationMeta,
+}
+
+/// Same additive envelope for the stop flow (time-entry body).
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TimeEntryMutationResponse {
+    #[serde(flatten)]
+    pub entry: TimeEntry,
+    pub mutation: instant::MutationMeta,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -102,23 +130,43 @@ pub async fn working_set(
 /// POST /api/timers/start — starts (or switches to) a timer. If another
 /// session is running it is auto-paused with reason `switched` and stays in
 /// the working set; the DB's partial unique index is the backstop.
+/// Instant-first (IF1/IF2): idempotency-keyed and read-your-write.
 #[utoipa::path(operation_id = "timers_start", post, path = "/api/timers/start", tag = "timers", security(("bearer" = [])),
     request_body = StartTimerRequest,
-    responses((status = 200, body = core_domain::entities::TimerSession)))]
+    responses((status = 200, body = TimerMutationResponse),
+              (status = 404, description = "ticket not visible in scope (rls_sparse)"),
+              (status = 409, description = "idempotency key reused")))]
 pub async fn start(
     State(state): State<AppState>,
     extensions: Extensions,
     Json(req): Json<StartTimerRequest>,
-) -> ApiResult<Json<TimerSession>> {
+) -> ApiResult<Json<TimerMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, time_perm(Action::Create))?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     let now = chrono::Utc::now();
+    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    let key = req.instant.idempotency_key.clone();
 
-    let session = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+    let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        if let InstantClaim::Replay(stored) = instant::claim(
+            &mut ctx,
+            instant::ClaimSpec {
+                entity: "timer_session",
+                entity_id: None,
+                key: key.as_deref(),
+                fingerprint: &fingerprint,
+            },
+        )
+        .await?
+        {
+            return Ok((ctx, MutationOutcome::Replayed(stored)));
+        }
         // Ticket existence check under RLS (also validates org membership).
-        let _ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, req.ticket_id).await?;
+        let _ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, req.ticket_id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
 
         let mut switched_from = None;
         if let Some(mut current) = core_db::timers::active_session(&mut *ctx.tx, user_id).await? {
@@ -143,6 +191,15 @@ pub async fn start(
 
         let session = TimerSession::start(org_id, user_id, req.ticket_id, now);
         core_db::timers::insert_session(&mut *ctx.tx, &session).await?;
+        let write_seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: "timer_session",
+                entity_id: session.id,
+                version: None,
+            },
+        )
+        .await?;
         ctx.emit(
             types::TIMER_STARTED,
             "timer",
@@ -157,11 +214,29 @@ pub async fn start(
             .unwrap_or_default(),
         )
         .await?;
-        Ok((ctx, session))
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: "timer_session",
+                entity_id: session.id,
+                op: "timer_start",
+                seq: write_seq,
+                before: None,
+                after: serde_json::to_value(&session).unwrap_or(Value::Null),
+                updated_at: session.started_at,
+                key: key.as_deref(),
+                payload: &session,
+            },
+        )
+        .await?;
+        Ok((
+            ctx,
+            MutationOutcome::Applied(TimerMutationResponse { session, mutation }),
+        ))
     })
     .await?;
 
-    Ok(Json(session))
+    Ok(Json(outcome.into_response()?))
 }
 
 /// POST /api/timers/pause — pauses the active (or given) session, recording
@@ -268,22 +343,41 @@ pub async fn resume(
 /// (rounded up to the minute) in the same transaction.
 #[utoipa::path(operation_id = "timers_stop", post, path = "/api/timers/stop", tag = "timers", security(("bearer" = [])),
     request_body = StopTimerRequest,
-    responses((status = 200, body = core_domain::entities::TimeEntry)))]
+    responses((status = 200, body = TimeEntryMutationResponse),
+              (status = 404, description = "session not visible in scope (rls_sparse)"),
+              (status = 409, description = "version conflict or idempotency key reused")))]
 pub async fn stop(
     State(state): State<AppState>,
     extensions: Extensions,
     Json(req): Json<StopTimerRequest>,
-) -> ApiResult<Json<TimeEntry>> {
+) -> ApiResult<Json<TimeEntryMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, time_perm(Action::Create))?;
     let user_id = authed.principal.user.id;
     let org_id = authed.principal.user.org_id;
     let now = chrono::Utc::now();
+    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    let key = req.instant.idempotency_key.clone();
 
-    let entry = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        let mut session = match req.session_id {
+    let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        if let InstantClaim::Replay(stored) = instant::claim(
+            &mut ctx,
+            instant::ClaimSpec {
+                entity: "timer_session",
+                entity_id: req.session_id,
+                key: key.as_deref(),
+                fingerprint: &fingerprint,
+            },
+        )
+        .await?
+        {
+            return Ok((ctx, MutationOutcome::Replayed(stored)));
+        }
+        let before_session = match req.session_id {
             Some(id) => {
-                let s = core_db::timers::get_session(&mut *ctx.tx, id).await?;
+                let s = core_db::timers::get_session(&mut *ctx.tx, id)
+                    .await
+                    .map_err(|e| instant::mutation_scope_err(e.into()))?;
                 if s.user_id != user_id {
                     return Err(ApiError::Forbidden("not your timer".into()));
                 }
@@ -293,6 +387,16 @@ pub async fn stop(
                 .await?
                 .ok_or_else(|| ApiError::Validation("no active timer".into()))?,
         };
+        let write_seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: "timer_session",
+                entity_id: before_session.id,
+                version: req.instant.version,
+            },
+        )
+        .await?;
+        let mut session = before_session.clone();
         let total = session.total_elapsed_secs(now);
         session.stop(now, req.reason.clone())?;
         core_db::timers::update_session(&mut *ctx.tx, &session).await?;
@@ -328,11 +432,29 @@ pub async fn stop(
             .unwrap_or_default(),
         )
         .await?;
-        Ok((ctx, entry))
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: "timer_session",
+                entity_id: session.id,
+                op: "timer_stop",
+                seq: write_seq,
+                before: Some(serde_json::to_value(&before_session).unwrap_or(Value::Null)),
+                after: serde_json::to_value(&session).unwrap_or(Value::Null),
+                updated_at: entry.ended_at,
+                key: key.as_deref(),
+                payload: &entry,
+            },
+        )
+        .await?;
+        Ok((
+            ctx,
+            MutationOutcome::Applied(TimeEntryMutationResponse { entry, mutation }),
+        ))
     })
     .await?;
 
-    Ok(Json(entry))
+    Ok(Json(outcome.into_response()?))
 }
 
 /// GET /api/time-entries

@@ -182,27 +182,35 @@
         "type": "object"
       },
       "AddCommentRequest": {
-        "properties": {
-          "attachment_ids": {
-            "description": "Attachments uploaded earlier against this ticket (composer flow:\nupload first, link when the comment is created). Absent/empty in\nolder clients — purely additive.",
-            "items": {
-              "format": "uuid",
-              "type": "string"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1): idempotency key. Absent in\nlegacy clients — purely additive. (Comments are fresh entities, so\nthere is no version to match.)"
+          },
+          {
+            "properties": {
+              "attachment_ids": {
+                "description": "Attachments uploaded earlier against this ticket (composer flow:\nupload first, link when the comment is created). Absent/empty in\nolder clients — purely additive.",
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "body": {
+                "type": "string"
+              },
+              "kind": {
+                "$ref": "#/components/schemas/NoteKind"
+              }
             },
-            "type": "array"
-          },
-          "body": {
-            "type": "string"
-          },
-          "kind": {
-            "$ref": "#/components/schemas/NoteKind"
+            "required": [
+              "body",
+              "kind"
+            ],
+            "type": "object"
           }
-        },
-        "required": [
-          "body",
-          "kind"
-        ],
-        "type": "object"
+        ]
       },
       "ApiKeyCreatedResponse": {
         "description": "The ONLY response carrying raw key material. Lost keys are rotated by\ncreating a new key and revoking this one — never recovered.",
@@ -1532,16 +1540,24 @@
         "type": "object"
       },
       "ChangeStatusRequest": {
-        "properties": {
-          "status_id": {
-            "format": "uuid",
-            "type": "string"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1): idempotency key + entity\nversion. Absent in legacy clients — purely additive."
+          },
+          {
+            "properties": {
+              "status_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status_id"
+            ],
+            "type": "object"
           }
-        },
-        "required": [
-          "status_id"
-        ],
-        "type": "object"
+        ]
       },
       "ChecklistItem": {
         "description": "One line of a ticket's pre-close checklist. Items instantiated from the\nboard's template carry `template_item_id`; those are REQUIRED when the\nboard enforces pre-close checklists (see `crate::notes`). Ad-hoc items\n(`template_item_id == None`) never block closure.",
@@ -1816,6 +1832,25 @@
           "updated_at"
         ],
         "type": "object"
+      },
+      "ClientMutationResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Client"
+          },
+          {
+            "properties": {
+              "mutation": {
+                "$ref": "#/components/schemas/MutationMeta"
+              }
+            },
+            "required": [
+              "mutation"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "Instant-first mutation response (IF2): client fields at the top level\n(unchanged shape) plus the additive `mutation` metadata."
       },
       "CommentListQuery": {
         "properties": {
@@ -2202,21 +2237,29 @@
         "type": "object"
       },
       "CreateClientRequest": {
-        "properties": {
-          "name": {
-            "type": "string"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1): idempotency key. Absent in\nlegacy clients — purely additive. (Creates carry no version.)"
           },
-          "notes": {
-            "type": [
-              "string",
-              "null"
-            ]
+          {
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "notes": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
           }
-        },
-        "required": [
-          "name"
-        ],
-        "type": "object"
+        ]
       },
       "CreateContactRequest": {
         "properties": {
@@ -2500,72 +2543,80 @@
         "type": "object"
       },
       "CreateTicketRequest": {
-        "properties": {
-          "assignee_id": {
-            "format": "uuid",
-            "type": [
-              "string",
-              "null"
-            ]
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1): idempotency key + entity\nversion. Absent in legacy clients — purely additive."
           },
-          "board_id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "body": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "client_id": {
-            "format": "uuid",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "contact_id": {
-            "format": "uuid",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "custom_fields": {
-            "description": "Initial custom-field values; each is validated against its\ndefinition. REQUIRED definitions must all be present (TASKLIST 2.17).",
-            "items": {
-              "$ref": "#/components/schemas/TicketFieldInput"
+          {
+            "properties": {
+              "assignee_id": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "board_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "body": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "client_id": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "contact_id": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "custom_fields": {
+                "description": "Initial custom-field values; each is validated against its\ndefinition. REQUIRED definitions must all be present (TASKLIST 2.17).",
+                "items": {
+                  "$ref": "#/components/schemas/TicketFieldInput"
+                },
+                "type": "array"
+              },
+              "due_at": {
+                "format": "date-time",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "priority": {
+                "$ref": "#/components/schemas/Priority"
+              },
+              "site_id": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "title": {
+                "type": "string"
+              }
             },
-            "type": "array"
-          },
-          "due_at": {
-            "format": "date-time",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "priority": {
-            "$ref": "#/components/schemas/Priority"
-          },
-          "site_id": {
-            "format": "uuid",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "title": {
-            "type": "string"
+            "required": [
+              "board_id",
+              "title",
+              "priority"
+            ],
+            "type": "object"
           }
-        },
-        "required": [
-          "board_id",
-          "title",
-          "priority"
-        ],
-        "type": "object"
+        ]
       },
       "CreateTimeEntryRequest": {
         "properties": {
@@ -3563,6 +3614,72 @@
         ],
         "type": "object"
       },
+      "MutationMeta": {
+        "description": "Read-your-write metadata every mutation response carries (IF2), merged\nas the additive `mutation` object alongside the entity fields.",
+        "properties": {
+          "after": {
+            "description": "Applied entity snapshot.",
+            "type": "object"
+          },
+          "before": {
+            "description": "Prior entity snapshot (the undo substrate). `null` on creates.",
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "idempotency_key": {
+            "description": "The idempotency key that claimed this result, when the caller\nsupplied one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "seq": {
+            "description": "Monotonic per-entity sequence: strictly increases by one per\napplied write, so clients order reconciliations against the event\nstream.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "updated_at": {
+            "description": "The applied entity's `updated_at`.",
+            "type": "string"
+          },
+          "version": {
+            "description": "Version token for If-Match-style writes; mirrors `seq`. Echo it in\nthe next write's `version` field.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "seq",
+          "version",
+          "updated_at",
+          "before",
+          "after"
+        ],
+        "type": "object"
+      },
+      "MutationParams": {
+        "description": "The autosave mutation parameters every gated create/update body carries\n(flattened into the request struct — purely additive fields).",
+        "properties": {
+          "idempotency_key": {
+            "description": "Idempotency key: the same key with the same payload replays the\nSAME stored result (never double-applies); the same key with a\ndifferent payload is a typed 409. Generate one per user edit\ndebounce/retry episode (UUID works).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "description": "If-Match-style version: the entity `version` the caller last saw\n(the `mutation.version` of the previous response). A mismatch\nrejects the write with a typed 409 `version_conflict` carrying\n`expected`/`provided`; omit for creates and for legacy callers.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "MyWorkItem": {
         "description": "One cross-board my-work queue row (TASKLIST 2.11): the ticket plus the\nannotations the Today screen renders per the mockup.",
         "properties": {
@@ -3967,77 +4084,85 @@
         "type": "object"
       },
       "PatchTicketRequest": {
-        "properties": {
-          "assignee_id": {
-            "description": "`Some(Some(id))` assigns; `Some(None)` unassigns; `None` = no change.",
-            "format": "uuid",
-            "type": [
-              "string",
-              "null"
-            ]
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1): idempotency key + entity\nversion. Absent in legacy clients — purely additive."
           },
-          "body": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "client_id": {
-            "format": "uuid",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "contact_id": {
-            "format": "uuid",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "custom_fields": {
-            "description": "Custom-field values to upsert. Partial semantics: only listed fields\nchange, each validated against its definition.",
-            "items": {
-              "$ref": "#/components/schemas/TicketFieldInput"
-            },
-            "type": [
-              "array",
-              "null"
-            ]
-          },
-          "due_at": {
-            "format": "date-time",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "priority": {
-            "oneOf": [
-              {
-                "type": "null"
+          {
+            "properties": {
+              "assignee_id": {
+                "description": "`Some(Some(id))` assigns; `Some(None)` unassigns; `None` = no change.",
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
-              {
-                "$ref": "#/components/schemas/Priority"
+              "body": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "client_id": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "contact_id": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "custom_fields": {
+                "description": "Custom-field values to upsert. Partial semantics: only listed fields\nchange, each validated against its definition.",
+                "items": {
+                  "$ref": "#/components/schemas/TicketFieldInput"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "due_at": {
+                "format": "date-time",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "priority": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Priority"
+                  }
+                ]
+              },
+              "site_id": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
-            ]
-          },
-          "site_id": {
-            "format": "uuid",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "title": {
-            "type": [
-              "string",
-              "null"
-            ]
+            },
+            "type": "object"
           }
-        },
-        "type": "object"
+        ]
       },
       "PauseTimerRequest": {
         "properties": {
@@ -5309,47 +5434,63 @@
         ]
       },
       "StartTimerRequest": {
-        "properties": {
-          "ticket_id": {
-            "format": "uuid",
-            "type": "string"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1): idempotency key. Absent in\nlegacy clients — purely additive. (Creates carry no version.)"
+          },
+          {
+            "properties": {
+              "ticket_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "ticket_id"
+            ],
+            "type": "object"
           }
-        },
-        "required": [
-          "ticket_id"
-        ],
-        "type": "object"
+        ]
       },
       "StopTimerRequest": {
-        "properties": {
-          "billable": {
-            "type": [
-              "boolean",
-              "null"
-            ]
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1): idempotency key + entity\nversion. Absent in legacy clients — purely additive. A retried stop\nreplays the original time entry instead of failing \"no active timer\"."
           },
-          "notes": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "reason": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "session_id": {
-            "description": "Omit to stop the caller's active timer.",
-            "format": "uuid",
-            "type": [
-              "string",
-              "null"
-            ]
+          {
+            "properties": {
+              "billable": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "notes": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "session_id": {
+                "description": "Omit to stop the caller's active timer.",
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
           }
-        },
-        "type": "object"
+        ]
       },
       "TeamRangeQuery": {
         "properties": {
@@ -5641,6 +5782,25 @@
         ],
         "type": "object"
       },
+      "TicketCommentMutationResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/TicketComment"
+          },
+          {
+            "properties": {
+              "mutation": {
+                "$ref": "#/components/schemas/MutationMeta"
+              }
+            },
+            "required": [
+              "mutation"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "Same additive envelope for comments (plain comment body)."
+      },
       "TicketCustomFieldValue": {
         "description": "One stored ticket value with its definition context.",
         "properties": {
@@ -5741,6 +5901,25 @@
           }
         },
         "type": "object"
+      },
+      "TicketMutationResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/TicketWithFields"
+          },
+          {
+            "properties": {
+              "mutation": {
+                "$ref": "#/components/schemas/MutationMeta"
+              }
+            },
+            "required": [
+              "mutation"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "Instant-first mutation response (IF2): the enriched ticket fields at the\ntop level (unchanged shape) plus the additive `mutation` metadata — the\napplied snapshot, monotonic per-entity `seq`/`version`, and the prior\nand new values that make undo a core capability."
       },
       "TicketNumber": {
         "description": "Human-facing ticket number, e.g. `MER-2841`. Globally unique per org,\nassigned from a per-org sequence.",
@@ -5847,6 +6026,25 @@
         ],
         "type": "string"
       },
+      "TicketStatusMutationResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Ticket"
+          },
+          {
+            "properties": {
+              "mutation": {
+                "$ref": "#/components/schemas/MutationMeta"
+              }
+            },
+            "required": [
+              "mutation"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "Same additive envelope for status transitions (plain ticket body)."
+      },
       "TicketWithFields": {
         "allOf": [
           {
@@ -5942,6 +6140,25 @@
         ],
         "type": "object"
       },
+      "TimeEntryMutationResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/TimeEntry"
+          },
+          {
+            "properties": {
+              "mutation": {
+                "$ref": "#/components/schemas/MutationMeta"
+              }
+            },
+            "required": [
+              "mutation"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "Same additive envelope for the stop flow (time-entry body)."
+      },
       "TimeSettingsResponse": {
         "properties": {
           "eod_nudge_hour": {
@@ -5964,6 +6181,25 @@
           "time_gap_min_minutes"
         ],
         "type": "object"
+      },
+      "TimerMutationResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/TimerSession"
+          },
+          {
+            "properties": {
+              "mutation": {
+                "$ref": "#/components/schemas/MutationMeta"
+              }
+            },
+            "required": [
+              "mutation"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "Instant-first mutation response (IF2): session fields at the top level\n(unchanged shape) plus the additive `mutation` metadata."
       },
       "TimerSegment": {
         "description": "A contiguous running interval within a timer session.",
@@ -9519,11 +9755,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Client"
+                  "$ref": "#/components/schemas/ClientMutationResponse"
                 }
               }
             },
             "description": ""
+          },
+          "409": {
+            "description": "idempotency key reused"
           }
         },
         "security": [
@@ -9531,7 +9770,7 @@
             "bearer": []
           }
         ],
-        "summary": "POST /api/clients",
+        "summary": "POST /api/clients — instant-first (IF1/IF2): idempotency-keyed and\nreturns the read-your-write `mutation` metadata.",
         "tags": [
           "clients"
         ]
@@ -12138,11 +12377,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TicketWithFields"
+                  "$ref": "#/components/schemas/TicketMutationResponse"
                 }
               }
             },
             "description": ""
+          },
+          "409": {
+            "description": "version conflict or idempotency key reused"
           },
           "422": {
             "description": "missing required custom fields or invalid value"
@@ -12153,7 +12395,7 @@
             "bearer": []
           }
         ],
-        "summary": "POST /api/tickets — allocates the human ticket number, initializes SLA\nclocks, validates + stores any initial custom-field values (REQUIRED\ndefinitions enforced), and emits `ticket.created` — all in one transaction.",
+        "summary": "POST /api/tickets — allocates the human ticket number, initializes SLA\nclocks, validates + stores any initial custom-field values (REQUIRED\ndefinitions enforced), and emits `ticket.created` — all in one transaction.\nInstant-first (IF1/IF2): routed through the shared idempotency gate and\nreturns the read-your-write `mutation` metadata.",
         "tags": [
           "tickets"
         ]
@@ -12252,11 +12494,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TicketWithFields"
+                  "$ref": "#/components/schemas/TicketMutationResponse"
                 }
               }
             },
             "description": ""
+          },
+          "404": {
+            "description": "ticket not visible in scope (rls_sparse)"
+          },
+          "409": {
+            "description": "version conflict or idempotency key reused"
           },
           "422": {
             "description": "invalid custom-field value"
@@ -12267,7 +12515,7 @@
             "bearer": []
           }
         ],
-        "summary": "PATCH /api/tickets/{id} — partial update; validates + upserts any\nprovided custom-field values; emits `ticket.updated`,\n`ticket.field_set` (per changed field), and `ticket.assigned` when the\nassignee changes.",
+        "summary": "PATCH /api/tickets/{id} — partial update; validates + upserts any\nprovided custom-field values; emits `ticket.updated`,\n`ticket.field_set` (per changed field), and `ticket.assigned` when the\nassignee changes. Instant-first (IF1/IF2): idempotency-keyed, version-\ngated, and returns prior + new values for undo.",
         "tags": [
           "tickets"
         ]
@@ -12585,11 +12833,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TicketComment"
+                  "$ref": "#/components/schemas/TicketCommentMutationResponse"
                 }
               }
             },
             "description": ""
+          },
+          "404": {
+            "description": "ticket not visible in scope (rls_sparse)"
+          },
+          "409": {
+            "description": "idempotency key reused"
           }
         },
         "security": [
@@ -12597,7 +12851,7 @@
             "bearer": []
           }
         ],
-        "summary": "POST /api/tickets/{id}/comments — adds a structured note; @mentions\nfan out into the notification center.",
+        "summary": "POST /api/tickets/{id}/comments — adds a structured note; @mentions\nfan out into the notification center. Instant-first (IF1/IF2):\nidempotency-keyed and returns the read-your-write mutation metadata.",
         "tags": [
           "tickets"
         ]
@@ -12817,14 +13071,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Ticket"
+                  "$ref": "#/components/schemas/TicketStatusMutationResponse"
                 }
               }
             },
             "description": ""
           },
+          "404": {
+            "description": "ticket not visible in scope (rls_sparse)"
+          },
           "409": {
-            "description": "pre-close checklist incomplete (board enforces)"
+            "description": "pre-close checklist blocked, version conflict, or idempotency key reused"
           },
           "422": {
             "description": "invalid transition"
@@ -12835,7 +13092,7 @@
             "bearer": []
           }
         ],
-        "summary": "POST /api/tickets/{id}/status — the guarded lifecycle transition:\ndomain transition rules, pre-close checklist enforcement (typed 409\nlisting the incomplete required items when the board enforces), SLA\npause bookkeeping, and the `ticket.status_changed` event, all in one tx.",
+        "summary": "POST /api/tickets/{id}/status — the guarded lifecycle transition:\ndomain transition rules, pre-close checklist enforcement (typed 409\nlisting the incomplete required items when the board enforces), SLA\npause bookkeeping, and the `ticket.status_changed` event, all in one tx.\nInstant-first (IF1/IF2): idempotency-keyed, version-gated, read-your-write.",
         "tags": [
           "tickets"
         ]
@@ -13301,11 +13558,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TimerSession"
+                  "$ref": "#/components/schemas/TimerMutationResponse"
                 }
               }
             },
             "description": ""
+          },
+          "404": {
+            "description": "ticket not visible in scope (rls_sparse)"
+          },
+          "409": {
+            "description": "idempotency key reused"
           }
         },
         "security": [
@@ -13313,7 +13576,7 @@
             "bearer": []
           }
         ],
-        "summary": "POST /api/timers/start — starts (or switches to) a timer. If another\nsession is running it is auto-paused with reason `switched` and stays in\nthe working set; the DB's partial unique index is the backstop.",
+        "summary": "POST /api/timers/start — starts (or switches to) a timer. If another\nsession is running it is auto-paused with reason `switched` and stays in\nthe working set; the DB's partial unique index is the backstop.\nInstant-first (IF1/IF2): idempotency-keyed and read-your-write.",
         "tags": [
           "timers"
         ]
@@ -13337,11 +13600,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TimeEntry"
+                  "$ref": "#/components/schemas/TimeEntryMutationResponse"
                 }
               }
             },
             "description": ""
+          },
+          "404": {
+            "description": "session not visible in scope (rls_sparse)"
+          },
+          "409": {
+            "description": "version conflict or idempotency key reused"
           }
         },
         "security": [

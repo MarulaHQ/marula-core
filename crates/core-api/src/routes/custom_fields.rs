@@ -133,14 +133,14 @@ pub struct UpdateFieldDefRequest {
 
 /// One value assignment on a ticket create/patch: raw JSON validated against
 /// its definition server-side.
-#[derive(Debug, Clone, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct TicketFieldInput {
     pub field_id: Uuid,
     pub value: serde_json::Value,
 }
 
 /// One stored ticket value with its definition context.
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct TicketCustomFieldValue {
     pub field_id: Uuid,
     pub name: String,
@@ -174,7 +174,7 @@ impl TryFrom<core_db::custom_fields::FieldValueRow> for TicketCustomFieldValue {
 }
 
 /// A ticket payload enriched with its custom-field values (detail + list).
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct TicketWithFields {
     #[serde(flatten)]
     pub ticket: core_domain::entities::Ticket,

@@ -4,6 +4,7 @@
 
 use crate::auth::middleware::{authed, require_permission};
 use crate::error::{ApiError, ApiResult};
+use crate::instant::{self, InstantClaim, MutationOutcome};
 use crate::org_tx;
 use crate::state::AppState;
 use axum::{
@@ -13,7 +14,8 @@ use axum::{
 };
 use core_domain::events::types;
 use core_domain::policy::{Module, Permission};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -31,10 +33,23 @@ fn client_edit_permission() -> Permission {
     }
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct CreateClientRequest {
     pub name: String,
     pub notes: Option<String>,
+    /// Instant-first autosave parameters (IF1): idempotency key. Absent in
+    /// legacy clients — purely additive. (Creates carry no version.)
+    #[serde(flatten, default)]
+    pub instant: instant::MutationParams,
+}
+
+/// Instant-first mutation response (IF2): client fields at the top level
+/// (unchanged shape) plus the additive `mutation` metadata.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ClientMutationResponse {
+    #[serde(flatten)]
+    pub client: core_domain::entities::Client,
+    pub mutation: instant::MutationMeta,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -101,15 +116,17 @@ pub async fn get_one(
     Ok(Json(client))
 }
 
-/// POST /api/clients
+/// POST /api/clients — instant-first (IF1/IF2): idempotency-keyed and
+/// returns the read-your-write `mutation` metadata.
 #[utoipa::path(operation_id = "clients_create", post, path = "/api/clients", tag = "clients", security(("bearer" = [])),
     request_body = CreateClientRequest,
-    responses((status = 200, body = core_domain::entities::Client)))]
+    responses((status = 200, body = ClientMutationResponse),
+              (status = 409, description = "idempotency key reused")))]
 pub async fn create(
     State(state): State<AppState>,
     extensions: Extensions,
     Json(req): Json<CreateClientRequest>,
-) -> ApiResult<Json<core_domain::entities::Client>> {
+) -> ApiResult<Json<ClientMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, client_edit_permission())?;
     if req.name.trim().is_empty() {
@@ -117,13 +134,38 @@ pub async fn create(
     }
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
-    let client = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    let key = req.instant.idempotency_key.clone();
+
+    let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        if let InstantClaim::Replay(stored) = instant::claim(
+            &mut ctx,
+            instant::ClaimSpec {
+                entity: "client",
+                entity_id: None,
+                key: key.as_deref(),
+                fingerprint: &fingerprint,
+            },
+        )
+        .await?
+        {
+            return Ok((ctx, MutationOutcome::Replayed(stored)));
+        }
         let client = core_db::clients::create_client(
             &mut *ctx.tx,
             org_id,
             Uuid::now_v7(),
             req.name.trim(),
             req.notes.as_deref(),
+        )
+        .await?;
+        let write_seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: "client",
+                entity_id: client.id,
+                version: None,
+            },
         )
         .await?;
         ctx.emit(
@@ -137,10 +179,29 @@ pub async fn create(
             .unwrap_or_else(|_| serde_json::json!({})),
         )
         .await?;
-        Ok((ctx, client))
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: "client",
+                entity_id: client.id,
+                op: "create",
+                seq: write_seq,
+                before: None,
+                after: serde_json::to_value(&client).unwrap_or(Value::Null),
+                updated_at: client.created_at,
+                key: key.as_deref(),
+                payload: &client,
+            },
+        )
+        .await?;
+        Ok((
+            ctx,
+            MutationOutcome::Applied(ClientMutationResponse { client, mutation }),
+        ))
     })
     .await?;
-    Ok(Json(client))
+
+    Ok(Json(outcome.into_response()?))
 }
 
 /// GET /api/clients/{id}/sites

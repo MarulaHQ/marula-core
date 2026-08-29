@@ -1,4 +1,21 @@
 //! Typed API errors with HTTP mapping. No panics on the request path.
+//!
+//! Instant-first contract (docs/instant-first.md IF3): every error body
+//! carries a machine-readable `reason` code clients branch on — never prose
+//! to parse. The legacy `code` (HTTP status) and `message` keys stay so the
+//! change is purely additive for existing consumers:
+//!
+//! ```json
+//! { "error": { "code": 409, "reason": "version_conflict", "message": "...", ...extra } }
+//! ```
+//!
+//! Route handlers added by parallel lanes converge on this envelope for
+//! free: returning `ApiError` from any handler is all it takes. Reason
+//! vocabulary: `not_found`, `rls_sparse`, `unauthorized`, `forbidden`,
+//! `validation_failed`, `conflict`, `version_conflict`,
+//! `idempotency_key_reused`, `pre_close_checklist_blocked`,
+//! `dispatch_move_conflict`, `import_chunk_rejected`, `service_unavailable`,
+//! `internal_error`.
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -10,6 +27,14 @@ use uuid::Uuid;
 pub enum ApiError {
     #[error("not found")]
     NotFound,
+    /// The mutation target is not visible under the caller's row-level
+    /// scope (RLS filtered it, it was deleted, or it never existed — the
+    /// three are deliberately indistinguishable, which is the RLS security
+    /// property). Mutations get this instead of `not_found` so clients can
+    /// branch: a write that did not land because the target left the
+    /// visible scope reconciles by resyncing, not by re-POSTing.
+    #[error("mutation target not visible in scope")]
+    RlsSparse,
     #[error("unauthorized: {0}")]
     Unauthorized(String),
     #[error("forbidden: {0}")]
@@ -18,6 +43,22 @@ pub enum ApiError {
     Validation(String),
     #[error("conflict: {0}")]
     Conflict(String),
+    /// Typed 409 for an If-Match-style version mismatch (instant-first
+    /// IF1): the caller's `version` no longer matches the entity's current
+    /// monotonic seq, so the write was rejected before anything changed.
+    #[error("version conflict: entity moved from version {provided} to {expected}")]
+    VersionConflict {
+        /// The entity's current version (what the caller must re-read).
+        expected: i64,
+        /// The stale version the caller presented.
+        provided: i64,
+    },
+    /// Typed 409 when an idempotency key is reused with a different
+    /// request payload (or against a different endpoint family). The key
+    /// is a replay contract, not a dedupe hint: same key + different body
+    /// is a client bug we refuse to guess at.
+    #[error("idempotency key reused with a different request")]
+    IdempotencyKeyReused,
     /// Typed 409 for a close attempt blocked by the pre-close checklist:
     /// carries the unchecked REQUIRED item texts so clients can render the
     /// exact blockers without a second round-trip.
@@ -80,14 +121,45 @@ impl From<core_domain::DomainError> for ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let (status, message, extra) = match &self {
-            ApiError::NotFound => (StatusCode::NOT_FOUND, "not found".to_string(), None),
-            ApiError::Unauthorized(m) => (StatusCode::UNAUTHORIZED, m.clone(), None),
-            ApiError::Forbidden(m) => (StatusCode::FORBIDDEN, m.clone(), None),
-            ApiError::Validation(m) => (StatusCode::UNPROCESSABLE_ENTITY, m.clone(), None),
-            ApiError::Conflict(m) => (StatusCode::CONFLICT, m.clone(), None),
+        let (status, reason, message, extra) = match &self {
+            ApiError::NotFound => (
+                StatusCode::NOT_FOUND,
+                "not_found",
+                "not found".to_string(),
+                None,
+            ),
+            ApiError::RlsSparse => (
+                StatusCode::NOT_FOUND,
+                "rls_sparse",
+                "mutation target not visible in scope".to_string(),
+                None,
+            ),
+            ApiError::Unauthorized(m) => {
+                (StatusCode::UNAUTHORIZED, "unauthorized", m.clone(), None)
+            }
+            ApiError::Forbidden(m) => (StatusCode::FORBIDDEN, "forbidden", m.clone(), None),
+            ApiError::Validation(m) => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "validation_failed",
+                m.clone(),
+                None,
+            ),
+            ApiError::Conflict(m) => (StatusCode::CONFLICT, "conflict", m.clone(), None),
+            ApiError::VersionConflict { expected, provided } => (
+                StatusCode::CONFLICT,
+                "version_conflict",
+                format!("version conflict: entity moved from version {provided} to {expected}"),
+                Some(json!({ "expected": expected, "provided": provided })),
+            ),
+            ApiError::IdempotencyKeyReused => (
+                StatusCode::CONFLICT,
+                "idempotency_key_reused",
+                "idempotency key reused with a different request".to_string(),
+                None,
+            ),
             ApiError::ChecklistBlocked { missing } => (
                 StatusCode::CONFLICT,
+                "pre_close_checklist_blocked",
                 "pre-close checklist incomplete".to_string(),
                 Some(json!({ "missing": missing })),
             ),
@@ -97,6 +169,7 @@ impl IntoResponse for ApiError {
                 blocker_title,
             } => (
                 StatusCode::CONFLICT,
+                "dispatch_move_conflict",
                 "dispatch move conflicts with existing booking".to_string(),
                 Some(json!({
                     "index": index,
@@ -106,17 +179,24 @@ impl IntoResponse for ApiError {
             ),
             ApiError::ImportChunkRejected { report } => (
                 StatusCode::CONFLICT,
+                "import_chunk_rejected",
                 "import chunk rejected by conflict_policy=fail".to_string(),
                 Some(json!({ "report": report })),
             ),
-            ApiError::Unavailable(m) => (StatusCode::SERVICE_UNAVAILABLE, m.clone(), None),
+            ApiError::Unavailable(m) => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "service_unavailable",
+                m.clone(),
+                None,
+            ),
             ApiError::Internal(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
+                "internal_error",
                 "internal error".to_string(),
                 None,
             ),
         };
-        let mut error = json!({ "code": status.as_u16(), "message": message });
+        let mut error = json!({ "code": status.as_u16(), "reason": reason, "message": message });
         if let Some(extra) = extra {
             if let (Some(base), Some(ext)) = (error.as_object_mut(), extra.as_object()) {
                 for (k, v) in ext {
