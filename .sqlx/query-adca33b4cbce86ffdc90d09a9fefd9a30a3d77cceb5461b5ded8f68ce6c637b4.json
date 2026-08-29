@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, board_id, name, trigger_event, conditions, actions, enabled\n           FROM automation_rules WHERE org_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "board_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "trigger_event",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "conditions",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "actions",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "enabled",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "adca33b4cbce86ffdc90d09a9fefd9a30a3d77cceb5461b5ded8f68ce6c637b4"
+}

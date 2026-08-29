@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT c.id, c.name,\n                  jsonb_build_object('name', c.name, 'timezone', c.timezone,\n                                     'windows', c.windows, 'holidays', c.holidays,\n                                     'maintenance', c.maintenance) AS \"calendar: serde_json::Value\"\n           FROM sla_calendars c WHERE c.org_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "calendar: serde_json::Value",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "b5f471243fa3ec61ebecf170699db5907a1413553df6973e075cdb7ac189d7e9"
+}

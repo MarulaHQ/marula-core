@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, entity, name, kind, config, required, sort_order, archived_at\n           FROM custom_field_defs WHERE org_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "entity",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "config",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "required",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "sort_order",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "archived_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "c89bc598dc96ebde53cfda69ca2c3cacea1032dc7c9b086067879937efb1540c"
+}

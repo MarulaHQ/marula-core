@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT policy_id, step_index, trigger_kind, at_pct, notify_user_ids, enabled\n           FROM sla_escalation_steps WHERE org_id = $1\n           ORDER BY policy_id, step_index",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "policy_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "step_index",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "trigger_kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "at_pct",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "notify_user_ids",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "enabled",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "452f627c8c79fbf9b17f6b9d54ef7be532099ba39865a4528c5ff08ea418662c"
+}

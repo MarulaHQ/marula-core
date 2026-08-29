@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT p.id, p.name, p.is_default, p.targets,\n                  p.calendar AS \"calendar: serde_json::Value\", p.calendar_id\n           FROM sla_policies p WHERE p.org_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "is_default",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "targets",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "calendar: serde_json::Value",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "calendar_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "d1fcf3ff3620cec0068d7d069acbf32c66728ee9f949fd624bcdd4b71a0c0530"
+}
