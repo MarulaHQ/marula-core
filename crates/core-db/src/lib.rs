@@ -18,6 +18,7 @@ pub mod custom_fields;
 pub mod emails;
 pub mod imports;
 pub mod mfa;
+pub mod manifest;
 pub mod notifications;
 pub mod oidc;
 pub mod orgs;
