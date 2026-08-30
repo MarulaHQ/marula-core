@@ -1,0 +1,10 @@
+{
+  "event_type": "automation.rule_updated",
+  "entity": "automation_rule",
+  "variant": "deleted",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "deleted": true
+  }
+}

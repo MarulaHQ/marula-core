@@ -1,0 +1,10 @@
+{
+  "event_type": "sla.calendar_updated",
+  "entity": "sla_calendar",
+  "variant": "patched",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "calendar_id": "00000000-0000-0000-0000-00000000001a"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "event_type": "org.updated",
+  "entity": "org",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "name": "Meridian MSP",
+    "ticket_prefix": "MER"
+  }
+}

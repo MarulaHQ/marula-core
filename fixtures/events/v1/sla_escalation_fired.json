@@ -1,0 +1,14 @@
+{
+  "event_type": "sla.escalation_fired",
+  "entity": "ticket",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "step_id": "00000000-0000-0000-0000-000000000019",
+    "target": "assignee",
+    "ticket_id": "00000000-0000-0000-0000-000000000001",
+    "title": "SLA at risk: VPN down at main office",
+    "trigger": "breach"
+  }
+}

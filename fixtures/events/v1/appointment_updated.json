@@ -1,0 +1,27 @@
+{
+  "event_type": "appointment.updated",
+  "entity": "appointment",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "appointment": {
+      "client_id": "00000000-0000-0000-0000-000000000003",
+      "created_at": "2023-11-14T22:13:27Z",
+      "ends_at": "2023-11-14T22:13:30Z",
+      "id": "00000000-0000-0000-0000-000000000013",
+      "kind": "on_site",
+      "notes": null,
+      "org_id": "00000000-0000-0000-0000-000000000000",
+      "site_id": "00000000-0000-0000-0000-00000000000a",
+      "starts_at": "2023-11-14T22:13:28Z",
+      "status": "scheduled",
+      "ticket_id": "00000000-0000-0000-0000-000000000001",
+      "title": "On-site: swap firewall",
+      "travel_minutes": 35,
+      "updated_at": "2023-11-14T22:13:27Z",
+      "user_id": "00000000-0000-0000-0000-000000000004"
+    },
+    "rescheduled": true
+  }
+}

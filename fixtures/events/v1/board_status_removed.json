@@ -1,0 +1,12 @@
+{
+  "event_type": "board.status_removed",
+  "entity": "board_status",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "board_id": "00000000-0000-0000-0000-000000000002",
+    "name": "Waiting on client",
+    "status_id": "00000000-0000-0000-0000-00000000000d"
+  }
+}

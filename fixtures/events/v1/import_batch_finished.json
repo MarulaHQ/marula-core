@@ -1,0 +1,16 @@
+{
+  "event_type": "import.batch_finished",
+  "entity": "import_batch",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "batch_id": "00000000-0000-0000-0000-00000000000c",
+    "entity_kind": "clients",
+    "rows_created": 90,
+    "rows_failed": 5,
+    "rows_skipped": 7,
+    "rows_total": 120,
+    "rows_updated": 18
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "event_type": "board.group_updated",
+  "entity": "board_group",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "group_id": "00000000-0000-0000-0000-000000000012",
+    "name": "Client work — Q3",
+    "position": 2
+  }
+}

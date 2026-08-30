@@ -1,0 +1,23 @@
+{
+  "event_type": "time_entry.created",
+  "entity": "time_entry",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "entry": {
+      "billable": true,
+      "created_at": "2023-11-14T22:13:26Z",
+      "ended_at": "2023-11-14T22:13:26Z",
+      "id": "00000000-0000-0000-0000-000000000011",
+      "minutes": 120,
+      "notes": "On-site visit",
+      "org_id": "00000000-0000-0000-0000-000000000000",
+      "started_at": "2023-11-14T22:13:24Z",
+      "ticket_id": "00000000-0000-0000-0000-000000000001",
+      "timer_session_id": "00000000-0000-0000-0000-00000000000f",
+      "user_id": "00000000-0000-0000-0000-000000000004",
+      "work_type": "onsite"
+    }
+  }
+}

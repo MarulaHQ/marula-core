@@ -9,6 +9,7 @@
 pub mod attachments;
 pub mod automations;
 pub mod custom_fields;
+pub mod deprecation;
 pub mod entities;
 pub mod error;
 pub mod events;
