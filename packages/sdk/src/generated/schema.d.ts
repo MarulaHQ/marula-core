@@ -711,6 +711,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/billing/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/billing/preview — evaluate EVERY billable contract in the
+         *     org over `[from, to]` (cancelled contracts excluded; effective windows
+         *     must intersect). READ-ONLY: the org-wide dry-run of a Wave-9 invoice
+         *     run.
+         */
+        get: operations["billing_preview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/board-groups": {
         parameters: {
             query?: never;
@@ -1236,6 +1258,83 @@ export interface paths {
         put?: never;
         /** POST /api/clients/{id}/sites */
         post: operations["clients_create_site"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/contracts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/contracts — list with optional client/status/effective-date
+         *     filters, ordered by contract number.
+         */
+        get: operations["contracts_list"];
+        put?: never;
+        /**
+         * POST /api/contracts — instant-first (IF1/IF2): idempotency-keyed and
+         *     returns the read-your-write `mutation` metadata.
+         */
+        post: operations["contracts_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/contracts/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/contracts/{id} — the contract aggregate (agreement + rate
+         *     card + fee schedule).
+         */
+        get: operations["contracts_get_one"];
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/contracts/{id} — removes the contract aggregate. A typed
+         *     404 (`rls_sparse`) means the target was never visible in scope.
+         *     Wave 9's invoice run adds the billing-lock guard once invoice
+         *     references can exist.
+         */
+        delete: operations["contracts_delete"];
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/contracts/{id} — instant-first (IF1/IF2) partial update.
+         *     Absent fields keep their values; `rates`/`fees`, when present,
+         *     replace the whole card/schedule. The version gate rejects stale
+         *     writes with a typed 409.
+         */
+        patch: operations["contracts_patch"];
+        trace?: never;
+    };
+    "/api/v1/contracts/{id}/billing-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/contracts/{id}/billing-preview — evaluate this contract's
+         *     billing rules over `[from, to]` and return the draft invoice-line
+         *     candidates. READ-ONLY: nothing persists, no billed markers exist.
+         */
+        get: operations["contracts_billing_preview"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2968,6 +3067,81 @@ export interface components {
             /** Format: date-time */
             started_at: string;
         };
+        /**
+         * @description One draft invoice-line candidate. This is a PREVIEW shape: nothing
+         *     persists until Wave 9's invoice run.
+         */
+        BillingCandidateLine: {
+            /**
+             * Format: int64
+             * @description Line total in minor units (currency on the parent evaluation).
+             */
+            amount_minor: number;
+            /** Format: uuid */
+            client_id: string;
+            /** Format: uuid */
+            contract_id: string;
+            contract_number: string;
+            description: string;
+            kind: components["schemas"]["BillingLineKind"];
+            /** Format: date */
+            period_end: string;
+            /**
+             * Format: date
+             * @description The billing period (recurring/retainer) or the effective slice of
+             *     the evaluation window (T&M) or the fee's due date mirrored into
+             *     both ends (fixed fee). Inclusive start, exclusive end for
+             *     period-derived lines.
+             */
+            period_start: string;
+            /**
+             * Format: int64
+             * @description Labor minutes on the line (T&M/overage); 0 for amount lines.
+             */
+            quantity_minutes: number;
+            /**
+             * Format: int64
+             * @description Unit price in minor units: the hourly rate for labor lines, the
+             *     full amount otherwise.
+             */
+            unit_amount_minor: number;
+        };
+        /** @description The result of evaluating one contract's billing rules over a window. */
+        BillingEvaluation: {
+            /** Format: uuid */
+            client_id: string;
+            /** Format: uuid */
+            contract_id: string;
+            contract_number: string;
+            contract_type: components["schemas"]["ContractType"];
+            currency: string;
+            /**
+             * Format: date
+             * @description The evaluation window (inclusive bounds).
+             */
+            from: string;
+            lines: components["schemas"]["BillingCandidateLine"][];
+            /** Format: date */
+            to: string;
+            /**
+             * Format: int64
+             * @description Sum of line amounts, minor units.
+             */
+            total_minor: number;
+        };
+        /**
+         * @description Billing period length. Period boundaries derive from the contract's
+         *     `billing_anchor`: the anchor is the first period's start date and each
+         *     subsequent period starts one frequency step later (calendar-aware
+         *     clamping lives in core-billing's period arithmetic).
+         * @enum {string}
+         */
+        BillingFrequency: "weekly" | "monthly" | "quarterly" | "semiannual" | "annual";
+        /**
+         * @description Which billing rule produced a candidate line.
+         * @enum {string}
+         */
+        BillingLineKind: "recurring_base" | "retainer_base" | "retainer_overage" | "time_materials" | "fixed_fee";
         Board: {
             /**
              * Format: date-time
@@ -3367,6 +3541,147 @@ export interface components {
             site_id?: string | null;
             title?: string | null;
         };
+        /**
+         * @description A commercial agreement with one client. Money fields are integer minor
+         *     units (cents for USD) — floats are forbidden near amounts (§5).
+         */
+        Contract: {
+            /**
+             * Format: int64
+             * @description Per-period price (recurring/retainer), minor units.
+             */
+            amount_minor?: number | null;
+            /**
+             * Format: date
+             * @description Required for recurring/retainer; the first billing period's start.
+             */
+            billing_anchor?: string | null;
+            billing_frequency?: null | components["schemas"]["BillingFrequency"];
+            /** Format: uuid */
+            client_id: string;
+            contract_type: components["schemas"]["ContractType"];
+            /** Format: date-time */
+            created_at: string;
+            /** @description ISO 4217 code; every amount on the contract uses this currency. */
+            currency: string;
+            /**
+             * Format: date
+             * @description First day the agreement can generate billable candidates.
+             */
+            effective_from: string;
+            /**
+             * Format: date
+             * @description Last day it can; `None` = open-ended.
+             */
+            effective_until?: string | null;
+            /**
+             * Format: int64
+             * @description Default hourly rate for T&M when no rate card row matches the
+             *     entry's `work_type`, minor units per hour.
+             */
+            hourly_rate_minor?: number | null;
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: int32
+             * @description Retainer: labor minutes included in each period's base price.
+             */
+            included_minutes?: number | null;
+            name: string;
+            notes?: string | null;
+            /** @description Human contract number, unique per org (e.g. "C-2026-014"). */
+            number: string;
+            /** Format: uuid */
+            org_id: string;
+            /**
+             * Format: int64
+             * @description Retainer: hourly rate for minutes beyond the included block.
+             */
+            overage_rate_minor?: number | null;
+            status: components["schemas"]["ContractStatus"];
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /**
+         * @description The contract aggregate as one view: the agreement plus its rate card
+         *     and fee schedule.
+         */
+        ContractDetail: components["schemas"]["Contract"] & {
+            fees: components["schemas"]["ContractFixedFee"][];
+            rates: components["schemas"]["ContractRate"][];
+        };
+        /**
+         * @description Fixed-fee schedule entry: becomes a candidate line when `due_on` falls
+         *     inside the evaluation window (and the effective window).
+         */
+        ContractFixedFee: {
+            /** Format: int64 */
+            amount_minor: number;
+            /** Format: uuid */
+            contract_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date */
+            due_on: string;
+            /** Format: uuid */
+            id: string;
+            label: string;
+            notes?: string | null;
+            /** Format: uuid */
+            org_id: string;
+        };
+        ContractListQuery: {
+            /** Format: uuid */
+            client_id?: string | null;
+            /**
+             * Format: date
+             * @description Only contracts effective on this date.
+             */
+            effective_on?: string | null;
+            /** @description Exact status: `draft|active|ended|cancelled`. */
+            status?: string | null;
+        };
+        /**
+         * @description Instant-first mutation response (IF2): contract aggregate at the top
+         *     level plus the additive `mutation` metadata.
+         */
+        ContractMutationResponse: components["schemas"]["ContractDetail"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        /**
+         * @description T&M rate card row: the hourly rate for time entries whose `work_type`
+         *     matches `work_type`. Entries with no matching row bill at the
+         *     contract's default `hourly_rate_minor`.
+         */
+        ContractRate: {
+            /** Format: uuid */
+            contract_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            /**
+             * Format: int64
+             * @description Hourly rate in minor units.
+             */
+            rate_minor: number;
+            work_type: string;
+        };
+        /**
+         * @description Lifecycle. `draft` contracts evaluate in previews (plan before
+         *     activation) but Wave 9's invoice runs will refuse them; `cancelled`
+         *     contracts never evaluate. `ended` keeps evaluating candidates whose
+         *     dates fall inside the (closed) effective window.
+         * @enum {string}
+         */
+        ContractStatus: "draft" | "active" | "ended" | "cancelled";
+        /**
+         * @description The four supported commercial agreement shapes.
+         * @enum {string}
+         */
+        ContractType: "recurring" | "time_and_materials" | "retainer" | "fixed_fee";
         CreateApiKeyRequest: {
             name: string;
             /** @description Capability scopes from [`KNOWN_SCOPES`]. */
@@ -3452,6 +3767,51 @@ export interface components {
             name: string;
             phone?: string | null;
             title?: string | null;
+        };
+        CreateContractRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * Format: int64
+             * @description Per-period price (recurring/retainer), minor units.
+             */
+            amount_minor?: number | null;
+            /**
+             * Format: date
+             * @description Required for recurring/retainer; first billing period's start.
+             */
+            billing_anchor?: string | null;
+            billing_frequency?: null | components["schemas"]["BillingFrequency"];
+            /** Format: uuid */
+            client_id: string;
+            contract_type: components["schemas"]["ContractType"];
+            /** @description ISO 4217 code (e.g. "USD"); every amount uses this currency. */
+            currency: string;
+            /** Format: date */
+            effective_from: string;
+            /** Format: date */
+            effective_until?: string | null;
+            /** @description Fee schedule (only valid on fixed_fee contracts). */
+            fees?: components["schemas"]["FeeSpec"][];
+            /**
+             * Format: int64
+             * @description T&M default hourly rate, minor units.
+             */
+            hourly_rate_minor?: number | null;
+            /**
+             * Format: int32
+             * @description Retainer included minutes per period.
+             */
+            included_minutes?: number | null;
+            name: string;
+            notes?: string | null;
+            number: string;
+            /**
+             * Format: int64
+             * @description Retainer hourly overage rate, minor units.
+             */
+            overage_rate_minor?: number | null;
+            /** @description T&M rate card (only valid on time_and_materials contracts). */
+            rates?: components["schemas"]["RateSpec"][];
+            status?: null | components["schemas"]["ContractStatus"];
         };
         CreateExclusionRequest: {
             /** Format: date-time */
@@ -3774,6 +4134,15 @@ export interface components {
             /** Format: uuid */
             board_id: string;
             favorite: boolean;
+        };
+        /** @description Fixed-fee schedule entry spec. */
+        FeeSpec: {
+            /** Format: int64 */
+            amount_minor: number;
+            /** Format: date */
+            due_on: string;
+            label: string;
+            notes?: string | null;
         };
         /**
          * @description Wire view of one field definition; choice kinds carry their closed
@@ -4298,6 +4667,22 @@ export interface components {
             /** Format: uuid */
             user_id: string;
         };
+        /**
+         * @description Org-wide preview: every billable contract's evaluation for the window
+         *     plus the grand total — the shape a Wave-9 invoice run will consume.
+         */
+        OrgBillingPreview: {
+            evaluations: components["schemas"]["BillingEvaluation"][];
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+            /**
+             * Format: int64
+             * @description Sum over evaluations, minor units (mixed currencies reject).
+             */
+            total_minor: number;
+        };
         OrgProfileResponse: {
             /** Format: uuid */
             id: string;
@@ -4321,6 +4706,35 @@ export interface components {
             title?: string | null;
             /** Format: int32 */
             travel_minutes?: number | null;
+        };
+        PatchContractRequest: components["schemas"]["MutationParams"] & {
+            /** Format: int64 */
+            amount_minor?: number | null;
+            /** Format: date */
+            billing_anchor?: string | null;
+            billing_frequency?: null | components["schemas"]["BillingFrequency"];
+            /** Format: uuid */
+            client_id?: string | null;
+            contract_type?: null | components["schemas"]["ContractType"];
+            currency?: string | null;
+            /** Format: date */
+            effective_from?: string | null;
+            /** Format: date */
+            effective_until?: string | null;
+            /** @description When present, replaces the whole fee schedule. */
+            fees?: components["schemas"]["FeeSpec"][] | null;
+            /** Format: int64 */
+            hourly_rate_minor?: number | null;
+            /** Format: int32 */
+            included_minutes?: number | null;
+            name?: string | null;
+            notes?: string | null;
+            number?: string | null;
+            /** Format: int64 */
+            overage_rate_minor?: number | null;
+            /** @description When present, replaces the whole rate card. */
+            rates?: components["schemas"]["RateSpec"][] | null;
+            status?: null | components["schemas"]["ContractStatus"];
         };
         PatchOrgRequest: {
             name?: string | null;
@@ -4486,6 +4900,18 @@ export interface components {
             source: string;
             timezone: string;
         };
+        PreviewQuery: {
+            /**
+             * Format: date
+             * @description Window start (inclusive), ISO date.
+             */
+            from?: string | null;
+            /**
+             * Format: date
+             * @description Window end (inclusive), ISO date.
+             */
+            to?: string | null;
+        };
         /**
          * @description Industry-standard four-tier priority.
          * @enum {string}
@@ -4520,6 +4946,12 @@ export interface components {
             to?: string | null;
             /** Format: uuid */
             user_id?: string | null;
+        };
+        /** @description T&M rate-card row spec (hourly minor units per `work_type`). */
+        RateSpec: {
+            /** Format: int64 */
+            rate_minor: number;
+            work_type: string;
         };
         RecoveryCodesResponse: {
             /** @description Plaintext codes — displayed once, stored only as argon2id hashes. */
@@ -6388,6 +6820,37 @@ export interface operations {
             };
         };
     };
+    billing_preview: {
+        parameters: {
+            query?: {
+                /** @description Window start (inclusive), ISO date. */
+                from?: string | null;
+                /** @description Window end (inclusive), ISO date. */
+                to?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgBillingPreview"];
+                };
+            };
+            /** @description missing or inverted window */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     board_groups_list: {
         parameters: {
             query?: never;
@@ -7418,6 +7881,203 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Site"];
                 };
+            };
+        };
+    };
+    contracts_list: {
+        parameters: {
+            query?: {
+                client_id?: string | null;
+                /** @description Exact status: `draft|active|ended|cancelled`. */
+                status?: string | null;
+                /** @description Only contracts effective on this date. */
+                effective_on?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contract"][];
+                };
+            };
+        };
+    };
+    contracts_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateContractRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContractMutationResponse"];
+                };
+            };
+            /** @description duplicate contract number, idempotency key reused, or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    contracts_get_one: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContractDetail"];
+                };
+            };
+        };
+    };
+    contracts_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContractDetail"];
+                };
+            };
+            /** @description contract not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    contracts_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchContractRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContractMutationResponse"];
+                };
+            };
+            /** @description contract not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict, duplicate number, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    contracts_billing_preview: {
+        parameters: {
+            query?: {
+                /** @description Window start (inclusive), ISO date. */
+                from?: string | null;
+                /** @description Window end (inclusive), ISO date. */
+                to?: string | null;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BillingEvaluation"];
+                };
+            };
+            /** @description contract not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description missing or inverted window */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
