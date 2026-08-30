@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM contract_fixed_fees WHERE org_id = $1 AND contract_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a0f70e37e14a4c2cdc22b4793b440c980d0384d1de5e652168b562be7ce50ea3"
+}

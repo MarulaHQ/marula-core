@@ -1,0 +1,131 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, org_id, client_id, number, name, contract_type, status, currency,\n                  effective_from, effective_until, billing_frequency, billing_anchor,\n                  amount_minor, hourly_rate_minor, included_minutes, overage_rate_minor,\n                  notes, created_at, updated_at\n           FROM contracts WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "client_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "number",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "contract_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "effective_from",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 9,
+        "name": "effective_until",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 10,
+        "name": "billing_frequency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "billing_anchor",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 12,
+        "name": "amount_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 13,
+        "name": "hourly_rate_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 14,
+        "name": "included_minutes",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 15,
+        "name": "overage_rate_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 16,
+        "name": "notes",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 17,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 18,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "3bd6a0fbad7d42071b75255f3ca4522d5067149ad462d2191121192b0056ed4d"
+}

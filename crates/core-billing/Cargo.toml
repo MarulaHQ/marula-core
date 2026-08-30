@@ -3,3 +3,25 @@ name = "core-billing"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+
+[dependencies]
+core-domain = { path = "../core-domain" }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+sqlx = { workspace = true }
+uuid = { workspace = true }
+serde_json = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+core-api = { path = "../core-api" }
+core-db = { path = "../core-db" }
+core-store = { path = "../core-store" }
