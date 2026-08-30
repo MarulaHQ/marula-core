@@ -328,3 +328,186 @@ async fn flush_dedupes_repeats_groups_orgs_and_indexes_comment_parentage() {
         "duplicate targets collapse to one op"
     );
 }
+
+/// Native KB v1: article events resolve CURRENT content into `kb_article`
+/// upserts, and the deleted event's NotFound leg drops the entry (2.16
+/// pattern; seed slot 127 keeps this suite's fixed ids collision-free).
+#[tokio::test]
+async fn kb_article_events_index_content_and_deleted_drops_it() {
+    let pool = test_pool().await;
+    let s = seed_org(&pool, 127).await;
+    let article = fixed_uuid(122);
+    let author = fixed_uuid(123);
+
+    // Seed the article row through core-db (created_by has a users FK).
+    let mut tx = org_tx(&pool, s.org).await;
+    core_db::users::create_user(
+        &mut *tx,
+        author,
+        s.org,
+        "indexer-kb@acme.test",
+        "KB Author",
+        "argon2hash",
+        "UTC",
+    )
+    .await
+    .expect("author insert");
+    let article = core_db::kb::create_article(
+        &mut *tx,
+        s.org,
+        article,
+        None,
+        "Rotate the Wifi password",
+        "rotate-the-wifi-password",
+        "Quarterly, from the vault.",
+        core_domain::entities::KbArticleStatus::Published,
+        true,
+        author,
+    )
+    .await
+    .expect("article insert");
+    tx.commit().await.expect("commit");
+
+    // created → upsert carrying title + body, category parentage (None).
+    let env = envelope("kb_article.created", s.org, article.id);
+    let target = match_event(&env).expect("maps to article target");
+    let op = resolve_target(&pool, s.org, target)
+        .await
+        .expect("resolve ok")
+        .expect("row exists ⇒ upsert");
+    match op {
+        IndexOp::Upsert {
+            entity_kind,
+            entity_id,
+            parent_id,
+            title,
+            body,
+        } => {
+            assert_eq!(entity_kind, "kb_article");
+            assert_eq!(entity_id, article.id);
+            assert_eq!(parent_id, None);
+            assert_eq!(title, "Rotate the Wifi password");
+            assert_eq!(body, "Quarterly, from the vault.");
+        }
+        other => panic!("expected upsert, got {other:?}"),
+    }
+
+    // deleted → resolver NotFound leg ⇒ flush turns it into Delete.
+    {
+        let mut tx = org_tx(&pool, s.org).await;
+        assert!(core_db::kb::delete_article(&mut *tx, s.org, article.id)
+            .await
+            .expect("delete"));
+        tx.commit().await.expect("commit");
+    }
+    let target = Target::Article(article.id);
+    assert!(resolve_target(&pool, s.org, target.clone())
+        .await
+        .expect("ok")
+        .is_none());
+
+    let sink = RecordingSink::default();
+    flush(&pool, &sink, vec![(s.org, target)])
+        .await
+        .expect("flush");
+    assert_eq!(
+        sink.recorded()[0].1,
+        vec![IndexOp::Delete {
+            entity_kind: "kb_article".into(),
+            entity_id: article.id
+        }]
+    );
+}
+
+/// DocumentVersion entities (D4): document events index the CURRENT
+/// version's content — a new version re-resolves to refreshed content.
+#[tokio::test]
+async fn document_events_index_the_current_version() {
+    let pool = test_pool().await;
+    let s = seed_org(&pool, 126).await;
+    let author = fixed_uuid(124);
+
+    let (doc, _v1) = {
+        let mut tx = org_tx(&pool, s.org).await;
+        core_db::users::create_user(
+            &mut *tx,
+            author,
+            s.org,
+            "indexer-docs@acme.test",
+            "Doc Author",
+            "argon2hash",
+            "UTC",
+        )
+        .await
+        .expect("author insert");
+        let pair = core_db::documents::create_document(
+            &mut tx,
+            s.org,
+            fixed_uuid(121),
+            "Escalation policy",
+            "P1 pages on-call.",
+            "initial",
+            author,
+        )
+        .await
+        .expect("document + v1");
+        tx.commit().await.expect("commit");
+        pair
+    };
+
+    // created → upsert with the CURRENT version content.
+    let env = envelope("document.created", s.org, doc.id);
+    let target = match_event(&env).expect("maps to document target");
+    let op = resolve_target(&pool, s.org, target)
+        .await
+        .expect("resolve ok")
+        .expect("document exists");
+    match op {
+        IndexOp::Upsert {
+            entity_kind,
+            title,
+            body,
+            ..
+        } => {
+            assert_eq!(entity_kind, "document");
+            assert_eq!(title, "Escalation policy");
+            assert_eq!(body, "P1 pages on-call.");
+        }
+        other => panic!("expected upsert, got {other:?}"),
+    }
+
+    // An edit APPENDS a version; the indexer must pick up the new head.
+    {
+        let mut tx = org_tx(&pool, s.org).await;
+        core_db::documents::insert_version(
+            &mut *tx,
+            s.org,
+            doc.id,
+            2,
+            "Escalation policy v2",
+            "P1 pages on-call. P2 alerts in-app.",
+            "added P2",
+            author,
+            None,
+        )
+        .await
+        .expect("v2 append");
+        tx.commit().await.expect("commit");
+    }
+    let target = match_event(&envelope("document.updated", s.org, doc.id)).expect("target");
+    let op = resolve_target(&pool, s.org, target)
+        .await
+        .expect("ok")
+        .expect("still exists");
+    assert!(
+        matches!(&op, IndexOp::Upsert { title, body, .. }
+            if title == "Escalation policy v2" && body.contains("P2 alerts in-app")),
+        "second resolve carries the appended head content"
+    );
+
+    // restored also maps to the document target (re-index after restore).
+    assert!(matches!(
+        match_event(&envelope("document.restored", s.org, doc.id)),
+        Some(Target::Document(_))
+    ));
+}
