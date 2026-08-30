@@ -120,6 +120,12 @@ pub mod types {
     pub const DOCUMENT_CREATED: &str = "document.created";
     pub const DOCUMENT_UPDATED: &str = "document.updated";
     pub const DOCUMENT_RESTORED: &str = "document.restored";
+    /// Contracts + recurring billing rules (TASKLIST Phase 3): contract
+    /// CRUD lifecycle. Billing previews are read-only and emit nothing;
+    /// invoice runs are Wave 9.
+    pub const CONTRACT_CREATED: &str = "contract.created";
+    pub const CONTRACT_UPDATED: &str = "contract.updated";
+    pub const CONTRACT_REMOVED: &str = "contract.removed";
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -546,6 +552,32 @@ pub fn comment_kind_label(kind: NoteKind) -> &'static str {
         NoteKind::ClientVisible => "client-visible",
         NoteKind::InHouseUpdate => "in-house update",
     }
+}
+
+/// contract.created — a commercial agreement was created. Billing-rule
+/// previews emit nothing; invoice runs are Wave 9.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ContractCreated {
+    pub contract: crate::entities::Contract,
+}
+
+/// contract.updated — the agreement's fields, rate card, or fee schedule
+/// changed. `after`-style consumers should refetch rates/fees with it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ContractUpdated {
+    pub contract: crate::entities::Contract,
+}
+
+/// contract.removed — the agreement (with its rate card and fee schedule)
+/// was deleted. No invoice references can exist yet (Wave 9 will guard).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ContractRemoved {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub contract_id: uuid::Uuid,
+    pub number: String,
 }
 
 #[cfg(test)]

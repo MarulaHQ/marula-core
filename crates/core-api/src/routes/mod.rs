@@ -40,6 +40,7 @@ pub mod api_keys;
 pub mod attachments;
 pub mod audit;
 pub mod availability;
+pub mod billing;
 pub mod board_access;
 pub mod boards;
 pub mod calendar;
@@ -514,6 +515,21 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             get(documents::get_version),
         )
         .route(&rp("/documents/{id}/restore"), post(documents::restore))
+        // contracts + recurring billing rules (Wave 8b billing lane):
+        // contract CRUD plus READ-ONLY rule-evaluation previews — no
+        // invoice persistence (Wave 9).
+        .route(&rp("/contracts"), get(billing::list).post(billing::create))
+        .route(
+            &rp("/contracts/{id}"),
+            get(billing::get_one)
+                .patch(billing::patch)
+                .delete(billing::remove),
+        )
+        .route(
+            &rp("/contracts/{id}/billing-preview"),
+            get(billing::preview_contract),
+        )
+        .route(&rp("/billing/preview"), get(billing::preview_org))
         // import framework (TASKLIST D2): org-admin gated CSV/JSON mapper.
         // The two payload-heavy posts raise axum's default body cap like
         // attachments do; chunk/batch ids flow through the path.

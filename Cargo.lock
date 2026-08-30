@@ -624,6 +624,7 @@ dependencies = [
  "bytes",
  "chrono",
  "chrono-tz",
+ "core-billing",
  "core-db",
  "core-documents",
  "core-domain",
@@ -665,6 +666,23 @@ dependencies = [
 [[package]]
 name = "core-billing"
 version = "0.1.0"
+dependencies = [
+ "axum 0.8.9",
+ "chrono",
+ "core-api",
+ "core-db",
+ "core-domain",
+ "core-store",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.20",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
 
 [[package]]
 name = "core-db"
