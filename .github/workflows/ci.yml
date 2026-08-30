@@ -103,3 +103,14 @@ jobs:
             exit 1
           fi
           echo "Clean — all UI colors on the Workbench token set."
+
+  deprecation-clock:
+    name: Deprecation clock (removals honor removal_target — policy §8/U4)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Gate + self-tests: fails when deprecations.json carries a construct
+      # past its removal_target, or when a construct is gone before it.
+      - run: cargo test -p core-events --test deprecation_clock
