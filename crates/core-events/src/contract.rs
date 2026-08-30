@@ -157,6 +157,36 @@ fn st(n: i64) -> chrono::DateTime<chrono::Utc> {
     chrono::DateTime::from_timestamp(1_700_000_000 + n, 0).expect("fixed sample timestamp")
 }
 
+/// Deterministic calendar date, January n (n in 1..=28).
+fn sd(day: u32) -> chrono::NaiveDate {
+    chrono::NaiveDate::from_ymd_opt(2024, 1, day).expect("fixed sample date")
+}
+
+/// Representative active monthly recurring contract for billing samples.
+fn sample_contract() -> Contract {
+    Contract {
+        id: su(23),
+        org_id: su(2),
+        client_id: su(3),
+        number: "C-2026-001".into(),
+        name: "Managed IT retainer".into(),
+        contract_type: ContractType::Recurring,
+        status: ContractStatus::Active,
+        currency: "USD".into(),
+        effective_from: sd(1),
+        effective_until: None,
+        billing_frequency: Some(BillingFrequency::Monthly),
+        billing_anchor: Some(sd(1)),
+        amount_minor: Some(150_000),
+        hourly_rate_minor: None,
+        included_minutes: None,
+        overage_rate_minor: None,
+        notes: None,
+        created_at: st(1),
+        updated_at: st(1),
+    }
+}
+
 macro_rules! typed_shape {
     ($ty:ty, $sample:expr) => {{
         fn sample() -> serde_json::Value {
@@ -184,8 +214,9 @@ macro_rules! untyped_shape {
 }
 
 use core_domain::entities::{
-    Appointment, AppointmentKind, AppointmentStatus, BoardGroup, BoardStatus, ChecklistItem,
-    NotificationKind, NotificationPreference, TicketComment, TimeEntry,
+    Appointment, AppointmentKind, AppointmentStatus, BillingFrequency, BoardGroup, BoardStatus,
+    ChecklistItem, Contract, ContractStatus, ContractType, NotificationKind,
+    NotificationPreference, TicketComment, TimeEntry,
 };
 use core_domain::events::{
     types, AppointmentCancelled, AppointmentCreated, AppointmentUpdated, AttachmentAdded,
@@ -193,10 +224,10 @@ use core_domain::events::{
     BoardGroupCreated, BoardGroupRemoved, BoardGroupUpdated, BoardMembershipRemoved,
     BoardMembershipUpdated, BoardStatusAdded, BoardStatusRemoved, BoardStatusUpdated,
     BoardTransitionsUpdated, CalendarExclusionChanged, ClientCreated, ClientUpdated,
-    ContactCreated, ContactUpdated, ImportBatchFinished, ImportBatchStarted, NotificationCreated,
-    OnCallChanged, SiteCreated, SiteUpdated, TicketAssigned, TicketChecklistUpdated,
-    TicketCommentAdded, TicketCreated, TicketStatusChanged, TimeEntryCreated, TimerPaused,
-    TimerStarted, TimerStopped,
+    ContactCreated, ContactUpdated, ContractCreated, ContractRemoved, ContractUpdated,
+    ImportBatchFinished, ImportBatchStarted, NotificationCreated, OnCallChanged, SiteCreated,
+    SiteUpdated, TicketAssigned, TicketChecklistUpdated, TicketCommentAdded, TicketCreated,
+    TicketStatusChanged, TimeEntryCreated, TimerPaused, TimerStarted, TimerStopped,
 };
 use core_domain::policy::BoardRole;
 use core_domain::status::{NoteKind, Priority, TicketStatusCategory};
@@ -1267,6 +1298,35 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
                 "version": 3,
                 "restored_from_version": 1,
             })
+        ),
+    },
+    // -- contracts & billing ----------------------------------------------
+    PublishedEvent {
+        event_type: types::CONTRACT_CREATED,
+        entity: "contract",
+        variant: "default",
+        shape: typed_shape!(ContractCreated, ContractCreated {
+            contract: sample_contract(),
+        }),
+    },
+    PublishedEvent {
+        event_type: types::CONTRACT_UPDATED,
+        entity: "contract",
+        variant: "default",
+        shape: typed_shape!(ContractUpdated, ContractUpdated {
+            contract: sample_contract(),
+        }),
+    },
+    PublishedEvent {
+        event_type: types::CONTRACT_REMOVED,
+        entity: "contract",
+        variant: "default",
+        shape: typed_shape!(
+            ContractRemoved,
+            ContractRemoved {
+                contract_id: su(23),
+                number: "C-2026-001".into(),
+            }
         ),
     },
 ];
