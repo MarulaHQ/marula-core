@@ -15,7 +15,8 @@ use crate::DbResult;
 use sqlx::Postgres;
 use uuid::Uuid;
 
-/// The indexed entity kinds; mirrors the `search_index.entity_kind` CHECK.
+/// The indexed entity kinds; mirrors the `search_index.entity_kind` CHECK
+/// (vocabulary widened once in 0031; the `document` kind arrives with D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SearchKind {
     Ticket,
@@ -23,15 +24,18 @@ pub enum SearchKind {
     Client,
     Site,
     Contact,
+    /// Native KB article (TASKLIST Phase 3 native KB v1).
+    KbArticle,
 }
 
 impl SearchKind {
-    pub const ALL: [SearchKind; 5] = [
+    pub const ALL: [SearchKind; 6] = [
         SearchKind::Ticket,
         SearchKind::Comment,
         SearchKind::Client,
         SearchKind::Site,
         SearchKind::Contact,
+        SearchKind::KbArticle,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -41,6 +45,7 @@ impl SearchKind {
             SearchKind::Client => "client",
             SearchKind::Site => "site",
             SearchKind::Contact => "contact",
+            SearchKind::KbArticle => "kb_article",
         }
     }
 
@@ -51,6 +56,7 @@ impl SearchKind {
             "client" => SearchKind::Client,
             "site" => SearchKind::Site,
             "contact" => SearchKind::Contact,
+            "kb_article" => SearchKind::KbArticle,
             _ => return None,
         })
     }

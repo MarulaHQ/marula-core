@@ -102,7 +102,15 @@ pub async fn search(
         check_any(&authed.principal.permissions, &[tickets(Action::View)]).is_allowed();
     let can_clients =
         check_any(&authed.principal.permissions, &[clients(Action::View)]).is_allowed();
-    if !can_tickets && !can_clients {
+    let can_kb = check_any(
+        &authed.principal.permissions,
+        &[Permission::Matrix {
+            module: Module::Kb,
+            action: Action::View,
+        }],
+    )
+    .is_allowed();
+    if !can_tickets && !can_clients && !can_kb {
         require_permission(&authed.principal, tickets(Action::View))?;
     }
 
@@ -126,7 +134,7 @@ pub async fn search(
     }
 
     // Kind allow-list from permissions — never trust the caller to scope.
-    let mut kinds: Vec<String> = Vec::with_capacity(5);
+    let mut kinds: Vec<String> = Vec::with_capacity(6);
     if can_tickets {
         kinds.push("ticket".into());
         kinds.push("comment".into());
@@ -135,6 +143,9 @@ pub async fn search(
         kinds.push("client".into());
         kinds.push("site".into());
         kinds.push("contact".into());
+    }
+    if can_kb {
+        kinds.push("kb_article".into());
     }
 
     let trigram = trimmed.chars().count() >= 3;

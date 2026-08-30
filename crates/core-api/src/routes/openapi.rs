@@ -203,6 +203,16 @@ use utoipa::OpenApi;
         crate::routes::attachments::remove,
         crate::routes::portal::list_attachments,
         crate::routes::portal::download_attachment,
+        // knowledge base (TASKLIST Phase 3 native KB v1)
+        crate::routes::kb::list_categories,
+        crate::routes::kb::create_category,
+        crate::routes::kb::update_category,
+        crate::routes::kb::delete_category,
+        crate::routes::kb::list_articles,
+        crate::routes::kb::create_article,
+        crate::routes::kb::get_article,
+        crate::routes::kb::update_article,
+        crate::routes::kb::delete_article,
     ),
     components(schemas(
         // import framework (TASKLIST D2)
@@ -438,6 +448,17 @@ use utoipa::OpenApi;
         core_domain::entities::Attachment,
         core_domain::entities::AttachmentKind,
         crate::routes::portal::PortalAttachmentView,
+        // knowledge base (TASKLIST Phase 3 native KB v1)
+        core_domain::entities::kb::KbCategory,
+        core_domain::entities::kb::KbArticle,
+        core_domain::entities::kb::KbArticleStatus,
+        crate::routes::kb::CreateCategoryRequest,
+        crate::routes::kb::UpdateCategoryRequest,
+        crate::routes::kb::CategoryMutationResponse,
+        crate::routes::kb::CreateArticleRequest,
+        crate::routes::kb::UpdateArticleRequest,
+        crate::routes::kb::ArticleMutationResponse,
+        crate::routes::kb::ArticleListQuery,
     ),
     ),
     tags(
@@ -458,6 +479,7 @@ use utoipa::OpenApi;
         (name = "integrations", description = "Signed webhooks OUT + scoped API keys (plugin runtime v1)"),
         (name = "scheduling", description = "Appointments, availability, on-call, calendar views"),
         (name = "attachments", description = "File attachments on tickets/comments (ObjectStore-backed)"),
+        (name = "kb", description = "Native knowledge base: categories, articles, client-facing flags"),
     )
 )]
 pub struct ApiDoc;

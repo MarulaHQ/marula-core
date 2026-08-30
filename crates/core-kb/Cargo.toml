@@ -3,3 +3,10 @@ name = "core-kb"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+
+[dependencies]
+core-domain = { path = "../core-domain" }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]

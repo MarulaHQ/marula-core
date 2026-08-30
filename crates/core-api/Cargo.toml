@@ -23,6 +23,7 @@ path = "src/bin/dump_openapi.rs"
 [dependencies]
 core-db = { path = "../core-db" }
 core-domain = { path = "../core-domain", features = ["openapi"] }
+core-kb = { path = "../core-kb" }
 core-reports = { path = "../core-reports" }
 core-events = { path = "../core-events" }
 core-mail = { path = "../core-mail" }
