@@ -12,6 +12,8 @@ use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+pub mod contract;
+
 /// The wire envelope. `payload_schema_ref` pins the payload contract so
 /// consumers can version-gate.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
