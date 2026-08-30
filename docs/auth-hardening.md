@@ -119,3 +119,34 @@ The automated suite spins its own IdP; to reproduce manually:
 1. Login → `(T₀, S₀)`; refresh → `(T₁, S₁)`; refresh again → `(T₂, S₂)`.
 2. Re-present `(T₀, S₀)` ⇒ 401 AND `auth.refresh_reuse_detected` audited.
 3. `(T₂, S₂)` is now dead too — the whole chain was revoked.
+
+## Identity federation bundles (planned — the seam for community auth)
+
+What shipped above (generic OIDC + conservative linking + JIT-off-by-default)
+is the foundation of a public, versioned **identity-federation bundle
+interface**. Plan of record:
+
+- **First-party OIDC presets** (Google, Microsoft Entra ID/M365, Okta,
+  generic): declarative config bundles — issuer, scopes, claim mapping,
+  redirect guidance. Picking a preset is configuration, not code.
+- **Edge-assertion method for ZTNA proxies** (Cloudflare Access pattern):
+  validate the proxy's signed JWT (`Cf-Access-Jwt-Assertion`) against the
+  team JWKS with issuer/audience pinned, then resolve the asserted identity
+  to a user under the same conservative linking rules as OIDC (verified
+  email, explicit link flow, JIT default OFF). Raw header trust without
+  signature verification is never valid — this hard line is what makes
+  "self-hosted behind Cloudflare Tunnel + Access" a supported topology
+  instead of a header-spoofing risk.
+- **Everything else is a bundle** (SAML/SCIM brokers, LDAP,
+  Authentik/Authelia/Pomerium-class proxies): admin-enabled,
+  deny-by-default, audit-logged.
+
+Invariants every bundle inherits (non-negotiable):
+
+1. Account linking requires a verified email claim; explicit link flow;
+   JIT provisioning defaults off.
+2. The org's MFA policy applies regardless of identity source.
+3. Logins land in the same session model (short-lived JWT + rotating
+   refresh with reuse detection) — a bundle adds an identity source,
+   never a parallel session system.
+4. Every bundle login emits the standard auth audit events.

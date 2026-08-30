@@ -1196,6 +1196,79 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             }
         ),
     },
+    // -- knowledge base & documents ---------------------------------------
+    PublishedEvent {
+        event_type: types::KB_ARTICLE_CREATED,
+        entity: "kb_article",
+        variant: "default",
+        shape: untyped_shape!(
+            ["article_id", "status"],
+            serde_json::json!({
+                "article_id": su(21),
+                "status": "published",
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::KB_ARTICLE_UPDATED,
+        entity: "kb_article",
+        variant: "default",
+        shape: untyped_shape!(
+            ["article_id", "status"],
+            serde_json::json!({
+                "article_id": su(21),
+                "status": "archived",
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::KB_ARTICLE_DELETED,
+        entity: "kb_article",
+        variant: "default",
+        shape: untyped_shape!(
+            ["article_id"],
+            serde_json::json!({
+                "article_id": su(21),
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::DOCUMENT_CREATED,
+        entity: "document",
+        variant: "default",
+        shape: untyped_shape!(
+            ["document_id", "version"],
+            serde_json::json!({
+                "document_id": su(22),
+                "version": 1,
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::DOCUMENT_UPDATED,
+        entity: "document",
+        variant: "default",
+        shape: untyped_shape!(
+            ["document_id", "version"],
+            serde_json::json!({
+                "document_id": su(22),
+                "version": 2,
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::DOCUMENT_RESTORED,
+        entity: "document",
+        variant: "default",
+        shape: untyped_shape!(
+            ["document_id", "version", "restored_from_version"],
+            serde_json::json!({
+                "document_id": su(22),
+                "version": 3,
+                "restored_from_version": 1,
+            })
+        ),
+    },
 ];
 
 fn sample_status(name: &str) -> BoardStatus {
