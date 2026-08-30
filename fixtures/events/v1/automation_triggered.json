@@ -1,0 +1,13 @@
+{
+  "event_type": "automation.triggered",
+  "entity": "automation_rule",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "actions_applied": 2,
+    "rule_id": "00000000-0000-0000-0000-00000000001b",
+    "ticket_id": "00000000-0000-0000-0000-000000000001",
+    "via_automation": true
+  }
+}

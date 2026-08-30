@@ -1,0 +1,14 @@
+{
+  "event_type": "timer.started",
+  "entity": "timer",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "session_id": "00000000-0000-0000-0000-00000000000f",
+    "started_at": "2023-11-14T22:13:24Z",
+    "switched_from": "00000000-0000-0000-0000-000000000010",
+    "ticket_id": "00000000-0000-0000-0000-000000000001",
+    "user_id": "00000000-0000-0000-0000-000000000004"
+  }
+}

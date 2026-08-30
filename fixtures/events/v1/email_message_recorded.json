@@ -1,0 +1,14 @@
+{
+  "event_type": "email.message_recorded",
+  "entity": "email_message",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "comment_id": null,
+    "direction": "outbound",
+    "message_id": "00000000-0000-0000-0000-000000000018",
+    "outcome": "queued",
+    "ticket_id": "00000000-0000-0000-0000-000000000001"
+  }
+}

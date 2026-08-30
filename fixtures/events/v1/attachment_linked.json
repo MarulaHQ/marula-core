@@ -1,0 +1,12 @@
+{
+  "event_type": "attachment.linked",
+  "entity": "attachment",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "attachment_id": "00000000-0000-0000-0000-000000000014",
+    "ticket_comment_id": "00000000-0000-0000-0000-000000000006",
+    "ticket_id": "00000000-0000-0000-0000-000000000001"
+  }
+}

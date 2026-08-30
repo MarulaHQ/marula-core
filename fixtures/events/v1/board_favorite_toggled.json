@@ -1,0 +1,12 @@
+{
+  "event_type": "board.favorite_toggled",
+  "entity": "board_favorite",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "board_id": "00000000-0000-0000-0000-000000000002",
+    "favorite": true,
+    "user_id": "00000000-0000-0000-0000-000000000004"
+  }
+}

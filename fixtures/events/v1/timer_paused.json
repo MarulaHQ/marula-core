@@ -1,0 +1,14 @@
+{
+  "event_type": "timer.paused",
+  "entity": "timer",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "elapsed_secs": 1800,
+    "reason": "lunch",
+    "session_id": "00000000-0000-0000-0000-00000000000f",
+    "ticket_id": "00000000-0000-0000-0000-000000000001",
+    "user_id": "00000000-0000-0000-0000-000000000004"
+  }
+}

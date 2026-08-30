@@ -1,0 +1,16 @@
+{
+  "event_type": "notification_prefs.updated",
+  "entity": "notification_preferences",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "email": false,
+    "in_app": true,
+    "kind": "mention",
+    "quiet_from": "22:00",
+    "quiet_until": "07:00",
+    "timezone": "Europe/Berlin",
+    "user_id": "00000000-0000-0000-0000-000000000005"
+  }
+}
