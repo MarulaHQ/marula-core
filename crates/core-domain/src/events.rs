@@ -107,6 +107,19 @@ pub mod types {
     pub const CUSTOM_FIELD_DEF_REMOVED: &str = "custom_field.def_removed";
     pub const TICKET_FIELD_SET: &str = "ticket.field_set";
     pub const TICKET_FIELD_CLEARED: &str = "ticket.field_cleared";
+    /// Native KB v1 (TASKLIST Phase 3): article lifecycle. The indexer
+    /// re-reads the CURRENT row on created/updated and drops the index
+    /// entry on deleted (`kb_article.deleted`).
+    pub const KB_ARTICLE_CREATED: &str = "kb_article.created";
+    pub const KB_ARTICLE_UPDATED: &str = "kb_article.updated";
+    pub const KB_ARTICLE_DELETED: &str = "kb_article.deleted";
+    /// DocumentVersion entities (TASKLIST D4): content changes arrive as
+    /// NEW versions (update/restore), so every one of these re-indexes the
+    /// document's current version. Documents are never deleted in v1, so
+    /// the history stays intact.
+    pub const DOCUMENT_CREATED: &str = "document.created";
+    pub const DOCUMENT_UPDATED: &str = "document.updated";
+    pub const DOCUMENT_RESTORED: &str = "document.restored";
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

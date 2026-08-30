@@ -36,6 +36,12 @@ pub type PhaseId = Uuid;
 pub type TaskId = Uuid;
 pub type InvoiceId = Uuid;
 pub type KbArticleId = Uuid;
+/// Knowledge-base category identifier (native KB v1).
+pub type KbCategoryId = Uuid;
+/// A document's living handle (DocumentVersion entities, TASKLIST D4).
+pub type DocumentId = Uuid;
+/// One immutable snapshot in a document's append-only history.
+pub type DocumentVersionId = Uuid;
 pub type SessionId = Uuid;
 pub type ChecklistItemId = Uuid;
 

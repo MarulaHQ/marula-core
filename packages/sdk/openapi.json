@@ -397,6 +397,58 @@
         ],
         "type": "string"
       },
+      "ArticleListQuery": {
+        "properties": {
+          "category_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "client_visible": {
+            "description": "Only articles passing the effective client-facing gate.",
+            "type": "boolean"
+          },
+          "q": {
+            "description": "Title substring narrowing; ranked full-text search rides /api/search.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/KbArticleStatus"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "ArticleMutationResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/KbArticle"
+          },
+          {
+            "properties": {
+              "mutation": {
+                "$ref": "#/components/schemas/MutationMeta"
+              }
+            },
+            "required": [
+              "mutation"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "Instant-first mutation response (IF2)."
+      },
       "AssignGroupRequest": {
         "properties": {
           "group_id": {
@@ -1539,6 +1591,25 @@
         ],
         "type": "object"
       },
+      "CategoryMutationResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/KbCategory"
+          },
+          {
+            "properties": {
+              "mutation": {
+                "$ref": "#/components/schemas/MutationMeta"
+              }
+            },
+            "required": [
+              "mutation"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "Instant-first mutation response (IF2): category fields at the top level\nplus the additive `mutation` metadata."
+      },
       "ChangeStatusRequest": {
         "allOf": [
           {
@@ -2103,6 +2174,59 @@
         ],
         "type": "object"
       },
+      "CreateArticleRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1)."
+          },
+          {
+            "properties": {
+              "body": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "category_id": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "client_visible": {
+                "description": "Portal v2 gate: effective client visibility additionally requires a\npublished status and a client-visible category (core_kb rule).",
+                "type": "boolean"
+              },
+              "slug": {
+                "description": "Stable per-org handle; derived from the title when omitted.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/KbArticleStatus"
+                  }
+                ]
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "title"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "CreateAssetRequest": {
         "properties": {
           "kind": {
@@ -2236,6 +2360,49 @@
         ],
         "type": "object"
       },
+      "CreateCategoryRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1)."
+          },
+          {
+            "properties": {
+              "client_visible": {
+                "description": "Portal v2 gate: only categories with this flag can expose articles\nto client users.",
+                "type": "boolean"
+              },
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "position": {
+                "format": "int32",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "slug": {
+                "description": "Stable per-org handle; derived from the name when omitted.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "CreateClientRequest": {
         "allOf": [
           {
@@ -2289,6 +2456,37 @@
           "name"
         ],
         "type": "object"
+      },
+      "CreateDocumentRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1)."
+          },
+          {
+            "properties": {
+              "body": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "change_summary": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "title"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "CreateExclusionRequest": {
         "properties": {
@@ -3052,6 +3250,184 @@
         ],
         "type": "object"
       },
+      "Document": {
+        "description": "A document's living handle. No content lives here — content is only\never a [`DocumentVersion`]; `current_version` names the newest one.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "current_version": {
+            "description": "The newest version number in the document's history.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "org_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updated_by": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "org_id",
+          "title",
+          "current_version",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "DocumentListQuery": {
+        "properties": {
+          "q": {
+            "description": "Title substring narrowing; ranked full-text search rides /api/search.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "DocumentMutationResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Document"
+          },
+          {
+            "properties": {
+              "mutation": {
+                "$ref": "#/components/schemas/MutationMeta"
+              }
+            },
+            "required": [
+              "mutation"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "Instant-first mutation response (IF2): document fields at the top\nlevel plus the additive `mutation` metadata."
+      },
+      "DocumentVersion": {
+        "description": "One immutable snapshot in a document's append-only history. Every\nversion stores its complete title + body, so any pair is diffable\nwithout reconstructing intermediate state.",
+        "properties": {
+          "author_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "body": {
+            "type": "string"
+          },
+          "change_summary": {
+            "description": "Optional human explanation of what changed in this version.",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "document_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "org_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "restored_from_version": {
+            "description": "Set when this version was created by a RESTORE: the historical\nversion whose content was copied. Restore-creates-new-version is\nthe only way old content comes back — history is never rewritten.",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "version": {
+            "description": "1-based, gap-free per document.",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "org_id",
+          "document_id",
+          "version",
+          "title",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "DocumentView": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Document"
+          },
+          {
+            "properties": {
+              "body": {
+                "type": "string"
+              },
+              "change_summary": {
+                "type": "string"
+              },
+              "content_updated_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "restored_from_version": {
+                "format": "int32",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "body",
+              "change_summary",
+              "content_updated_at"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "GET /api/documents/{id} response: the living handle plus the CURRENT\nversion's content (read-your-write on the body the last write stored)."
+      },
       "DryRunRequest": {
         "allOf": [
           {
@@ -3363,6 +3739,136 @@
         },
         "required": [
           "status"
+        ],
+        "type": "object"
+      },
+      "KbArticle": {
+        "description": "A KB article.",
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "category_id": {
+            "description": "Survives category deletion (the FK is ON DELETE SET NULL).",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "client_visible": {
+            "description": "The article half of the client-facing gate (portal v2 honors it).",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "org_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "slug": {
+            "description": "Stable per-org handle (unique).",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/KbArticleStatus"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updated_by": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "org_id",
+          "title",
+          "slug",
+          "status",
+          "client_visible",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "KbArticleStatus": {
+        "description": "Article lifecycle. Closed vocabulary so filtering and the client-facing\nrule stay deterministic: `draft` (staff authoring), `published`\n(readable, searchable), `archived` (retired, out of the active tree —\ncontent edits are refused while archived; unarchive to edit).",
+        "enum": [
+          "draft",
+          "published",
+          "archived"
+        ],
+        "type": "string"
+      },
+      "KbCategory": {
+        "description": "A KB category: grouping + ordering for the article tree.",
+        "properties": {
+          "client_visible": {
+            "description": "The category half of the client-facing gate: an article is visible\nto portal clients only when this AND the article flag are set (and\nthe article is published).",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "org_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "position": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "slug": {
+            "description": "Stable per-org handle (unique); portals and imports reference this,\nnever the row id.",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "org_id",
+          "name",
+          "slug",
+          "position",
+          "client_visible",
+          "created_at",
+          "updated_at"
         ],
         "type": "object"
       },
@@ -5297,6 +5803,33 @@
         ],
         "type": "object"
       },
+      "RestoreDocumentRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1)."
+          },
+          {
+            "properties": {
+              "change_summary": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "version": {
+                "description": "The historical version whose content the NEW version copies.",
+                "format": "int32",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "version"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "RowFormat": {
         "description": "Wire format selector for an import payload.",
         "enum": [
@@ -6905,6 +7438,55 @@
         ],
         "type": "object"
       },
+      "UpdateArticleRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1)."
+          },
+          {
+            "properties": {
+              "body": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "category_id": {
+                "description": "`null` clears the category; omit to leave it untouched.",
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "client_visible": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "status": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/KbArticleStatus"
+                  }
+                ]
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        ]
+      },
       "UpdateCalendarRequest": {
         "properties": {
           "holidays": {},
@@ -6924,6 +7506,75 @@
           "windows": {}
         },
         "type": "object"
+      },
+      "UpdateCategoryRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1)."
+          },
+          {
+            "properties": {
+              "client_visible": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "position": {
+                "format": "int32",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        ]
+      },
+      "UpdateDocumentRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1)."
+          },
+          {
+            "properties": {
+              "body": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "change_summary": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        ]
       },
       "UpdateFieldDefRequest": {
         "properties": {
@@ -10882,6 +11533,331 @@
         ]
       }
     },
+    "/api/v1/documents": {
+      "get": {
+        "operationId": "documents_list",
+        "parameters": [
+          {
+            "description": "Title substring narrowing; ranked full-text search rides /api/search.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Document"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/documents",
+        "tags": [
+          "documents"
+        ]
+      },
+      "post": {
+        "operationId": "documents_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDocumentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "description": "idempotency key reused"
+          },
+          "422": {
+            "description": "title/body rejected by document rules"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/documents — instant-first (IF1/IF2); creates the document and\nits immutable version 1 in one commit.",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/api/v1/documents/{id}": {
+      "get": {
+        "operationId": "documents_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentView"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "document not visible in scope"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/documents/{id}",
+        "tags": [
+          "documents"
+        ]
+      },
+      "patch": {
+        "operationId": "documents_update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDocumentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "document not visible in scope"
+          },
+          "409": {
+            "description": "version conflict or idempotency key reused"
+          },
+          "422": {
+            "description": "title/body rejected by document rules"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "PATCH /api/documents/{id} — instant-first (IF1/IF2); an edit APPENDS\nthe next immutable version and moves the document's head to it. No\nexisting version row is touched.",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/api/v1/documents/{id}/restore": {
+      "post": {
+        "operationId": "documents_restore",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreDocumentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "document or restore target not visible in scope"
+          },
+          "409": {
+            "description": "version conflict or idempotency key reused"
+          },
+          "422": {
+            "description": "restore rejected by document rules"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/documents/{id}/restore — instant-first (IF1/IF2); §6 rule:\nthe restore APPENDS a new version copying the target's content. The\ntarget's title comes along, renames after it are not silently undone.",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/api/v1/documents/{id}/versions": {
+      "get": {
+        "operationId": "documents_list_versions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DocumentVersion"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "document not visible in scope"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/documents/{id}/versions — the full immutable history, newest\nfirst, complete bodies included so any pair is diffable.",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/api/v1/documents/{id}/versions/{version}": {
+      "get": {
+        "operationId": "documents_get_version",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentVersion"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "document or version not visible in scope"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/documents/{id}/versions/{version} — one immutable snapshot.",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
     "/api/v1/imports/batches": {
       "get": {
         "operationId": "imports_list_batches",
@@ -11161,6 +12137,410 @@
         "summary": "POST /api/internal/sla/verdict — fire-once application of one ladder\nstep: ledger insert (PK-guarded), breach flip, notification fan-out with\npreference gates, events + audit, all in ONE transaction.",
         "tags": [
           "sla"
+        ]
+      }
+    },
+    "/api/v1/kb/articles": {
+      "get": {
+        "operationId": "kb_list_articles",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "category_id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/KbArticleStatus"
+                }
+              ]
+            }
+          },
+          {
+            "description": "Only articles passing the effective client-facing gate.",
+            "in": "query",
+            "name": "client_visible",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Title substring narrowing; ranked full-text search rides /api/search.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/KbArticle"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/kb/articles",
+        "tags": [
+          "kb"
+        ]
+      },
+      "post": {
+        "operationId": "kb_create_article",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateArticleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArticleMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "description": "slug already in use or idempotency key reused"
+          },
+          "422": {
+            "description": "title/body rejected by KB rules"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/kb/articles — instant-first (IF1/IF2).",
+        "tags": [
+          "kb"
+        ]
+      }
+    },
+    "/api/v1/kb/articles/{id}": {
+      "delete": {
+        "operationId": "kb_delete_article",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "article not visible in scope"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "DELETE /api/kb/articles/{id} — emits `kb_article.deleted` so the\nunified-search indexer drops the article's index entry.",
+        "tags": [
+          "kb"
+        ]
+      },
+      "get": {
+        "operationId": "kb_get_article",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KbArticle"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "article not visible in scope"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/kb/articles/{id}",
+        "tags": [
+          "kb"
+        ]
+      },
+      "patch": {
+        "operationId": "kb_update_article",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateArticleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArticleMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "article not visible in scope"
+          },
+          "409": {
+            "description": "archived content lock, version conflict, slug reuse, or idempotency key reused"
+          },
+          "422": {
+            "description": "title/body rejected by KB rules"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "PATCH /api/kb/articles/{id} — instant-first (IF1/IF2). Archived\narticles refuse title/body edits until unarchived (typed conflict);\nstatus flips stay legal.",
+        "tags": [
+          "kb"
+        ]
+      }
+    },
+    "/api/v1/kb/categories": {
+      "get": {
+        "operationId": "kb_list_categories",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/KbCategory"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/kb/categories",
+        "tags": [
+          "kb"
+        ]
+      },
+      "post": {
+        "operationId": "kb_create_category",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCategoryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategoryMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "description": "slug already in use or idempotency key reused"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/kb/categories — instant-first (IF1/IF2).",
+        "tags": [
+          "kb"
+        ]
+      }
+    },
+    "/api/v1/kb/categories/{id}": {
+      "delete": {
+        "operationId": "kb_delete_category",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "category not visible in scope"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "DELETE /api/kb/categories/{id} — articles keep existing (category_id\nclears; ON DELETE SET NULL), so no content is lost behind a removal.",
+        "tags": [
+          "kb"
+        ]
+      },
+      "patch": {
+        "operationId": "kb_update_category",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCategoryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategoryMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "category not visible in scope"
+          },
+          "409": {
+            "description": "version conflict, slug reuse, or idempotency key reused"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "PATCH /api/kb/categories/{id} — instant-first (IF1/IF2).",
+        "tags": [
+          "kb"
         ]
       }
     },
@@ -14496,6 +15876,14 @@
     {
       "description": "File attachments on tickets/comments (ObjectStore-backed)",
       "name": "attachments"
+    },
+    {
+      "description": "Native knowledge base: categories, articles, client-facing flags",
+      "name": "kb"
+    },
+    {
+      "description": "Documents with immutable, append-only, diffable versions (restore-creates-new-version)",
+      "name": "documents"
     }
   ]
 }

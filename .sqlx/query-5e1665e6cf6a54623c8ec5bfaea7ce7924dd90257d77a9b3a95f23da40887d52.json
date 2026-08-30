@@ -1,0 +1,78 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, org_id, document_id, version, title, body, change_summary,\n                  author_id, restored_from_version, created_at\n           FROM document_versions\n           WHERE org_id = $1 AND document_id = $2 AND version = $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "document_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "version",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "body",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "change_summary",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "author_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 8,
+        "name": "restored_from_version",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "5e1665e6cf6a54623c8ec5bfaea7ce7924dd90257d77a9b3a95f23da40887d52"
+}

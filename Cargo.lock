@@ -625,8 +625,10 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "core-db",
+ "core-documents",
  "core-domain",
  "core-events",
+ "core-kb",
  "core-mail",
  "core-otel",
  "core-reports",
@@ -687,6 +689,12 @@ dependencies = [
 [[package]]
 name = "core-documents"
 version = "0.1.0"
+dependencies = [
+ "chrono",
+ "core-domain",
+ "serde",
+ "thiserror 2.0.20",
+]
 
 [[package]]
 name = "core-domain"
@@ -743,6 +751,11 @@ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 [[package]]
 name = "core-kb"
 version = "0.1.0"
+dependencies = [
+ "chrono",
+ "core-domain",
+ "thiserror 2.0.20",
+]
 
 [[package]]
 name = "core-mail"
