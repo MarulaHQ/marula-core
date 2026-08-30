@@ -1,0 +1,27 @@
+{
+  "event_type": "project.task_created",
+  "entity": "project_task",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "task": {
+      "assignee_id": "00000000-0000-0000-0000-000000000004",
+      "completed_at": "2023-11-14T22:13:22Z",
+      "created_at": "2023-11-14T22:13:21Z",
+      "description": null,
+      "due_at": null,
+      "id": "00000000-0000-0000-0000-00000000001a",
+      "is_milestone": false,
+      "milestone_amount_minor": null,
+      "milestone_currency": null,
+      "org_id": "00000000-0000-0000-0000-000000000002",
+      "phase_id": "00000000-0000-0000-0000-000000000019",
+      "project_id": "00000000-0000-0000-0000-000000000018",
+      "sort_order": 1,
+      "status": "completed",
+      "title": "Migration dry run",
+      "updated_at": "2023-11-14T22:13:22Z"
+    }
+  }
+}

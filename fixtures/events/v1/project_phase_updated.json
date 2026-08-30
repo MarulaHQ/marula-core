@@ -1,0 +1,11 @@
+{
+  "event_type": "project.phase_updated",
+  "entity": "project_phase",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "phase_id": "00000000-0000-0000-0000-000000000019",
+    "project_id": "00000000-0000-0000-0000-000000000018"
+  }
+}

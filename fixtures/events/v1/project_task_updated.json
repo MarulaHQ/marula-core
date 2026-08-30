@@ -1,0 +1,11 @@
+{
+  "event_type": "project.task_updated",
+  "entity": "project_task",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "project_id": "00000000-0000-0000-0000-000000000018",
+    "task_id": "00000000-0000-0000-0000-00000000001a"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "event_type": "project.updated",
+  "entity": "project",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "project_id": "00000000-0000-0000-0000-000000000018"
+  }
+}

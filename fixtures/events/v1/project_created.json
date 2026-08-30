@@ -1,0 +1,24 @@
+{
+  "event_type": "project.created",
+  "entity": "project",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "project": {
+      "billing_method": "milestone",
+      "budget_minor": null,
+      "client_id": "00000000-0000-0000-0000-000000000003",
+      "created_at": "2023-11-14T22:13:21Z",
+      "currency": null,
+      "description": null,
+      "due_date": null,
+      "id": "00000000-0000-0000-0000-000000000018",
+      "name": "ERP rollout",
+      "org_id": "00000000-0000-0000-0000-000000000002",
+      "start_date": "2024-01-01",
+      "status": "active",
+      "updated_at": "2023-11-14T22:13:21Z"
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "event_type": "project.milestone_completed",
+  "entity": "project",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "amount": {
+      "currency": "USD",
+      "minor": 150000
+    },
+    "billing_method": "milestone",
+    "completed_at": "2023-11-14T22:13:22Z",
+    "name": "Discovery milestone",
+    "org_id": "00000000-0000-0000-0000-000000000002",
+    "phase_id": "00000000-0000-0000-0000-000000000019",
+    "project_id": "00000000-0000-0000-0000-000000000018",
+    "task_id": null
+  }
+}

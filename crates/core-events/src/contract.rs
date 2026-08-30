@@ -187,6 +187,66 @@ fn sample_contract() -> Contract {
     }
 }
 
+/// Representative milestone phase of the sample project.
+fn sample_phase() -> ProjectPhase {
+    ProjectPhase {
+        id: su(25),
+        org_id: su(2),
+        project_id: su(24),
+        name: "Discovery milestone".into(),
+        description: None,
+        sort_order: 1,
+        status: PhaseStatus::Completed,
+        is_milestone: true,
+        milestone_amount_minor: Some(150_000),
+        milestone_currency: Some("USD".into()),
+        completed_at: Some(st(2)),
+        created_at: st(1),
+        updated_at: st(2),
+    }
+}
+
+/// Representative completed task inside the sample phase.
+fn sample_task() -> ProjectTask {
+    ProjectTask {
+        id: su(26),
+        org_id: su(2),
+        project_id: su(24),
+        phase_id: Some(su(25)),
+        title: "Migration dry run".into(),
+        description: None,
+        status: TaskStatus::Completed,
+        assignee_id: Some(su(4)),
+        sort_order: 1,
+        is_milestone: false,
+        milestone_amount_minor: None,
+        milestone_currency: None,
+        due_at: None,
+        completed_at: Some(st(2)),
+        created_at: st(1),
+        updated_at: st(2),
+    }
+}
+
+/// Representative active milestone-billed project.
+fn sample_project() -> Project {
+    Project {
+        id: su(24),
+        org_id: su(2),
+        client_id: Some(su(3)),
+        name: "ERP rollout".into(),
+        description: None,
+        status: ProjectStatus::Active,
+        billing_method: BillingMethod::Milestone,
+        budget_minor: None,
+        currency: None,
+        start_date: Some(sd(1)),
+        due_date: None,
+        created_at: st(1),
+        updated_at: st(1),
+    }
+}
+
 macro_rules! typed_shape {
     ($ty:ty, $sample:expr) => {{
         fn sample() -> serde_json::Value {
@@ -214,9 +274,10 @@ macro_rules! untyped_shape {
 }
 
 use core_domain::entities::{
-    Appointment, AppointmentKind, AppointmentStatus, BillingFrequency, BoardGroup, BoardStatus,
-    ChecklistItem, Contract, ContractStatus, ContractType, NotificationKind,
-    NotificationPreference, TicketComment, TimeEntry,
+    Appointment, AppointmentKind, AppointmentStatus, BillingFrequency, BillingMethod,
+    BoardGroup, BoardStatus, ChecklistItem, Contract, ContractStatus, ContractType,
+    NotificationKind, NotificationPreference, PhaseStatus, Project, ProjectPhase, ProjectStatus,
+    ProjectTask, TaskStatus, TicketComment, TimeEntry,
 };
 use core_domain::events::{
     types, AppointmentCancelled, AppointmentCreated, AppointmentUpdated, AttachmentAdded,
@@ -225,10 +286,15 @@ use core_domain::events::{
     BoardMembershipUpdated, BoardStatusAdded, BoardStatusRemoved, BoardStatusUpdated,
     BoardTransitionsUpdated, CalendarExclusionChanged, ClientCreated, ClientUpdated,
     ContactCreated, ContactUpdated, ContractCreated, ContractRemoved, ContractUpdated,
-    ImportBatchFinished, ImportBatchStarted, NotificationCreated, OnCallChanged, SiteCreated,
-    SiteUpdated, TicketAssigned, TicketChecklistUpdated, TicketCommentAdded, TicketCreated,
-    TicketStatusChanged, TimeEntryCreated, TimerPaused, TimerStarted, TimerStopped,
+    ImportBatchFinished, ImportBatchStarted, NotificationCreated, OnCallChanged,
+    ProjectCreated, ProjectMilestoneCompleted, ProjectPhaseCompleted, ProjectPhaseCreated,
+    ProjectPhaseUpdated, ProjectTaskCompleted, ProjectTaskCreated, ProjectTaskUpdated,
+    ProjectTemplateRemoved, ProjectTemplateUpdated, ProjectUpdated, ProjectViewRemoved,
+    ProjectViewUpdated, SiteCreated, SiteUpdated, TicketAssigned, TicketChecklistUpdated,
+    TicketCommentAdded, TicketCreated, TicketStatusChanged, TimeEntryCreated, TimerPaused,
+    TimerStarted, TimerStopped,
 };
+use core_domain::money::{CurrencyCode, Money};
 use core_domain::policy::BoardRole;
 use core_domain::status::{NoteKind, Priority, TicketStatusCategory};
 use core_domain::workflow::TransitionEdge;
@@ -1326,6 +1392,148 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             ContractRemoved {
                 contract_id: su(23),
                 number: "C-2026-001".into(),
+            }
+        ),
+    },
+    // -- projects ----------------------------------------------------------
+    PublishedEvent {
+        event_type: types::PROJECT_CREATED,
+        entity: "project",
+        variant: "default",
+        shape: typed_shape!(ProjectCreated, ProjectCreated {
+            project: sample_project(),
+        }),
+    },
+    PublishedEvent {
+        event_type: types::PROJECT_UPDATED,
+        entity: "project",
+        variant: "default",
+        shape: typed_shape!(
+            ProjectUpdated,
+            ProjectUpdated {
+                project_id: su(24),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PROJECT_PHASE_CREATED,
+        entity: "project_phase",
+        variant: "default",
+        shape: typed_shape!(ProjectPhaseCreated, ProjectPhaseCreated {
+            phase: sample_phase(),
+        }),
+    },
+    PublishedEvent {
+        event_type: types::PROJECT_PHASE_UPDATED,
+        entity: "project_phase",
+        variant: "default",
+        shape: typed_shape!(
+            ProjectPhaseUpdated,
+            ProjectPhaseUpdated {
+                phase_id: su(25),
+                project_id: su(24),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PROJECT_PHASE_COMPLETED,
+        entity: "project_phase",
+        variant: "default",
+        shape: typed_shape!(ProjectPhaseCompleted, ProjectPhaseCompleted {
+            phase: sample_phase(),
+        }),
+    },
+    PublishedEvent {
+        event_type: types::PROJECT_TASK_CREATED,
+        entity: "project_task",
+        variant: "default",
+        shape: typed_shape!(ProjectTaskCreated, ProjectTaskCreated {
+            task: sample_task(),
+        }),
+    },
+    PublishedEvent {
+        event_type: types::PROJECT_TASK_UPDATED,
+        entity: "project_task",
+        variant: "default",
+        shape: typed_shape!(
+            ProjectTaskUpdated,
+            ProjectTaskUpdated {
+                task_id: su(26),
+                project_id: su(24),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PROJECT_TASK_COMPLETED,
+        entity: "project_task",
+        variant: "default",
+        shape: typed_shape!(ProjectTaskCompleted, ProjectTaskCompleted {
+            task: sample_task(),
+        }),
+    },
+    PublishedEvent {
+        event_type: types::PROJECT_MILESTONE_COMPLETED,
+        entity: "project",
+        variant: "default",
+        shape: typed_shape!(
+            ProjectMilestoneCompleted,
+            ProjectMilestoneCompleted {
+                org_id: su(2),
+                project_id: su(24),
+                phase_id: Some(su(25)),
+                task_id: None,
+                name: "Discovery milestone".into(),
+                amount: Some(Money {
+                    minor: 150_000,
+                    currency: CurrencyCode::new("USD").expect("valid sample currency"),
+                }),
+                billing_method: "milestone".into(),
+                completed_at: st(2),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PROJECT_VIEW_UPDATED,
+        entity: "project_view",
+        variant: "default",
+        shape: typed_shape!(
+            ProjectViewUpdated,
+            ProjectViewUpdated {
+                view_id: su(27),
+                project_id: Some(su(24)),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PROJECT_VIEW_REMOVED,
+        entity: "project_view",
+        variant: "default",
+        shape: typed_shape!(
+            ProjectViewRemoved,
+            ProjectViewRemoved {
+                view_id: su(27),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PROJECT_TEMPLATE_UPDATED,
+        entity: "project_template",
+        variant: "default",
+        shape: typed_shape!(
+            ProjectTemplateUpdated,
+            ProjectTemplateUpdated {
+                template_id: su(28),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PROJECT_TEMPLATE_REMOVED,
+        entity: "project_template",
+        variant: "default",
+        shape: typed_shape!(
+            ProjectTemplateRemoved,
+            ProjectTemplateRemoved {
+                template_id: su(28),
             }
         ),
     },

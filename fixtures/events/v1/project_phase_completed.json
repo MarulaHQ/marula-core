@@ -1,0 +1,24 @@
+{
+  "event_type": "project.phase_completed",
+  "entity": "project_phase",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "phase": {
+      "completed_at": "2023-11-14T22:13:22Z",
+      "created_at": "2023-11-14T22:13:21Z",
+      "description": null,
+      "id": "00000000-0000-0000-0000-000000000019",
+      "is_milestone": true,
+      "milestone_amount_minor": 150000,
+      "milestone_currency": "USD",
+      "name": "Discovery milestone",
+      "org_id": "00000000-0000-0000-0000-000000000002",
+      "project_id": "00000000-0000-0000-0000-000000000018",
+      "sort_order": 1,
+      "status": "completed",
+      "updated_at": "2023-11-14T22:13:22Z"
+    }
+  }
+}
