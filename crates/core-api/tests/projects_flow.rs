@@ -484,7 +484,8 @@ async fn project_lifecycle_dependency_gating_and_milestone_event() {
 
     let events: Vec<(String,)> = sqlx::query_as(
         "SELECT payload::text FROM outbox_events \
-         WHERE org_id = $1 AND event_type = 'project.milestone_completed'",
+         WHERE org_id = $1 AND event_type = 'project.milestone_completed' \
+         ORDER BY occurred_at",
     )
     .bind(org)
     .fetch_all(&state.pool)
@@ -541,7 +542,8 @@ async fn project_lifecycle_dependency_gating_and_milestone_event() {
     assert_eq!(body_json(response).await["status"], "completed");
     let events: Vec<(String,)> = sqlx::query_as(
         "SELECT payload::text FROM outbox_events \
-         WHERE org_id = $1 AND event_type = 'project.milestone_completed'",
+         WHERE org_id = $1 AND event_type = 'project.milestone_completed' \
+         ORDER BY occurred_at",
     )
     .bind(org)
     .fetch_all(&state.pool)

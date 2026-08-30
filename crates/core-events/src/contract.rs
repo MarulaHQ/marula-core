@@ -274,10 +274,10 @@ macro_rules! untyped_shape {
 }
 
 use core_domain::entities::{
-    Appointment, AppointmentKind, AppointmentStatus, BillingFrequency, BillingMethod,
-    BoardGroup, BoardStatus, ChecklistItem, Contract, ContractStatus, ContractType,
-    NotificationKind, NotificationPreference, PhaseStatus, Project, ProjectPhase, ProjectStatus,
-    ProjectTask, TaskStatus, TicketComment, TimeEntry,
+    Appointment, AppointmentKind, AppointmentStatus, BillingFrequency, BillingMethod, BoardGroup,
+    BoardStatus, ChecklistItem, Contract, ContractStatus, ContractType, NotificationKind,
+    NotificationPreference, PhaseStatus, Project, ProjectPhase, ProjectStatus, ProjectTask,
+    TaskStatus, TicketComment, TimeEntry,
 };
 use core_domain::events::{
     types, AppointmentCancelled, AppointmentCreated, AppointmentUpdated, AttachmentAdded,
@@ -286,13 +286,12 @@ use core_domain::events::{
     BoardMembershipUpdated, BoardStatusAdded, BoardStatusRemoved, BoardStatusUpdated,
     BoardTransitionsUpdated, CalendarExclusionChanged, ClientCreated, ClientUpdated,
     ContactCreated, ContactUpdated, ContractCreated, ContractRemoved, ContractUpdated,
-    ImportBatchFinished, ImportBatchStarted, NotificationCreated, OnCallChanged,
-    ProjectCreated, ProjectMilestoneCompleted, ProjectPhaseCompleted, ProjectPhaseCreated,
-    ProjectPhaseUpdated, ProjectTaskCompleted, ProjectTaskCreated, ProjectTaskUpdated,
-    ProjectTemplateRemoved, ProjectTemplateUpdated, ProjectUpdated, ProjectViewRemoved,
-    ProjectViewUpdated, SiteCreated, SiteUpdated, TicketAssigned, TicketChecklistUpdated,
-    TicketCommentAdded, TicketCreated, TicketStatusChanged, TimeEntryCreated, TimerPaused,
-    TimerStarted, TimerStopped,
+    ImportBatchFinished, ImportBatchStarted, NotificationCreated, OnCallChanged, ProjectCreated,
+    ProjectMilestoneCompleted, ProjectPhaseCompleted, ProjectPhaseCreated, ProjectPhaseUpdated,
+    ProjectTaskCompleted, ProjectTaskCreated, ProjectTaskUpdated, ProjectTemplateRemoved,
+    ProjectTemplateUpdated, ProjectUpdated, ProjectViewRemoved, ProjectViewUpdated, SiteCreated,
+    SiteUpdated, TicketAssigned, TicketChecklistUpdated, TicketCommentAdded, TicketCreated,
+    TicketStatusChanged, TimeEntryCreated, TimerPaused, TimerStarted, TimerStopped,
 };
 use core_domain::money::{CurrencyCode, Money};
 use core_domain::policy::BoardRole;
@@ -1371,17 +1370,23 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
         event_type: types::CONTRACT_CREATED,
         entity: "contract",
         variant: "default",
-        shape: typed_shape!(ContractCreated, ContractCreated {
-            contract: sample_contract(),
-        }),
+        shape: typed_shape!(
+            ContractCreated,
+            ContractCreated {
+                contract: sample_contract(),
+            }
+        ),
     },
     PublishedEvent {
         event_type: types::CONTRACT_UPDATED,
         entity: "contract",
         variant: "default",
-        shape: typed_shape!(ContractUpdated, ContractUpdated {
-            contract: sample_contract(),
-        }),
+        shape: typed_shape!(
+            ContractUpdated,
+            ContractUpdated {
+                contract: sample_contract(),
+            }
+        ),
     },
     PublishedEvent {
         event_type: types::CONTRACT_REMOVED,
@@ -1400,28 +1405,29 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
         event_type: types::PROJECT_CREATED,
         entity: "project",
         variant: "default",
-        shape: typed_shape!(ProjectCreated, ProjectCreated {
-            project: sample_project(),
-        }),
+        shape: typed_shape!(
+            ProjectCreated,
+            ProjectCreated {
+                project: sample_project(),
+            }
+        ),
     },
     PublishedEvent {
         event_type: types::PROJECT_UPDATED,
         entity: "project",
         variant: "default",
-        shape: typed_shape!(
-            ProjectUpdated,
-            ProjectUpdated {
-                project_id: su(24),
-            }
-        ),
+        shape: typed_shape!(ProjectUpdated, ProjectUpdated { project_id: su(24) }),
     },
     PublishedEvent {
         event_type: types::PROJECT_PHASE_CREATED,
         entity: "project_phase",
         variant: "default",
-        shape: typed_shape!(ProjectPhaseCreated, ProjectPhaseCreated {
-            phase: sample_phase(),
-        }),
+        shape: typed_shape!(
+            ProjectPhaseCreated,
+            ProjectPhaseCreated {
+                phase: sample_phase(),
+            }
+        ),
     },
     PublishedEvent {
         event_type: types::PROJECT_PHASE_UPDATED,
@@ -1439,17 +1445,23 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
         event_type: types::PROJECT_PHASE_COMPLETED,
         entity: "project_phase",
         variant: "default",
-        shape: typed_shape!(ProjectPhaseCompleted, ProjectPhaseCompleted {
-            phase: sample_phase(),
-        }),
+        shape: typed_shape!(
+            ProjectPhaseCompleted,
+            ProjectPhaseCompleted {
+                phase: sample_phase(),
+            }
+        ),
     },
     PublishedEvent {
         event_type: types::PROJECT_TASK_CREATED,
         entity: "project_task",
         variant: "default",
-        shape: typed_shape!(ProjectTaskCreated, ProjectTaskCreated {
-            task: sample_task(),
-        }),
+        shape: typed_shape!(
+            ProjectTaskCreated,
+            ProjectTaskCreated {
+                task: sample_task(),
+            }
+        ),
     },
     PublishedEvent {
         event_type: types::PROJECT_TASK_UPDATED,
@@ -1467,9 +1479,12 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
         event_type: types::PROJECT_TASK_COMPLETED,
         entity: "project_task",
         variant: "default",
-        shape: typed_shape!(ProjectTaskCompleted, ProjectTaskCompleted {
-            task: sample_task(),
-        }),
+        shape: typed_shape!(
+            ProjectTaskCompleted,
+            ProjectTaskCompleted {
+                task: sample_task(),
+            }
+        ),
     },
     PublishedEvent {
         event_type: types::PROJECT_MILESTONE_COMPLETED,
@@ -1508,12 +1523,7 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
         event_type: types::PROJECT_VIEW_REMOVED,
         entity: "project_view",
         variant: "default",
-        shape: typed_shape!(
-            ProjectViewRemoved,
-            ProjectViewRemoved {
-                view_id: su(27),
-            }
-        ),
+        shape: typed_shape!(ProjectViewRemoved, ProjectViewRemoved { view_id: su(27) }),
     },
     PublishedEvent {
         event_type: types::PROJECT_TEMPLATE_UPDATED,
