@@ -1,0 +1,10 @@
+{
+  "event_type": "kb_article.deleted",
+  "entity": "kb_article",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "article_id": "00000000-0000-0000-0000-000000000015"
+  }
+}
