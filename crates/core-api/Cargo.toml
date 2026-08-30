@@ -26,6 +26,7 @@ core-domain = { path = "../core-domain", features = ["openapi"] }
 core-billing = { path = "../core-billing" }
 core-documents = { path = "../core-documents" }
 core-kb = { path = "../core-kb" }
+core-projects = { path = "../core-projects" }
 core-reports = { path = "../core-reports" }
 core-events = { path = "../core-events" }
 core-mail = { path = "../core-mail" }

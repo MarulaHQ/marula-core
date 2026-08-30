@@ -14,8 +14,8 @@
 //! vocabulary: `not_found`, `rls_sparse`, `unauthorized`, `forbidden`,
 //! `validation_failed`, `conflict`, `version_conflict`,
 //! `idempotency_key_reused`, `pre_close_checklist_blocked`,
-//! `dispatch_move_conflict`, `import_chunk_rejected`, `service_unavailable`,
-//! `internal_error`.
+//! `dispatch_move_conflict`, `import_chunk_rejected`,
+//! `task_dependencies_unsatisfied`, `service_unavailable`, `internal_error`.
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -86,6 +86,17 @@ pub enum ApiError {
     #[error("import chunk rejected by conflict_policy=fail")]
     ImportChunkRejected {
         report: crate::routes::imports::RunReportResponse,
+    },
+    /// Typed 409 for a completion attempt whose finish-to-start
+    /// dependencies are not all completed yet (TASKLIST Phase 3 projects
+    /// line): names the task and the blocking dependency ids so the client
+    /// can render exactly what is outstanding.
+    #[error("task dependencies not satisfied")]
+    TaskDependenciesUnsatisfied {
+        /// The task that was denied completion.
+        task_id: Uuid,
+        /// Dependency ids still not completed.
+        blocking: Vec<Uuid>,
     },
     #[error("internal error")]
     Internal(#[from] anyhow::Error),
@@ -182,6 +193,12 @@ impl IntoResponse for ApiError {
                 "import_chunk_rejected",
                 "import chunk rejected by conflict_policy=fail".to_string(),
                 Some(json!({ "report": report })),
+            ),
+            ApiError::TaskDependenciesUnsatisfied { task_id, blocking } => (
+                StatusCode::CONFLICT,
+                "task_dependencies_unsatisfied",
+                "task dependencies not satisfied".to_string(),
+                Some(json!({ "task_id": task_id, "blocking": blocking })),
             ),
             ApiError::Unavailable(m) => (
                 StatusCode::SERVICE_UNAVAILABLE,

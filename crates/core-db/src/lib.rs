@@ -27,6 +27,7 @@ pub mod oidc;
 pub mod orgs;
 pub mod outbox;
 pub mod portal;
+pub mod projects;
 pub mod queue;
 pub mod scheduling;
 pub mod search;

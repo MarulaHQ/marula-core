@@ -2127,6 +2127,308 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/project-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/project-templates */
+        get: operations["project_templates_list"];
+        put?: never;
+        /**
+         * POST /api/project-templates — stores a blueprint (spec validated);
+         *     emits `project.template_updated`.
+         */
+        post: operations["project_templates_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/project-templates/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/project-templates/{id} — blueprints are data, not live
+         *     references: projects already instantiated are untouched; emits
+         *     `project.template_removed`.
+         */
+        delete: operations["project_templates_delete"];
+        options?: never;
+        head?: never;
+        /** PATCH /api/project-templates/{id} — emits `project.template_updated`. */
+        patch: operations["project_templates_patch"];
+        trace?: never;
+    };
+    "/api/v1/project-templates/{id}/instantiate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/project-templates/{id}/instantiate — expands the template
+         *     into a REAL project: phases, tasks, dependencies, and every lifecycle
+         *     event, all in ONE transaction (claim → expand → insert → events →
+         *     record). Rollback on any failure leaves zero partial rows.
+         */
+        post: operations["project_templates_instantiate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/project-views": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/project-views — one project's views, or all org views when
+         *     `project_id` is omitted.
+         */
+        get: operations["project_views_list"];
+        put?: never;
+        /** POST /api/project-views — saves a view; emits `project.view_updated`. */
+        post: operations["project_views_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/project-views/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** DELETE /api/project-views/{id} — emits `project.view_removed`. */
+        delete: operations["project_views_delete"];
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/project-views/{id} — renames / respecs a view; emits
+         *     `project.view_updated`.
+         */
+        patch: operations["project_views_patch"];
+        trace?: never;
+    };
+    "/api/v1/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/projects — filtered, newest-first list. */
+        get: operations["projects_list"];
+        put?: never;
+        /**
+         * POST /api/projects — creates the project and emits `project.created` in
+         *     one transaction. Instant-first (IF1/IF2): idempotency-keyed,
+         *     version-gated, read-your-write response.
+         */
+        post: operations["projects_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/projects/{id} */
+        get: operations["projects_get_one"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/projects/{id} — tri-state partial update. Instant-first
+         *     (IF1/IF2): idempotency-keyed, version-gated, returns prior + new values.
+         */
+        patch: operations["projects_patch"];
+        trace?: never;
+    };
+    "/api/v1/projects/{id}/phases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/projects/{id}/phases — ordered by sort_order. */
+        get: operations["projects_list_phases"];
+        put?: never;
+        /**
+         * POST /api/projects/{id}/phases — adds a phase; emits
+         *     `project.phase_created`.
+         */
+        post: operations["projects_create_phase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{id}/phases/{phase_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** PATCH /api/projects/{id}/phases/{phase_id} — tri-state partial update. */
+        patch: operations["projects_patch_phase"];
+        trace?: never;
+    };
+    "/api/v1/projects/{id}/phases/{phase_id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/projects/{id}/phases/{phase_id}/complete — stamps the phase
+         *     completed and, when it is a billing milestone, emits
+         *     `project.milestone_completed` in the same transaction (the core-billing
+         *     seam). Instant-first: the idempotency key guarantees a retried
+         *     completion can never double-emit the billing event.
+         */
+        post: operations["projects_complete_phase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{id}/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/projects/{id}/tasks — filtered by phase/status/assignee and
+         *     the milestone flag, sort_order-ordered.
+         */
+        get: operations["projects_list_tasks"];
+        put?: never;
+        /**
+         * POST /api/projects/{id}/tasks — creates the task (optionally with its
+         *     dependency set) and emits `project.task_created` in one transaction.
+         */
+        post: operations["projects_create_task"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{id}/tasks/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/projects/{id}/tasks/{task_id} — tri-state partial update.
+         *     `status: "completed"` is rejected: completion runs through the complete
+         *     endpoint (dependency gating + the billing seam).
+         */
+        patch: operations["projects_patch_task"];
+        trace?: never;
+    };
+    "/api/v1/projects/{id}/tasks/{task_id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/projects/{id}/tasks/{task_id}/complete — the guarded
+         *     completion: every finish-to-start dependency must already be completed
+         *     (typed 409 `task_dependencies_unsatisfied` naming the blockers), then
+         *     `project.task_completed` fires — plus `project.milestone_completed`
+         *     when the task is a billing milestone. Instant-first: the idempotency
+         *     key makes retried completions replay instead of double-billing.
+         */
+        post: operations["projects_complete_task"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{id}/tasks/{task_id}/dependencies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/projects/{id}/tasks/{task_id}/dependencies */
+        get: operations["projects_get_dependencies"];
+        /**
+         * PUT /api/projects/{id}/tasks/{task_id}/dependencies — replaces the
+         *     whole dependency set, cycle-checked over the project graph BEFORE any
+         *     write; emits `project.task_updated`.
+         */
+        put: operations["projects_set_dependencies"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/{kind}": {
         parameters: {
             query?: never;
@@ -3339,6 +3641,13 @@ export interface components {
          * @enum {string}
          */
         BillingLineKind: "recurring_base" | "retainer_base" | "retainer_overage" | "time_materials" | "fixed_fee";
+        /**
+         * @description How the project turns delivered work into money. The value rides the
+         *     milestone event payload so core-billing can route without re-reading the
+         *     project row (event payloads are additive-only, policy §2).
+         * @enum {string}
+         */
+        BillingMethod: "milestone" | "time_and_materials" | "fixed_fee" | "non_billable";
         Board: {
             /**
              * Format: date-time
@@ -4082,6 +4391,16 @@ export interface components {
             /** Format: uuid */
             user_id?: string | null;
         };
+        CreatePhaseRequest: components["schemas"]["MutationParams"] & {
+            description?: string | null;
+            is_milestone?: boolean;
+            /** Format: int64 */
+            milestone_amount_minor?: number | null;
+            milestone_currency?: string | null;
+            name: string;
+            /** Format: int32 */
+            sort_order?: number;
+        };
         CreatePortalUserRequest: {
             display_name: string;
             email: string;
@@ -4091,6 +4410,20 @@ export interface components {
              */
             password: string;
             role: components["schemas"]["PortalRole"];
+        };
+        CreateProjectRequest: components["schemas"]["MutationParams"] & {
+            billing_method?: components["schemas"]["BillingMethod"];
+            /** Format: int64 */
+            budget_minor?: number | null;
+            /** Format: uuid */
+            client_id?: string | null;
+            currency?: string | null;
+            description?: string | null;
+            /** Format: date */
+            due_date?: string | null;
+            name: string;
+            /** Format: date */
+            start_date?: string | null;
         };
         CreateRuleRequest: {
             /** @description Action documents (see AutomationAction schema). */
@@ -4127,6 +4460,38 @@ export interface components {
             /** Format: int32 */
             sort_order: number;
         };
+        CreateTaskRequest: components["schemas"]["MutationParams"] & {
+            /** Format: uuid */
+            assignee_id?: string | null;
+            /**
+             * @description Finish-to-start dependencies to create with the task; every id must
+             *     be a task of the SAME project. Cycles are impossible at creation
+             *     (nothing can depend on the not-yet-existing task) but membership is
+             *     validated.
+             */
+            depends_on?: string[];
+            description?: string | null;
+            /** Format: date-time */
+            due_at?: string | null;
+            is_milestone?: boolean;
+            /** Format: int64 */
+            milestone_amount_minor?: number | null;
+            milestone_currency?: string | null;
+            /** Format: uuid */
+            phase_id?: string | null;
+            /** Format: int32 */
+            sort_order?: number;
+            title: string;
+        };
+        CreateTemplateRequest: {
+            description?: string | null;
+            name: string;
+            /**
+             * @description Versioned template spec (core-projects `template`, spec_version 1).
+             *     Validated eagerly so broken blueprints never persist.
+             */
+            spec: unknown;
+        };
         CreateTicketRequest: components["schemas"]["MutationParams"] & {
             /** Format: uuid */
             assignee_id?: string | null;
@@ -4159,6 +4524,20 @@ export interface components {
             /** Format: uuid */
             ticket_id: string;
             work_type?: string | null;
+        };
+        CreateViewRequest: {
+            is_default?: boolean;
+            name: string;
+            /**
+             * Format: uuid
+             * @description `None` = org-wide view (spans every project).
+             */
+            project_id?: string | null;
+            /**
+             * @description Versioned, additive-only view spec (filter/group/sort). Consumers
+             *     tolerate unknown fields.
+             */
+            spec?: unknown;
         };
         CreateWebhookRequest: {
             /** @description Exact event types to subscribe; empty subscribes to everything. */
@@ -4249,6 +4628,17 @@ export interface components {
             cursor?: string | null;
             /** Format: int64 */
             limit?: number;
+        };
+        /**
+         * @description A task's direct finish-to-start dependencies (full rows, so the client
+         *     renders "blocked by" without extra fetches).
+         */
+        DependencyListResponse: {
+            depends_on: components["schemas"]["ProjectTask"][];
+            /** Format: uuid */
+            project_id: string;
+            /** Format: uuid */
+            task_id: string;
         };
         DeviceAsset: {
             /** Format: uuid */
@@ -4533,6 +4923,22 @@ export interface components {
         };
         HealthResponse: {
             status: string;
+        };
+        InstantiateTemplateRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * @description Resolves template `assignee_key`s to user ids at instantiation
+             *     time; unmapped keys simply leave those tasks unassigned.
+             */
+            assignee_map?: {
+                [key: string]: string;
+            };
+            /** Format: uuid */
+            client_id?: string | null;
+            /** Format: date */
+            due_date?: string | null;
+            name: string;
+            /** Format: date */
+            start_date?: string | null;
         };
         /** @description A KB article. */
         KbArticle: {
@@ -5117,12 +5523,61 @@ export interface components {
             name?: string | null;
             ticket_prefix?: string | null;
         };
+        PatchPhaseRequest: components["schemas"]["MutationParams"] & {
+            description?: string | null;
+            is_milestone?: boolean | null;
+            /** Format: int64 */
+            milestone_amount_minor?: number | null;
+            milestone_currency?: string | null;
+            name?: string | null;
+            /** Format: int32 */
+            sort_order?: number | null;
+            status?: null | components["schemas"]["PhaseStatus"];
+        };
         PatchPortalUserRequest: {
             display_name?: string | null;
             /** @description Optional credential reset (hashed before storage). */
             password?: string | null;
             role?: null | components["schemas"]["PortalRole"];
             status?: null | components["schemas"]["PortalUserStatus"];
+        };
+        PatchProjectRequest: components["schemas"]["MutationParams"] & {
+            billing_method?: null | components["schemas"]["BillingMethod"];
+            /** Format: int64 */
+            budget_minor?: number | null;
+            /** Format: uuid */
+            client_id?: string | null;
+            currency?: string | null;
+            /** @description `Some(Some(v))` sets; `Some(None)` clears; `None` = no change. */
+            description?: string | null;
+            /** Format: date */
+            due_date?: string | null;
+            name?: string | null;
+            /** Format: date */
+            start_date?: string | null;
+            status?: null | components["schemas"]["ProjectStatus"];
+        };
+        PatchTaskRequest: components["schemas"]["MutationParams"] & {
+            /** Format: uuid */
+            assignee_id?: string | null;
+            description?: string | null;
+            /** Format: date-time */
+            due_at?: string | null;
+            is_milestone?: boolean | null;
+            /** Format: int64 */
+            milestone_amount_minor?: number | null;
+            milestone_currency?: string | null;
+            /** Format: uuid */
+            phase_id?: string | null;
+            /** Format: int32 */
+            sort_order?: number | null;
+            status?: null | components["schemas"]["TaskStatus"];
+            title?: string | null;
+        };
+        PatchTemplateRequest: {
+            description?: string | null;
+            name?: string | null;
+            spec?: unknown;
         };
         PatchTicketRequest: components["schemas"]["MutationParams"] & {
             /**
@@ -5147,6 +5602,11 @@ export interface components {
             site_id?: string | null;
             title?: string | null;
         };
+        PatchViewRequest: {
+            is_default?: boolean | null;
+            name?: string | null;
+            spec?: unknown;
+        };
         PauseTimerRequest: {
             /** @description Optional reason, preserved on the segment forever. */
             reason?: string | null;
@@ -5156,6 +5616,14 @@ export interface components {
              */
             session_id?: string | null;
         };
+        PhaseMutationResponse: components["schemas"]["ProjectPhase"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        /**
+         * @description Lifecycle of a phase.
+         * @enum {string}
+         */
+        PhaseStatus: "pending" | "active" | "completed" | "cancelled";
         PolicyView: {
             /** Format: uuid */
             calendar_id?: string | null;
@@ -5294,6 +5762,173 @@ export interface components {
          * @enum {string}
          */
         Priority: "p1" | "p2" | "p3" | "p4";
+        /**
+         * @description A project engagement under a client (or internal when `client_id` is
+         *     `None`).
+         */
+        Project: {
+            billing_method: components["schemas"]["BillingMethod"];
+            /**
+             * Format: int64
+             * @description Project budget in minor units; `None` = unbudgeted.
+             */
+            budget_minor?: number | null;
+            /** Format: uuid */
+            client_id?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** @description ISO 4217 currency for `budget_minor` (required when a budget is set). */
+            currency?: string | null;
+            description?: string | null;
+            /** Format: date */
+            due_date?: string | null;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: date */
+            start_date?: string | null;
+            status: components["schemas"]["ProjectStatus"];
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /**
+         * @description The instantiation result: the applied project plus the expansion
+         *     counts (clients render "created N phases, M tasks" without refetching).
+         */
+        ProjectInstantiateResponse: components["schemas"]["Project"] & {
+            mutation: components["schemas"]["MutationMeta"];
+            /** Format: int64 */
+            phase_count: number;
+            /** Format: int64 */
+            task_count: number;
+        };
+        ProjectListQuery: {
+            /** Format: uuid */
+            client_id?: string | null;
+            /** Format: int64 */
+            limit?: number;
+            /** Format: int64 */
+            offset?: number;
+            status?: null | components["schemas"]["ProjectStatus"];
+        };
+        /**
+         * @description Instant-first mutation response for the project entity (IF2): applied
+         *     snapshot at the top level plus the additive `mutation` metadata.
+         */
+        ProjectMutationResponse: components["schemas"]["Project"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        /**
+         * @description A phase groups tasks into a delivery stage. A phase flagged
+         *     `is_milestone` is itself a billing milestone.
+         */
+        ProjectPhase: {
+            /** Format: date-time */
+            completed_at?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            description?: string | null;
+            /** Format: uuid */
+            id: string;
+            is_milestone: boolean;
+            /**
+             * Format: int64
+             * @description Billing amount released when this milestone phase completes
+             *     (minor units; `None` = informational milestone).
+             */
+            milestone_amount_minor?: number | null;
+            /** @description ISO 4217 code for `milestone_amount_minor`. */
+            milestone_currency?: string | null;
+            name: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            project_id: string;
+            /** Format: int32 */
+            sort_order: number;
+            status: components["schemas"]["PhaseStatus"];
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /**
+         * @description Lifecycle of a project.
+         * @enum {string}
+         */
+        ProjectStatus: "planning" | "active" | "on_hold" | "completed" | "cancelled";
+        /**
+         * @description A unit of project work. A task flagged `is_milestone` is a billing
+         *     milestone: completing it emits `project.milestone_completed`.
+         */
+        ProjectTask: {
+            /** Format: uuid */
+            assignee_id?: string | null;
+            /** Format: date-time */
+            completed_at?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            description?: string | null;
+            /** Format: date-time */
+            due_at?: string | null;
+            /** Format: uuid */
+            id: string;
+            is_milestone: boolean;
+            /** Format: int64 */
+            milestone_amount_minor?: number | null;
+            milestone_currency?: string | null;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            phase_id?: string | null;
+            /** Format: uuid */
+            project_id: string;
+            /** Format: int32 */
+            sort_order: number;
+            status: components["schemas"]["TaskStatus"];
+            title: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /**
+         * @description A reusable project blueprint. `spec` follows `core-projects::template`
+         *     (`TemplateSpec`, additive-only evolution); instantiation is a plain
+         *     transactional insert plan — templates are data, not code (policy §5).
+         */
+        ProjectTemplate: {
+            /** Format: date-time */
+            created_at: string;
+            description?: string | null;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: uuid */
+            org_id: string;
+            spec: Record<string, never>;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /**
+         * @description A saved task-list view: filter/group/sort spec over one project's tasks
+         *     (`project_id: None` = org-wide). The `spec` is a versioned, additive-only
+         *     JSON document validated at the route layer; unknown fields are tolerated
+         *     (policy §2 posture for declared customizations-as-data).
+         */
+        ProjectView: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            is_default: boolean;
+            name: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            project_id?: string | null;
+            spec: Record<string, never>;
+            /** Format: date-time */
+            updated_at: string;
+        };
         PublicProvider: {
             display_name: string;
             /** @description URL path segment for /api/auth/oidc/{name}/login. */
@@ -5515,6 +6150,14 @@ export interface components {
         SetChecklistItemRequest: {
             checked: boolean;
         };
+        SetDependenciesRequest: {
+            /**
+             * @description The FULL finish-to-start dependency set for the task (PUT
+             *     semantics): every id must be a task of the same project; the set
+             *     must not create a cycle (typed 422 names the offending edge).
+             */
+            depends_on: string[];
+        };
         SetTicketFieldValueRequest: {
             value: unknown;
         };
@@ -5643,6 +6286,28 @@ export interface components {
              */
             session_id?: string | null;
         };
+        TaskListQuery: {
+            /** Format: uuid */
+            assignee_id?: string | null;
+            /** Format: int64 */
+            limit?: number;
+            milestone?: boolean | null;
+            /** Format: int64 */
+            offset?: number;
+            /** Format: uuid */
+            phase_id?: string | null;
+            status?: null | components["schemas"]["TaskStatus"];
+        };
+        TaskMutationResponse: components["schemas"]["ProjectTask"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        /**
+         * @description Lifecycle of a task. `completed` is reached ONLY through the dedicated
+         *     complete endpoint, which enforces dependency readiness and emits the
+         *     completion (+ milestone billing seam) events.
+         * @enum {string}
+         */
+        TaskStatus: "pending" | "in_progress" | "blocked" | "completed" | "cancelled";
         TeamRangeQuery: {
             /**
              * Format: date-time
@@ -5685,6 +6350,7 @@ export interface components {
              */
             utilization_percent: number;
         };
+        TemplateMutationResponse: components["schemas"]["ProjectTemplate"];
         TestFireResponse: {
             /**
              * Format: uuid
@@ -6115,6 +6781,14 @@ export interface components {
             applied: boolean;
             reason?: string | null;
         };
+        ViewListQuery: {
+            /**
+             * Format: uuid
+             * @description Scope to one project's views; omit for the org's ENTIRE view set.
+             */
+            project_id?: string | null;
+        };
+        ViewMutationResponse: components["schemas"]["ProjectView"];
         WebauthnBeginResponse: {
             /** @description Opaque ceremony binding — pass back to finish. */
             challenge_token: string;
@@ -9859,6 +10533,823 @@ export interface operations {
                 };
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    project_templates_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectTemplate"][];
+                };
+            };
+        };
+    };
+    project_templates_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTemplateRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateMutationResponse"];
+                };
+            };
+            /** @description template name already in use */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid template spec */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    project_templates_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description template not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    project_templates_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchTemplateRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateMutationResponse"];
+                };
+            };
+            /** @description template not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid template spec */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    project_templates_instantiate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstantiateTemplateRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectInstantiateResponse"];
+                };
+            };
+            /** @description template not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid template spec or request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    project_views_list: {
+        parameters: {
+            query?: {
+                /** @description Scope to one project's views; omit for the org's ENTIRE view set. */
+                project_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectView"][];
+                };
+            };
+        };
+    };
+    project_views_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateViewRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ViewMutationResponse"];
+                };
+            };
+            /** @description project not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description view name already in use in the scope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    project_views_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description view not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    project_views_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchViewRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ViewMutationResponse"];
+                };
+            };
+            /** @description view not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_list: {
+        parameters: {
+            query?: {
+                status?: null | components["schemas"]["ProjectStatus"];
+                client_id?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"][];
+                };
+            };
+        };
+    };
+    projects_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateProjectRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectMutationResponse"];
+                };
+            };
+            /** @description version conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_get_one: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchProjectRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectMutationResponse"];
+                };
+            };
+            /** @description project not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_list_phases: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectPhase"][];
+                };
+            };
+        };
+    };
+    projects_create_phase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePhaseRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PhaseMutationResponse"];
+                };
+            };
+            /** @description project not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_patch_phase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                phase_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchPhaseRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PhaseMutationResponse"];
+                };
+            };
+            /** @description phase not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_complete_phase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                phase_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["MutationParams"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PhaseMutationResponse"];
+                };
+            };
+            /** @description phase not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description already completed, version conflict, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_list_tasks: {
+        parameters: {
+            query?: {
+                phase_id?: string | null;
+                status?: null | components["schemas"]["TaskStatus"];
+                assignee_id?: string | null;
+                milestone?: boolean | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectTask"][];
+                };
+            };
+        };
+    };
+    projects_create_task: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTaskRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskMutationResponse"];
+                };
+            };
+            /** @description project not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_patch_task: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchTaskRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskMutationResponse"];
+                };
+            };
+            /** @description task not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_complete_task: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["MutationParams"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskMutationResponse"];
+                };
+            };
+            /** @description task not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description dependencies unsatisfied, already completed, version conflict, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_get_dependencies: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DependencyListResponse"];
+                };
+            };
+            /** @description not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_set_dependencies: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetDependenciesRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DependencyListResponse"];
+                };
+            };
+            /** @description task not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description dependency set rejected (self-dep, cross-project, or cycle) */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
