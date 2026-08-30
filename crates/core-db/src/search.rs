@@ -16,7 +16,7 @@ use sqlx::Postgres;
 use uuid::Uuid;
 
 /// The indexed entity kinds; mirrors the `search_index.entity_kind` CHECK
-/// (vocabulary widened once in 0031; the `document` kind arrives with D4).
+/// (vocabulary widened once in 0031 for the Wave-8b kinds).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SearchKind {
     Ticket,
@@ -26,16 +26,19 @@ pub enum SearchKind {
     Contact,
     /// Native KB article (TASKLIST Phase 3 native KB v1).
     KbArticle,
+    /// Document, indexed by its CURRENT version (TASKLIST D4).
+    Document,
 }
 
 impl SearchKind {
-    pub const ALL: [SearchKind; 6] = [
+    pub const ALL: [SearchKind; 7] = [
         SearchKind::Ticket,
         SearchKind::Comment,
         SearchKind::Client,
         SearchKind::Site,
         SearchKind::Contact,
         SearchKind::KbArticle,
+        SearchKind::Document,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -46,6 +49,7 @@ impl SearchKind {
             SearchKind::Site => "site",
             SearchKind::Contact => "contact",
             SearchKind::KbArticle => "kb_article",
+            SearchKind::Document => "document",
         }
     }
 
@@ -57,6 +61,7 @@ impl SearchKind {
             "site" => SearchKind::Site,
             "contact" => SearchKind::Contact,
             "kb_article" => SearchKind::KbArticle,
+            "document" => SearchKind::Document,
             _ => return None,
         })
     }

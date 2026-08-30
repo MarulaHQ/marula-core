@@ -15,6 +15,7 @@ pub mod boards;
 pub mod checklists;
 pub mod clients;
 pub mod custom_fields;
+pub mod documents;
 pub mod emails;
 pub mod imports;
 pub mod kb;

@@ -213,6 +213,14 @@ use utoipa::OpenApi;
         crate::routes::kb::get_article,
         crate::routes::kb::update_article,
         crate::routes::kb::delete_article,
+        // documents with immutable versions (TASKLIST D4)
+        crate::routes::documents::list,
+        crate::routes::documents::create,
+        crate::routes::documents::get_one,
+        crate::routes::documents::update,
+        crate::routes::documents::list_versions,
+        crate::routes::documents::get_version,
+        crate::routes::documents::restore,
     ),
     components(schemas(
         // import framework (TASKLIST D2)
@@ -459,6 +467,15 @@ use utoipa::OpenApi;
         crate::routes::kb::UpdateArticleRequest,
         crate::routes::kb::ArticleMutationResponse,
         crate::routes::kb::ArticleListQuery,
+        // documents with immutable versions (TASKLIST D4)
+        core_domain::entities::documents::Document,
+        core_domain::entities::documents::DocumentVersion,
+        crate::routes::documents::DocumentView,
+        crate::routes::documents::DocumentMutationResponse,
+        crate::routes::documents::CreateDocumentRequest,
+        crate::routes::documents::UpdateDocumentRequest,
+        crate::routes::documents::RestoreDocumentRequest,
+        crate::routes::documents::DocumentListQuery,
     ),
     ),
     tags(
@@ -480,6 +497,7 @@ use utoipa::OpenApi;
         (name = "scheduling", description = "Appointments, availability, on-call, calendar views"),
         (name = "attachments", description = "File attachments on tickets/comments (ObjectStore-backed)"),
         (name = "kb", description = "Native knowledge base: categories, articles, client-facing flags"),
+        (name = "documents", description = "Documents with immutable, append-only, diffable versions (restore-creates-new-version)"),
     )
 )]
 pub struct ApiDoc;

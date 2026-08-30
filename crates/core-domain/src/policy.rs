@@ -18,13 +18,18 @@ pub enum Module {
     Commercial,
     Invoicing,
     Kb,
+    /// Documents with immutable version history (TASKLIST D4,
+    /// agent-platform §6). Owner/Admin hold the full matrix; Read-Only
+    /// holds view. Staff roles gain it by explicit custom-role grant —
+    /// additive to widen later without breaking stored roles.
+    Documents,
     Reporting,
     Admin,
     Plugins,
 }
 
 impl Module {
-    pub const ALL: [Module; 11] = [
+    pub const ALL: [Module; 12] = [
         Module::Tickets,
         Module::Clients,
         Module::Time,
@@ -33,6 +38,7 @@ impl Module {
         Module::Commercial,
         Module::Invoicing,
         Module::Kb,
+        Module::Documents,
         Module::Reporting,
         Module::Admin,
         Module::Plugins,
@@ -48,6 +54,7 @@ impl Module {
             Module::Commercial => "commercial",
             Module::Invoicing => "invoicing",
             Module::Kb => "kb",
+            Module::Documents => "documents",
             Module::Reporting => "reporting",
             Module::Admin => "admin",
             Module::Plugins => "plugins",

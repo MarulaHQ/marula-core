@@ -42,6 +42,11 @@ pub enum Target {
     Client(Uuid),
     Site(Uuid),
     Contact(Uuid),
+    /// Native KB article (TASKLIST Phase 3 native KB v1).
+    Article(Uuid),
+    /// Document whose CURRENT version is the searchable content
+    /// (TASKLIST D4).
+    Document(Uuid),
 }
 
 impl Target {
@@ -52,6 +57,8 @@ impl Target {
             Target::Client(_) => SearchKind::Client,
             Target::Site(_) => SearchKind::Site,
             Target::Contact(_) => SearchKind::Contact,
+            Target::Article(_) => SearchKind::KbArticle,
+            Target::Document(_) => SearchKind::Document,
         }
     }
 
@@ -61,13 +68,17 @@ impl Target {
             | Target::Comment(id)
             | Target::Client(id)
             | Target::Site(id)
-            | Target::Contact(id) => *id,
+            | Target::Contact(id)
+            | Target::Article(id)
+            | Target::Document(id) => *id,
         }
     }
 }
 
 /// Maps an envelope onto an indexing target, or None when the event does
 /// not affect searchable content. Pure — unit-tested without I/O.
+/// A `kb_article.deleted` maps to the article target so the resolver's
+/// NotFound leg drops the index entry.
 pub fn match_event(envelope: &Envelope) -> Option<Target> {
     let id = envelope.entity_id.as_deref()?;
     let uuid = Uuid::parse_str(id).ok()?;
@@ -77,6 +88,8 @@ pub fn match_event(envelope: &Envelope) -> Option<Target> {
         "client.created" | "client.updated" => Target::Client(uuid),
         "site.created" => Target::Site(uuid),
         "contact.created" => Target::Contact(uuid),
+        "kb_article.created" | "kb_article.updated" | "kb_article.deleted" => Target::Article(uuid),
+        "document.created" | "document.updated" | "document.restored" => Target::Document(uuid),
         _ => return None,
     })
 }
@@ -222,6 +235,37 @@ pub async fn resolve_target(
                         Some(c.client_id),
                         c.name,
                         body,
+                    ))
+                }
+            }
+        }
+        Target::Article(id) => {
+            match or_gone(core_db::kb::get_article(pool, org_id, id).await).await? {
+                None => None,
+                Some(a) => Some(upsert_op(
+                    SearchKind::KbArticle,
+                    id,
+                    a.category_id,
+                    a.title,
+                    a.body,
+                )),
+            }
+        }
+        Target::Document(id) => {
+            match or_gone(core_db::documents::get_document(pool, org_id, id).await).await? {
+                None => None,
+                Some(d) => {
+                    // The document's searchable content is its CURRENT
+                    // version; the head row always exists (created with
+                    // version 1 and only ever appended to).
+                    let head = core_db::documents::get_version(pool, org_id, id, d.current_version)
+                        .await?;
+                    Some(upsert_op(
+                        SearchKind::Document,
+                        id,
+                        None,
+                        head.title,
+                        head.body,
                     ))
                 }
             }

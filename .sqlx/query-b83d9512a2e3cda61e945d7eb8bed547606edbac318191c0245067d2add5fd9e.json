@@ -1,0 +1,84 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH bumped AS (\n             UPDATE documents SET\n               current_version = $4,\n               title = $5,\n               updated_by = $8,\n               updated_at = now()\n             WHERE org_id = $1 AND id = $2\n             RETURNING 1\n           )\n           INSERT INTO document_versions\n             (id, org_id, document_id, version, title, body, change_summary,\n              author_id, restored_from_version)\n           SELECT $3, $1, $2, $4, $5, $6, $7, $8, $9 FROM bumped\n           RETURNING id, org_id, document_id, version, title, body, change_summary,\n                     author_id, restored_from_version, created_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "document_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "version",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "body",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "change_summary",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "author_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 8,
+        "name": "restored_from_version",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int4",
+        "Text",
+        "Text",
+        "Text",
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "b83d9512a2e3cda61e945d7eb8bed547606edbac318191c0245067d2add5fd9e"
+}

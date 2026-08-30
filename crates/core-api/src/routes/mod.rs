@@ -47,6 +47,7 @@ pub mod checklists;
 pub mod clients;
 pub mod custom_fields;
 pub mod dispatch;
+pub mod documents;
 pub mod email_admin;
 pub mod imports;
 pub mod internal;
@@ -494,6 +495,25 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
                 .patch(kb::update_article)
                 .delete(kb::delete_article),
         )
+        // documents with immutable versions (TASKLIST D4): edits and
+        // restores APPEND versions; instant-first mutations.
+        .route(
+            &rp("/documents"),
+            get(documents::list).post(documents::create),
+        )
+        .route(
+            &rp("/documents/{id}"),
+            get(documents::get_one).patch(documents::update),
+        )
+        .route(
+            &rp("/documents/{id}/versions"),
+            get(documents::list_versions),
+        )
+        .route(
+            &rp("/documents/{id}/versions/{version}"),
+            get(documents::get_version),
+        )
+        .route(&rp("/documents/{id}/restore"), post(documents::restore))
         // import framework (TASKLIST D2): org-admin gated CSV/JSON mapper.
         // The two payload-heavy posts raise axum's default body cap like
         // attachments do; chunk/batch ids flow through the path.
