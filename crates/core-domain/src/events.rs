@@ -107,6 +107,25 @@ pub mod types {
     pub const CUSTOM_FIELD_DEF_REMOVED: &str = "custom_field.def_removed";
     pub const TICKET_FIELD_SET: &str = "ticket.field_set";
     pub const TICKET_FIELD_CLEARED: &str = "ticket.field_cleared";
+    /// Projects line (TASKLIST Phase 3, migration 0030): project/phase/task
+    /// lifecycle, saved views, templates, and the milestone billing seam.
+    pub const PROJECT_CREATED: &str = "project.created";
+    pub const PROJECT_UPDATED: &str = "project.updated";
+    pub const PROJECT_PHASE_CREATED: &str = "project.phase_created";
+    pub const PROJECT_PHASE_UPDATED: &str = "project.phase_updated";
+    pub const PROJECT_PHASE_COMPLETED: &str = "project.phase_completed";
+    pub const PROJECT_TASK_CREATED: &str = "project.task_created";
+    pub const PROJECT_TASK_UPDATED: &str = "project.task_updated";
+    pub const PROJECT_TASK_COMPLETED: &str = "project.task_completed";
+    /// THE core-billing seam: emitted when a milestone phase or task
+    /// completes. Payloads are additive-only; core-billing (Wave 9
+    /// invoicing) consumes the envelope — no crate-level import in either
+    /// direction.
+    pub const PROJECT_MILESTONE_COMPLETED: &str = "project.milestone_completed";
+    pub const PROJECT_VIEW_UPDATED: &str = "project.view_updated";
+    pub const PROJECT_VIEW_REMOVED: &str = "project.view_removed";
+    pub const PROJECT_TEMPLATE_UPDATED: &str = "project.template_updated";
+    pub const PROJECT_TEMPLATE_REMOVED: &str = "project.template_removed";
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -462,6 +481,138 @@ pub struct OnCallChanged {
 pub struct CalendarExclusionChanged {
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub user_id: crate::ids::UserId,
+}
+
+// --- projects line (TASKLIST Phase 3, migration 0030) ------------------------
+
+/// `project.created` — the full applied project snapshot.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ProjectCreated {
+    pub project: crate::entities::Project,
+}
+
+/// `project.updated` — change marker; consumers refetch the project.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ProjectUpdated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub project_id: ProjectId,
+}
+
+/// `project.phase_created` — the full applied phase snapshot.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ProjectPhaseCreated {
+    pub phase: crate::entities::ProjectPhase,
+}
+
+/// `project.phase_updated` — change marker; consumers refetch the phase.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ProjectPhaseUpdated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub phase_id: PhaseId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub project_id: ProjectId,
+}
+
+/// `project.phase_completed` — the completed phase snapshot.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ProjectPhaseCompleted {
+    pub phase: crate::entities::ProjectPhase,
+}
+
+/// `project.task_created` — the full applied task snapshot.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ProjectTaskCreated {
+    pub task: crate::entities::ProjectTask,
+}
+
+/// `project.task_updated` — change marker; consumers refetch the task.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ProjectTaskUpdated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub task_id: TaskId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub project_id: ProjectId,
+}
+
+/// `project.task_completed` — the completed task snapshot.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ProjectTaskCompleted {
+    pub task: crate::entities::ProjectTask,
+}
+
+/// `project.milestone_completed` — THE core-billing seam payload. Emitted
+/// exactly when a milestone phase or task transitions to completed, in the
+/// same transaction as the completion write. Consumers MUST tolerate
+/// unknown fields; new fields are added, never removed or retyped (policy
+/// §2). `task_id`/`phase_id` name which kind completed (`None` on the
+/// other); `amount` is `None` for informational milestones with no billing
+/// amount attached.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ProjectMilestoneCompleted {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub org_id: OrgId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub project_id: ProjectId,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub phase_id: Option<PhaseId>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub task_id: Option<TaskId>,
+    /// The milestone's display name at completion time (the row may later
+    /// be renamed; the event carries what was billed).
+    pub name: String,
+    /// Amount to release to invoicing (minor units + ISO 4217 currency);
+    /// `None` = informational milestone.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<crate::money::Money>))]
+    pub amount: Option<crate::money::Money>,
+    /// The project's billing method at completion time (routing context
+    /// for the consumer; additive context, not the trigger condition).
+    pub billing_method: String,
+    pub completed_at: DateTime<Utc>,
+}
+
+/// `project.view_updated` — a saved view was created or changed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ProjectViewUpdated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub view_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub project_id: Option<ProjectId>,
+}
+
+/// `project.view_removed` — a saved view was deleted.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ProjectViewRemoved {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub view_id: uuid::Uuid,
+}
+
+/// `project.template_updated` — a template was created or changed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ProjectTemplateUpdated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub template_id: uuid::Uuid,
+}
+
+/// `project.template_removed` — a template was deleted. Existing projects
+/// instantiated from it are unaffected (templates are blueprints, not
+/// live references).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ProjectTemplateRemoved {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub template_id: uuid::Uuid,
 }
 
 /// Extracts @mentions from a note body (`@alice`, `@alice@org` → user ids

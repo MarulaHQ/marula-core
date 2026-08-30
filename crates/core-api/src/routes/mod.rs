@@ -56,6 +56,7 @@ pub mod oidc;
 pub mod openapi;
 pub mod portal;
 pub mod portal_admin;
+pub mod projects;
 pub mod reports;
 pub mod scheduling;
 pub mod search;
@@ -611,6 +612,63 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/calendar-exclusions/{id}"),
             axum::routing::delete(availability::delete_exclusion),
+        )
+        // projects line (TASKLIST Phase 3): projects → phases → tasks,
+        // dependencies, saved views, templates, and the milestone
+        // billing seam (completions). Instant-gated mutations + typed
+        // errors live inside the module.
+        .route(&rp("/projects"), get(projects::list).post(projects::create))
+        .route(
+            &rp("/projects/{id}"),
+            get(projects::get_one).patch(projects::patch),
+        )
+        .route(
+            &rp("/projects/{id}/phases"),
+            get(projects::list_phases).post(projects::create_phase),
+        )
+        .route(
+            &rp("/projects/{id}/phases/{phase_id}"),
+            axum::routing::patch(projects::patch_phase),
+        )
+        .route(
+            &rp("/projects/{id}/phases/{phase_id}/complete"),
+            post(projects::complete_phase),
+        )
+        .route(
+            &rp("/projects/{id}/tasks"),
+            get(projects::list_tasks).post(projects::create_task),
+        )
+        .route(
+            &rp("/projects/{id}/tasks/{task_id}"),
+            axum::routing::patch(projects::patch_task),
+        )
+        .route(
+            &rp("/projects/{id}/tasks/{task_id}/complete"),
+            post(projects::complete_task),
+        )
+        .route(
+            &rp("/projects/{id}/tasks/{task_id}/dependencies"),
+            get(projects::get_deps).put(projects::set_deps),
+        )
+        .route(
+            &rp("/project-views"),
+            get(projects::list_views).post(projects::create_view),
+        )
+        .route(
+            &rp("/project-views/{id}"),
+            axum::routing::patch(projects::patch_view).delete(projects::delete_view),
+        )
+        .route(
+            &rp("/project-templates"),
+            get(projects::list_templates).post(projects::create_template),
+        )
+        .route(
+            &rp("/project-templates/{id}"),
+            axum::routing::patch(projects::patch_template).delete(projects::delete_template),
+        )
+        .route(
+            &rp("/project-templates/{id}/instantiate"),
+            post(projects::instantiate),
         )
         // Stamps org_id onto the current request span (telemetry) once the
         // auth middleware below has resolved it.
