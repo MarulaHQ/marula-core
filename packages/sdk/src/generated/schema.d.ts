@@ -1303,6 +1303,107 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/documents */
+        get: operations["documents_list"];
+        put?: never;
+        /**
+         * POST /api/documents — instant-first (IF1/IF2); creates the document and
+         *     its immutable version 1 in one commit.
+         */
+        post: operations["documents_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/documents/{id} */
+        get: operations["documents_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/documents/{id} — instant-first (IF1/IF2); an edit APPENDS
+         *     the next immutable version and moves the document's head to it. No
+         *     existing version row is touched.
+         */
+        patch: operations["documents_update"];
+        trace?: never;
+    };
+    "/api/v1/documents/{id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/documents/{id}/restore — instant-first (IF1/IF2); §6 rule:
+         *     the restore APPENDS a new version copying the target's content. The
+         *     target's title comes along, renames after it are not silently undone.
+         */
+        post: operations["documents_restore"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/documents/{id}/versions — the full immutable history, newest
+         *     first, complete bodies included so any pair is diffable.
+         */
+        get: operations["documents_list_versions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}/versions/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/documents/{id}/versions/{version} — one immutable snapshot. */
+        get: operations["documents_get_version"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/imports/batches": {
         parameters: {
             query?: never;
@@ -1437,6 +1538,89 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/kb/articles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/kb/articles */
+        get: operations["kb_list_articles"];
+        put?: never;
+        /** POST /api/kb/articles — instant-first (IF1/IF2). */
+        post: operations["kb_create_article"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/kb/articles/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/kb/articles/{id} */
+        get: operations["kb_get_article"];
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/kb/articles/{id} — emits `kb_article.deleted` so the
+         *     unified-search indexer drops the article's index entry.
+         */
+        delete: operations["kb_delete_article"];
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/kb/articles/{id} — instant-first (IF1/IF2). Archived
+         *     articles refuse title/body edits until unarchived (typed conflict);
+         *     status flips stay legal.
+         */
+        patch: operations["kb_update_article"];
+        trace?: never;
+    };
+    "/api/v1/kb/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/kb/categories */
+        get: operations["kb_list_categories"];
+        put?: never;
+        /** POST /api/kb/categories — instant-first (IF1/IF2). */
+        post: operations["kb_create_category"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/kb/categories/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/kb/categories/{id} — articles keep existing (category_id
+         *     clears; ON DELETE SET NULL), so no content is lost behind a removal.
+         */
+        delete: operations["kb_delete_category"];
+        options?: never;
+        head?: never;
+        /** PATCH /api/kb/categories/{id} — instant-first (IF1/IF2). */
+        patch: operations["kb_update_category"];
         trace?: never;
     };
     "/api/v1/me": {
@@ -2758,6 +2942,19 @@ export interface components {
          * @enum {string}
          */
         AppointmentStatus: "scheduled" | "in_progress" | "done" | "cancelled";
+        ArticleListQuery: {
+            /** Format: uuid */
+            category_id?: string | null;
+            /** @description Only articles passing the effective client-facing gate. */
+            client_visible?: boolean;
+            /** @description Title substring narrowing; ranked full-text search rides /api/search. */
+            q?: string | null;
+            status?: null | components["schemas"]["KbArticleStatus"];
+        };
+        /** @description Instant-first mutation response (IF2). */
+        ArticleMutationResponse: components["schemas"]["KbArticle"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
         AssignGroupRequest: {
             /**
              * Format: uuid
@@ -3176,6 +3373,13 @@ export interface components {
              */
             user_id?: string | null;
         };
+        /**
+         * @description Instant-first mutation response (IF2): category fields at the top level
+         *     plus the additive `mutation` metadata.
+         */
+        CategoryMutationResponse: components["schemas"]["KbCategory"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
         ChangeStatusRequest: components["schemas"]["MutationParams"] & {
             /** Format: uuid */
             status_id: string;
@@ -3398,6 +3602,20 @@ export interface components {
              */
             user_id?: string | null;
         };
+        CreateArticleRequest: components["schemas"]["MutationParams"] & {
+            body?: string | null;
+            /** Format: uuid */
+            category_id?: string | null;
+            /**
+             * @description Portal v2 gate: effective client visibility additionally requires a
+             *     published status and a client-visible category (core_kb rule).
+             */
+            client_visible?: boolean;
+            /** @description Stable per-org handle; derived from the title when omitted. */
+            slug?: string | null;
+            status?: null | components["schemas"]["KbArticleStatus"];
+            title: string;
+        };
         CreateAssetRequest: {
             kind?: string | null;
             name: string;
@@ -3443,6 +3661,19 @@ export interface components {
             calendar: components["schemas"]["BusinessCalendar"];
             name: string;
         };
+        CreateCategoryRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * @description Portal v2 gate: only categories with this flag can expose articles
+             *     to client users.
+             */
+            client_visible?: boolean;
+            description?: string | null;
+            name: string;
+            /** Format: int32 */
+            position?: number | null;
+            /** @description Stable per-org handle; derived from the name when omitted. */
+            slug?: string | null;
+        };
         CreateClientRequest: components["schemas"]["MutationParams"] & {
             name: string;
             notes?: string | null;
@@ -3452,6 +3683,11 @@ export interface components {
             name: string;
             phone?: string | null;
             title?: string | null;
+        };
+        CreateDocumentRequest: components["schemas"]["MutationParams"] & {
+            body?: string | null;
+            change_summary?: string | null;
+            title: string;
         };
         CreateExclusionRequest: {
             /** Format: date-time */
@@ -3725,6 +3961,86 @@ export interface components {
             unassigned: components["schemas"]["MyWorkItem"][];
         };
         /**
+         * @description A document's living handle. No content lives here — content is only
+         *     ever a [`DocumentVersion`]; `current_version` names the newest one.
+         */
+        Document: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /**
+             * Format: int32
+             * @description The newest version number in the document's history.
+             */
+            current_version: number;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            title: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: uuid */
+            updated_by?: string | null;
+        };
+        DocumentListQuery: {
+            /** @description Title substring narrowing; ranked full-text search rides /api/search. */
+            q?: string | null;
+        };
+        /**
+         * @description Instant-first mutation response (IF2): document fields at the top
+         *     level plus the additive `mutation` metadata.
+         */
+        DocumentMutationResponse: components["schemas"]["Document"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        /**
+         * @description One immutable snapshot in a document's append-only history. Every
+         *     version stores its complete title + body, so any pair is diffable
+         *     without reconstructing intermediate state.
+         */
+        DocumentVersion: {
+            /** Format: uuid */
+            author_id?: string | null;
+            body?: string;
+            /** @description Optional human explanation of what changed in this version. */
+            change_summary?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            document_id: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            /**
+             * Format: int32
+             * @description Set when this version was created by a RESTORE: the historical
+             *     version whose content was copied. Restore-creates-new-version is
+             *     the only way old content comes back — history is never rewritten.
+             */
+            restored_from_version?: number | null;
+            title: string;
+            /**
+             * Format: int32
+             * @description 1-based, gap-free per document.
+             */
+            version: number;
+        };
+        /**
+         * @description GET /api/documents/{id} response: the living handle plus the CURRENT
+         *     version's content (read-your-write on the body the last write stored).
+         */
+        DocumentView: components["schemas"]["Document"] & {
+            body: string;
+            change_summary: string;
+            /** Format: date-time */
+            content_updated_at: string;
+            /** Format: int32 */
+            restored_from_version?: number | null;
+        };
+        /**
          * @description POST /api/imports/dry-run request: validate a full payload and report
          *     what each row WOULD do before any data write. The probe is recorded as a
          *     finished dry-run batch for operator history.
@@ -3848,6 +4164,67 @@ export interface components {
         };
         HealthResponse: {
             status: string;
+        };
+        /** @description A KB article. */
+        KbArticle: {
+            body?: string;
+            /**
+             * Format: uuid
+             * @description Survives category deletion (the FK is ON DELETE SET NULL).
+             */
+            category_id?: string | null;
+            /** @description The article half of the client-facing gate (portal v2 honors it). */
+            client_visible: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            /** @description Stable per-org handle (unique). */
+            slug: string;
+            status: components["schemas"]["KbArticleStatus"];
+            title: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: uuid */
+            updated_by?: string | null;
+        };
+        /**
+         * @description Article lifecycle. Closed vocabulary so filtering and the client-facing
+         *     rule stay deterministic: `draft` (staff authoring), `published`
+         *     (readable, searchable), `archived` (retired, out of the active tree —
+         *     content edits are refused while archived; unarchive to edit).
+         * @enum {string}
+         */
+        KbArticleStatus: "draft" | "published" | "archived";
+        /** @description A KB category: grouping + ordering for the article tree. */
+        KbCategory: {
+            /**
+             * @description The category half of the client-facing gate: an article is visible
+             *     to portal clients only when this AND the article flag are set (and
+             *     the article is published).
+             */
+            client_visible: boolean;
+            /** Format: date-time */
+            created_at: string;
+            description?: string;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: int32 */
+            position: number;
+            /**
+             * @description Stable per-org handle (unique); portals and imports reference this,
+             *     never the row id.
+             */
+            slug: string;
+            /** Format: date-time */
+            updated_at: string;
         };
         LadderStepSpec: {
             /**
@@ -4572,6 +4949,14 @@ export interface components {
             /** @description Versioned read-model view backing this kind (documentation parity). */
             view: string;
         };
+        RestoreDocumentRequest: components["schemas"]["MutationParams"] & {
+            change_summary?: string | null;
+            /**
+             * Format: int32
+             * @description The historical version whose content the NEW version copies.
+             */
+            version: number;
+        };
         /**
          * @description Wire format selector for an import payload.
          * @enum {string}
@@ -5179,12 +5564,35 @@ export interface components {
             /** Format: int64 */
             count: number;
         };
+        UpdateArticleRequest: components["schemas"]["MutationParams"] & {
+            body?: string | null;
+            /**
+             * Format: uuid
+             * @description `null` clears the category; omit to leave it untouched.
+             */
+            category_id?: string | null;
+            client_visible?: boolean | null;
+            status?: null | components["schemas"]["KbArticleStatus"];
+            title?: string | null;
+        };
         UpdateCalendarRequest: {
             holidays?: unknown;
             maintenance?: unknown;
             name?: string | null;
             timezone?: string | null;
             windows?: unknown;
+        };
+        UpdateCategoryRequest: components["schemas"]["MutationParams"] & {
+            client_visible?: boolean | null;
+            description?: string | null;
+            name?: string | null;
+            /** Format: int32 */
+            position?: number | null;
+        };
+        UpdateDocumentRequest: components["schemas"]["MutationParams"] & {
+            body?: string | null;
+            change_summary?: string | null;
+            title?: string | null;
         };
         UpdateFieldDefRequest: {
             name?: string | null;
@@ -7503,6 +7911,242 @@ export interface operations {
             };
         };
     };
+    documents_list: {
+        parameters: {
+            query?: {
+                /** @description Title substring narrowing; ranked full-text search rides /api/search. */
+                q?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Document"][];
+                };
+            };
+        };
+    };
+    documents_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDocumentRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentMutationResponse"];
+                };
+            };
+            /** @description idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description title/body rejected by document rules */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    documents_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentView"];
+                };
+            };
+            /** @description document not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    documents_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDocumentRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentMutationResponse"];
+                };
+            };
+            /** @description document not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description title/body rejected by document rules */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    documents_restore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RestoreDocumentRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentMutationResponse"];
+                };
+            };
+            /** @description document or restore target not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description restore rejected by document rules */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    documents_list_versions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentVersion"][];
+                };
+            };
+            /** @description document not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    documents_get_version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentVersion"];
+                };
+            };
+            /** @description document or version not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     imports_list_batches: {
         parameters: {
             query?: never;
@@ -7678,6 +8322,287 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["VerdictResponse"];
                 };
+            };
+        };
+    };
+    kb_list_articles: {
+        parameters: {
+            query?: {
+                category_id?: string | null;
+                status?: null | components["schemas"]["KbArticleStatus"];
+                /** @description Only articles passing the effective client-facing gate. */
+                client_visible?: boolean;
+                /** @description Title substring narrowing; ranked full-text search rides /api/search. */
+                q?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KbArticle"][];
+                };
+            };
+        };
+    };
+    kb_create_article: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateArticleRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArticleMutationResponse"];
+                };
+            };
+            /** @description slug already in use or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description title/body rejected by KB rules */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    kb_get_article: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KbArticle"];
+                };
+            };
+            /** @description article not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    kb_delete_article: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description article not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    kb_update_article: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateArticleRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArticleMutationResponse"];
+                };
+            };
+            /** @description article not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description archived content lock, version conflict, slug reuse, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description title/body rejected by KB rules */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    kb_list_categories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KbCategory"][];
+                };
+            };
+        };
+    };
+    kb_create_category: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCategoryRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CategoryMutationResponse"];
+                };
+            };
+            /** @description slug already in use or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    kb_delete_category: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description category not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    kb_update_category: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateCategoryRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CategoryMutationResponse"];
+                };
+            };
+            /** @description category not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict, slug reuse, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
