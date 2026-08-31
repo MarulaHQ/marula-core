@@ -56,6 +56,7 @@ pub mod oidc;
 pub mod openapi;
 pub mod portal;
 pub mod portal_admin;
+pub mod report_defs;
 pub mod reports;
 pub mod scheduling;
 pub mod search;
@@ -612,6 +613,9 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/calendar-exclusions/{id}"),
             axum::routing::delete(availability::delete_exclusion),
         )
+        // report definitions (TASKLIST R3): stored specs as data, RBAC-
+        // scoped, instant-first write path; module owns its own router.
+        .merge(report_defs::routes(gen))
         // Stamps org_id onto the current request span (telemetry) once the
         // auth middleware below has resolved it.
         .layer(middleware::from_fn(crate::otel_http::record_org))

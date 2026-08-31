@@ -4,11 +4,11 @@
 //! org has customized — custom field definitions, per-board workflow
 //! statuses/transitions with their semantic-category bindings, automation
 //! rules, webhook subscriptions with their event filters, API-key metadata
-//! (MINUS any secret material), settings-registry org overrides, and SLA
-//! calendars/policies with escalation ladders. It doubles as backup
-//! documentation and as the input to the upgrade preflight (U6) and the
-//! org-data export (D1 generalizes this envelope, same format, wider
-//! scope).
+//! (MINUS any secret material), settings-registry org overrides, SLA
+//! calendars/policies with escalation ladders, and stored report
+//! definitions (R3). It doubles as backup documentation and as the input
+//! to the upgrade preflight (U6) and the org-data export (D1 generalizes
+//! this envelope, same format, wider scope).
 //!
 //! ## Envelope evolution contract
 //!
@@ -76,6 +76,11 @@ pub struct ManifestSections {
     pub settings: Vec<ManifestSetting>,
     /// SLA configuration: calendars and policies with escalation ladders.
     pub sla: ManifestSla,
+    /// Stored report definitions (TASKLIST R3): registry-validated specs
+    /// over the versioned read-model views. Covered so the upgrade
+    /// preflight (U6) can flag any definition whose `kind`/spec columns
+    /// reference deprecated view or column constructs (policy §5).
+    pub report_definitions: Vec<ManifestReportDefinition>,
 }
 
 /// SLA configuration sections.
@@ -263,4 +268,34 @@ pub struct ManifestEscalationStep {
     #[cfg_attr(feature = "openapi", schema(value_type = Object))]
     pub notify_user_ids: serde_json::Value,
     pub enabled: bool,
+}
+
+/// One stored report definition (TASKLIST R3). The spec body rides as its
+/// stored jsonb document (`{filters, group_by, measures}`) exactly like
+/// custom-field `config` — the registry-validated view/viz slugs travel as
+/// their own fields so a preflight can flag deprecated constructs without
+/// re-deriving validation. Nothing here is secret-bearing: definitions
+/// reference the read-model catalog only, never credentials or data.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ManifestReportDefinition {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub id: uuid::Uuid,
+    pub name: String,
+    pub description: Option<String>,
+    /// Registry-backed view slug (`tickets`, `time_entries`, …).
+    pub kind: String,
+    /// Spec body document: `{filters, group_by, measures}` as stored.
+    #[cfg_attr(feature = "openapi", schema(value_type = Object))]
+    pub spec: serde_json::Value,
+    /// Visualization hint slug (`bar` | `line` | `pie` | `table`).
+    pub viz: String,
+    /// Visibility scope: `org` (published org-wide) or `self` (private to
+    /// the creator; admins see all). Preflight-relevant because org-scope
+    /// definitions are shared surface, self-scope ones are personal.
+    pub scope: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub created_by: uuid::Uuid,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
 }

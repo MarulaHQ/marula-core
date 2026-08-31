@@ -26,9 +26,9 @@
 use crate::{DbError, DbResult};
 use core_domain::entities::manifest::{
     CustomizationManifest, ManifestApiKey, ManifestAutomationRule, ManifestBoard,
-    ManifestBoardStatus, ManifestCustomField, ManifestEscalationStep, ManifestSections,
-    ManifestSetting, ManifestSla, ManifestSlaCalendar, ManifestSlaPolicy, ManifestTransition,
-    ManifestWebhook,
+    ManifestBoardStatus, ManifestCustomField, ManifestEscalationStep, ManifestReportDefinition,
+    ManifestSections, ManifestSetting, ManifestSla, ManifestSlaCalendar, ManifestSlaPolicy,
+    ManifestTransition, ManifestWebhook,
 };
 use core_domain::status::TicketStatusCategory;
 use sqlx::PgConnection;
@@ -59,6 +59,7 @@ pub async fn load_customization_manifest(
         api_keys: load_api_keys(&mut *conn, org_id).await?,
         settings: load_org_settings(&mut *conn, org_id).await?,
         sla: load_sla(&mut *conn, org_id).await?,
+        report_definitions: load_report_definitions(&mut *conn, org_id).await?,
     };
     Ok(CustomizationManifest {
         manifest_version: MANIFEST_VERSION,
@@ -406,4 +407,41 @@ async fn load_sla(conn: &mut PgConnection, org_id: Uuid) -> DbResult<ManifestSla
         calendars,
         policies,
     })
+}
+
+// --- report definitions (TASKLIST R3) -------------------------------------------------
+
+/// Stored report specs are customizations-as-data: the U6 preflight must
+/// see every definition's view/viz/scope slugs and spec body so it can
+/// flag deprecated-construct usage (policy §5). The body rides as the raw
+/// jsonb document exactly like custom-field `config`; the slugs travel as
+/// their own columns. Nothing secret-bearing exists on this table.
+async fn load_report_definitions(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+) -> DbResult<Vec<ManifestReportDefinition>> {
+    let rows = sqlx::query!(
+        r#"SELECT id, name, description, kind, spec, viz, scope, created_by, created_at, updated_at
+           FROM report_definitions WHERE org_id = $1"#,
+        org_id
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut out: Vec<ManifestReportDefinition> = rows
+        .into_iter()
+        .map(|r| ManifestReportDefinition {
+            id: r.id,
+            name: r.name,
+            description: r.description,
+            kind: r.kind,
+            spec: r.spec,
+            viz: r.viz,
+            scope: r.scope,
+            created_by: r.created_by,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+        })
+        .collect();
+    out.sort_by(|a, b| (&a.name, a.id).cmp(&(&b.name, b.id)));
+    Ok(out)
 }

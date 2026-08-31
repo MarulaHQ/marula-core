@@ -793,6 +793,7 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
+ "utoipa",
  "uuid",
 ]
 

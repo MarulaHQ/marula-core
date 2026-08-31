@@ -25,6 +25,7 @@ pub mod orgs;
 pub mod outbox;
 pub mod portal;
 pub mod queue;
+pub mod report_defs;
 pub mod scheduling;
 pub mod search;
 pub mod settings;

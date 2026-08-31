@@ -62,6 +62,11 @@ pub mod types {
     pub const SLA_POLICY_UPDATED: &str = "sla.policy_updated";
     /// An automation rule definition was created/changed/disabled.
     pub const AUTOMATION_RULE_UPDATED: &str = "automation.rule_updated";
+    /// Report definitions as data (TASKLIST R3): a stored report spec was
+    /// created / changed / removed through the admin-gated CRUD surface.
+    pub const REPORT_DEFINITION_CREATED: &str = "report_definition.created";
+    pub const REPORT_DEFINITION_UPDATED: &str = "report_definition.updated";
+    pub const REPORT_DEFINITION_DELETED: &str = "report_definition.deleted";
     /// Emitted when an org- or user-scoped setting changes through the
     /// typed settings registry.
     pub const SETTING_UPDATED: &str = "setting.updated";
