@@ -1379,6 +1379,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/imports/batches/{batch_id}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/imports/batches/{id}/run — hands the staged batch to the
+         *     worker queue exactly once (generalized 2.7 job queue). Re-running a
+         *     finished or queued batch is a typed 409; the worker replays chunks
+         *     idempotently through the SAME commit path as synchronous pushes.
+         */
+        post: operations["imports_run_batch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/imports/batches/{batch_id}/stage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/imports/batches/{id}/stage — uploads ONE chunk of rows to the
+         *     ObjectStore under a deterministic key WITHOUT executing anything. An
+         *     optional saved template is applied at stage time so the stored chunk is
+         *     already canonical; the worker later replays the staged sequence.
+         */
+        post: operations["imports_stage_chunk"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/imports/dry-run": {
         parameters: {
             query?: never;
@@ -1391,6 +1435,51 @@ export interface paths {
         /** POST /api/imports/dry-run */
         post: operations["imports_dry_run"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/imports/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/imports/templates */
+        get: operations["imports_list_templates"];
+        put?: never;
+        /**
+         * POST /api/imports/templates — saves one reusable source→canonical column
+         *     mapping. Targets are validated against the canonical field catalog for
+         *     the entity kind; duplicates per (org, source system, kind, name) are a
+         *     typed 409.
+         */
+        post: operations["imports_create_template"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/imports/templates/{template_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/imports/templates/{id} */
+        get: operations["imports_get_template"];
+        /**
+         * PUT /api/imports/templates/{id} — content update; uniqueness conflicts
+         *     (renaming onto an existing sibling) surface as typed 409s.
+         */
+        put: operations["imports_update_template"];
+        post?: never;
+        /** DELETE /api/imports/templates/{id} */
+        delete: operations["imports_delete_template"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1630,6 +1719,49 @@ export interface paths {
          *     Idempotent; emits `org.updated` + audit row.
          */
         patch: operations["org_profile_patch"];
+        trace?: never;
+    };
+    "/api/v1/org/exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/org/exports — builds the versioned bundle, streams it into
+         *     the ObjectStore, and returns the signed download link.
+         */
+        post: operations["org_export_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/org/exports/{org_id}/{export_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/org/exports/{org_id}/{export_id}/download — streams the stored
+         *     bundle. Authenticated by the signed link alone (no JWT): an expired or
+         *     forged token is an unauthorized request, indistinguishable between the
+         *     two. The org id is IN the path (and inside the signature) so a token
+         *     authorizes exactly one (org, export, expiry) triple.
+         */
+        get: operations["org_export_download"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/org/manifest": {
@@ -2954,6 +3086,8 @@ export interface components {
             label: string;
             /** Format: uuid */
             org_id: string;
+            /** Format: date-time */
+            queued_at?: string | null;
             /** Format: int32 */
             rows_created: number;
             /** Format: int32 */
@@ -2965,6 +3099,12 @@ export interface components {
             /** Format: int32 */
             rows_updated: number;
             source_note?: string | null;
+            /**
+             * Format: int32
+             * @description Async giant-batch bookkeeping (D2 remainder): staged chunk count and
+             *     the once-only worker-enqueue stamp.
+             */
+            staged_chunks: number;
             /** Format: date-time */
             started_at: string;
         };
@@ -3273,7 +3413,14 @@ export interface components {
             require_checklist_close: boolean;
             template?: null | components["schemas"]["ChecklistTemplate"];
         };
-        ChunkRequest: components["schemas"]["RowsPayload"];
+        /** @description POST /imports/batches/{id}/chunks request body. */
+        ChunkRequest: components["schemas"]["RowsPayload"] & {
+            /**
+             * Format: uuid
+             * @description Optional saved field-mapping template applied before validation.
+             */
+            template_id?: string | null;
+        };
         /**
          * @description u32-friendly mirror of [`core_domain::import_core::ChunkSummary`] so the
          *     generated SDK gets plain integers without overflow caveats.
@@ -3425,7 +3572,8 @@ export interface components {
         };
         /**
          * @description POST /api/imports/batches — opens a committed-run span. Chunks then land
-         *     through `/chunks` until `/finish` closes the batch.
+         *     through `/chunks` (synchronous) or `/stage` + `/run` (async, D2
+         *     remainder) until the batch finishes.
          */
         CreateBatchRequest: {
             conflict_policy: components["schemas"]["ConflictPolicy"];
@@ -3530,6 +3678,19 @@ export interface components {
             name: string;
             /** Format: int32 */
             sort_order: number;
+        };
+        /** @description POST /api/imports/templates request. */
+        CreateTemplateRequest: {
+            entity_kind: components["schemas"]["EntityKind"];
+            /**
+             * @description Source column → canonical Meridian column. Targets are validated
+             *     against the canonical field catalog for the entity kind.
+             */
+            mapping: Record<string, never>;
+            /** @description Operator-facing template name (unique per source system + kind). */
+            name: string;
+            /** @description Source-system label this template belongs to (e.g. "connectwise"). */
+            source_system: string;
         };
         CreateTicketRequest: components["schemas"]["MutationParams"] & {
             /** Format: uuid */
@@ -3734,6 +3895,12 @@ export interface components {
             entity_kind: components["schemas"]["EntityKind"];
             /** @description Free-form run label recorded with the dry-run history entry. */
             label?: string | null;
+            /**
+             * Format: uuid
+             * @description Optional saved field-mapping template: source headers are renamed to
+             *     the template's canonical columns before validation (D2 remainder).
+             */
+            template_id?: string | null;
         };
         EffectsRequest: {
             /** @description AutomationAction documents, parsed and validated via core-domain. */
@@ -3747,11 +3914,13 @@ export interface components {
         };
         /**
          * @description Which entity family a batch targets. One batch = exactly one kind; the
-         *     parent-before-child ordering across batches (clients → sites → contacts)
-         *     keeps foreign references resolvable without cross-batch transactions.
+         *     parent-before-child ordering across batches keeps foreign references
+         *     resolvable without cross-batch transactions. D2 remainder extends the
+         *     original client/site/contact family with boards, tickets, and time
+         *     entries: [`Self::import_order`] is the documented run-script order.
          * @enum {string}
          */
-        EntityKind: "client" | "site" | "contact";
+        EntityKind: "client" | "site" | "contact" | "board" | "ticket" | "time_entry";
         /** @description One escalation ladder step as stored (`sla_escalation_steps`). */
         EscalationStep: {
             /** Format: int64 */
@@ -3769,6 +3938,232 @@ export interface components {
             step_index: number;
             /** @description 'risk' | 'breach' | 'escalate' — bound to existing notification kinds. */
             trigger_kind: string;
+        };
+        /** @description The org-data export envelope, `bundle_version` 1. */
+        ExportBundle: {
+            /**
+             * Format: int32
+             * @description Envelope schema version. Bump ONLY for breaking section reshapes.
+             */
+            bundle_version: number;
+            /**
+             * Format: date-time
+             * @description Dump instant (excluded from determinism comparisons).
+             */
+            generated_at: string;
+            /**
+             * Format: uuid
+             * @description The org this bundle documents.
+             */
+            org_id: string;
+            /** @description The export sections. Always fully serialized. */
+            sections: components["schemas"]["ExportSections"];
+        };
+        /** @description One client company row. */
+        ExportClient: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            notes?: string | null;
+            /**
+             * @description Optional visibility restriction: when non-empty, only these users
+             *     (plus admins) can see the client. Opaque user-id references.
+             */
+            restricted_to: string[];
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /** @description One ticket comment. */
+        ExportComment: {
+            /** Format: uuid */
+            author_id: string | null;
+            body: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            /** @description Structured note taxonomy: internal | client_visible | in_house_update. */
+            kind: components["schemas"]["NoteKind"];
+        };
+        /** @description One contact row; `client_id`/`site_id` reference this bundle. */
+        ExportContact: {
+            /** Format: uuid */
+            client_id: string;
+            /** Format: date-time */
+            created_at: string;
+            email?: string | null;
+            /** Format: uuid */
+            id: string;
+            is_primary: boolean;
+            name: string;
+            phone?: string | null;
+            /** Format: uuid */
+            site_id: string | null;
+            title?: string | null;
+        };
+        ExportCreatedResponse: {
+            /**
+             * Format: int32
+             * @description Envelope version of the produced bundle (mirrors the body).
+             */
+            bundle_version: number;
+            /**
+             * @description Self-contained relative URL carrying the signature + expiry; the
+             *     client prefixes its API origin. Works without a bearer token.
+             */
+            download_url: string;
+            /** Format: date-time */
+            expires_at: string;
+            /** Format: uuid */
+            export_id: string;
+            /** @description sha256 of the stored bytes (download integrity check). */
+            sha256: string;
+            /**
+             * Format: int64
+             * @description Exact bundle byte size as stored.
+             */
+            size_bytes: number;
+        };
+        /** @description One typed custom-field value attached to any entity row. */
+        ExportFieldValue: {
+            /**
+             * @description Field-definition family the value belongs to (ticket | client |
+             *     contact | asset) — resolved from the definition at load time.
+             */
+            entity: string;
+            /** Format: uuid */
+            entity_id: string;
+            /** Format: uuid */
+            field_id: string;
+            /** @description The typed value exactly as stored (JSONB passthrough). */
+            value: Record<string, never>;
+        };
+        /** @description Org profile identity. */
+        ExportOrg: {
+            /** Format: date-time */
+            created_at: string;
+            name: string;
+            slug: string;
+            /** @description Human ticket-number prefix (e.g. "MER"). */
+            ticket_prefix: string;
+        };
+        /**
+         * @description Section container — all fields always present; empty org state is an
+         *     empty array, never an absent key.
+         */
+        ExportSections: {
+            clients: components["schemas"]["ExportClient"][];
+            contacts: components["schemas"]["ExportContact"][];
+            /**
+             * @description Every custom-field VALUE in the org, flat across entity families —
+             *     the data plane the U5 manifest deliberately excludes. `entity` names
+             *     the family the field definition attaches to (ticket | client |
+             *     contact | asset); `entity_id` is the owning row.
+             */
+            custom_field_values: components["schemas"]["ExportFieldValue"][];
+            /**
+             * @description The U5 customization-manifest sections, embedded verbatim — D1 is
+             *     the manifest's generalization, not its replacement.
+             */
+            customization: components["schemas"]["ManifestSections"];
+            /**
+             * @description Org profile identity (volatile counters excluded — a restore
+             *     reseeds the ticket-number sequence from the imported tickets).
+             */
+            org: components["schemas"]["ExportOrg"];
+            sites: components["schemas"]["ExportSite"][];
+            /**
+             * @description Tickets with their comments nested. Parents (client/site/contact)
+             *     are referenced by id into the sections above.
+             */
+            tickets: components["schemas"]["ExportTicket"][];
+            time_entries: components["schemas"]["ExportTimeEntry"][];
+        };
+        /** @description One site row; `client_id` references `clients` in this bundle. */
+        ExportSite: {
+            address?: string | null;
+            city?: string | null;
+            /** Format: uuid */
+            client_id: string;
+            country?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: double */
+            latitude?: number | null;
+            /** Format: double */
+            longitude?: number | null;
+            name: string;
+            postal_code?: string | null;
+            region?: string | null;
+            timezone?: string | null;
+        };
+        /**
+         * @description One ticket with its comment thread nested. Authorship is an opaque
+         *     user-id reference; the bundle never carries user records.
+         */
+        ExportTicket: {
+            /** Format: uuid */
+            assignee_id: string | null;
+            /** Format: uuid */
+            board_id: string;
+            body?: string | null;
+            /**
+             * @description Semantic category of the captured status (behavior binds to this,
+             *     never to the status label).
+             */
+            category: components["schemas"]["TicketStatusCategory"];
+            /** Format: uuid */
+            client_id: string | null;
+            comments: components["schemas"]["ExportComment"][];
+            /** Format: uuid */
+            contact_id: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            due_at?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** @description Human number (e.g. "MER-12") — the bundle's stable ticket key. */
+            number: string;
+            priority: components["schemas"]["Priority"];
+            /** Format: uuid */
+            requester_id: string | null;
+            /** Format: date-time */
+            resolved_at?: string | null;
+            /** Format: uuid */
+            site_id: string | null;
+            /** Format: uuid */
+            status_id: string;
+            title: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /**
+         * @description One time entry; `ticket_id` and `user_id` reference this bundle's
+         *     tickets and the org's live users respectively.
+         */
+        ExportTimeEntry: {
+            billable: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            ended_at: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: int64 */
+            minutes: number;
+            notes?: string | null;
+            /** Format: date-time */
+            started_at: string;
+            /** Format: uuid */
+            ticket_id: string;
+            /** Format: uuid */
+            user_id: string;
+            work_type?: string | null;
         };
         FavoriteRequest: {
             /** Format: uuid */
@@ -4618,6 +5013,18 @@ export interface components {
             json_rows: Record<string, never>;
         };
         /**
+         * @description POST /imports/batches/{id}/run response: the batch is queued for the
+         *     worker exactly once; poll the batch view for counters.
+         */
+        RunBatchResponse: {
+            /** Format: uuid */
+            batch_id: string;
+            /** Format: uuid */
+            job_id: string;
+            /** Format: int32 */
+            staged_chunks: number;
+        };
+        /**
          * @description Per-row fate report — the D2 contract shape
          *     (`row_index → errors[] | ok | would_skip | would_update`).
          */
@@ -4812,6 +5219,32 @@ export interface components {
         SsoExchangeResponse: components["schemas"]["TokenPair"] | {
             linked: boolean;
         };
+        /**
+         * @description POST /imports/batches/{id}/stage request: uploads ONE chunk of rows to
+         *     the ObjectStore under a deterministic key without executing anything.
+         */
+        StageChunkRequest: components["schemas"]["RowsPayload"] & {
+            /**
+             * Format: uuid
+             * @description Optional saved field-mapping template applied at STAGE time, so the
+             *     stored chunk is already in canonical columns.
+             */
+            template_id?: string | null;
+        };
+        StageChunkResponse: {
+            /** Format: uuid */
+            batch_id: string;
+            /**
+             * Format: int32
+             * @description Index of the chunk just staged (its deterministic key suffix).
+             */
+            chunk_index: number;
+            /**
+             * Format: int32
+             * @description Total staged chunks after this upload — the worker's runbook length.
+             */
+            staged_chunks: number;
+        };
         StartTimerRequest: components["schemas"]["MutationParams"] & {
             /** Format: uuid */
             ticket_id: string;
@@ -4867,6 +5300,25 @@ export interface components {
              * @description 0–100+, where >100 is over-capacity (the Ember warning state).
              */
             utilization_percent: number;
+        };
+        TemplateListQuery: {
+            /** @description Narrow the listing to one source system. */
+            source_system?: string | null;
+        };
+        TemplateViewResponse: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by: string;
+            created_by_kind: string;
+            entity_kind: components["schemas"]["EntityKind"];
+            /** Format: uuid */
+            id: string;
+            mapping: Record<string, never>;
+            name: string;
+            source_system: string;
+            /** Format: date-time */
+            updated_at: string;
         };
         TestFireResponse: {
             /**
@@ -5232,6 +5684,13 @@ export interface components {
             name?: string | null;
             /** Format: int32 */
             sort_order?: number | null;
+        };
+        /** @description PUT /api/imports/templates/{id} request — all fields optional. */
+        UpdateTemplateRequest: {
+            entity_kind: components["schemas"]["EntityKind"];
+            mapping: Record<string, never>;
+            name?: string | null;
+            source_system?: string | null;
         };
         UpdateTimeSettingsRequest: {
             /** Format: int32 */
@@ -7612,6 +8071,52 @@ export interface operations {
             };
         };
     };
+    imports_run_batch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunBatchResponse"];
+                };
+            };
+        };
+    };
+    imports_stage_chunk: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StageChunkRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StageChunkResponse"];
+                };
+            };
+        };
+    };
     imports_dry_run: {
         parameters: {
             query?: never;
@@ -7631,6 +8136,118 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunReportResponse"];
+                };
+            };
+        };
+    };
+    imports_list_templates: {
+        parameters: {
+            query?: {
+                /** @description Narrow to one source system */
+                source_system?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateViewResponse"][];
+                };
+            };
+        };
+    };
+    imports_create_template: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTemplateRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateViewResponse"];
+                };
+            };
+        };
+    };
+    imports_get_template: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                template_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateViewResponse"];
+                };
+            };
+        };
+    };
+    imports_update_template: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                template_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateTemplateRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateViewResponse"];
+                };
+            };
+        };
+    };
+    imports_delete_template: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                template_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateViewResponse"];
                 };
             };
         };
@@ -7994,6 +8611,47 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    org_export_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportCreatedResponse"];
+                };
+            };
+        };
+    };
+    org_export_download: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org_id: string;
+                export_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportBundle"];
+                };
             };
         };
     };

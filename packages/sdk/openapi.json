@@ -940,6 +940,13 @@
             "format": "uuid",
             "type": "string"
           },
+          "queued_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "rows_created": {
             "format": "int32",
             "type": "integer"
@@ -966,6 +973,11 @@
               "null"
             ]
           },
+          "staged_chunks": {
+            "description": "Async giant-batch bookkeeping (D2 remainder): staged chunk count and\nthe once-only worker-enqueue stamp.",
+            "format": "int32",
+            "type": "integer"
+          },
           "started_at": {
             "format": "date-time",
             "type": "string"
@@ -983,7 +995,8 @@
           "rows_updated",
           "rows_skipped",
           "rows_failed",
-          "started_at"
+          "started_at",
+          "staged_chunks"
         ],
         "type": "object"
       },
@@ -1746,8 +1759,22 @@
         "allOf": [
           {
             "$ref": "#/components/schemas/RowsPayload"
+          },
+          {
+            "properties": {
+              "template_id": {
+                "description": "Optional saved field-mapping template applied before validation.",
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
           }
-        ]
+        ],
+        "description": "POST /imports/batches/{id}/chunks request body."
       },
       "ChunkSummaryWire": {
         "description": "u32-friendly mirror of [`core_domain::import_core::ChunkSummary`] so the\ngenerated SDK gets plain integers without overflow caveats.",
@@ -2172,7 +2199,7 @@
         "type": "object"
       },
       "CreateBatchRequest": {
-        "description": "POST /api/imports/batches — opens a committed-run span. Chunks then land\nthrough `/chunks` until `/finish` closes the batch.",
+        "description": "POST /api/imports/batches — opens a committed-run span. Chunks then land\nthrough `/chunks` (synchronous) or `/stage` + `/run` (async, D2\nremainder) until the batch finishes.",
         "properties": {
           "conflict_policy": {
             "$ref": "#/components/schemas/ConflictPolicy"
@@ -2539,6 +2566,33 @@
           "category",
           "sort_order",
           "is_entry"
+        ],
+        "type": "object"
+      },
+      "CreateTemplateRequest": {
+        "description": "POST /api/imports/templates request.",
+        "properties": {
+          "entity_kind": {
+            "$ref": "#/components/schemas/EntityKind"
+          },
+          "mapping": {
+            "description": "Source column → canonical Meridian column. Targets are validated\nagainst the canonical field catalog for the entity kind.",
+            "type": "object"
+          },
+          "name": {
+            "description": "Operator-facing template name (unique per source system + kind).",
+            "type": "string"
+          },
+          "source_system": {
+            "description": "Source-system label this template belongs to (e.g. \"connectwise\").",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "source_system",
+          "entity_kind",
+          "mapping"
         ],
         "type": "object"
       },
@@ -3071,6 +3125,14 @@
                   "string",
                   "null"
                 ]
+              },
+              "template_id": {
+                "description": "Optional saved field-mapping template: source headers are renamed to\nthe template's canonical columns before validation (D2 remainder).",
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             },
             "required": [
@@ -3111,11 +3173,14 @@
         "type": "object"
       },
       "EntityKind": {
-        "description": "Which entity family a batch targets. One batch = exactly one kind; the\nparent-before-child ordering across batches (clients → sites → contacts)\nkeeps foreign references resolvable without cross-batch transactions.",
+        "description": "Which entity family a batch targets. One batch = exactly one kind; the\nparent-before-child ordering across batches keeps foreign references\nresolvable without cross-batch transactions. D2 remainder extends the\noriginal client/site/contact family with boards, tickets, and time\nentries: [`Self::import_order`] is the documented run-script order.",
         "enum": [
           "client",
           "site",
-          "contact"
+          "contact",
+          "board",
+          "ticket",
+          "time_entry"
         ],
         "type": "string"
       },
@@ -3167,6 +3232,582 @@
           "at_pct",
           "notify_user_ids",
           "enabled"
+        ],
+        "type": "object"
+      },
+      "ExportBundle": {
+        "description": "The org-data export envelope, `bundle_version` 1.",
+        "properties": {
+          "bundle_version": {
+            "description": "Envelope schema version. Bump ONLY for breaking section reshapes.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "generated_at": {
+            "description": "Dump instant (excluded from determinism comparisons).",
+            "format": "date-time",
+            "type": "string"
+          },
+          "org_id": {
+            "description": "The org this bundle documents.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "sections": {
+            "$ref": "#/components/schemas/ExportSections",
+            "description": "The export sections. Always fully serialized."
+          }
+        },
+        "required": [
+          "bundle_version",
+          "org_id",
+          "generated_at",
+          "sections"
+        ],
+        "type": "object"
+      },
+      "ExportClient": {
+        "description": "One client company row.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "restricted_to": {
+            "description": "Optional visibility restriction: when non-empty, only these users\n(plus admins) can see the client. Opaque user-id references.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "restricted_to",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "ExportComment": {
+        "description": "One ticket comment.",
+        "properties": {
+          "author_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "body": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/NoteKind",
+            "description": "Structured note taxonomy: internal | client_visible | in_house_update."
+          }
+        },
+        "required": [
+          "id",
+          "author_id",
+          "kind",
+          "body",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "ExportContact": {
+        "description": "One contact row; `client_id`/`site_id` reference this bundle.",
+        "properties": {
+          "client_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_primary": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "site_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "client_id",
+          "site_id",
+          "name",
+          "is_primary",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "ExportCreatedResponse": {
+        "properties": {
+          "bundle_version": {
+            "description": "Envelope version of the produced bundle (mirrors the body).",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "download_url": {
+            "description": "Self-contained relative URL carrying the signature + expiry; the\nclient prefixes its API origin. Works without a bearer token.",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "export_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "sha256": {
+            "description": "sha256 of the stored bytes (download integrity check).",
+            "type": "string"
+          },
+          "size_bytes": {
+            "description": "Exact bundle byte size as stored.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "export_id",
+          "download_url",
+          "expires_at",
+          "size_bytes",
+          "sha256",
+          "bundle_version"
+        ],
+        "type": "object"
+      },
+      "ExportFieldValue": {
+        "description": "One typed custom-field value attached to any entity row.",
+        "properties": {
+          "entity": {
+            "description": "Field-definition family the value belongs to (ticket | client |\ncontact | asset) — resolved from the definition at load time.",
+            "type": "string"
+          },
+          "entity_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "field_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "value": {
+            "description": "The typed value exactly as stored (JSONB passthrough).",
+            "type": "object"
+          }
+        },
+        "required": [
+          "entity",
+          "entity_id",
+          "field_id",
+          "value"
+        ],
+        "type": "object"
+      },
+      "ExportOrg": {
+        "description": "Org profile identity.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "ticket_prefix": {
+            "description": "Human ticket-number prefix (e.g. \"MER\").",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "slug",
+          "ticket_prefix",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "ExportSections": {
+        "description": "Section container — all fields always present; empty org state is an\nempty array, never an absent key.",
+        "properties": {
+          "clients": {
+            "items": {
+              "$ref": "#/components/schemas/ExportClient"
+            },
+            "type": "array"
+          },
+          "contacts": {
+            "items": {
+              "$ref": "#/components/schemas/ExportContact"
+            },
+            "type": "array"
+          },
+          "custom_field_values": {
+            "description": "Every custom-field VALUE in the org, flat across entity families —\nthe data plane the U5 manifest deliberately excludes. `entity` names\nthe family the field definition attaches to (ticket | client |\ncontact | asset); `entity_id` is the owning row.",
+            "items": {
+              "$ref": "#/components/schemas/ExportFieldValue"
+            },
+            "type": "array"
+          },
+          "customization": {
+            "$ref": "#/components/schemas/ManifestSections",
+            "description": "The U5 customization-manifest sections, embedded verbatim — D1 is\nthe manifest's generalization, not its replacement."
+          },
+          "org": {
+            "$ref": "#/components/schemas/ExportOrg",
+            "description": "Org profile identity (volatile counters excluded — a restore\nreseeds the ticket-number sequence from the imported tickets)."
+          },
+          "sites": {
+            "items": {
+              "$ref": "#/components/schemas/ExportSite"
+            },
+            "type": "array"
+          },
+          "tickets": {
+            "description": "Tickets with their comments nested. Parents (client/site/contact)\nare referenced by id into the sections above.",
+            "items": {
+              "$ref": "#/components/schemas/ExportTicket"
+            },
+            "type": "array"
+          },
+          "time_entries": {
+            "items": {
+              "$ref": "#/components/schemas/ExportTimeEntry"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "customization",
+          "org",
+          "clients",
+          "sites",
+          "contacts",
+          "tickets",
+          "time_entries",
+          "custom_field_values"
+        ],
+        "type": "object"
+      },
+      "ExportSite": {
+        "description": "One site row; `client_id` references `clients` in this bundle.",
+        "properties": {
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "city": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "client_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "country": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "latitude": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "longitude": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "postal_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "region": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timezone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "client_id",
+          "name",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "ExportTicket": {
+        "description": "One ticket with its comment thread nested. Authorship is an opaque\nuser-id reference; the bundle never carries user records.",
+        "properties": {
+          "assignee_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "board_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "body": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "category": {
+            "$ref": "#/components/schemas/TicketStatusCategory",
+            "description": "Semantic category of the captured status (behavior binds to this,\nnever to the status label)."
+          },
+          "client_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "comments": {
+            "items": {
+              "$ref": "#/components/schemas/ExportComment"
+            },
+            "type": "array"
+          },
+          "contact_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "due_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "number": {
+            "description": "Human number (e.g. \"MER-12\") — the bundle's stable ticket key.",
+            "type": "string"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/Priority"
+          },
+          "requester_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resolved_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "site_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "board_id",
+          "status_id",
+          "title",
+          "priority",
+          "category",
+          "client_id",
+          "site_id",
+          "contact_id",
+          "assignee_id",
+          "requester_id",
+          "created_at",
+          "updated_at",
+          "comments"
+        ],
+        "type": "object"
+      },
+      "ExportTimeEntry": {
+        "description": "One time entry; `ticket_id` and `user_id` reference this bundle's\ntickets and the org's live users respectively.",
+        "properties": {
+          "billable": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "ended_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "minutes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "work_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "ticket_id",
+          "user_id",
+          "started_at",
+          "ended_at",
+          "minutes",
+          "billable",
+          "created_at"
         ],
         "type": "object"
       },
@@ -5427,6 +6068,29 @@
         ],
         "type": "object"
       },
+      "RunBatchResponse": {
+        "description": "POST /imports/batches/{id}/run response: the batch is queued for the\nworker exactly once; poll the batch view for counters.",
+        "properties": {
+          "batch_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "staged_chunks": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "batch_id",
+          "job_id",
+          "staged_chunks"
+        ],
+        "type": "object"
+      },
       "RunReportResponse": {
         "description": "Per-row fate report — the D2 contract shape\n(`row_index → errors[] | ok | would_skip | would_update`).",
         "properties": {
@@ -5951,6 +6615,51 @@
           }
         ]
       },
+      "StageChunkRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/RowsPayload"
+          },
+          {
+            "properties": {
+              "template_id": {
+                "description": "Optional saved field-mapping template applied at STAGE time, so the\nstored chunk is already in canonical columns.",
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "POST /imports/batches/{id}/stage request: uploads ONE chunk of rows to\nthe ObjectStore under a deterministic key without executing anything."
+      },
+      "StageChunkResponse": {
+        "properties": {
+          "batch_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "chunk_index": {
+            "description": "Index of the chunk just staged (its deterministic key suffix).",
+            "format": "int32",
+            "type": "integer"
+          },
+          "staged_chunks": {
+            "description": "Total staged chunks after this upload — the worker's runbook length.",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "batch_id",
+          "chunk_index",
+          "staged_chunks"
+        ],
+        "type": "object"
+      },
       "StartTimerRequest": {
         "allOf": [
           {
@@ -6095,6 +6804,65 @@
           "on_call",
           "exclusions",
           "availability_windows"
+        ],
+        "type": "object"
+      },
+      "TemplateListQuery": {
+        "properties": {
+          "source_system": {
+            "description": "Narrow the listing to one source system.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "TemplateViewResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "created_by_kind": {
+            "type": "string"
+          },
+          "entity_kind": {
+            "$ref": "#/components/schemas/EntityKind"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "mapping": {
+            "type": "object"
+          },
+          "name": {
+            "type": "string"
+          },
+          "source_system": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "source_system",
+          "entity_kind",
+          "mapping",
+          "created_by",
+          "created_by_kind",
+          "created_at",
+          "updated_at"
         ],
         "type": "object"
       },
@@ -7097,6 +7865,34 @@
             ]
           }
         },
+        "type": "object"
+      },
+      "UpdateTemplateRequest": {
+        "description": "PUT /api/imports/templates/{id} request — all fields optional.",
+        "properties": {
+          "entity_kind": {
+            "$ref": "#/components/schemas/EntityKind"
+          },
+          "mapping": {
+            "type": "object"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_system": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "entity_kind",
+          "mapping"
+        ],
         "type": "object"
       },
       "UpdateTimeSettingsRequest": {
@@ -11066,6 +11862,90 @@
         ]
       }
     },
+    "/api/v1/imports/batches/{batch_id}/run": {
+      "post": {
+        "operationId": "imports_run_batch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunBatchResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/imports/batches/{id}/run — hands the staged batch to the\nworker queue exactly once (generalized 2.7 job queue). Re-running a\nfinished or queued batch is a typed 409; the worker replays chunks\nidempotently through the SAME commit path as synchronous pushes.",
+        "tags": [
+          "imports"
+        ]
+      }
+    },
+    "/api/v1/imports/batches/{batch_id}/stage": {
+      "post": {
+        "operationId": "imports_stage_chunk",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StageChunkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StageChunkResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/imports/batches/{id}/stage — uploads ONE chunk of rows to the\nObjectStore under a deterministic key WITHOUT executing anything. An\noptional saved template is applied at stage time so the stored chunk is\nalready canonical; the worker later replays the staged sequence.",
+        "tags": [
+          "imports"
+        ]
+      }
+    },
     "/api/v1/imports/dry-run": {
       "post": {
         "operationId": "imports_dry_run",
@@ -11097,6 +11977,197 @@
           }
         ],
         "summary": "POST /api/imports/dry-run",
+        "tags": [
+          "imports"
+        ]
+      }
+    },
+    "/api/v1/imports/templates": {
+      "get": {
+        "operationId": "imports_list_templates",
+        "parameters": [
+          {
+            "description": "Narrow to one source system",
+            "in": "query",
+            "name": "source_system",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TemplateViewResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/imports/templates",
+        "tags": [
+          "imports"
+        ]
+      },
+      "post": {
+        "operationId": "imports_create_template",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTemplateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateViewResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/imports/templates — saves one reusable source→canonical column\nmapping. Targets are validated against the canonical field catalog for\nthe entity kind; duplicates per (org, source system, kind, name) are a\ntyped 409.",
+        "tags": [
+          "imports"
+        ]
+      }
+    },
+    "/api/v1/imports/templates/{template_id}": {
+      "delete": {
+        "operationId": "imports_delete_template",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateViewResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "DELETE /api/imports/templates/{id}",
+        "tags": [
+          "imports"
+        ]
+      },
+      "get": {
+        "operationId": "imports_get_template",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateViewResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/imports/templates/{id}",
+        "tags": [
+          "imports"
+        ]
+      },
+      "put": {
+        "operationId": "imports_update_template",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTemplateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateViewResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "PUT /api/imports/templates/{id} — content update; uniqueness conflicts\n(renaming onto an existing sibling) surface as typed 409s.",
         "tags": [
           "imports"
         ]
@@ -11631,6 +12702,73 @@
         "summary": "PATCH /api/org — updates name and/or ticket prefix (Admin:edit).\nIdempotent; emits `org.updated` + audit row.",
         "tags": [
           "settings"
+        ]
+      }
+    },
+    "/api/v1/org/exports": {
+      "post": {
+        "operationId": "org_export_create",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportCreatedResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/org/exports — builds the versioned bundle, streams it into\nthe ObjectStore, and returns the signed download link.",
+        "tags": [
+          "org"
+        ]
+      }
+    },
+    "/api/v1/org/exports/{org_id}/{export_id}/download": {
+      "get": {
+        "operationId": "org_export_download",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "export_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportBundle"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "summary": "GET /api/org/exports/{org_id}/{export_id}/download — streams the stored\nbundle. Authenticated by the signed link alone (no JWT): an expired or\nforged token is an unauthorized request, indistinguishable between the\ntwo. The org id is IN the path (and inside the signature) so a token\nauthorizes exactly one (org, export, expiry) triple.",
+        "tags": [
+          "org"
         ]
       }
     },
