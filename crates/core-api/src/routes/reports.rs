@@ -254,6 +254,7 @@ async fn run_rows(
     for b in binds {
         q = match b {
             Bind::Uuid(u) => q.bind(*u),
+            Bind::Text(s) => q.bind(s.as_str()),
             Bind::Date(d) => q.bind(*d),
             Bind::Timestamp(t) => q.bind(t),
             Bind::Int(n) => q.bind(*n),
@@ -282,7 +283,7 @@ fn row_json(row: &sqlx::postgres::PgRow, columns: &[OutputColumn]) -> Value {
     let mut map = Map::new();
     for (i, c) in columns.iter().enumerate() {
         let col_name = row.columns()[i].name();
-        debug_assert_eq!(col_name, c.name, "column layout drift");
+        debug_assert_eq!(col_name, c.name.as_str(), "column layout drift");
         let v = match c.ty {
             OutType::Uuid => opt_json(row.try_get::<Option<Uuid>, _>(col_name)),
             OutType::Text => opt_json(row.try_get::<Option<String>, _>(col_name)),
@@ -293,7 +294,7 @@ fn row_json(row: &sqlx::postgres::PgRow, columns: &[OutputColumn]) -> Value {
             OutType::Float => opt_json(row.try_get::<Option<f64>, _>(col_name)),
             OutType::Bool => opt_json(row.try_get::<Option<bool>, _>(col_name)),
         };
-        map.insert(c.name.to_string(), v);
+        map.insert(c.name.clone(), v);
     }
     Value::Object(map)
 }
@@ -367,14 +368,14 @@ fn next_cursor_for_kind(
 /// CSV rendering with stable column order == compiled output order. Rows are
 /// materialized pages (≤500), then encoded incrementally.
 fn csv_response(kind: ReportKind, columns: &[OutputColumn], rows: Vec<Value>) -> Response {
-    let header_vals: Vec<String> = columns.iter().map(|c| csv_cell(c.name)).collect();
+    let header_vals: Vec<String> = columns.iter().map(|c| csv_cell(&c.name)).collect();
 
     let body_lines: Vec<String> = rows
         .iter()
         .map(|row| {
             let cells: Vec<String> = columns
                 .iter()
-                .map(|c| csv_cell_value(row.get(c.name)))
+                .map(|c| csv_cell_value(row.get(c.name.as_str())))
                 .collect();
             cells.join(",")
         })

@@ -27,7 +27,7 @@ core-billing = { path = "../core-billing" }
 core-documents = { path = "../core-documents" }
 core-kb = { path = "../core-kb" }
 core-projects = { path = "../core-projects" }
-core-reports = { path = "../core-reports" }
+core-reports = { path = "../core-reports", features = ["openapi"] }
 core-events = { path = "../core-events" }
 core-mail = { path = "../core-mail" }
 core-otel = { path = "../core-otel" }

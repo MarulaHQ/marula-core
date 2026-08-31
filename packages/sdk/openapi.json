@@ -212,6 +212,17 @@
           }
         ]
       },
+      "Aggregate": {
+        "description": "Aggregation function of a measure. `Count` may omit the column\n(`COUNT(*)`); every other aggregate requires one, and the catalog\ndecides which column types each accepts.",
+        "enum": [
+          "count",
+          "sum",
+          "avg",
+          "min",
+          "max"
+        ],
+        "type": "string"
+      },
       "ApiKeyCreatedResponse": {
         "description": "The ONLY response carrying raw key material. Lost keys are rotated by\ncreating a new key and revoking this one — never recovered.",
         "properties": {
@@ -3340,6 +3351,48 @@
           }
         ]
       },
+      "CreateReportDefinitionRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams"
+          },
+          {
+            "properties": {
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "description": "Org-unique display name (1–200 chars after trimming).",
+                "type": "string"
+              },
+              "scope": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/DefinitionScope",
+                    "description": "Requested visibility; `org` requires admin and non-admins are\nforced onto `self` regardless."
+                  }
+                ]
+              },
+              "spec": {
+                "$ref": "#/components/schemas/ReportSpec",
+                "description": "The registry-validated report spec."
+              }
+            },
+            "required": [
+              "name",
+              "spec"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "POST /api/report-definitions body."
+      },
       "CreateRuleRequest": {
         "properties": {
           "actions": {
@@ -3812,6 +3865,14 @@
           "options"
         ],
         "type": "object"
+      },
+      "DefinitionScope": {
+        "description": "Visibility scope of a stored definition: `org` (published org-wide,\nadmins only) or `self` (private to the creator).",
+        "enum": [
+          "org",
+          "self"
+        ],
+        "type": "string"
       },
       "DeliveryAttemptView": {
         "properties": {
@@ -5108,6 +5169,99 @@
         ],
         "type": "string"
       },
+      "FilterOp": {
+        "description": "Filter operators supported by the v1 compiled reports. Operand typing is\nenforced through [`ValueType`] matches in the builder, so e.g. a bool\noperand can never reach a timestamp column. The serde encoding is the\n`snake_case` slug (`lt_eq`, `is_null`, …) stored specs carry.",
+        "enum": [
+          "eq",
+          "not_eq",
+          "lt",
+          "lt_eq",
+          "gt",
+          "gt_eq",
+          "is_null",
+          "is_not_null"
+        ],
+        "type": "string"
+      },
+      "FilterValue": {
+        "description": "A typed filter operand. The variant must match the catalog\n[`ValueType`] of the filtered column (`Int` covers both Int and BigInt\ncolumns) — enforced by [`ReportSpec::validate`], so a mismatched\noperand can never reach a bind. The serde encoding is the externally\ntagged slug (`{\"text\": \"p1\"}`, `{\"bool\": true}`).",
+        "oneOf": [
+          {
+            "properties": {
+              "uuid": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "uuid"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "text"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "RFC 3339 instant (chrono serde encoding).",
+            "properties": {
+              "timestamp": {
+                "description": "RFC 3339 instant (chrono serde encoding).",
+                "format": "date-time",
+                "type": "string"
+              }
+            },
+            "required": [
+              "timestamp"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "`YYYY-MM-DD`.",
+            "properties": {
+              "date": {
+                "description": "`YYYY-MM-DD`.",
+                "format": "date",
+                "type": "string"
+              }
+            },
+            "required": [
+              "date"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "int": {
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "int"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "bool": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "bool"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "GapDayView": {
         "properties": {
           "activity": {
@@ -5805,6 +5959,64 @@
         ],
         "type": "object"
       },
+      "ManifestReportDefinition": {
+        "description": "One stored report definition (TASKLIST R3). The spec body rides as its\nstored jsonb document (`{filters, group_by, measures}`) exactly like\ncustom-field `config` — the registry-validated view/viz slugs travel as\ntheir own fields so a preflight can flag deprecated constructs without\nre-deriving validation. Nothing here is secret-bearing: definitions\nreference the read-model catalog only, never credentials or data.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Registry-backed view slug (`tickets`, `time_entries`, …).",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "scope": {
+            "description": "Visibility scope: `org` (published org-wide) or `self` (private to\nthe creator; admins see all). Preflight-relevant because org-scope\ndefinitions are shared surface, self-scope ones are personal.",
+            "type": "string"
+          },
+          "spec": {
+            "description": "Spec body document: `{filters, group_by, measures}` as stored.",
+            "type": "object"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "viz": {
+            "description": "Visualization hint slug (`bar` | `line` | `pie` | `table`).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "spec",
+          "viz",
+          "scope",
+          "created_by",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
       "ManifestSections": {
         "description": "Section container. All fields are always present; empty org state is an\nempty array, never an absent key. New sections append here.",
         "properties": {
@@ -5836,6 +6048,13 @@
             },
             "type": "array"
           },
+          "report_definitions": {
+            "description": "Stored report definitions (TASKLIST R3): registry-validated specs\nover the versioned read-model views. Covered so the upgrade\npreflight (U6) can flag any definition whose `kind`/spec columns\nreference deprecated view or column constructs (policy §5).",
+            "items": {
+              "$ref": "#/components/schemas/ManifestReportDefinition"
+            },
+            "type": "array"
+          },
           "settings": {
             "description": "Org-scope settings-registry overrides (user-scope rows are per-user\npreferences, not org customization).",
             "items": {
@@ -5862,7 +6081,8 @@
           "webhooks",
           "api_keys",
           "settings",
-          "sla"
+          "sla",
+          "report_definitions"
         ],
         "type": "object"
       },
@@ -6090,6 +6310,25 @@
           "display_name",
           "timezone",
           "permissions"
+        ],
+        "type": "object"
+      },
+      "MeasureSpec": {
+        "description": "One aggregate measure.",
+        "properties": {
+          "agg": {
+            "$ref": "#/components/schemas/Aggregate"
+          },
+          "column": {
+            "description": "`None` only with [`Aggregate::Count`] (`COUNT(*)`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "agg"
         ],
         "type": "object"
       },
@@ -8225,6 +8464,84 @@
         ],
         "type": "object"
       },
+      "ReportDefinitionList": {
+        "description": "GET /api/report-definitions envelope.",
+        "properties": {
+          "definitions": {
+            "items": {
+              "$ref": "#/components/schemas/ReportDefinitionView"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "definitions"
+        ],
+        "type": "object"
+      },
+      "ReportDefinitionMutationResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ReportDefinitionView"
+          },
+          {
+            "properties": {
+              "mutation": {
+                "$ref": "#/components/schemas/MutationMeta"
+              }
+            },
+            "required": [
+              "mutation"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "Mutation envelope: applied definition (flattened) + read-your-write\nmetadata (IF2)."
+      },
+      "ReportDefinitionView": {
+        "description": "A stored report definition with its registry-validated spec\nreassembled (`spec.view` == the stored `kind` column).",
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "created_by": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/DefinitionScope"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/ReportSpec"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "spec",
+          "scope",
+          "created_by",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
       "ReportPage": {
         "description": "JSON envelope for a report page.",
         "properties": {
@@ -8263,6 +8580,45 @@
           "columns",
           "rows",
           "summary"
+        ],
+        "type": "object"
+      },
+      "ReportSpec": {
+        "description": "A stored report spec (TASKLIST R3). Every member is registry-validated;\nsee [`ReportSpec::validate`].",
+        "properties": {
+          "filters": {
+            "items": {
+              "$ref": "#/components/schemas/SpecFilter"
+            },
+            "type": "array"
+          },
+          "group_by": {
+            "description": "Group-by dimensions (any projected column except `org_id`). Empty\nmeans a single grand-total row.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "measures": {
+            "description": "Aggregate measures, one or more.",
+            "items": {
+              "$ref": "#/components/schemas/MeasureSpec"
+            },
+            "type": "array"
+          },
+          "view": {
+            "$ref": "#/components/schemas/ViewId",
+            "description": "The versioned read-model view this report reads (the stored `kind`\ncolumn). NEVER a physical table — the enum has no other variants."
+          },
+          "viz": {
+            "$ref": "#/components/schemas/VizHint",
+            "description": "Presentation hint (never affects the compiled SQL)."
+          }
+        },
+        "required": [
+          "view",
+          "measures",
+          "viz"
         ],
         "type": "object"
       },
@@ -8953,6 +9309,34 @@
           "trigger",
           "notify_user_ids",
           "title"
+        ],
+        "type": "object"
+      },
+      "SpecFilter": {
+        "description": "One spec filter: catalog column + operator + typed operand.",
+        "properties": {
+          "column": {
+            "description": "Column name from the view's FILTERABLE inventory (the narrower v1\nallowlist — filtered-but-unselected columns surprise consumers).",
+            "type": "string"
+          },
+          "op": {
+            "$ref": "#/components/schemas/FilterOp"
+          },
+          "value": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FilterValue",
+                "description": "Required exactly when the operator takes a value."
+              }
+            ]
+          }
+        },
+        "required": [
+          "column",
+          "op"
         ],
         "type": "object"
       },
@@ -10352,6 +10736,46 @@
         ],
         "type": "object"
       },
+      "UpdateReportDefinitionRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams"
+          },
+          {
+            "properties": {
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "scope": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/DefinitionScope",
+                    "description": "New visibility; `org` requires admin and non-admins keep `self`."
+                  }
+                ]
+              },
+              "spec": {
+                "$ref": "#/components/schemas/ReportSpec"
+              }
+            },
+            "required": [
+              "name",
+              "spec"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "PUT /api/report-definitions/{id} body — full-replace semantics: every\nmember is applied; `description: null` clears it."
+      },
       "UpdateRuleRequest": {
         "properties": {
           "actions": {},
@@ -10595,6 +11019,17 @@
         ],
         "type": "object"
       },
+      "ViewId": {
+        "description": "Versioned read-model views. Variant ↔ physical view name is frozen\nalongside the schema-version suffix; adding a view is additive.\n\nThe serde encoding is the view SLUG (`snake_case`) — the same string the\nstored-spec `kind` column carries (R3 registry backing) — so a definition\nround-trips through JSON without a parallel name table.",
+        "enum": [
+          "tickets",
+          "time_entries",
+          "sla_outcomes",
+          "gap_days",
+          "first_response"
+        ],
+        "type": "string"
+      },
       "ViewListQuery": {
         "properties": {
           "project_id": {
@@ -10614,6 +11049,16 @@
             "$ref": "#/components/schemas/ProjectView"
           }
         ]
+      },
+      "VizHint": {
+        "description": "Visualization hint the report builder renders with (ADR 0001: Recharts\nbar/line/pie/table on the frontend). Pure presentation metadata — it\nnever influences the compiled SQL.",
+        "enum": [
+          "bar",
+          "line",
+          "pie",
+          "table"
+        ],
+        "type": "string"
       },
       "WebauthnBeginResponse": {
         "properties": {
@@ -18121,6 +18566,216 @@
         ]
       }
     },
+    "/api/v1/report-definitions": {
+      "get": {
+        "operationId": "report_definitions_list",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportDefinitionList"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/report-definitions — visible definitions, deterministically\nordered `(name, id)`.",
+        "tags": [
+          "reports"
+        ]
+      },
+      "post": {
+        "operationId": "report_definitions_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReportDefinitionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportDefinitionMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "description": "missing reporting:create"
+          },
+          "409": {
+            "description": "name conflict or idempotency key reused"
+          },
+          "422": {
+            "description": "spec failed registry validation"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/report-definitions — create a stored definition through the\ninstant-first write path (idempotency key honored; response carries\n`mutation` metadata).",
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/api/v1/report-definitions/{id}": {
+      "delete": {
+        "operationId": "report_definitions_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportDefinitionMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "description": "definition outside the caller's writable scope"
+          },
+          "404": {
+            "description": "rls_sparse: target not visible"
+          },
+          "409": {
+            "description": "version conflict"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "DELETE /api/report-definitions/{id} — removal through the same gated\npath; the write trail keeps the deleted snapshot (undo substrate).",
+        "tags": [
+          "reports"
+        ]
+      },
+      "get": {
+        "operationId": "report_definitions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportDefinitionView"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "not visible in scope"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/report-definitions/{id} — one visible definition; anything not\nvisible (deleted, other org, private of another user) is a bare 404.",
+        "tags": [
+          "reports"
+        ]
+      },
+      "put": {
+        "operationId": "report_definitions_update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateReportDefinitionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportDefinitionMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "description": "definition outside the caller's writable scope"
+          },
+          "404": {
+            "description": "rls_sparse: target not visible"
+          },
+          "409": {
+            "description": "version conflict or idempotency key reused"
+          },
+          "422": {
+            "description": "spec failed registry validation"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "PUT /api/report-definitions/{id} — full-replace update through the\ninstant-first write path (version gate enforced; a miss inside a\nmutation is the typed `rls_sparse` reason, not `not_found`).",
+        "tags": [
+          "reports"
+        ]
+      }
+    },
     "/api/v1/reports/{kind}": {
       "get": {
         "operationId": "report_get",
@@ -20489,6 +21144,10 @@
     {
       "description": "Unified FTS search across tickets, comments and clients",
       "name": "search"
+    },
+    {
+      "description": "Operational reports + stored report definitions over the versioned read-model views",
+      "name": "reports"
     },
     {
       "description": "Append-only audit log (admin)",

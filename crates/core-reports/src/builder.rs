@@ -25,6 +25,7 @@ use crate::params::{Scope, Window};
 #[derive(Debug, Clone, PartialEq)]
 pub enum Bind {
     Uuid(Uuid),
+    Text(String),
     Date(NaiveDate),
     Timestamp(DateTime<Utc>),
     Int(i64),
@@ -44,14 +45,20 @@ pub enum OutType {
     Bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Result-column descriptor driving JSON/CSV shaping at the API layer.
+/// `name` is owned (R3 spec measures derive dynamic output names like
+/// `sum_minutes`; the prebuilt kinds feed static constants).
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutputColumn {
-    pub name: &'static str,
+    pub name: String,
     pub ty: OutType,
 }
 
-const fn col(name: &'static str, ty: OutType) -> OutputColumn {
-    OutputColumn { name, ty }
+fn col(name: &'static str, ty: OutType) -> OutputColumn {
+    OutputColumn {
+        name: name.to_string(),
+        ty,
+    }
 }
 
 /// Pagination-key layout of a compiled report.

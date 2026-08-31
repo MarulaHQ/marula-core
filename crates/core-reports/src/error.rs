@@ -14,6 +14,13 @@ pub enum ReportsError {
     InvalidLimit(i64),
     /// An opaque cursor failed to decode (client error, never a panic).
     InvalidCursor,
+    /// A stored report spec violated the typed registry (TASKLIST R3):
+    /// unknown slug, a type mismatch between filter operand and catalog
+    /// column, an aggregate applied to a non-numeric column, a shape bound
+    /// (filter/measure/group-by caps), or a duplicate output name. The
+    /// `field` names the spec member at fault; `reason` is the specific
+    /// violation. Never carries SQL text.
+    InvalidSpec { field: String, reason: String },
 }
 
 impl fmt::Display for ReportsError {
@@ -27,6 +34,9 @@ impl fmt::Display for ReportsError {
                 write!(f, "limit must be between 1 and 500, got {limit}")
             }
             ReportsError::InvalidCursor => write!(f, "malformed pagination cursor"),
+            ReportsError::InvalidSpec { field, reason } => {
+                write!(f, "invalid report spec ({field}): {reason}")
+            }
         }
     }
 }

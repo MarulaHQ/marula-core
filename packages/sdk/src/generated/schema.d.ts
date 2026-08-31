@@ -2561,6 +2561,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/report-definitions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/report-definitions — visible definitions, deterministically
+         *     ordered `(name, id)`.
+         */
+        get: operations["report_definitions_list"];
+        put?: never;
+        /**
+         * POST /api/report-definitions — create a stored definition through the
+         *     instant-first write path (idempotency key honored; response carries
+         *     `mutation` metadata).
+         */
+        post: operations["report_definitions_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/report-definitions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/report-definitions/{id} — one visible definition; anything not
+         *     visible (deleted, other org, private of another user) is a bare 404.
+         */
+        get: operations["report_definitions_get"];
+        /**
+         * PUT /api/report-definitions/{id} — full-replace update through the
+         *     instant-first write path (version gate enforced; a miss inside a
+         *     mutation is the typed `rls_sparse` reason, not `not_found`).
+         */
+        put: operations["report_definitions_update"];
+        post?: never;
+        /**
+         * DELETE /api/report-definitions/{id} — removal through the same gated
+         *     path; the write trail keeps the deleted snapshot (undo substrate).
+         */
+        delete: operations["report_definitions_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/{kind}": {
         parameters: {
             query?: never;
@@ -3404,6 +3458,13 @@ export interface components {
             body: string;
             kind: components["schemas"]["NoteKind"];
         };
+        /**
+         * @description Aggregation function of a measure. `Count` may omit the column
+         *     (`COUNT(*)`); every other aggregate requires one, and the catalog
+         *     decides which column types each accepts.
+         * @enum {string}
+         */
+        Aggregate: "count" | "sum" | "avg" | "min" | "max";
         /**
          * @description The ONLY response carrying raw key material. Lost keys are rotated by
          *     creating a new key and revoking this one — never recovered.
@@ -4573,6 +4634,15 @@ export interface components {
             /** Format: date */
             start_date?: string | null;
         };
+        /** @description POST /api/report-definitions body. */
+        CreateReportDefinitionRequest: components["schemas"]["MutationParams"] & {
+            description?: string | null;
+            /** @description Org-unique display name (1–200 chars after trimming). */
+            name: string;
+            scope?: null | components["schemas"]["DefinitionScope"];
+            /** @description The registry-validated report spec. */
+            spec: components["schemas"]["ReportSpec"];
+        };
         CreateRuleRequest: {
             /** @description Action documents (see AutomationAction schema). */
             actions: unknown;
@@ -4746,6 +4816,12 @@ export interface components {
             /** @description "ui" renders an editable row; "hidden" is state readable via values. */
             visibility: string;
         };
+        /**
+         * @description Visibility scope of a stored definition: `org` (published org-wide,
+         *     admins only) or `self` (private to the creator).
+         * @enum {string}
+         */
+        DefinitionScope: "org" | "self";
         DeliveryAttemptView: {
             /** Format: int32 */
             attempt: number;
@@ -5261,6 +5337,44 @@ export interface components {
          * @enum {string}
          */
         FieldKindWire: "text" | "number" | "date" | "select" | "multiselect" | "bool" | "url" | "user";
+        /**
+         * @description Filter operators supported by the v1 compiled reports. Operand typing is
+         *     enforced through [`ValueType`] matches in the builder, so e.g. a bool
+         *     operand can never reach a timestamp column. The serde encoding is the
+         *     `snake_case` slug (`lt_eq`, `is_null`, …) stored specs carry.
+         * @enum {string}
+         */
+        FilterOp: "eq" | "not_eq" | "lt" | "lt_eq" | "gt" | "gt_eq" | "is_null" | "is_not_null";
+        /**
+         * @description A typed filter operand. The variant must match the catalog
+         *     [`ValueType`] of the filtered column (`Int` covers both Int and BigInt
+         *     columns) — enforced by [`ReportSpec::validate`], so a mismatched
+         *     operand can never reach a bind. The serde encoding is the externally
+         *     tagged slug (`{"text": "p1"}`, `{"bool": true}`).
+         */
+        FilterValue: {
+            /** Format: uuid */
+            uuid: string;
+        } | {
+            text: string;
+        } | {
+            /**
+             * Format: date-time
+             * @description RFC 3339 instant (chrono serde encoding).
+             */
+            timestamp: string;
+        } | {
+            /**
+             * Format: date
+             * @description `YYYY-MM-DD`.
+             */
+            date: string;
+        } | {
+            /** Format: int64 */
+            int: number;
+        } | {
+            bool: boolean;
+        };
         GapDayView: {
             activity: boolean;
             /** @description Local calendar day (YYYY-MM-DD). */
@@ -5551,6 +5665,38 @@ export interface components {
             trigger_kind: string;
         };
         /**
+         * @description One stored report definition (TASKLIST R3). The spec body rides as its
+         *     stored jsonb document (`{filters, group_by, measures}`) exactly like
+         *     custom-field `config` — the registry-validated view/viz slugs travel as
+         *     their own fields so a preflight can flag deprecated constructs without
+         *     re-deriving validation. Nothing here is secret-bearing: definitions
+         *     reference the read-model catalog only, never credentials or data.
+         */
+        ManifestReportDefinition: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by: string;
+            description?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** @description Registry-backed view slug (`tickets`, `time_entries`, …). */
+            kind: string;
+            name: string;
+            /**
+             * @description Visibility scope: `org` (published org-wide) or `self` (private to
+             *     the creator; admins see all). Preflight-relevant because org-scope
+             *     definitions are shared surface, self-scope ones are personal.
+             */
+            scope: string;
+            /** @description Spec body document: `{filters, group_by, measures}` as stored. */
+            spec: Record<string, never>;
+            /** Format: date-time */
+            updated_at: string;
+            /** @description Visualization hint slug (`bar` | `line` | `pie` | `table`). */
+            viz: string;
+        };
+        /**
          * @description Section container. All fields are always present; empty org state is an
          *     empty array, never an absent key. New sections append here.
          */
@@ -5571,6 +5717,13 @@ export interface components {
              *     contacts, assets), including archived ones.
              */
             custom_fields: components["schemas"]["ManifestCustomField"][];
+            /**
+             * @description Stored report definitions (TASKLIST R3): registry-validated specs
+             *     over the versioned read-model views. Covered so the upgrade
+             *     preflight (U6) can flag any definition whose `kind`/spec columns
+             *     reference deprecated view or column constructs (policy §5).
+             */
+            report_definitions: components["schemas"]["ManifestReportDefinition"][];
             /**
              * @description Org-scope settings-registry overrides (user-scope rows are per-user
              *     preferences, not org customization).
@@ -5660,6 +5813,12 @@ export interface components {
             timezone: string;
             /** Format: uuid */
             user_id: string;
+        };
+        /** @description One aggregate measure. */
+        MeasureSpec: {
+            agg: components["schemas"]["Aggregate"];
+            /** @description `None` only with [`Aggregate::Count`] (`COUNT(*)`). */
+            column?: string | null;
         };
         MfaTokenRequest: {
             mfa_token: string;
@@ -6382,6 +6541,33 @@ export interface components {
         ReplaceLadderRequest: {
             steps: components["schemas"]["LadderStepSpec"][];
         };
+        /** @description GET /api/report-definitions envelope. */
+        ReportDefinitionList: {
+            definitions: components["schemas"]["ReportDefinitionView"][];
+        };
+        /**
+         * @description Mutation envelope: applied definition (flattened) + read-your-write
+         *     metadata (IF2).
+         */
+        ReportDefinitionMutationResponse: components["schemas"]["ReportDefinitionView"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        /**
+         * @description A stored report definition with its registry-validated spec
+         *     reassembled (`spec.view` == the stored `kind` column).
+         */
+        ReportDefinitionView: {
+            created_at: string;
+            /** Format: uuid */
+            created_by: string;
+            description?: string | null;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            scope: components["schemas"]["DefinitionScope"];
+            spec: components["schemas"]["ReportSpec"];
+            updated_at: string;
+        };
         /** @description JSON envelope for a report page. */
         ReportPage: {
             /**
@@ -6397,6 +6583,27 @@ export interface components {
             summary: unknown;
             /** @description Versioned read-model view backing this kind (documentation parity). */
             view: string;
+        };
+        /**
+         * @description A stored report spec (TASKLIST R3). Every member is registry-validated;
+         *     see [`ReportSpec::validate`].
+         */
+        ReportSpec: {
+            filters?: components["schemas"]["SpecFilter"][];
+            /**
+             * @description Group-by dimensions (any projected column except `org_id`). Empty
+             *     means a single grand-total row.
+             */
+            group_by?: string[];
+            /** @description Aggregate measures, one or more. */
+            measures: components["schemas"]["MeasureSpec"][];
+            /**
+             * @description The versioned read-model view this report reads (the stored `kind`
+             *     column). NEVER a physical table — the enum has no other variants.
+             */
+            view: components["schemas"]["ViewId"];
+            /** @description Presentation hint (never affects the compiled SQL). */
+            viz: components["schemas"]["VizHint"];
         };
         RestoreDocumentRequest: components["schemas"]["MutationParams"] & {
             change_summary?: string | null;
@@ -6658,6 +6865,16 @@ export interface components {
             title: string;
             /** @description 'risk' | 'breach' | 'escalate' */
             trigger: string;
+        };
+        /** @description One spec filter: catalog column + operator + typed operand. */
+        SpecFilter: {
+            /**
+             * @description Column name from the view's FILTERABLE inventory (the narrower v1
+             *     allowlist — filtered-but-unselected columns surprise consumers).
+             */
+            column: string;
+            op: components["schemas"]["FilterOp"];
+            value?: null | components["schemas"]["FilterValue"];
         };
         SsoExchangeRequest: {
             /** Format: uuid */
@@ -7154,6 +7371,16 @@ export interface components {
             /** @description IANA timezone for the window; defaults to UTC. */
             timezone?: string | null;
         };
+        /**
+         * @description PUT /api/report-definitions/{id} body — full-replace semantics: every
+         *     member is applied; `description: null` clears it.
+         */
+        UpdateReportDefinitionRequest: components["schemas"]["MutationParams"] & {
+            description?: string | null;
+            name: string;
+            scope?: null | components["schemas"]["DefinitionScope"];
+            spec: components["schemas"]["ReportSpec"];
+        };
         UpdateRuleRequest: {
             actions?: unknown;
             /**
@@ -7227,6 +7454,16 @@ export interface components {
             applied: boolean;
             reason?: string | null;
         };
+        /**
+         * @description Versioned read-model views. Variant ↔ physical view name is frozen
+         *     alongside the schema-version suffix; adding a view is additive.
+         *
+         *     The serde encoding is the view SLUG (`snake_case`) — the same string the
+         *     stored-spec `kind` column carries (R3 registry backing) — so a definition
+         *     round-trips through JSON without a parallel name table.
+         * @enum {string}
+         */
+        ViewId: "tickets" | "time_entries" | "sla_outcomes" | "gap_days" | "first_response";
         ViewListQuery: {
             /**
              * Format: uuid
@@ -7235,6 +7472,13 @@ export interface components {
             project_id?: string | null;
         };
         ViewMutationResponse: components["schemas"]["ProjectView"];
+        /**
+         * @description Visualization hint the report builder renders with (ADR 0001: Recharts
+         *     bar/line/pie/table on the frontend). Pure presentation metadata — it
+         *     never influences the compiled SQL.
+         * @enum {string}
+         */
+        VizHint: "bar" | "line" | "pie" | "table";
         WebauthnBeginResponse: {
             /** @description Opaque ceremony binding — pass back to finish. */
             challenge_token: string;
@@ -11995,6 +12239,192 @@ export interface operations {
             };
             /** @description dependency set rejected (self-dep, cross-project, or cycle) */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    report_definitions_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportDefinitionList"];
+                };
+            };
+        };
+    };
+    report_definitions_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateReportDefinitionRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportDefinitionMutationResponse"];
+                };
+            };
+            /** @description missing reporting:create */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description name conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description spec failed registry validation */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    report_definitions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportDefinitionView"];
+                };
+            };
+            /** @description not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    report_definitions_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateReportDefinitionRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportDefinitionMutationResponse"];
+                };
+            };
+            /** @description definition outside the caller's writable scope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description rls_sparse: target not visible */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description spec failed registry validation */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    report_definitions_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportDefinitionMutationResponse"];
+                };
+            };
+            /** @description definition outside the caller's writable scope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description rls_sparse: target not visible */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

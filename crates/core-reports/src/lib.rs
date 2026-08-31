@@ -15,14 +15,17 @@
 //!   remain upgrade-stable through view evolution per upgrade-compatibility
 //!   policy §5. There is no code path to ticket/time/SLA base tables.
 //! * No SQL execution lives here (core-api owns execution against its
-//!   pool), no report-spec storage (R3), no scheduling/worker concerns
-//!   (R4), no HTTP shapes (core-api `routes::reports`).
+//!   pool); storage for stored definitions is core-db `report_definitions`
+//!   (R3); no scheduling/worker concerns (R4); no HTTP shapes (core-api
+//!   `routes::reports` for the prebuilt kinds, `routes::report_defs` for
+//!   stored definitions).
 
 pub mod builder;
 pub mod catalog;
 pub mod error;
 pub mod kinds;
 pub mod params;
+pub mod spec;
 
 pub use builder::{compile, next_cursor, Bind, CompiledReport, CursorShape, OutType, OutputColumn};
 pub use catalog::{lookup_column, resolve_filter_column, ViewId};
@@ -34,6 +37,10 @@ pub use kinds::{
 pub use params::{
     clamp_limit, resolve_window, validate_limit_raw, Scope, Window, PAGE_LIMIT_DEFAULT,
     PAGE_LIMIT_MAX, WINDOW_MAX_DAYS,
+};
+pub use spec::{
+    Aggregate, FilterValue, MeasureSpec, ReportSpec, SpecBody, SpecFilter, VizHint, MAX_FILTERS,
+    MAX_GROUP_BY, MAX_MEASURES,
 };
 
 #[cfg(test)]

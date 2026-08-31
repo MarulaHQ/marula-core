@@ -13,7 +13,13 @@
 
 /// Versioned read-model views. Variant ↔ physical view name is frozen
 /// alongside the schema-version suffix; adding a view is additive.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+///
+/// The serde encoding is the view SLUG (`snake_case`) — the same string the
+/// stored-spec `kind` column carries (R3 registry backing) — so a definition
+/// round-trips through JSON without a parallel name table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
 pub enum ViewId {
     Tickets,
     TimeEntries,
@@ -43,6 +49,49 @@ impl ViewId {
         ViewId::GapDays,
         ViewId::FirstResponse,
     ];
+
+    /// Strict slug parser (the inverse of the serde encoding). Used when
+    /// reassembling stored specs; anything unknown fails closed.
+    pub fn parse(slug: &str) -> Option<ViewId> {
+        Self::ALL.into_iter().find(|v| v.slug() == slug)
+    }
+
+    /// Stable URL/API/JSON slug. Constants only.
+    pub const fn slug(self) -> &'static str {
+        match self {
+            ViewId::Tickets => "tickets",
+            ViewId::TimeEntries => "time_entries",
+            ViewId::SlaOutcomes => "sla_outcomes",
+            ViewId::GapDays => "gap_days",
+            ViewId::FirstResponse => "first_response",
+        }
+    }
+
+    /// The personal-dimension column RBAC self-scoping narrows on (R1
+    /// convention: non-managers are structurally forced onto their own
+    /// rows). `None` would mean the view has no personal dimension.
+    pub const fn personal_dim(self) -> Option<&'static str> {
+        match self {
+            ViewId::Tickets => Some("assignee_id"),
+            ViewId::TimeEntries => Some("user_id"),
+            ViewId::SlaOutcomes => Some("assignee_id"),
+            ViewId::GapDays => Some("user_id"),
+            ViewId::FirstResponse => Some("assignee_id"),
+        }
+    }
+
+    /// The primary time anchor used to apply a run-time window when a spec
+    /// is executed with one (R4/R6 execution lanes). Typed so the bind is
+    /// Date vs Timestamp without re-probing the catalog.
+    pub const fn time_anchor(self) -> Option<(&'static str, ValueType)> {
+        match self {
+            ViewId::Tickets => Some(("created_at", ValueType::Timestamp)),
+            ViewId::TimeEntries => Some(("started_at", ValueType::Timestamp)),
+            ViewId::SlaOutcomes => Some(("ticket_created_at", ValueType::Timestamp)),
+            ViewId::GapDays => Some(("day", ValueType::Date)),
+            ViewId::FirstResponse => Some(("created_at", ValueType::Timestamp)),
+        }
+    }
 
     /// Column inventory of this view, mirroring the migration-0026 header
     /// comments (the binding documentation contract).
@@ -205,8 +254,11 @@ pub enum ValueType {
 
 /// Filter operators supported by the v1 compiled reports. Operand typing is
 /// enforced through [`ValueType`] matches in the builder, so e.g. a bool
-/// operand can never reach a timestamp column.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// operand can never reach a timestamp column. The serde encoding is the
+/// `snake_case` slug (`lt_eq`, `is_null`, …) stored specs carry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
 pub enum FilterOp {
     Eq,
     NotEq,
@@ -308,6 +360,42 @@ mod tests {
             assert!(name[name.len() - name.len()..]
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.'));
+        }
+    }
+
+    #[test]
+    fn view_slugs_round_trip_strictly() {
+        for view in ViewId::ALL {
+            assert_eq!(ViewId::parse(view.slug()), Some(view));
+            // The serde encoding must be exactly the slug.
+            let json = serde_json::to_string(&view).unwrap();
+            assert_eq!(json, format!("\"{}\"", view.slug()));
+            assert_eq!(serde_json::from_str::<ViewId>(&json).unwrap(), view);
+        }
+        for bad in ["", "ops.v1_tickets", "TICKETS", "ticket", "' OR 1=1 --"] {
+            assert_eq!(ViewId::parse(bad), None, "slug {bad:?} must not parse");
+            assert!(serde_json::from_str::<ViewId>(&format!("\"{bad}\"")).is_err());
+        }
+    }
+
+    #[test]
+    fn personal_dimensions_are_real_columns() {
+        for view in ViewId::ALL {
+            let dim = view.personal_dim().expect("every v1 view has one");
+            assert!(
+                lookup_column(view, dim).is_some(),
+                "{view:?}: personal dim {dim} missing from projection"
+            );
+            assert_ne!(dim, "org_id", "tenancy column is never a report dimension");
+        }
+    }
+
+    #[test]
+    fn time_anchors_are_typed_columns() {
+        for view in ViewId::ALL {
+            let (name, ty) = view.time_anchor().expect("every v1 view has one");
+            let def = lookup_column(view, name).expect("anchor exists");
+            assert_eq!(def.value_type, ty, "{view:?}: anchor type drift");
         }
     }
 }

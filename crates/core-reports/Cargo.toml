@@ -10,6 +10,13 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
 base64 = "0.22"
+utoipa = { workspace = true, optional = true, features = ["uuid", "chrono"] }
+
+[features]
+default = []
+# Wire-schema derivation for the API layer (ReportSpec and friends ride the
+# OpenAPI document; core-api enables this feature).
+openapi = ["dep:utoipa"]
 
 [dev-dependencies]
 proptest = { workspace = true }
