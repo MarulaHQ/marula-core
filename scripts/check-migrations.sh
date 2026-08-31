@@ -31,8 +31,16 @@ for f in "$migrations_dir"/*.sql; do
   fi
 
   hits=$(grep -inE \
-    '^\s*(DROP\s+(TABLE|DATABASE|SCHEMA|INDEX|CONSTRAINT|POLICY)|TRUNCATE)|DROP\s+COLUMN|ALTER\s+COLUMN\s+\S+\s+TYPE|(UPDATE|DELETE)\s+\S+\s*;' \
+    '^\s*(DROP\s+(TABLE|DATABASE|SCHEMA|INDEX|CONSTRAINT|POLICY)|TRUNCATE)|DROP\s+COLUMN|ALTER\s+COLUMN\s+\S+\s+TYPE' \
     "$f" || true)
+
+  # Unfiltered UPDATE/DELETE (whole-table data loss): statement starts a line
+  # and carries no WHERE on that line. Keyed off the statement keyword so
+  # `ON DELETE CASCADE;` fragments inside ADD COLUMN lines never match.
+  unfiltered=$(grep -inE \
+    '^\s*(DELETE\s+FROM\s+\S+\s*;|UPDATE\s+\S+\s+SET\b[^;]*;)' \
+    "$f" | grep -ivE 'where' || true)
+  hits="${hits}${unfiltered}"
 
   if [[ -n "$hits" ]]; then
     echo "::error file=$base::destructive statement(s) without --breaking flag:"
