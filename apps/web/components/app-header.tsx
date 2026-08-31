@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useAuth } from "../lib/api";
 import { NotificationDock } from "./notification-dock";
+import { OutboxDock } from "./instant/outbox-dock";
 
 function ThemeToggle() {
   const { theme, setTheme } = useTheme();
@@ -73,6 +74,7 @@ export function AppHeader() {
         </span>
       </div>
       <div className="flex items-center gap-2">
+        <OutboxDock />
         <SearchLauncher />
         <NotificationDock />
         <Button variant="ghost" size="sm" onClick={() => router.push("/dashboards")}>

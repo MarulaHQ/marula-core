@@ -1,8 +1,10 @@
-// /boards/[id] — minimal board surface backing the left-nav tree links.
+// /boards/[id] — board surface backing the left-nav tree links.
 //
 // Purpose: the board's status pipeline and its ticket queue rendered from
-// real API data, tokens only, both themes. Deliberately v1-lean: workflow
-// editing lives in the API; richer views arrive with later stages.
+// the IF4 board read model: hydrate once from the snapshot, then live
+// through board-channel WS events as per-ticket deltas (IF5 — reload the
+// cache, not the page). Returning to a visited board renders from cache
+// with no refetch and no loading flash.
 // Non-purpose: no board administration (statuses/transitions/members are
 // managed through the API's ConfigureBoard endpoints, not this page).
 "use client";
@@ -10,13 +12,20 @@
 import type { components } from "@meridian/sdk";
 import { Button, Spinner, StatusTag } from "@meridian/ui";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppHeader } from "../../../components/app-header";
 import { BoardNav } from "../../../components/board-nav";
 import { api, useRequireAuth } from "../../../lib/api";
+import {
+  boardModelKey,
+  makeBoardSpec,
+  type BoardTicket,
+} from "../../../lib/instant/read-models";
+import {
+  useInstantChannels,
+  useInstantCollection,
+} from "../../../lib/use-instant";
 
-type BoardStatus = components["schemas"]["BoardStatus"];
-type Ticket = components["schemas"]["Ticket"];
 type BoardMemberView = components["schemas"]["BoardMemberView"];
 
 function categoryTone(category: string): "success" | "warning" | "neutral" {
@@ -96,32 +105,12 @@ export default function BoardPage() {
   const auth = useRequireAuth();
   const router = useRouter();
   const params = useParams<{ id: string }>();
-  const [statuses, setStatuses] = useState<BoardStatus[] | null>(null);
-  const [tickets, setTickets] = useState<Ticket[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const boardId = typeof params?.id === "string" ? params.id : "";
 
-  const refresh = useCallback(async () => {
-    if (typeof params?.id !== "string") return;
-    try {
-      const st = await api.api.GET("/api/v1/boards/{id}/statuses", {
-        params: { path: { id: params.id } },
-      });
-      if (st.error !== undefined) throw new Error("failed to load board");
-      setStatuses(st.data);
-      const tk = await api.api.GET("/api/v1/tickets", {
-        params: { query: { board_id: params.id, limit: 100 } },
-      });
-      if (tk.error !== undefined) throw new Error("failed to load tickets");
-      setTickets(tk.data);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Load failed");
-    }
-  }, [params?.id]);
-
-  useEffect(() => {
-    if (auth.status === "authed") void refresh();
-  }, [auth.status, refresh]);
+  // IF4/IF5: hydrate-once board snapshot, deltas over the board channel.
+  const boardSpec = useMemo(() => makeBoardSpec(api.api, boardId), [boardId]);
+  const { data: board, loading } = useInstantCollection(boardModelKey(boardId), boardSpec);
+  useInstantChannels(boardId === "" ? [] : [`board:${boardId}`]);
 
   if (auth.status !== "authed") {
     return (
@@ -130,6 +119,9 @@ export default function BoardPage() {
       </main>
     );
   }
+
+  const statuses = board?.statuses ?? null;
+  const tickets = board?.tickets ?? null;
 
   return (
     <div className="flex h-screen flex-col">
@@ -145,19 +137,13 @@ export default function BoardPage() {
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => router.push(`/boards/${params?.id ?? ""}/fields`)}
+              onClick={() => router.push(`/boards/${boardId}/fields`)}
             >
               Custom fields
             </Button>
           </div>
 
-          <MembersPanel boardId={params?.id ?? ""} />
-
-          {error !== null && (
-            <p className="text-xs" style={{ color: "var(--m-status-danger-fg)" }} role="alert">
-              {error}
-            </p>
-          )}
+          <MembersPanel boardId={boardId} />
 
           {statuses !== null && (
             <div className="flex flex-wrap items-center gap-2">
@@ -171,17 +157,17 @@ export default function BoardPage() {
             </div>
           )}
 
-          {tickets === null ? (
+          {loading ? (
             <div className="flex flex-1 items-center justify-center">
               <Spinner />
             </div>
-          ) : tickets.length === 0 ? (
+          ) : tickets !== null && tickets.length === 0 ? (
             <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>
               No tickets on this board yet.
             </p>
           ) : (
             <ol role="list" aria-label="Board tickets" className="flex flex-col">
-              {tickets.map((t) => (
+              {(tickets ?? []).map((t: BoardTicket) => (
                 <li key={t.id}>
                   <button
                     type="button"
