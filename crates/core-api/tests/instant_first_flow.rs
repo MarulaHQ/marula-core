@@ -374,6 +374,86 @@ async fn next_status_id(app: &Router, org: &Org, board: Uuid, current: Uuid) -> 
         .expect("board has another status")
 }
 
+#[tokio::test]
+async fn checklist_mutations_carry_the_envelope_and_replay() {
+    let (_state, app) = test_state().await;
+    let org = register_org(&app, format!("if-checklist-{}", Uuid::now_v7())).await;
+    let board = default_board(&app, &org).await;
+    let ticket = create_ticket(&app, &org, board, "Checklist target", json!({})).await;
+    let ticket_id: Uuid = ticket["id"].as_str().unwrap().parse().unwrap();
+
+    // Create an ad-hoc item: the checklist view stays top-level (additive
+    // envelope) and `mutation.after` is the created item.
+    let added = body_json(
+        send(
+            &app,
+            axum::http::Method::POST,
+            &format!("/api/tickets/{ticket_id}/checklist"),
+            Some(&org.token),
+            Some(json!({ "text": "Verify power", "idempotency_key": "cl-add-1" })),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(
+        added["items"].as_array().map(Vec::len),
+        Some(1),
+        "view fields stay top-level"
+    );
+    let mutation = added["mutation"].clone();
+    assert!(mutation.is_object(), "add carries the mutation envelope");
+    assert!(mutation["before"].is_null(), "create has no prior value");
+    assert_eq!(mutation["after"]["text"], "Verify power");
+    assert_eq!(mutation["after"]["checked"], false);
+    assert_eq!(
+        added["items"][0]["id"], mutation["after"]["id"],
+        "the applied item is in the returned view"
+    );
+    let item_id: Uuid = mutation["after"]["id"].as_str().unwrap().parse().unwrap();
+    let seq1 = mutation["seq"].as_i64().expect("seq present");
+
+    // Same key + same payload replays the identical stored result.
+    let replayed = body_json(
+        send(
+            &app,
+            axum::http::Method::POST,
+            &format!("/api/tickets/{ticket_id}/checklist"),
+            Some(&org.token),
+            Some(json!({ "text": "Verify power", "idempotency_key": "cl-add-1" })),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(
+        replayed, added,
+        "replay returns the same stored result without double-apply"
+    );
+
+    // Toggle with the version echo: before/after carry the item's prior and
+    // new checked state, and the item seq advances monotonically.
+    let toggled = body_json(
+        send(
+            &app,
+            axum::http::Method::POST,
+            &format!("/api/tickets/{ticket_id}/checklist/{item_id}"),
+            Some(&org.token),
+            Some(json!({ "checked": true, "version": seq1 })),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(toggled["mutation"]["before"]["checked"], false);
+    assert_eq!(toggled["mutation"]["after"]["checked"], true);
+    assert_eq!(
+        toggled["mutation"]["after"]["id"], mutation["after"]["id"],
+        "per-entity seq family is the item itself"
+    );
+    assert!(
+        toggled["mutation"]["seq"].as_i64().unwrap() > seq1,
+        "seq strictly increases per applied write"
+    );
+}
+
 // ===========================================================================
 // IF1 — idempotency replay + reuse rejection
 // ===========================================================================

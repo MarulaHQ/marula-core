@@ -165,7 +165,9 @@ pub struct MutationMeta {
     /// The applied entity's `updated_at`.
     #[schema(value_type = String)]
     pub updated_at: DateTime<Utc>,
-    /// Prior entity snapshot (the undo substrate). `null` on creates.
+    /// Prior entity snapshot (the undo substrate). `null` on creates. The
+    /// OpenAPI schema stays a plain object; generated clients get the
+    /// runtime-typed view through the SDK's `snapshotOf` accessor.
     #[schema(value_type = Object, nullable = true)]
     pub before: Option<Value>,
     /// Applied entity snapshot.

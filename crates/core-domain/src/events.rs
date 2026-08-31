@@ -131,6 +131,12 @@ pub struct TicketCreated {
 pub struct TicketStatusChanged {
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub ticket_id: TicketId,
+    /// Board the ticket lives on — drives WS fan-out to `board:<id>`.
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub board_id: BoardId,
+    /// Current assignee — drives WS fan-out to `user:<id>`.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub assignee_id: Option<UserId>,
     pub from_status: String,
     pub to_status: String,
     pub from_category: TicketStatusCategory,
@@ -185,6 +191,9 @@ pub struct BoardTransitionsUpdated {
 pub struct TicketAssigned {
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub ticket_id: TicketId,
+    /// Board the ticket lives on — drives WS fan-out to `board:<id>`.
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub board_id: BoardId,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub assignee_id: Option<UserId>,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
@@ -273,6 +282,9 @@ pub struct ImportBatchFinished {
 pub struct TicketChecklistUpdated {
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub ticket_id: TicketId,
+    /// Board the ticket lives on — drives WS fan-out to `board:<id>`.
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub board_id: BoardId,
     pub items: Vec<ChecklistItem>,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub updated_by: Option<UserId>,

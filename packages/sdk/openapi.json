@@ -171,15 +171,23 @@
         ]
       },
       "AddChecklistItemRequest": {
-        "properties": {
-          "text": {
-            "type": "string"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1): idempotency key + entity\nversion. Absent in legacy clients — purely additive."
+          },
+          {
+            "properties": {
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "text"
+            ],
+            "type": "object"
           }
-        },
-        "required": [
-          "text"
-        ],
-        "type": "object"
+        ]
       },
       "AddCommentRequest": {
         "allOf": [
@@ -4140,7 +4148,7 @@
             "type": "object"
           },
           "before": {
-            "description": "Prior entity snapshot (the undo substrate). `null` on creates.",
+            "description": "Prior entity snapshot (the undo substrate). `null` on creates. The\nOpenAPI schema stays a plain object; generated clients get the\nruntime-typed view through the SDK's `snapshotOf` accessor.",
             "type": [
               "object",
               "null"
@@ -5613,15 +5621,23 @@
         "type": "object"
       },
       "SetChecklistItemRequest": {
-        "properties": {
-          "checked": {
-            "type": "boolean"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1): idempotency key + entity\nversion. Absent in legacy clients — purely additive."
+          },
+          {
+            "properties": {
+              "checked": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "checked"
+            ],
+            "type": "object"
           }
-        },
-        "required": [
-          "checked"
-        ],
-        "type": "object"
+        ]
       },
       "SetTicketFieldValueRequest": {
         "properties": {
@@ -6219,6 +6235,25 @@
           "updated_at"
         ],
         "type": "object"
+      },
+      "TicketChecklistMutationResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/TicketChecklistView"
+          },
+          {
+            "properties": {
+              "mutation": {
+                "$ref": "#/components/schemas/MutationMeta"
+              }
+            },
+            "required": [
+              "mutation"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "Same additive envelope for checklist writes: the full checklist view at\nthe top level (unchanged shape) plus the read-your-write metadata for\nthe affected item."
       },
       "TicketChecklistView": {
         "description": "GET response for a ticket's checklist: instances, derived progress,\nand the board's live enforcement posture. `blocking` lists the unchecked\nREQUIRED items when enforcement is active (empty otherwise).",
@@ -13221,11 +13256,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TicketChecklistView"
+                  "$ref": "#/components/schemas/TicketChecklistMutationResponse"
                 }
               }
             },
             "description": ""
+          },
+          "404": {
+            "description": "ticket not visible in scope (rls_sparse)"
+          },
+          "409": {
+            "description": "idempotency key reused"
           }
         },
         "security": [
@@ -13233,7 +13274,7 @@
             "bearer": []
           }
         ],
-        "summary": "POST /api/tickets/{id}/checklist — appends an ad-hoc checklist item.\nAd-hoc items never block closure; emits `ticket.checklist_updated`.",
+        "summary": "POST /api/tickets/{id}/checklist — appends an ad-hoc checklist item.\nAd-hoc items never block closure; emits `ticket.checklist_updated`.\nInstant-first (IF1/IF2): idempotency-keyed and returns the\nread-your-write mutation metadata for the created item.",
         "tags": [
           "tickets"
         ]
@@ -13277,11 +13318,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TicketChecklistView"
+                  "$ref": "#/components/schemas/TicketChecklistMutationResponse"
                 }
               }
             },
             "description": ""
+          },
+          "404": {
+            "description": "ticket or item not visible in scope (rls_sparse)"
+          },
+          "409": {
+            "description": "idempotency key reused"
           }
         },
         "security": [
@@ -13289,7 +13336,7 @@
             "bearer": []
           }
         ],
-        "summary": "POST /api/tickets/{id}/checklist/{item_id} — toggles one checklist item;\nemits `ticket.checklist_updated` in the same transaction.",
+        "summary": "POST /api/tickets/{id}/checklist/{item_id} — toggles one checklist item;\nemits `ticket.checklist_updated` in the same transaction. Instant-first\n(IF1/IF2): idempotency-keyed and returns the read-your-write mutation\nmetadata for the toggled item.",
         "tags": [
           "tickets"
         ]
