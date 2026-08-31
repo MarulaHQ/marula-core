@@ -48,6 +48,7 @@ pub mod clients;
 pub mod custom_fields;
 pub mod dispatch;
 pub mod email_admin;
+pub mod export;
 pub mod imports;
 pub mod internal;
 pub mod manifest;
@@ -237,7 +238,14 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
     let public = public
         .route(&rp("/portal/login"), post(portal::login))
         .route(&rp("/portal/refresh"), post(portal::refresh))
-        .merge(portal_protected);
+        .merge(portal_protected)
+        // Org-data export (TASKLIST D1): the download endpoint authenticates
+        // purely by its short-lived HMAC signature — no JWT middleware — so
+        // DR scripts can pull bundles without an interactive session.
+        .route(
+            &rp("/org/exports/{org_id}/{export_id}/download"),
+            get(export::download),
+        );
 
     let protected = Router::new()
         .route(&rp("/me"), get(auth_handlers::me))
@@ -503,6 +511,8 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/imports/batches/{batch_id}/finish"),
             post(imports::finish_batch),
         )
+        // org-data export (TASKLIST D1): signed-download bundle creation.
+        .route(&rp("/org/exports"), post(export::create))
         // audit (admin)
         .route(&rp("/audit-events"), get(audit::list))
         // operational reports (TASKLIST R1): read-model views only

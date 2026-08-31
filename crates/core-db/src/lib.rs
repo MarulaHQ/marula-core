@@ -16,6 +16,7 @@ pub mod checklists;
 pub mod clients;
 pub mod custom_fields;
 pub mod emails;
+pub mod export;
 pub mod imports;
 pub mod manifest;
 pub mod mfa;
