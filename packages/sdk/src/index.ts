@@ -2,7 +2,7 @@
 //
 // Non-purpose: never imports server crates; generated code is regenerated,
 // never hand-edited.
-export { MeridianClient } from "./client";
+export { MeridianClient, snapshotOf } from "./client";
 export type {
   MeridianClientOptions,
   MeridianPaths,
@@ -11,6 +11,8 @@ export type {
   MfaRequired,
   RegisterRequest,
   TokenPair,
+  EntitySnapshot,
+  MutationMetaView,
 } from "./client";
 export type { paths, webhooks, operations, components } from "./generated/schema";
 export type { $defs } from "./generated/schema";
