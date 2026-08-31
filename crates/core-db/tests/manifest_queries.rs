@@ -395,6 +395,54 @@ async fn seed_full_org(db: &TestDb, n: u64) -> Base {
     .await
     .expect("ladder");
 
+    // report definitions (TASKLIST R3): two rows inserted OUT of name
+    // order, one org-published and one private, so the section sort +
+    // scope round-trip are exercised. Spec bodies are registry-valid.
+    for (name, kind, body, viz, scope) in [
+        (
+            "Weekly Tickets by Status",
+            "tickets",
+            json!({
+                "filters": [{"column": "priority", "op": "not_eq", "value": {"text": "p4"}}],
+                "group_by": ["status_name"],
+                "measures": [
+                    {"agg": "count"},
+                    {"agg": "min", "column": "created_at"}
+                ]
+            }),
+            "bar",
+            "org",
+        ),
+        (
+            "Billable Minutes by Client",
+            "time_entries",
+            json!({
+                "filters": [{"column": "billable", "op": "eq", "value": {"bool": true}}],
+                "group_by": ["client_id"],
+                "measures": [{"agg": "sum", "column": "minutes"}]
+            }),
+            "pie",
+            "self",
+        ),
+    ] {
+        core_db::report_defs::insert(
+            &mut tx,
+            Uuid::now_v7(),
+            base.org,
+            base.user,
+            &core_db::report_defs::DefinitionFields {
+                name: name.into(),
+                description: None,
+                kind: kind.into(),
+                spec: body,
+                viz: viz.into(),
+                scope: scope.into(),
+            },
+        )
+        .await
+        .expect("report definition");
+    }
+
     tx.commit().await.expect("commit full org");
     base
 }
@@ -572,6 +620,25 @@ async fn full_org_manifest_covers_every_section() {
     assert_eq!(steps[1]["step_index"], 1);
     assert_eq!(steps[0]["enabled"], true);
     assert_eq!(steps[1]["enabled"], false, "disabled steps still export");
+
+    // report definitions: name-ordered, slugs and spec body verbatim.
+    let defs = m["sections"]["report_definitions"].as_array().unwrap();
+    assert_eq!(defs.len(), 2);
+    assert_eq!(
+        defs[0]["name"], "Billable Minutes by Client",
+        "definitions ordered by name regardless of insert order"
+    );
+    assert_eq!(defs[0]["kind"], "time_entries");
+    assert_eq!(defs[0]["viz"], "pie");
+    assert_eq!(defs[0]["scope"], "self");
+    assert_eq!(
+        defs[0]["spec"]["measures"][0],
+        json!({"agg": "sum", "column": "minutes"}),
+        "spec body passes through verbatim"
+    );
+    assert_eq!(defs[1]["name"], "Weekly Tickets by Status");
+    assert_eq!(defs[1]["scope"], "org");
+    assert_eq!(defs[1]["spec"]["group_by"], json!(["status_name"]));
 }
 
 #[tokio::test]
@@ -638,6 +705,10 @@ async fn manifest_ordering_invariants_hold() {
         &sections["sla"]["policies"].as_array().unwrap().clone(),
         "name"
     ));
+    assert!(sorted_by(
+        &sections["report_definitions"].as_array().unwrap().clone(),
+        "name"
+    ));
 }
 
 #[tokio::test]
@@ -653,6 +724,7 @@ async fn empty_org_manifest_sections_are_empty() {
         "webhooks",
         "api_keys",
         "settings",
+        "report_definitions",
     ] {
         assert_eq!(
             sections[empty_section],
@@ -742,7 +814,12 @@ async fn partial_org_manifest_rounds_populated_sections() {
         json!([]),
         "wildcard filter exports as empty array"
     );
-    for untouched in ["custom_fields", "automation_rules", "api_keys"] {
+    for untouched in [
+        "custom_fields",
+        "automation_rules",
+        "api_keys",
+        "report_definitions",
+    ] {
         assert_eq!(sections[untouched], json!([]));
     }
     // Boards/sla stay at the defaults-first baseline, not empty.

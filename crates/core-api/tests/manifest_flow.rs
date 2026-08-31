@@ -256,6 +256,35 @@ async fn populate_via_api(app: &Router, token: &str) -> (String, String, Value) 
         assert_eq!(response.status(), 200, "field def create must succeed");
     }
 
+    // One stored report definition (TASKLIST R3): a customization the U5
+    // manifest must cover so the U6 preflight can see it.
+    {
+        let response = send(
+            app,
+            axum::http::Method::POST,
+            "/api/report-definitions",
+            &bearer,
+            Some(json!({
+                "name": "Open Tickets by Priority",
+                "description": "owner's working set",
+                "spec": {
+                    "view": "tickets",
+                    "filters": [],
+                    "group_by": ["priority"],
+                    "measures": [{"agg": "count"}],
+                    "viz": "bar"
+                },
+                "scope": "org"
+            })),
+        )
+        .await;
+        assert_eq!(
+            response.status(),
+            200,
+            "report definition create must succeed"
+        );
+    }
+
     (webhook_secret, raw_key, setting)
 }
 
@@ -321,6 +350,7 @@ async fn owner_manifest_round_trip_and_no_secret_leakage() {
         "api_keys",
         "settings",
         "sla",
+        "report_definitions",
     ] {
         assert!(
             sections.get(section).is_some(),
@@ -358,6 +388,20 @@ async fn owner_manifest_round_trip_and_no_secret_leakage() {
     assert_eq!(
         fields[0]["config"]["options"],
         json!(["minor", "major", "critical"])
+    );
+
+    // The stored report definition round-trips with its registry slugs.
+    let defs = sections["report_definitions"].as_array().unwrap();
+    assert_eq!(defs.len(), 1);
+    assert_eq!(defs[0]["name"], "Open Tickets by Priority");
+    assert_eq!(defs[0]["kind"], "tickets");
+    assert_eq!(defs[0]["viz"], "bar");
+    assert_eq!(defs[0]["scope"], "org");
+    assert_eq!(defs[0]["spec"]["group_by"], json!(["priority"]));
+    assert_eq!(
+        defs[0]["spec"]["measures"],
+        json!([{"agg": "count"}]),
+        "spec body document passes through verbatim"
     );
 
     // The defaults-first baseline: default board with category-covered
