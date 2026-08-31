@@ -95,13 +95,14 @@ export class MockApi {
   }
 }
 
-/** Minimal fetch-Response stand-in openapi-fetch relies on (ok/status/json). */
+/** Minimal fetch-Response stand-in openapi-fetch relies on (ok/status/json/text). */
 function makeJsonResponse(json: unknown, status: number): Response {
   return {
     ok: status >= 200 && status < 300,
     status,
     headers: new Headers({ "content-type": "application/json" }),
     json: async () => json,
+    text: async () => JSON.stringify(json),
   } as unknown as Response;
 }
 

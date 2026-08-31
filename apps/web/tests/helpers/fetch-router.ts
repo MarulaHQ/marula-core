@@ -31,6 +31,11 @@ export function setFetchRouter(handler: RoutedFetchHandler | null): void {
   registry().current = handler;
 }
 
+/** Reads the active handler (test composition: wrap-then-delegate). */
+export function currentFetchRouter(): RoutedFetchHandler | null {
+  return registry().current;
+}
+
 async function unrouted(): Promise<Response> {
   return {
     ok: false,
