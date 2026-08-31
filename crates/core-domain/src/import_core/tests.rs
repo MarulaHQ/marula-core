@@ -5,6 +5,7 @@
 
 use super::*;
 use proptest::prelude::*;
+use std::collections::HashMap;
 
 // --- CSV matrix ----------------------------------------------------------------
 
@@ -492,7 +493,7 @@ proptest! {
         let specs = build_specs(EntityKind::Site, &rows);
         let spec = specs[0].spec.as_ref().expect("generated row validates");
         match spec {
-            ImportSpec::Client(_) | ImportSpec::Contact(_) => panic!("wrong family"),
+            ImportSpec::Client(_) | ImportSpec::Contact(_) | ImportSpec::Board(_) | ImportSpec::Ticket(_) | ImportSpec::TimeEntry(_) => panic!("wrong family"),
             ImportSpec::Site(s) => {
                 // Validation trims scalar text by design; compare against
                 // the same canonical form.
@@ -617,4 +618,362 @@ proptest! {
             prop_assert!(sa[0].spec.is_err() || sb[0].spec.is_err());
         }
     }
+}
+
+// --- D2 remainder: board / ticket / time-entry families ------------------------
+
+#[test]
+fn board_rows_validate_with_defaults() {
+    let rows = parse_csv_chunk(
+        "external_key,name,description,is_default\nSRV,Service Desk,Desk board,true\nPRJ,Projects,,\n",
+    )
+    .expect("parses");
+    let specs = build_specs(EntityKind::Board, &rows);
+    assert_eq!(specs.len(), 2);
+    let board = match &specs[0].spec {
+        Ok(ImportSpec::Board(b)) => b,
+        other => panic!("expected board spec, got {other:?}"),
+    };
+    assert_eq!(board.name, "Service Desk");
+    assert_eq!(board.description.as_deref(), Some("Desk board"));
+    assert!(board.is_default);
+    let board_b = match &specs[1].spec {
+        Ok(ImportSpec::Board(b)) => b,
+        other => panic!("expected board spec, got {other:?}"),
+    };
+    assert!(!board_b.is_default, "absent flag defaults to false");
+    assert_eq!(
+        specs[1].spec.as_ref().unwrap().projection()["description"],
+        ""
+    );
+}
+
+#[test]
+fn board_rows_reject_bad_flags_and_unknown_columns() {
+    let rows = parse_csv_chunk("external_key,name,is_default\nB,Board,maybe\n").expect("parses");
+    let specs = build_specs(EntityKind::Board, &rows);
+    let Err(errors) = &specs[0].spec else {
+        panic!("bad flag must fail");
+    };
+    assert!(
+        errors.iter().any(|e| e.contains("is_default")),
+        "flag error reported, got {errors:?}"
+    );
+
+    let rows = parse_csv_chunk("external_key,name,color\nB,Board,red\n").expect("parses");
+    let specs = build_specs(EntityKind::Board, &rows);
+    let Err(errors) = &specs[0].spec else {
+        panic!("unknown column must fail");
+    };
+    assert!(errors.iter().any(|e| e.contains("color")));
+}
+
+#[test]
+fn ticket_rows_validate_parents_priority_and_due_at() {
+    let rows = parse_json_chunk(&serde_json::json!([
+        {
+            "external_key": "T-1",
+            "board_key": "SRV",
+            "title": "Printer on fire",
+            "body": "again",
+            "priority": "p1",
+            "client_key": "ACME",
+            "due_at": "2026-09-01T10:00:00Z"
+        },
+        { "external_key": "T-2", "title": "No board" }
+    ]))
+    .expect("parses");
+    let specs = build_specs(EntityKind::Ticket, &rows);
+    let ticket = match &specs[0].spec {
+        Ok(ImportSpec::Ticket(t)) => t,
+        other => panic!("expected ticket spec, got {other:?}"),
+    };
+    assert_eq!(ticket.board_key, "SRV");
+    assert_eq!(ticket.priority.as_str(), "p1");
+    assert_eq!(
+        ticket.due_at.map(|t| t.to_rfc3339()),
+        Some("2026-09-01T10:00:00+00:00".to_string())
+    );
+    // Projection covers operator-meaningful fields, never parents (identity).
+    let projection = specs[0].spec.as_ref().unwrap().projection();
+    assert_eq!(projection["title"], "Printer on fire");
+    assert!(!projection.contains_key("board_key"));
+
+    let Err(errors) = &specs[1].spec else {
+        panic!("missing board_key must fail");
+    };
+    assert!(errors.iter().any(|e| e.contains("board_key")));
+    // Absent priority defaults to P3 without an error.
+    let rows = parse_json_chunk(&serde_json::json!([
+        { "external_key": "T-3", "board_key": "SRV", "title": "Calm" }
+    ]))
+    .expect("parses");
+    let specs = build_specs(EntityKind::Ticket, &rows);
+    let ticket = match &specs[0].spec {
+        Ok(ImportSpec::Ticket(t)) => t,
+        other => panic!("expected ticket spec, got {other:?}"),
+    };
+    assert_eq!(ticket.priority, crate::status::Priority::P3);
+}
+
+#[test]
+fn time_entry_rows_validate_minutes_instants_and_defaults() {
+    let rows = parse_json_chunk(&serde_json::json!([
+        {
+            "external_key": "TE-1",
+            "ticket_key": "T-1",
+            "started_at": "2026-08-30T09:00:00Z",
+            "minutes": "90",
+            "billable": "true",
+            "user_email": "tech@example.test"
+        },
+        {
+            "external_key": "TE-2",
+            "ticket_key": "T-1",
+            "started_at": "not-a-time",
+            "minutes": "0"
+        },
+        {
+            "external_key": "TE-3",
+            "ticket_key": "T-1",
+            "started_at": "2026-08-30T09:00:00Z",
+            "minutes": "100000"
+        }
+    ]))
+    .expect("parses");
+    let specs = build_specs(EntityKind::TimeEntry, &rows);
+    let entry = match &specs[0].spec {
+        Ok(ImportSpec::TimeEntry(e)) => e,
+        other => panic!("expected time entry spec, got {other:?}"),
+    };
+    assert_eq!(entry.minutes, 90);
+    assert!(entry.billable);
+    assert_eq!(entry.user_email.as_deref(), Some("tech@example.test"));
+    // ended_at stays None when absent — the commit derives it from
+    // started_at + minutes.
+    assert!(entry.ended_at.is_none());
+
+    let Err(errors_b) = &specs[1].spec else {
+        panic!("bad started_at must fail");
+    };
+    assert!(errors_b.iter().any(|e| e.contains("started_at")));
+    assert!(errors_b.iter().any(|e| e.contains("minutes")));
+
+    let Err(errors_c) = &specs[2].spec else {
+        panic!("absurd minutes must fail");
+    };
+    assert!(errors_c.iter().any(|e| e.contains("minutes")));
+}
+
+#[test]
+fn ticket_and_time_entry_parent_keys_resolve_through_the_lookup() {
+    let board_id = Uuid::now_v7();
+    let ticket_id = Uuid::now_v7();
+    let parents: HashMap<(EntityKind, String), Uuid> = [
+        ((EntityKind::Board, "SRV".to_string()), board_id),
+        ((EntityKind::Ticket, "T-1".to_string()), ticket_id),
+    ]
+    .into_iter()
+    .collect();
+    let lookup: ParentLookup<'_> = &|kind, key| parents.get(&(kind, key.to_string())).copied();
+
+    let ticket = ImportSpec::Ticket(TicketSpec {
+        external_key: "T-1".into(),
+        board_key: "SRV".into(),
+        title: "x".into(),
+        body: None,
+        priority: crate::status::Priority::P3,
+        client_key: None,
+        site_key: None,
+        contact_key: None,
+        due_at: None,
+    });
+    assert!(check_parents(&ticket, lookup).is_ok());
+    let ImportSpec::Ticket(ticket_spec) = ticket else {
+        panic!("constructed ticket");
+    };
+    let orphan = ImportSpec::Ticket(TicketSpec {
+        board_key: "MISSING".into(),
+        ..ticket_spec
+    });
+    let errors = check_parents(&orphan, lookup).unwrap_err();
+    assert!(errors[0].contains("board_key"));
+
+    let entry = ImportSpec::TimeEntry(TimeEntrySpec {
+        external_key: "TE-1".into(),
+        ticket_key: "T-1".into(),
+        user_email: None,
+        started_at: chrono::Utc::now(),
+        ended_at: None,
+        minutes: 30,
+        billable: true,
+        notes: None,
+        work_type: None,
+    });
+    assert!(check_parents(&entry, lookup).is_ok());
+    let ImportSpec::TimeEntry(entry_spec) = entry else {
+        panic!("constructed entry");
+    };
+    let orphan_entry = ImportSpec::TimeEntry(TimeEntrySpec {
+        ticket_key: "NOPE".into(),
+        ..entry_spec
+    });
+    let errors = check_parents(&orphan_entry, lookup).unwrap_err();
+    assert!(errors[0].contains("ticket_key"));
+}
+
+#[test]
+fn new_family_projections_agree_between_incoming_and_stored() {
+    use crate::entities::{Board, Ticket, TimeEntry};
+    use crate::ids::TicketNumber;
+
+    let now = chrono::Utc::now();
+    let spec = ImportSpec::Ticket(TicketSpec {
+        external_key: "T-1".into(),
+        board_key: "SRV".into(),
+        title: "Same title".into(),
+        body: Some("body".into()),
+        priority: crate::status::Priority::P2,
+        client_key: None,
+        site_key: None,
+        contact_key: None,
+        due_at: Some(now),
+    });
+    let stored = Ticket {
+        id: Uuid::now_v7(),
+        org_id: Uuid::now_v7(),
+        number: TicketNumber("MER-1".into()),
+        board_id: Uuid::now_v7(),
+        status_id: Uuid::now_v7(),
+        title: "Same title".into(),
+        body: Some("body".into()),
+        priority: crate::status::Priority::P2,
+        client_id: None,
+        site_id: None,
+        contact_id: None,
+        assignee_id: None,
+        requester_id: None,
+        category: crate::status::TicketStatusCategory::Open,
+        due_at: Some(now),
+        resolved_at: None,
+        created_at: now,
+        updated_at: now,
+    };
+    assert_eq!(spec.projection(), ticket_projection(&stored));
+
+    let board_spec = ImportSpec::Board(BoardSpec {
+        external_key: "B".into(),
+        name: "Board".into(),
+        description: None,
+        is_default: false,
+    });
+    let board = Board {
+        id: Uuid::now_v7(),
+        org_id: Uuid::now_v7(),
+        name: "Board".into(),
+        description: None,
+        is_default: false,
+        require_checklist_close: false,
+        created_at: now,
+    };
+    assert_eq!(board_spec.projection(), board_projection(&board));
+
+    let started = chrono::Utc::now();
+    let entry_spec = ImportSpec::TimeEntry(TimeEntrySpec {
+        external_key: "TE".into(),
+        ticket_key: "T-1".into(),
+        user_email: None,
+        started_at: started,
+        ended_at: Some(started),
+        minutes: 15,
+        billable: false,
+        notes: Some("n".into()),
+        work_type: Some("remote".into()),
+    });
+    let entry = TimeEntry {
+        id: Uuid::now_v7(),
+        org_id: Uuid::now_v7(),
+        ticket_id: Uuid::now_v7(),
+        user_id: Uuid::now_v7(),
+        started_at: started,
+        ended_at: started,
+        minutes: 15,
+        billable: false,
+        notes: Some("n".into()),
+        work_type: Some("remote".into()),
+        timer_session_id: None,
+        created_at: now,
+    };
+    assert_eq!(entry_spec.projection(), time_entry_projection(&entry));
+}
+
+// --- D2 remainder: saved field-mapping templates -------------------------------
+
+#[test]
+fn mapping_validation_rejects_bad_targets_and_duplicate_targets() {
+    let mut mapping = BTreeMap::new();
+    mapping.insert("Company".to_string(), "name".to_string());
+    assert!(validate_mapping(EntityKind::Client, &mapping).is_ok());
+
+    // A target that is not a canonical column is rejected.
+    mapping.insert("Company2".to_string(), "title".to_string());
+    let errors = validate_mapping(EntityKind::Client, &mapping).unwrap_err();
+    assert!(errors.iter().any(|e| e.contains("title")));
+
+    // Two sources claiming one target is ambiguous.
+    let mut mapping = BTreeMap::new();
+    mapping.insert("A".to_string(), "name".to_string());
+    mapping.insert("B".to_string(), "name".to_string());
+    let errors = validate_mapping(EntityKind::Client, &mapping).unwrap_err();
+    assert!(errors.iter().any(|e| e.contains("more than one source")));
+
+    // Empty mapping rejected.
+    let empty = BTreeMap::new();
+    assert!(validate_mapping(EntityKind::Client, &empty).is_err());
+
+    // Cross-kind targets do not leak between catalogs.
+    let mut mapping = BTreeMap::new();
+    mapping.insert("Min".to_string(), "minutes".to_string());
+    assert!(validate_mapping(EntityKind::TimeEntry, &mapping).is_ok());
+    assert!(validate_mapping(EntityKind::Client, &mapping).is_err());
+}
+
+#[test]
+fn apply_field_mapping_renames_and_flags_collisions() {
+    let rows = parse_csv_chunk("ID,Company,notes\nK1,Acme,hello\n").expect("parses");
+    let mut mapping = BTreeMap::new();
+    mapping.insert("ID".to_string(), "external_key".to_string());
+    mapping.insert("Company".to_string(), "name".to_string());
+    let mapped = apply_field_mapping(rows, &mapping).expect("applies");
+    assert_eq!(mapped[0].fields["external_key"], "K1");
+    assert_eq!(mapped[0].fields["name"], "Acme");
+    assert_eq!(
+        mapped[0].fields["notes"], "hello",
+        "unmapped columns pass through"
+    );
+
+    // Renaming onto an existing column is an ambiguous template.
+    let rows = parse_csv_chunk("ID,name\nK1,Acme\n").expect("parses");
+    let mut mapping = BTreeMap::new();
+    mapping.insert("ID".to_string(), "name".to_string());
+    let err = apply_field_mapping(rows, &mapping).unwrap_err();
+    assert!(matches!(err, ImportError::Malformed(ref m) if m.contains("collides")));
+}
+
+#[test]
+fn import_order_is_a_total_runbook() {
+    let mut kinds = [
+        EntityKind::TimeEntry,
+        EntityKind::Ticket,
+        EntityKind::Contact,
+        EntityKind::Board,
+        EntityKind::Site,
+        EntityKind::Client,
+    ];
+    kinds.sort_by_key(|k| k.import_order());
+    let names: Vec<&str> = kinds.iter().map(|k| k.as_str()).collect();
+    assert_eq!(
+        names,
+        vec!["board", "client", "site", "contact", "ticket", "time_entry"]
+    );
 }

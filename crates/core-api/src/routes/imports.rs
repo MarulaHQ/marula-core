@@ -32,14 +32,17 @@ use axum::{
 use core_domain::entities::{Actor, AuditEvent, Principal};
 use core_domain::events::{
     types, ClientCreated, ClientUpdated, ContactCreated, ContactUpdated, ImportBatchFinished,
-    ImportBatchStarted, SiteCreated, SiteUpdated,
+    ImportBatchStarted, SiteCreated, SiteUpdated, TicketCreated, TimeEntryCreated,
 };
 use core_domain::import_core::{
-    build_specs, chunk_is_executable, enforce_limits, parse_csv_chunk, parse_json_chunk,
-    plan_chunk, ChunkPlan, ChunkSummary, CommitAction, ConflictPolicy, EntityKind, ImportSpec,
-    KeyMappingLookup, ParentLookup, ProjectionLookup, RawRow, RowFormat, RowReport, SpecResult,
+    apply_field_mapping, board_projection, build_specs, chunk_is_executable, enforce_limits,
+    parse_csv_chunk, parse_json_chunk, plan_chunk, ticket_projection, time_entry_projection,
+    validate_mapping, ChunkPlan, ChunkSummary, CommitAction, ConflictPolicy, EntityKind,
+    ImportSpec, KeyMappingLookup, ParentLookup, ProjectionLookup, RawRow, RowFormat, RowReport,
+    SpecResult,
 };
 use core_domain::policy::{Action, Module, Permission};
+use core_domain::status::TicketStatusCategory;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use utoipa::ToSchema;
@@ -61,7 +64,7 @@ pub struct RowsPayload {
 }
 
 impl RowsPayload {
-    fn decode(&self) -> ApiResult<(Vec<RawRow>, usize)> {
+    pub(crate) fn decode(&self) -> ApiResult<(Vec<RawRow>, usize)> {
         match self.format {
             RowFormat::Json => {
                 let value = self.json_rows.as_ref().ok_or_else(|| {
@@ -110,12 +113,25 @@ pub struct DryRunRequest {
     pub conflict_policy: ConflictPolicy,
     /// Free-form run label recorded with the dry-run history entry.
     pub label: Option<String>,
+    /// Optional saved field-mapping template: source headers are renamed to
+    /// the template's canonical columns before validation (D2 remainder).
+    pub template_id: Option<Uuid>,
+    #[serde(flatten)]
+    pub rows: RowsPayload,
+}
+
+/// POST /imports/batches/{id}/chunks request body.
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct ChunkRequest {
+    /// Optional saved field-mapping template applied before validation.
+    pub template_id: Option<Uuid>,
     #[serde(flatten)]
     pub rows: RowsPayload,
 }
 
 /// POST /api/imports/batches — opens a committed-run span. Chunks then land
-/// through `/chunks` until `/finish` closes the batch.
+/// through `/chunks` (synchronous) or `/stage` + `/run` (async, D2
+/// remainder) until the batch finishes.
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct CreateBatchRequest {
     pub entity_kind: EntityKind,
@@ -124,10 +140,95 @@ pub struct CreateBatchRequest {
     pub source_note: Option<String>,
 }
 
+// --- saved field-mapping templates (D2 remainder) ----------------------------
+
+/// POST /api/imports/templates request.
 #[derive(Debug, Clone, Deserialize, ToSchema)]
-pub struct ChunkRequest {
+pub struct CreateTemplateRequest {
+    /// Operator-facing template name (unique per source system + kind).
+    pub name: String,
+    /// Source-system label this template belongs to (e.g. "connectwise").
+    pub source_system: String,
+    pub entity_kind: EntityKind,
+    /// Source column → canonical Meridian column. Targets are validated
+    /// against the canonical field catalog for the entity kind.
+    #[schema(value_type = Object)]
+    pub mapping: BTreeMap<String, String>,
+}
+
+/// PUT /api/imports/templates/{id} request — all fields optional.
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct UpdateTemplateRequest {
+    pub name: Option<String>,
+    pub source_system: Option<String>,
+    pub entity_kind: EntityKind,
+    #[schema(value_type = Object)]
+    pub mapping: Option<BTreeMap<String, String>>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct TemplateViewResponse {
+    #[schema(value_type = uuid::Uuid)]
+    pub id: Uuid,
+    pub name: String,
+    pub source_system: String,
+    pub entity_kind: EntityKind,
+    #[schema(value_type = Object)]
+    pub mapping: serde_json::Value,
+    #[schema(value_type = uuid::Uuid)]
+    pub created_by: Uuid,
+    pub created_by_kind: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+fn template_view(t: core_db::imports::ImportMappingTemplate) -> TemplateViewResponse {
+    let kind = t.entity_kind.parse().unwrap_or(EntityKind::Client);
+    TemplateViewResponse {
+        id: t.id,
+        name: t.name,
+        source_system: t.source_system,
+        entity_kind: kind,
+        mapping: t.mapping,
+        created_by: t.created_by,
+        created_by_kind: t.created_by_kind,
+        created_at: t.created_at,
+        updated_at: t.updated_at,
+    }
+}
+
+// --- async giant batches (D2 remainder) -----------------------------------------
+
+/// POST /imports/batches/{id}/stage request: uploads ONE chunk of rows to
+/// the ObjectStore under a deterministic key without executing anything.
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct StageChunkRequest {
+    /// Optional saved field-mapping template applied at STAGE time, so the
+    /// stored chunk is already in canonical columns.
+    pub template_id: Option<Uuid>,
     #[serde(flatten)]
     pub rows: RowsPayload,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct StageChunkResponse {
+    #[schema(value_type = uuid::Uuid)]
+    pub batch_id: Uuid,
+    /// Index of the chunk just staged (its deterministic key suffix).
+    pub chunk_index: i32,
+    /// Total staged chunks after this upload — the worker's runbook length.
+    pub staged_chunks: i32,
+}
+
+/// POST /imports/batches/{id}/run response: the batch is queued for the
+/// worker exactly once; poll the batch view for counters.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct RunBatchResponse {
+    #[schema(value_type = uuid::Uuid)]
+    pub batch_id: Uuid,
+    #[schema(value_type = uuid::Uuid)]
+    pub job_id: Uuid,
+    pub staged_chunks: i32,
 }
 
 /// Per-row fate report — the D2 contract shape
@@ -211,12 +312,16 @@ pub struct BatchViewResponse {
     pub rows_failed: i32,
     pub started_at: chrono::DateTime<chrono::Utc>,
     pub finished_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Async giant-batch bookkeeping (D2 remainder): staged chunk count and
+    /// the once-only worker-enqueue stamp.
+    pub staged_chunks: i32,
+    pub queued_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl From<core_db::imports::ImportBatch> for BatchViewResponse {
     fn from(b: core_db::imports::ImportBatch) -> Self {
         // Entity-kind/policy strings round-trip through their engine enums;
-        // unknown future values cannot exist while 0027's CHECKs hold.
+        // unknown future values cannot exist while the CHECKs hold.
         let kind = b.entity_kind.parse().unwrap_or(EntityKind::Client);
         let policy = b.conflict_policy.parse().unwrap_or(ConflictPolicy::Skip);
         BatchViewResponse {
@@ -234,6 +339,8 @@ impl From<core_db::imports::ImportBatch> for BatchViewResponse {
             rows_failed: b.rows_failed,
             started_at: b.started_at,
             finished_at: b.finished_at,
+            staged_chunks: b.staged_chunks,
+            queued_at: b.queued_at,
         }
     }
 }
@@ -337,6 +444,10 @@ async fn load_parents(
 ) -> ApiResult<()> {
     let owned = core_db::imports::find_mappings(&mut **tx, org_id, kind.as_str(), keys).await?;
     let ids: Vec<Uuid> = owned.iter().map(|(_, id)| *id).collect();
+    // Existence IS part of parent resolution: a stale mapping pointing at a
+    // deleted row is reported as a missing parent, never trusted. The
+    // client/site/contact families have batch getters; the newer families
+    // resolve per-id (chunks are bounded, so this stays comfortably cheap).
     let alive: Vec<Uuid> = match kind {
         EntityKind::Client => core_db::clients::get_clients_by_ids(&mut **tx, org_id, &ids)
             .await?
@@ -353,6 +464,26 @@ async fn load_parents(
             .into_iter()
             .map(|c| c.id)
             .collect(),
+        EntityKind::Board | EntityKind::Ticket | EntityKind::TimeEntry => {
+            let mut alive = Vec::with_capacity(ids.len());
+            for id in &ids {
+                let found = match kind {
+                    EntityKind::Board => core_db::boards::get_board(&mut **tx, org_id, *id)
+                        .await
+                        .is_ok(),
+                    EntityKind::Ticket => core_db::tickets::get_ticket(&mut **tx, org_id, *id)
+                        .await
+                        .is_ok(),
+                    _ => core_db::timers::get_time_entry(&mut **tx, org_id, *id)
+                        .await
+                        .is_ok(),
+                };
+                if found {
+                    alive.push(*id);
+                }
+            }
+            alive
+        }
     };
     for (key, id) in owned {
         if alive.contains(&id) {
@@ -384,7 +515,7 @@ async fn build_snapshot(
     };
 
     match kind {
-        EntityKind::Client => {}
+        EntityKind::Client | EntityKind::Board => {}
         EntityKind::Site => {
             let client_keys = collect_keys(specs, |spec| match spec {
                 ImportSpec::Site(site) => Some(site.client_key.clone()),
@@ -418,6 +549,63 @@ async fn build_snapshot(
             .await?;
             load_parents(tx, org_id, EntityKind::Site, &dedupe(site_keys), &mut snap).await?;
         }
+        EntityKind::Ticket => {
+            let board_keys = collect_keys(specs, |spec| match spec {
+                ImportSpec::Ticket(t) => Some(t.board_key.clone()),
+                _ => None,
+            });
+            let client_keys = collect_keys(specs, |spec| match spec {
+                ImportSpec::Ticket(t) => t.client_key.clone(),
+                _ => None,
+            });
+            let site_keys = collect_keys(specs, |spec| match spec {
+                ImportSpec::Ticket(t) => t.site_key.clone(),
+                _ => None,
+            });
+            let contact_keys = collect_keys(specs, |spec| match spec {
+                ImportSpec::Ticket(t) => t.contact_key.clone(),
+                _ => None,
+            });
+            load_parents(
+                tx,
+                org_id,
+                EntityKind::Board,
+                &dedupe(board_keys),
+                &mut snap,
+            )
+            .await?;
+            load_parents(
+                tx,
+                org_id,
+                EntityKind::Client,
+                &dedupe(client_keys),
+                &mut snap,
+            )
+            .await?;
+            load_parents(tx, org_id, EntityKind::Site, &dedupe(site_keys), &mut snap).await?;
+            load_parents(
+                tx,
+                org_id,
+                EntityKind::Contact,
+                &dedupe(contact_keys),
+                &mut snap,
+            )
+            .await?;
+        }
+        EntityKind::TimeEntry => {
+            let ticket_keys = collect_keys(specs, |spec| match spec {
+                ImportSpec::TimeEntry(e) => Some(e.ticket_key.clone()),
+                _ => None,
+            });
+            load_parents(
+                tx,
+                org_id,
+                EntityKind::Ticket,
+                &dedupe(ticket_keys),
+                &mut snap,
+            )
+            .await?;
+        }
     }
 
     let self_keys = collect_keys(specs, |spec| Some(spec.external_key().to_string()));
@@ -444,6 +632,30 @@ async fn build_snapshot(
             .into_iter()
             .map(|c| (c.id, contact_projection(&c)))
             .collect(),
+        EntityKind::Board => {
+            let mut out = Vec::with_capacity(ids.len());
+            for id in &ids {
+                let board = core_db::boards::get_board(&mut **tx, org_id, *id).await?;
+                out.push((board.id, board_projection(&board)));
+            }
+            out
+        }
+        EntityKind::Ticket => {
+            let mut out = Vec::with_capacity(ids.len());
+            for id in &ids {
+                let ticket = core_db::tickets::get_ticket(&mut **tx, org_id, *id).await?;
+                out.push((ticket.id, ticket_projection(&ticket)));
+            }
+            out
+        }
+        EntityKind::TimeEntry => {
+            let mut out = Vec::with_capacity(ids.len());
+            for id in &ids {
+                let entry = core_db::timers::get_time_entry(&mut **tx, org_id, *id).await?;
+                out.push((entry.id, time_entry_projection(&entry)));
+            }
+            out
+        }
     };
     for (id, projection) in stored {
         snap.projections.insert(id, projection);
@@ -474,6 +686,40 @@ fn summarize_counters(summary: ChunkSummary) -> (i32, i32, i32, i32, i32) {
     )
 }
 
+/// Applies a saved field-mapping template to decoded rows. The template
+/// must exist and target the SAME entity kind as the batch — a mismatched
+/// template is an operator mistake we refuse loudly, never a silent
+/// remap. Runs inside the caller's org-scoped transaction so RLS applies.
+async fn apply_template(
+    tx: &mut sqlx::Transaction<'static, sqlx::Postgres>,
+    org_id: Uuid,
+    kind: EntityKind,
+    template_id: Uuid,
+    rows: Vec<RawRow>,
+) -> ApiResult<Vec<RawRow>> {
+    let template = core_db::imports::get_template(&mut **tx, org_id, template_id)
+        .await
+        .map_err(|_| ApiError::NotFound)?;
+    if template.entity_kind != kind.as_str() {
+        return Err(ApiError::Validation(format!(
+            "template {} targets entity_kind {}, not {}",
+            template.id,
+            template.entity_kind,
+            kind.as_str()
+        )));
+    }
+    let Some(map_obj) = template.mapping.as_object() else {
+        return Err(ApiError::Validation(
+            "template mapping document is not an object".into(),
+        ));
+    };
+    let mapping: BTreeMap<String, String> = map_obj
+        .iter()
+        .filter_map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_string())))
+        .collect();
+    apply_field_mapping(rows, &mapping).map_err(ApiError::from)
+}
+
 // --- handlers --------------------------------------------------------------------
 
 /// POST /api/imports/dry-run
@@ -500,6 +746,14 @@ pub async fn dry_run(
         org_id,
         authed.principal.user.id,
         |mut ctx| async move {
+            // A saved template remaps source headers BEFORE validation, so
+            // the plan reports canonical-name problems only.
+            let raw_rows = match req.template_id {
+                Some(template_id) => {
+                    apply_template(&mut ctx.tx, org_id, kind, template_id, raw_rows).await?
+                }
+                None => raw_rows,
+            };
             let specs = build_specs(kind, &raw_rows);
             let snap = build_snapshot(&mut ctx.tx, org_id, kind, &specs).await?;
             lookups!(snap, parent_lookup, mapping_lookup, projection_lookup);
@@ -668,124 +922,179 @@ pub async fn post_chunk(
     let (raw_rows, byte_len) = req.rows.decode()?;
     enforce_limits(raw_rows.len(), byte_len)?;
 
-    let result = org_tx::with_org_tx(
-        &state,
+    let result = commit_chunk(ChunkRun {
+        state: &state,
         org_id,
-        authed.principal.user.id,
-        |mut ctx| async move {
-            let batch = core_db::imports::get_batch(&mut *ctx.tx, org_id, batch_id)
-                .await
-                .map_err(|_| ApiError::NotFound)?;
-            if batch.dry_run {
-                return Err(ApiError::Validation(
-                    "cannot push chunks into a dry-run probe".into(),
-                ));
-            }
-            if batch.finished_at.is_some() {
-                return Err(ApiError::Conflict("batch already finished".into()));
-            }
-            let kind: EntityKind = batch.entity_kind.parse().map_err(|_| {
-                ApiError::Validation(format!(
-                    "unsupported entity_kind {:?} recorded on this deployment",
-                    batch.entity_kind
-                ))
-            })?;
-            let policy: ConflictPolicy = batch.conflict_policy.parse().map_err(|_| {
-                ApiError::Validation(format!(
-                    "unsupported conflict_policy {:?}",
-                    batch.conflict_policy
-                ))
-            })?;
+        user_id: authed.principal.user.id,
+        batch_id,
+        descriptor: &descriptor,
+        template_id: req.template_id,
+        via_worker: false,
+        raw_rows,
+    })
+    .await?;
+    Ok(Json(result))
+}
 
-            let specs = build_specs(kind, &raw_rows);
-            let snap = build_snapshot(&mut ctx.tx, org_id, kind, &specs).await?;
-            lookups!(snap, parent_lookup, mapping_lookup, projection_lookup);
-            let plan = plan_chunk(
-                &specs,
-                policy,
-                parent_lookup,
-                mapping_lookup,
-                projection_lookup,
-                policy == ConflictPolicy::Fail,
-            );
+/// Everything one chunk commit needs. A struct because the parameter list
+/// outgrew clippy's readability budget — the runner and the HTTP route
+/// fill it from different worlds.
+pub(crate) struct ChunkRun<'a> {
+    pub state: &'a AppState,
+    pub org_id: Uuid,
+    /// The driving principal (drives the org_tx user GUC).
+    pub user_id: Uuid,
+    pub batch_id: Uuid,
+    /// Audit descriptor for actor_kind "import".
+    pub descriptor: &'a str,
+    pub template_id: Option<Uuid>,
+    /// Marks the worker's replay path: the sync route refuses chunks on
+    /// QUEUED batches (they belong to the worker now), while the worker
+    /// itself must run them.
+    pub via_worker: bool,
+    pub raw_rows: Vec<RawRow>,
+}
 
-            if policy == ConflictPolicy::Fail && !chunk_is_executable(&plan) {
-                // Nothing executed yet; dropping ctx rolls back even the reads'
-                // locks. The report rides a typed 409 so callers correct and
-                // retry without re-uploading anything else.
-                let view = RunBatchRef {
-                    id: batch.id,
-                    dry_run: false,
-                    kind,
-                    policy,
-                };
-                return Err(ApiError::ImportChunkRejected {
-                    report: RunReportResponse::of(view, &plan),
-                });
-            }
+/// The ONE plan→commit transaction shared by the synchronous HTTP chunk
+/// path and the async worker runner (D2 remainder). Applies an optional
+/// saved template, plans against a fresh org-scoped snapshot, executes the
+/// decided actions, and bumps the batch counters — all atomically. A
+/// fail-policy chunk with any conflict persists nothing and surfaces as a
+/// typed 409 `import_chunk_rejected`.
+pub(crate) async fn commit_chunk(run: ChunkRun<'_>) -> ApiResult<RunReportResponse> {
+    let ChunkRun {
+        state,
+        org_id,
+        user_id,
+        batch_id,
+        descriptor,
+        template_id,
+        via_worker,
+        raw_rows,
+    } = run;
+    org_tx::with_org_tx(state, org_id, user_id, |mut ctx| async move {
+        let batch = core_db::imports::get_batch(&mut *ctx.tx, org_id, batch_id)
+            .await
+            .map_err(|_| ApiError::NotFound)?;
+        if batch.dry_run {
+            return Err(ApiError::Validation(
+                "cannot push chunks into a dry-run probe".into(),
+            ));
+        }
+        if batch.finished_at.is_some() {
+            return Err(ApiError::Conflict("batch already finished".into()));
+        }
+        if batch.queued_at.is_some() && !via_worker {
+            return Err(ApiError::Conflict(
+                "batch already queued for async execution".into(),
+            ));
+        }
+        let kind: EntityKind = batch.entity_kind.parse().map_err(|_| {
+            ApiError::Validation(format!(
+                "unsupported entity_kind {:?} recorded on this deployment",
+                batch.entity_kind
+            ))
+        })?;
+        let policy: ConflictPolicy = batch.conflict_policy.parse().map_err(|_| {
+            ApiError::Validation(format!(
+                "unsupported conflict_policy {:?}",
+                batch.conflict_policy
+            ))
+        })?;
 
-            let mut created: i64 = 0;
-            let mut updated: i64 = 0;
-            for action in &plan.actions {
-                match &action.action {
-                    CommitAction::Insert(spec) => {
-                        commit_insert(&mut ctx, org_id, batch.id, spec, &snap.parents).await?;
-                        created += 1;
-                    }
-                    CommitAction::Update { internal_id, spec } => {
-                        commit_update(&mut ctx, org_id, batch.id, internal_id, spec).await?;
-                        updated += 1;
-                    }
-                }
+        let raw_rows = match template_id {
+            Some(template_id) => {
+                apply_template(&mut ctx.tx, org_id, kind, template_id, raw_rows).await?
             }
-            let failed = plan.summary.failed as i64;
-            let skipped = plan.summary.would_skip as i64;
-            let total = plan.summary.total as i64;
-            let bumped = core_db::imports::add_chunk_counters(
-                &mut *ctx.tx,
-                org_id,
-                batch.id,
-                total as i32,
-                created as i32,
-                updated as i32,
-                skipped as i32,
-                failed as i32,
-            )
-            .await?;
-            if !bumped {
-                return Err(ApiError::Conflict(
-                    "batch finished while the chunk was in flight".into(),
-                ));
-            }
-            core_db::audit::insert(
-                &mut *ctx.tx,
-                &audit_event(
-                    org_id,
-                    &descriptor,
-                    "import.chunk_committed",
-                    Some(&batch.id.to_string()),
-                    serde_json::json!({
-                        "rows_total": total,
-                        "rows_created": created,
-                        "rows_updated": updated,
-                        "rows_skipped": skipped,
-                        "rows_failed": failed,
-                    }),
-                ),
-            )
-            .await?;
+            None => raw_rows,
+        };
+        let specs = build_specs(kind, &raw_rows);
+        let snap = build_snapshot(&mut ctx.tx, org_id, kind, &specs).await?;
+        lookups!(snap, parent_lookup, mapping_lookup, projection_lookup);
+        let plan = plan_chunk(
+            &specs,
+            policy,
+            parent_lookup,
+            mapping_lookup,
+            projection_lookup,
+            policy == ConflictPolicy::Fail,
+        );
 
+        if policy == ConflictPolicy::Fail && !chunk_is_executable(&plan) {
+            // Nothing executed yet; dropping ctx rolls back even the reads'
+            // locks. The report rides a typed 409 so callers correct and
+            // retry without re-uploading anything else.
             let view = RunBatchRef {
                 id: batch.id,
                 dry_run: false,
                 kind,
                 policy,
             };
-            Ok((ctx, Json(RunReportResponse::of(view, &plan))))
-        },
-    )
-    .await?;
-    Ok(result)
+            return Err(ApiError::ImportChunkRejected {
+                report: RunReportResponse::of(view, &plan),
+            });
+        }
+
+        let mut created: i64 = 0;
+        let mut updated: i64 = 0;
+        for action in &plan.actions {
+            match &action.action {
+                CommitAction::Insert(spec) => {
+                    commit_insert(&mut ctx, org_id, batch.id, spec, &snap.parents).await?;
+                    created += 1;
+                }
+                CommitAction::Update { internal_id, spec } => {
+                    commit_update(&mut ctx, org_id, batch.id, internal_id, spec).await?;
+                    updated += 1;
+                }
+            }
+        }
+        let failed = plan.summary.failed as i64;
+        let skipped = plan.summary.would_skip as i64;
+        let total = plan.summary.total as i64;
+        let bumped = core_db::imports::add_chunk_counters(
+            &mut *ctx.tx,
+            org_id,
+            batch.id,
+            total as i32,
+            created as i32,
+            updated as i32,
+            skipped as i32,
+            failed as i32,
+        )
+        .await?;
+        if !bumped {
+            return Err(ApiError::Conflict(
+                "batch finished while the chunk was in flight".into(),
+            ));
+        }
+        core_db::audit::insert(
+            &mut *ctx.tx,
+            &audit_event(
+                org_id,
+                descriptor,
+                "import.chunk_committed",
+                Some(&batch.id.to_string()),
+                serde_json::json!({
+                    "rows_total": total,
+                    "rows_created": created,
+                    "rows_updated": updated,
+                    "rows_skipped": skipped,
+                    "rows_failed": failed,
+                }),
+            ),
+        )
+        .await?;
+
+        let view = RunBatchRef {
+            id: batch.id,
+            dry_run: false,
+            kind,
+            policy,
+        };
+        Ok((ctx, RunReportResponse::of(view, &plan)))
+    })
+    .await
 }
 
 /// POST /api/imports/batches/{id}/finish — closes the span, emits
@@ -889,6 +1198,373 @@ pub async fn list_batches(
     Ok(Json(batches.into_iter().map(Into::into).collect()))
 }
 
+// --- saved field-mapping templates (D2 remainder) ----------------------------------
+
+/// Shared shape rule for template names and source-system labels: short,
+/// visible text, no control characters.
+fn validate_template_label(value: &str, field: &str) -> ApiResult<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(ApiError::Validation(format!("{field} must not be empty")));
+    }
+    if trimmed.chars().count() > 120 {
+        return Err(ApiError::Validation(format!(
+            "{field} must be at most 120 characters"
+        )));
+    }
+    if trimmed.chars().any(char::is_control) {
+        return Err(ApiError::Validation(format!(
+            "{field} must not contain control characters"
+        )));
+    }
+    Ok(trimmed.to_string())
+}
+
+/// POST /api/imports/templates — saves one reusable source→canonical column
+/// mapping. Targets are validated against the canonical field catalog for
+/// the entity kind; duplicates per (org, source system, kind, name) are a
+/// typed 409.
+#[utoipa::path(operation_id = "imports_create_template", post, path = "/api/imports/templates", tag = "imports",
+    security(("bearer" = [])),
+    request_body = CreateTemplateRequest,
+    responses((status = 200, body = TemplateViewResponse)))]
+pub async fn create_template(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Json(req): Json<CreateTemplateRequest>,
+) -> ApiResult<Json<TemplateViewResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_import_gate(&authed.principal, authed.via_api_key)?;
+    let org_id = authed.principal.user.org_id;
+
+    validate_mapping(req.entity_kind, &req.mapping)
+        .map_err(|errors| ApiError::Validation(errors.join("; ")))?;
+    let name = validate_template_label(&req.name, "name")?;
+    let source_system = validate_template_label(&req.source_system, "source_system")?;
+    let mapping = serde_json::to_value(&req.mapping)
+        .map_err(|e| ApiError::Validation(format!("unserializable mapping: {e}")))?;
+
+    let record = core_db::imports::ImportMappingTemplate {
+        id: Uuid::now_v7(),
+        org_id,
+        name,
+        source_system,
+        entity_kind: req.entity_kind.as_str().to_string(),
+        mapping,
+        created_by: authed.principal.user.id,
+        created_by_kind: if authed.via_api_key {
+            "api_key"
+        } else {
+            "user"
+        }
+        .to_string(),
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    };
+    core_db::imports::insert_template(&state.pool, &record).await?;
+    Ok(Json(template_view(record)))
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct TemplateListQuery {
+    /// Narrow the listing to one source system.
+    pub source_system: Option<String>,
+}
+
+/// GET /api/imports/templates
+#[utoipa::path(operation_id = "imports_list_templates", get, path = "/api/imports/templates", tag = "imports",
+    security(("bearer" = [])),
+    params(("source_system" = Option<String>, Query, description = "Narrow to one source system")),
+    responses((status = 200, body = [TemplateViewResponse])))]
+pub async fn list_templates(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    axum::extract::Query(query): axum::extract::Query<TemplateListQuery>,
+) -> ApiResult<Json<Vec<TemplateViewResponse>>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_import_gate(&authed.principal, authed.via_api_key)?;
+    let templates = core_db::imports::list_templates(
+        &state.pool,
+        authed.principal.user.org_id,
+        query.source_system.as_deref(),
+        100,
+    )
+    .await?;
+    Ok(Json(templates.into_iter().map(template_view).collect()))
+}
+
+/// GET /api/imports/templates/{id}
+#[utoipa::path(operation_id = "imports_get_template", get, path = "/api/imports/templates/{template_id}", tag = "imports",
+    security(("bearer" = [])),
+    params(("template_id" = Uuid, Path)),
+    responses((status = 200, body = TemplateViewResponse)))]
+pub async fn get_template(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(template_id): Path<Uuid>,
+) -> ApiResult<Json<TemplateViewResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_import_gate(&authed.principal, authed.via_api_key)?;
+    let template =
+        core_db::imports::get_template(&state.pool, authed.principal.user.org_id, template_id)
+            .await
+            .map_err(|_| ApiError::NotFound)?;
+    Ok(Json(template_view(template)))
+}
+
+/// PUT /api/imports/templates/{id} — content update; uniqueness conflicts
+/// (renaming onto an existing sibling) surface as typed 409s.
+#[utoipa::path(operation_id = "imports_update_template", put, path = "/api/imports/templates/{template_id}", tag = "imports",
+    security(("bearer" = [])),
+    params(("template_id" = Uuid, Path)),
+    request_body = UpdateTemplateRequest,
+    responses((status = 200, body = TemplateViewResponse)))]
+pub async fn update_template(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(template_id): Path<Uuid>,
+    Json(req): Json<UpdateTemplateRequest>,
+) -> ApiResult<Json<TemplateViewResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_import_gate(&authed.principal, authed.via_api_key)?;
+    let org_id = authed.principal.user.org_id;
+
+    let existing = core_db::imports::get_template(&state.pool, org_id, template_id)
+        .await
+        .map_err(|_| ApiError::NotFound)?;
+    let name = match &req.name {
+        Some(name) => validate_template_label(name, "name")?,
+        None => existing.name,
+    };
+    let source_system = match &req.source_system {
+        Some(source) => validate_template_label(source, "source_system")?,
+        None => existing.source_system,
+    };
+    let mapping = match &req.mapping {
+        Some(mapping) => {
+            let kind: EntityKind = existing.entity_kind.parse().map_err(|_| {
+                ApiError::Validation("template entity_kind no longer parses".into())
+            })?;
+            validate_mapping(kind, mapping)
+                .map_err(|errors| ApiError::Validation(errors.join("; ")))?;
+            serde_json::to_value(mapping)
+                .map_err(|e| ApiError::Validation(format!("unserializable mapping: {e}")))?
+        }
+        None => existing.mapping,
+    };
+    let updated = core_db::imports::update_template(
+        &state.pool,
+        org_id,
+        template_id,
+        &name,
+        &source_system,
+        &mapping,
+    )
+    .await?;
+    Ok(Json(template_view(updated)))
+}
+
+/// DELETE /api/imports/templates/{id}
+#[utoipa::path(operation_id = "imports_delete_template", delete, path = "/api/imports/templates/{template_id}", tag = "imports",
+    security(("bearer" = [])),
+    params(("template_id" = Uuid, Path)),
+    responses((status = 200, body = TemplateViewResponse)))]
+pub async fn delete_template(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(template_id): Path<Uuid>,
+) -> ApiResult<Json<TemplateViewResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_import_gate(&authed.principal, authed.via_api_key)?;
+    let org_id = authed.principal.user.org_id;
+    let existing = core_db::imports::get_template(&state.pool, org_id, template_id)
+        .await
+        .map_err(|_| ApiError::NotFound)?;
+    core_db::imports::delete_template(&state.pool, org_id, template_id).await?;
+    Ok(Json(template_view(existing)))
+}
+
+// --- async giant batches (D2 remainder) ---------------------------------------------
+
+/// POST /api/imports/batches/{id}/stage — uploads ONE chunk of rows to the
+/// ObjectStore under a deterministic key WITHOUT executing anything. An
+/// optional saved template is applied at stage time so the stored chunk is
+/// already canonical; the worker later replays the staged sequence.
+#[utoipa::path(operation_id = "imports_stage_chunk", post, path = "/api/imports/batches/{batch_id}/stage", tag = "imports",
+    security(("bearer" = [])),
+    params(("batch_id" = Uuid, Path)),
+    request_body = StageChunkRequest,
+    responses((status = 200, body = StageChunkResponse)))]
+pub async fn stage_chunk(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(batch_id): Path<Uuid>,
+    Json(req): Json<StageChunkRequest>,
+) -> ApiResult<Json<StageChunkResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_import_gate(&authed.principal, authed.via_api_key)?;
+    let org_id = authed.principal.user.org_id;
+
+    let (raw_rows, byte_len) = req.rows.decode()?;
+    enforce_limits(raw_rows.len(), byte_len)?;
+    let store = state.store.clone();
+
+    let staged = org_tx::with_org_tx(
+        &state,
+        org_id,
+        authed.principal.user.id,
+        |mut ctx| async move {
+            let batch = core_db::imports::get_batch(&mut *ctx.tx, org_id, batch_id)
+                .await
+                .map_err(|_| ApiError::NotFound)?;
+            if batch.dry_run {
+                return Err(ApiError::Validation(
+                    "cannot stage into a dry-run probe".into(),
+                ));
+            }
+            let kind: EntityKind = batch.entity_kind.parse().map_err(|_| {
+                ApiError::Validation(format!(
+                    "unsupported entity_kind {:?} recorded on this deployment",
+                    batch.entity_kind
+                ))
+            })?;
+            // Template remap happens at STAGE time so stored chunks are
+            // canonical and the worker never needs template context.
+            let raw_rows = match req.template_id {
+                Some(template_id) => {
+                    apply_template(&mut ctx.tx, org_id, kind, template_id, raw_rows).await?
+                }
+                None => raw_rows,
+            };
+            let chunk_index = core_db::imports::bump_staged_chunks(&mut *ctx.tx, org_id, batch_id)
+                .await?
+                .ok_or_else(|| {
+                    ApiError::Conflict("batch already queued or finished; staging is closed".into())
+                })?;
+            let chunk_index = chunk_index - 1;
+            let canonical: Vec<serde_json::Value> = raw_rows
+                .iter()
+                .map(|row| {
+                    serde_json::Value::Object(
+                        row.fields
+                            .iter()
+                            .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+                            .collect(),
+                    )
+                })
+                .collect();
+            let body = serde_json::to_vec(&serde_json::json!({
+                "format": "json",
+                "json_rows": canonical,
+            }))
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!("chunk serialize: {e}")))?;
+            let key = core_db::imports::staged_chunk_key(org_id, batch_id, chunk_index);
+            store
+                .put(&key, "application/json", bytes::Bytes::from(body))
+                .await
+                .map_err(crate::routes::attachments::store_error)?;
+            Ok((
+                ctx,
+                StageChunkResponse {
+                    batch_id,
+                    chunk_index,
+                    staged_chunks: chunk_index + 1,
+                },
+            ))
+        },
+    )
+    .await?;
+    Ok(Json(staged))
+}
+
+/// POST /api/imports/batches/{id}/run — hands the staged batch to the
+/// worker queue exactly once (generalized 2.7 job queue). Re-running a
+/// finished or queued batch is a typed 409; the worker replays chunks
+/// idempotently through the SAME commit path as synchronous pushes.
+#[utoipa::path(operation_id = "imports_run_batch", post, path = "/api/imports/batches/{batch_id}/run", tag = "imports",
+    security(("bearer" = [])),
+    params(("batch_id" = Uuid, Path)),
+    responses((status = 200, body = RunBatchResponse)))]
+pub async fn run_batch(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(batch_id): Path<Uuid>,
+) -> ApiResult<Json<RunBatchResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_import_gate(&authed.principal, authed.via_api_key)?;
+    let org_id = authed.principal.user.org_id;
+    let descriptor = actor_descriptor(&authed.principal, authed.via_api_key);
+
+    let response = org_tx::with_org_tx(
+        &state,
+        org_id,
+        authed.principal.user.id,
+        |mut ctx| async move {
+            let batch = core_db::imports::get_batch(&mut *ctx.tx, org_id, batch_id)
+                .await
+                .map_err(|_| ApiError::NotFound)?;
+            if batch.dry_run {
+                return Err(ApiError::Validation(
+                    "dry-run probes are never executed".into(),
+                ));
+            }
+            if batch.finished_at.is_some() {
+                return Err(ApiError::Conflict("batch already finished".into()));
+            }
+            if batch.staged_chunks == 0 {
+                return Err(ApiError::Validation(
+                    "nothing staged; upload chunks through /stage first".into(),
+                ));
+            }
+            let queued =
+                core_db::imports::mark_batch_queued(&mut *ctx.tx, org_id, batch_id).await?;
+            if !queued {
+                return Err(ApiError::Conflict(
+                    "batch already queued for async execution".into(),
+                ));
+            }
+            let job_id = core_db::queue::enqueue(
+                &mut *ctx.tx,
+                &core_db::queue::NewJob {
+                    org_id,
+                    kind: crate::routes::internal::IMPORT_BATCH_JOB_KIND.to_string(),
+                    payload: serde_json::json!({
+                        "org_id": org_id,
+                        "batch_id": batch_id,
+                    }),
+                    max_attempts: 3,
+                },
+            )
+            .await?;
+            core_db::audit::insert(
+                &mut *ctx.tx,
+                &audit_event(
+                    org_id,
+                    &descriptor,
+                    "import.batch_queued",
+                    Some(&batch_id.to_string()),
+                    serde_json::json!({
+                        "job_id": job_id,
+                        "staged_chunks": batch.staged_chunks,
+                        "entity_kind": batch.entity_kind,
+                    }),
+                ),
+            )
+            .await?;
+            Ok((
+                ctx,
+                RunBatchResponse {
+                    batch_id,
+                    job_id,
+                    staged_chunks: batch.staged_chunks,
+                },
+            ))
+        },
+    )
+    .await?;
+    Ok(Json(response))
+}
+
 // --- execution ----------------------------------------------------------------------
 
 fn fresh_batch(
@@ -917,6 +1593,8 @@ fn fresh_batch(
         created_by_kind: if via_api_key { "api_key" } else { "user" }.to_string(),
         started_at: chrono::Utc::now(),
         finished_at: None,
+        staged_chunks: 0,
+        queued_at: None,
     }
 }
 
@@ -1046,6 +1724,185 @@ async fn commit_insert(
                     name: row.name.clone(),
                 })
                 .unwrap_or_else(|_| serde_json::json!({})),
+            )
+            .await?;
+        }
+        ImportSpec::Board(board) => {
+            let id = Uuid::now_v7();
+            let row = core_db::boards::create_board(
+                &mut *ctx.tx,
+                org_id,
+                id,
+                &board.name,
+                board.description.as_deref(),
+                board.is_default,
+            )
+            .await?;
+            // The semantic-category status floor, seeded exactly like the
+            // boards API surface — without it no ticket could ever land on
+            // an imported board (defaults-first doctrine).
+            const DEFAULT_STATUSES: [(&str, TicketStatusCategory, i32, bool); 4] = [
+                ("New", TicketStatusCategory::Open, 0, true),
+                ("In Progress", TicketStatusCategory::InProgress, 10, false),
+                ("Waiting", TicketStatusCategory::Waiting, 20, false),
+                ("Resolved", TicketStatusCategory::Closed, 30, false),
+            ];
+            for (name, category, sort, is_entry) in DEFAULT_STATUSES {
+                core_db::boards::add_status(
+                    &mut ctx.tx,
+                    org_id,
+                    Uuid::now_v7(),
+                    id,
+                    name,
+                    category,
+                    sort,
+                    is_entry,
+                )
+                .await?;
+            }
+            core_db::imports::upsert_mapping(
+                &mut *ctx.tx,
+                key_row_id,
+                org_id,
+                "board",
+                &board.external_key,
+                id,
+                batch_id,
+            )
+            .await?;
+            ctx.emit(
+                types::BOARD_CREATED,
+                "board",
+                Some(row.id.to_string().as_str()),
+                &serde_json::json!({ "board_id": row.id, "name": row.name }),
+            )
+            .await?;
+        }
+        ImportSpec::Ticket(ticket) => {
+            let id = Uuid::now_v7();
+            let board_id = resolve_parent(parents, EntityKind::Board, &ticket.board_key)?;
+            let client_id = match &ticket.client_key {
+                Some(key) => Some(resolve_parent(parents, EntityKind::Client, key)?),
+                None => None,
+            };
+            let site_id = match &ticket.site_key {
+                Some(key) => Some(resolve_parent(parents, EntityKind::Site, key)?),
+                None => None,
+            };
+            let contact_id = match &ticket.contact_key {
+                Some(key) => Some(resolve_parent(parents, EntityKind::Contact, key)?),
+                None => None,
+            };
+            let entry_status = core_db::boards::default_status_for_board(&mut *ctx.tx, board_id)
+                .await
+                .map_err(|_| {
+                    ApiError::Validation(format!(
+                        "board {board_id} has no entry status; import boards first"
+                    ))
+                })?;
+            let (prefix, seq) = core_db::orgs::next_ticket_number(&mut *ctx.tx, org_id).await?;
+            let number = format!("{prefix}-{seq}");
+            let row = core_db::tickets::insert_ticket(
+                &mut ctx.tx,
+                core_db::tickets::NewTicket {
+                    id,
+                    org_id,
+                    number: &number,
+                    board_id,
+                    status_id: entry_status.id,
+                    title: &ticket.title,
+                    body: ticket.body.as_deref(),
+                    priority: ticket.priority,
+                    client_id,
+                    site_id,
+                    contact_id,
+                    assignee_id: None,
+                    requester_id: None,
+                    due_at: ticket.due_at,
+                },
+            )
+            .await?;
+            core_db::imports::upsert_mapping(
+                &mut *ctx.tx,
+                key_row_id,
+                org_id,
+                "ticket",
+                &ticket.external_key,
+                id,
+                batch_id,
+            )
+            .await?;
+            ctx.emit(
+                types::TICKET_CREATED,
+                "ticket",
+                Some(row.id.to_string().as_str()),
+                &serde_json::to_value(TicketCreated {
+                    ticket_id: row.id,
+                    number: number.clone(),
+                    board_id: row.board_id,
+                    title: row.title.clone(),
+                    priority: row.priority,
+                    client_id: row.client_id,
+                    assignee_id: row.assignee_id,
+                    created_at: row.created_at,
+                })
+                .unwrap_or_else(|_| serde_json::json!({})),
+            )
+            .await?;
+        }
+        ImportSpec::TimeEntry(entry) => {
+            let id = Uuid::now_v7();
+            let ticket_id = resolve_parent(parents, EntityKind::Ticket, &entry.ticket_key)?;
+            let user_id = match &entry.user_email {
+                // Attributed to a live org user when the email resolves;
+                // otherwise the driving principal is the documented
+                // fallback (source systems rarely carry Meridian ids).
+                Some(email) => {
+                    match core_db::users::find_by_email_in_org(&mut *ctx.tx, org_id, email).await? {
+                        Some(user) => user.id,
+                        None => {
+                            return Err(ApiError::Validation(format!(
+                                "user_email {email:?}: no active org user with this address"
+                            )))
+                        }
+                    }
+                }
+                None => ctx.user_id,
+            };
+            let ended_at = entry
+                .ended_at
+                .unwrap_or_else(|| entry.started_at + chrono::Duration::minutes(entry.minutes));
+            let row = core_domain::entities::TimeEntry {
+                id,
+                org_id,
+                ticket_id,
+                user_id,
+                started_at: entry.started_at,
+                ended_at,
+                minutes: entry.minutes,
+                billable: entry.billable,
+                notes: entry.notes.clone(),
+                work_type: entry.work_type.clone(),
+                timer_session_id: None,
+                created_at: chrono::Utc::now(),
+            };
+            core_db::timers::insert_time_entry(&mut *ctx.tx, &row).await?;
+            core_db::imports::upsert_mapping(
+                &mut *ctx.tx,
+                key_row_id,
+                org_id,
+                "time_entry",
+                &entry.external_key,
+                id,
+                batch_id,
+            )
+            .await?;
+            ctx.emit(
+                types::TIME_ENTRY_CREATED,
+                "time_entry",
+                Some(row.id.to_string().as_str()),
+                &serde_json::to_value(TimeEntryCreated { entry: row.clone() })
+                    .unwrap_or_else(|_| serde_json::json!({})),
             )
             .await?;
         }
@@ -1179,6 +2036,100 @@ async fn commit_update(
                     name: row.name.clone(),
                 })
                 .unwrap_or_else(|_| serde_json::json!({})),
+            )
+            .await?;
+        }
+        ImportSpec::Board(board) => {
+            let row = core_db::boards::update_board(
+                &mut *ctx.tx,
+                org_id,
+                *internal_id,
+                &board.name,
+                board.description.as_deref(),
+            )
+            .await?;
+            touch_last_seen(
+                &mut *ctx.tx,
+                org_id,
+                "board",
+                &board.external_key,
+                *internal_id,
+                batch_id,
+            )
+            .await?;
+            ctx.emit(
+                types::BOARD_UPDATED,
+                "board",
+                Some(row.id.to_string().as_str()),
+                &serde_json::json!({ "board_id": row.id, "name": row.name }),
+            )
+            .await?;
+        }
+        ImportSpec::Ticket(ticket) => {
+            core_db::tickets::update_ticket(
+                &mut *ctx.tx,
+                org_id,
+                *internal_id,
+                core_db::tickets::TicketPatch {
+                    title: Some(&ticket.title),
+                    body: ticket.body.as_deref(),
+                    priority: Some(ticket.priority),
+                    // Parent links are identity, never content drift.
+                    assignee_id: None,
+                    client_id: None,
+                    site_id: None,
+                    contact_id: None,
+                    due_at: Some(ticket.due_at),
+                },
+            )
+            .await?;
+            touch_last_seen(
+                &mut *ctx.tx,
+                org_id,
+                "ticket",
+                &ticket.external_key,
+                *internal_id,
+                batch_id,
+            )
+            .await?;
+            ctx.emit(
+                types::TICKET_UPDATED,
+                "ticket",
+                Some(internal_id.to_string().as_str()),
+                &serde_json::json!({ "ticket_id": internal_id }),
+            )
+            .await?;
+        }
+        ImportSpec::TimeEntry(entry) => {
+            let ended_at = entry
+                .ended_at
+                .unwrap_or_else(|| entry.started_at + chrono::Duration::minutes(entry.minutes));
+            core_db::timers::update_time_entry(
+                &mut *ctx.tx,
+                org_id,
+                *internal_id,
+                entry.started_at,
+                ended_at,
+                entry.minutes,
+                entry.billable,
+                entry.notes.as_deref(),
+                entry.work_type.as_deref(),
+            )
+            .await?;
+            touch_last_seen(
+                &mut *ctx.tx,
+                org_id,
+                "time_entry",
+                &entry.external_key,
+                *internal_id,
+                batch_id,
+            )
+            .await?;
+            ctx.emit(
+                types::TIME_ENTRY_UPDATED,
+                "time_entry",
+                Some(internal_id.to_string().as_str()),
+                &serde_json::json!({ "entry_id": internal_id }),
             )
             .await?;
         }

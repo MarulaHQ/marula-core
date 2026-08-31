@@ -208,6 +208,13 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/internal/webhook/deliveries"),
             post(internal::webhook_deliveries),
+        )
+        // Async import batches (TASKLIST D2 remainder): the worker replays
+        // staged ObjectStore chunks through the same commit path as
+        // synchronous pushes. Bearer-token gated inside the handler.
+        .route(
+            &rp("/internal/imports/batch/run"),
+            post(internal::run_import_batch),
         );
 
     // Client-portal v1: public auth endpoints + a DEDICATED middleware for
@@ -510,6 +517,32 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/imports/batches/{batch_id}/finish"),
             post(imports::finish_batch),
+        )
+        // D2 remainder: saved field-mapping templates per source system.
+        .route(
+            &rp("/imports/templates"),
+            get(imports::list_templates).post(imports::create_template),
+        )
+        .route(
+            &rp("/imports/templates/{template_id}"),
+            axum::routing::put(imports::update_template)
+                .get(imports::get_template)
+                .delete(imports::delete_template),
+        )
+        // D2 remainder: async giant batches — stage chunks to the
+        // ObjectStore, then hand the batch to the worker queue.
+        .route(
+            &rp("/imports/batches/{batch_id}/stage"),
+            post(imports::stage_chunk).layer(axum::extract::DefaultBodyLimit::max(
+                state
+                    .config
+                    .max_upload_bytes
+                    .max(core_domain::import_core::MAX_CHUNK_BYTES as i64) as usize,
+            )),
+        )
+        .route(
+            &rp("/imports/batches/{batch_id}/run"),
+            post(imports::run_batch),
         )
         // org-data export (TASKLIST D1): signed-download bundle creation.
         .route(&rp("/org/exports"), post(export::create))

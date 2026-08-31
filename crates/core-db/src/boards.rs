@@ -73,6 +73,43 @@ where
     })
 }
 
+/// Content-only board update (import framework, TASKLIST D2 remainder).
+/// `is_default` is deliberately NOT writable here: switching the org's
+/// default intake board is an explicit operator action on the boards
+/// surface, never bulk content drift.
+pub async fn update_board<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    id: Uuid,
+    name: &str,
+    description: Option<&str>,
+) -> DbResult<Board>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query!(
+        r#"UPDATE boards SET name = $3, description = $4
+           WHERE org_id = $1 AND id = $2
+           RETURNING id, org_id, name, description, is_default, require_checklist_close, created_at"#,
+        org_id,
+        id,
+        name,
+        description,
+    )
+    .fetch_optional(executor)
+    .await?
+    .ok_or(DbError::NotFound)?;
+    Ok(Board {
+        id: row.id,
+        org_id: row.org_id,
+        name: row.name,
+        description: row.description,
+        is_default: row.is_default,
+        require_checklist_close: row.require_checklist_close,
+        created_at: row.created_at,
+    })
+}
+
 pub async fn list_boards<'e, E>(executor: E, org_id: Uuid) -> DbResult<Vec<Board>>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
