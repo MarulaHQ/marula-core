@@ -26,6 +26,8 @@ pub mod types {
     pub const IMPORT_BATCH_STARTED: &str = "import.batch_started";
     pub const IMPORT_BATCH_FINISHED: &str = "import.batch_finished";
     pub const BOARD_CREATED: &str = "board.created";
+    /// Board content update (import framework, TASKLIST D2 remainder).
+    pub const BOARD_UPDATED: &str = "board.updated";
     pub const BOARD_STATUS_ADDED: &str = "board.status_added";
     pub const BOARD_STATUS_UPDATED: &str = "board.status_updated";
     pub const BOARD_STATUS_REMOVED: &str = "board.status_removed";

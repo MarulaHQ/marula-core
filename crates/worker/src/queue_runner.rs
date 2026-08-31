@@ -178,6 +178,9 @@ async fn settle_job<S: DeliverySink, E: EffectApi>(
     let path: &'static str = match job.kind.as_str() {
         "sla.verdict" => "/api/internal/sla/verdict",
         "automation.effects" => "/api/internal/effects",
+        // Staged import batches (TASKLIST D2 remainder): the runner replays
+        // the batch's ObjectStore chunks through core-api's commit path.
+        "import.batch.run" => "/api/internal/imports/batch/run",
         other => {
             tracing::error!(kind = %other, job_id = %job.id, "unknown job kind");
             core_db::queue::mark_dead(pool, job.id, "unknown job kind").await?;

@@ -5,18 +5,24 @@
 //! Batches are start/finish spans with cumulative counters; `external_ids`
 //! carries one stable internal uuid per (org, entity_kind, external_key) —
 //! re-pushing a batch resolves through here and can never duplicate rows.
+//! The D2 remainder adds the async giant-batch bookkeeping (`staged_chunks`
+//! counts deterministic ObjectStore chunk keys; `queued_at` marks a batch
+//! handed to the worker, once) and the saved field-mapping templates per
+//! source system.
 //!
-//! Non-purpose: NOT a bulk-row staging store (row payloads live only inside
-//! a request); not an async worker queue (giant batches are deferred work);
-//! no conflict-policy logic here — decisions come from core-domain, this
-//! module only records their effects and bumps counters transactionally.
+//! Non-purpose: no chunk PAYLOADS here (staged rows live in the ObjectStore
+//! under `org/{org}/import-batches/{batch}/chunk-NNNNN`); no conflict-policy
+//! logic here — decisions come from core-domain, this module only records
+//! their effects and bumps counters transactionally.
 
 use crate::DbResult;
 use chrono::{DateTime, Utc};
+use serde::Deserialize;
+use serde::Serialize;
 use sqlx::Postgres;
 use uuid::Uuid;
 
-/// One import run: dry-run probe or committed batch.
+/// One import run: dry-run probe, synchronous batch, or async staged batch.
 #[derive(Debug, Clone)]
 pub struct ImportBatch {
     pub id: Uuid,
@@ -24,7 +30,7 @@ pub struct ImportBatch {
     pub label: String,
     /// Free-form operator note about the source system, if provided.
     pub source_note: Option<String>,
-    /// "client" | "site" | "contact" (CHECK-constrained in 0027).
+    /// client | site | contact | board | ticket | time_entry (0033).
     pub entity_kind: String,
     /// "skip" | "update" | "fail".
     pub conflict_policy: String,
@@ -41,7 +47,17 @@ pub struct ImportBatch {
     pub created_by_kind: String,
     pub started_at: DateTime<Utc>,
     pub finished_at: Option<DateTime<Utc>>,
+    /// Number of staged chunk objects uploaded for an async batch; chunk
+    /// keys are the deterministic `chunk-00000`..`chunk-{n-1}` sequence.
+    pub staged_chunks: i32,
+    /// Set exactly once when the batch is enqueued for the worker; a
+    /// queued or finished batch accepts no further staging.
+    pub queued_at: Option<DateTime<Utc>>,
 }
+
+const BATCH_COLS: &str = "id, org_id, label, source_note, entity_kind, conflict_policy, dry_run, \
+     rows_total, rows_created, rows_updated, rows_skipped, rows_failed, \
+     created_by, created_by_kind, started_at, finished_at, staged_chunks, queued_at";
 
 pub async fn insert_batch<'e, E>(executor: E, batch: &ImportBatch) -> DbResult<()>
 where
@@ -85,6 +101,8 @@ fn batch_from_row(row: sqlx::postgres::PgRow) -> ImportBatch {
         created_by_kind: row.get("created_by_kind"),
         started_at: row.get("started_at"),
         finished_at: row.get("finished_at"),
+        staged_chunks: row.get("staged_chunks"),
+        queued_at: row.get("queued_at"),
     }
 }
 
@@ -92,16 +110,12 @@ pub async fn get_batch<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<I
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let row = sqlx::query(
-        r#"SELECT id, org_id, label, source_note, entity_kind, conflict_policy, dry_run,
-                  rows_total, rows_created, rows_updated, rows_skipped, rows_failed,
-                  created_by, created_by_kind, started_at, finished_at
-           FROM import_batches WHERE org_id = $1 AND id = $2"#,
-    )
-    .bind(org_id)
-    .bind(id)
-    .fetch_one(executor)
-    .await?;
+    let sql = format!("SELECT {BATCH_COLS} FROM import_batches WHERE org_id = $1 AND id = $2");
+    let row = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(id)
+        .fetch_one(executor)
+        .await?;
     Ok(batch_from_row(row))
 }
 
@@ -113,17 +127,14 @@ pub async fn list_batches<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let rows = sqlx::query(
-        r#"SELECT id, org_id, label, source_note, entity_kind, conflict_policy, dry_run,
-                  rows_total, rows_created, rows_updated, rows_skipped, rows_failed,
-                  created_by, created_by_kind, started_at, finished_at
-           FROM import_batches WHERE org_id = $1
-           ORDER BY started_at DESC LIMIT $2"#,
-    )
-    .bind(org_id)
-    .bind(limit.clamp(1, 200))
-    .fetch_all(executor)
-    .await?;
+    let sql = format!(
+        "SELECT {BATCH_COLS} FROM import_batches WHERE org_id = $1 ORDER BY started_at DESC LIMIT $2"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(limit.clamp(1, 200))
+        .fetch_all(executor)
+        .await?;
     Ok(rows.into_iter().map(batch_from_row).collect())
 }
 
@@ -165,7 +176,7 @@ where
     Ok(result.rows_affected() == 1)
 }
 
-/// Closes the run. False when missing or double-finished.
+/// Closes the run. Fails with NotFound when missing or double-finished.
 pub async fn mark_batch_finished<'e, E>(
     executor: E,
     org_id: Uuid,
@@ -174,19 +185,216 @@ pub async fn mark_batch_finished<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let row = sqlx::query(
-        r#"UPDATE import_batches SET finished_at = now()
-           WHERE org_id = $1 AND id = $2 AND finished_at IS NULL
-           RETURNING id, org_id, label, source_note, entity_kind, conflict_policy, dry_run,
-                      rows_total, rows_created, rows_updated, rows_skipped, rows_failed,
-                      created_by, created_by_kind, started_at, finished_at"#,
+    let sql = format!(
+        "UPDATE import_batches SET finished_at = now() \
+         WHERE org_id = $1 AND id = $2 AND finished_at IS NULL RETURNING {BATCH_COLS}"
+    );
+    let row = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(batch_id)
+        .fetch_one(executor)
+        .await
+        .map_err(|_| crate::DbError::NotFound)?;
+    Ok(batch_from_row(row))
+}
+
+// --- async giant batches (D2 remainder) -----------------------------------------
+
+/// Deterministic ObjectStore key for one staged chunk. Staging is append-
+/// only and sequential: chunk N is uploaded only after N-1, and the count
+/// in `import_batches.staged_chunks` is the runbook for the worker.
+#[must_use]
+pub fn staged_chunk_key(org_id: Uuid, batch_id: Uuid, index: i32) -> String {
+    format!("org/{org_id}/import-batches/{batch_id}/chunk-{index:05}")
+}
+
+/// Appends one staged chunk to the batch's count and returns the NEW count
+/// (the index just claimed). `None` when the batch is unknown, finished, or
+/// already queued — staging closes the moment a batch is enqueued.
+pub async fn bump_staged_chunks<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    batch_id: Uuid,
+) -> DbResult<Option<i32>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row: Option<(i32,)> = sqlx::query_as(
+        "UPDATE import_batches SET staged_chunks = staged_chunks + 1 \
+         WHERE org_id = $1 AND id = $2 AND finished_at IS NULL AND queued_at IS NULL \
+         RETURNING staged_chunks",
     )
     .bind(org_id)
     .bind(batch_id)
-    .fetch_one(executor)
-    .await
-    .map_err(|_| crate::DbError::NotFound)?;
-    Ok(batch_from_row(row))
+    .fetch_optional(executor)
+    .await?;
+    Ok(row.map(|(count,)| count))
+}
+
+/// Marks the batch as handed to the worker. Exactly-once: a second enqueue
+/// (or a stage racing the enqueue) finds `queued_at` already set and gets
+/// `false`.
+pub async fn mark_batch_queued<'e, E>(executor: E, org_id: Uuid, batch_id: Uuid) -> DbResult<bool>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let result = sqlx::query!(
+        "UPDATE import_batches SET queued_at = now() \
+         WHERE org_id = $1 AND id = $2 AND finished_at IS NULL AND queued_at IS NULL",
+        org_id,
+        batch_id,
+    )
+    .execute(executor)
+    .await?;
+    Ok(result.rows_affected() == 1)
+}
+
+// --- saved field-mapping templates (D2 remainder) ---------------------------------
+
+/// One saved source→canonical column mapping, keyed per source system so
+/// operators reuse the same template for every run of the same exporter.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportMappingTemplate {
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub name: String,
+    pub source_system: String,
+    pub entity_kind: String,
+    /// JSON object: source column → canonical Meridian column.
+    pub mapping: serde_json::Value,
+    pub created_by: Uuid,
+    pub created_by_kind: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+const TEMPLATE_COLS: &str = "id, org_id, name, source_system, entity_kind, mapping, \
+     created_by, created_by_kind, created_at, updated_at";
+
+fn template_from_row(row: sqlx::postgres::PgRow) -> ImportMappingTemplate {
+    use sqlx::Row;
+    ImportMappingTemplate {
+        id: row.get("id"),
+        org_id: row.get("org_id"),
+        name: row.get("name"),
+        source_system: row.get("source_system"),
+        entity_kind: row.get("entity_kind"),
+        mapping: row.get("mapping"),
+        created_by: row.get("created_by"),
+        created_by_kind: row.get("created_by_kind"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn insert_template<'e, E>(executor: E, template: &ImportMappingTemplate) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    sqlx::query!(
+        r#"INSERT INTO import_mapping_templates
+             (id, org_id, name, source_system, entity_kind, mapping, created_by, created_by_kind)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
+        template.id,
+        template.org_id,
+        template.name,
+        template.source_system,
+        template.entity_kind,
+        template.mapping,
+        template.created_by,
+        template.created_by_kind,
+    )
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
+pub async fn get_template<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    id: Uuid,
+) -> DbResult<ImportMappingTemplate>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = format!(
+        "SELECT {TEMPLATE_COLS} FROM import_mapping_templates WHERE org_id = $1 AND id = $2"
+    );
+    let row = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(id)
+        .fetch_one(executor)
+        .await?;
+    Ok(template_from_row(row))
+}
+
+/// Lists templates newest-first, optionally narrowed to one source system.
+pub async fn list_templates<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    source_system: Option<&str>,
+    limit: i64,
+) -> DbResult<Vec<ImportMappingTemplate>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = format!(
+        "SELECT {TEMPLATE_COLS} FROM import_mapping_templates \
+         WHERE org_id = $1 AND ($2::text IS NULL OR source_system = $2) \
+         ORDER BY created_at DESC, id LIMIT $3"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(source_system)
+        .bind(limit.clamp(1, 200))
+        .fetch_all(executor)
+        .await?;
+    Ok(rows.into_iter().map(template_from_row).collect())
+}
+
+/// Content update. Name/source-system changes move the uniqueness key, so
+/// a rename colliding with a sibling surfaces as a constraint conflict.
+pub async fn update_template<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    id: Uuid,
+    name: &str,
+    source_system: &str,
+    mapping: &serde_json::Value,
+) -> DbResult<ImportMappingTemplate>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = format!(
+        "UPDATE import_mapping_templates \
+         SET name = $3, source_system = $4, mapping = $5, updated_at = now() \
+         WHERE org_id = $1 AND id = $2 RETURNING {TEMPLATE_COLS}"
+    );
+    let row = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(id)
+        .bind(name)
+        .bind(source_system)
+        .bind(mapping)
+        .fetch_one(executor)
+        .await
+        .map_err(|_| crate::DbError::NotFound)?;
+    Ok(template_from_row(row))
+}
+
+pub async fn delete_template<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    sqlx::query!(
+        "DELETE FROM import_mapping_templates WHERE org_id = $1 AND id = $2",
+        org_id,
+        id,
+    )
+    .execute(executor)
+    .await?;
+    Ok(())
 }
 
 // --- external-id mappings -----------------------------------------------------

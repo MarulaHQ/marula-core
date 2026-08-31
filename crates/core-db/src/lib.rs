@@ -18,6 +18,7 @@ pub mod contracts;
 pub mod custom_fields;
 pub mod documents;
 pub mod emails;
+pub mod export;
 pub mod imports;
 pub mod kb;
 pub mod manifest;

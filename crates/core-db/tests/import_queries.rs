@@ -54,6 +54,8 @@ fn batch_row(
         created_by_kind: "user".into(),
         started_at: chrono::Utc::now(),
         finished_at: None,
+        staged_chunks: 0,
+        queued_at: None,
     }
 }
 

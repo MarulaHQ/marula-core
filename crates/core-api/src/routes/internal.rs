@@ -925,3 +925,155 @@ pub async fn delete(
     .await?;
     Ok(Json(IndexResult { applied }))
 }
+
+// --- async import-batch runner (TASKLIST D2 remainder) -----------------------
+
+/// Job kind the generalized 2.7 queue carries for staged import batches.
+/// The worker maps this to [`run_import_batch`] below; core-api stays the
+/// ONLY database writer (§4.1).
+pub const IMPORT_BATCH_JOB_KIND: &str = "import.batch.run";
+
+/// Payload the enqueue endpoint seals into the job row.
+#[derive(Debug, Deserialize)]
+pub struct ImportBatchRunRequest {
+    pub org_id: Uuid,
+    pub batch_id: Uuid,
+    #[serde(default)]
+    pub job_id: Option<Uuid>,
+}
+
+/// POST /api/internal/imports/batch/run — replays an async batch's staged
+/// ObjectStore chunks through the SAME plan→commit transaction the
+/// synchronous chunk path uses, then closes the batch. Chunk commits are
+/// individually atomic and idempotent (identical re-pushes skip), so a
+/// retried delivery never double-applies. Missing staged data is a typed
+/// 4xx (permanent rejection — dead-letter, operator inspects), while DB
+/// failures propagate as 5xx so the worker retries with backoff.
+pub async fn run_import_batch(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<ImportBatchRunRequest>,
+) -> ApiResult<Response> {
+    require_internal_token(&state, &headers)?;
+    let batch = core_db::imports::get_batch(&state.pool, req.org_id, req.batch_id)
+        .await
+        .map_err(|_| ApiError::NotFound)?;
+    if batch.dry_run {
+        return Err(ApiError::Validation(
+            "dry-run probes are never executed".into(),
+        ));
+    }
+    if batch.finished_at.is_some() {
+        // Idempotent redelivery: the work already committed.
+        return Ok((
+            StatusCode::OK,
+            Json(json!({ "applied": true, "skipped": "already finished" })),
+        )
+            .into_response());
+    }
+    if batch.queued_at.is_none() {
+        return Err(ApiError::Conflict(
+            "batch was never queued for async execution".into(),
+        ));
+    }
+    let descriptor = format!(
+        "worker:{}",
+        req.job_id
+            .map(|j| j.to_string())
+            .unwrap_or_else(|| "unknown".into())
+    );
+
+    for index in 0..batch.staged_chunks {
+        let key = core_db::imports::staged_chunk_key(req.org_id, req.batch_id, index);
+        let obj = state.store.get(&key).await.map_err(|e| match e {
+            core_store::StoreError::NotFound(_) => ApiError::Conflict(format!(
+                "staged chunk {index} missing from the object store"
+            )),
+            other => crate::routes::attachments::store_error(other),
+        })?;
+        let bytes = axum::body::to_bytes(axum::body::Body::from_stream(obj.stream), usize::MAX)
+            .await
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!("chunk read: {e}")))?;
+        let payload: crate::routes::imports::RowsPayload =
+            serde_json::from_slice(&bytes).map_err(|e| {
+                ApiError::Conflict(format!("staged chunk {index} is not a valid chunk: {e}"))
+            })?;
+        let (raw_rows, byte_len) = payload.decode()?;
+        core_domain::import_core::enforce_limits(raw_rows.len(), byte_len)?;
+        // created_by drives the org_tx user GUC; the batch opener is the
+        // documented driving identity for worker-replayed runs.
+        crate::routes::imports::commit_chunk(crate::routes::imports::ChunkRun {
+            state: &state,
+            org_id: req.org_id,
+            user_id: batch.created_by,
+            batch_id: req.batch_id,
+            descriptor: &descriptor,
+            template_id: None,
+            via_worker: true,
+            raw_rows,
+        })
+        .await?;
+    }
+
+    let closed = org_tx::with_org_tx(&state, req.org_id, batch.created_by, |mut ctx| async move {
+        let closed = core_db::imports::mark_batch_finished(&mut *ctx.tx, req.org_id, req.batch_id)
+            .await
+            .map_err(|_| ApiError::NotFound)?;
+        ctx.emit(
+            types::IMPORT_BATCH_FINISHED,
+            "import_batch",
+            Some(closed.id.to_string().as_str()),
+            &serde_json::to_value(core_domain::events::ImportBatchFinished {
+                batch_id: closed.id,
+                entity_kind: closed.entity_kind.clone(),
+                rows_total: closed.rows_total,
+                rows_created: closed.rows_created,
+                rows_updated: closed.rows_updated,
+                rows_skipped: closed.rows_skipped,
+                rows_failed: closed.rows_failed,
+            })
+            .unwrap_or_else(|_| json!({})),
+        )
+        .await?;
+        core_db::audit::insert(
+            &mut *ctx.tx,
+            &AuditEvent {
+                id: Uuid::now_v7(),
+                org_id: req.org_id,
+                actor: Actor::Import(descriptor.clone()),
+                action: "import.batch_finished".into(),
+                entity_type: Some("import_batch".into()),
+                entity_id: Some(closed.id.to_string()),
+                detail: json!({
+                    "label": closed.label,
+                    "entity_kind": closed.entity_kind,
+                    "async": true,
+                    "rows_total": closed.rows_total,
+                    "rows_created": closed.rows_created,
+                    "rows_updated": closed.rows_updated,
+                    "rows_skipped": closed.rows_skipped,
+                    "rows_failed": closed.rows_failed,
+                }),
+                ip: None,
+                occurred_at: chrono::Utc::now(),
+            },
+        )
+        .await?;
+        Ok((ctx, closed))
+    })
+    .await?;
+
+    Ok((
+        StatusCode::OK,
+        Json(json!({
+            "applied": true,
+            "batch_id": closed.id,
+            "rows_total": closed.rows_total,
+            "rows_created": closed.rows_created,
+            "rows_updated": closed.rows_updated,
+            "rows_skipped": closed.rows_skipped,
+            "rows_failed": closed.rows_failed,
+        })),
+    )
+        .into_response())
+}

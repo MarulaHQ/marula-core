@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT d.entity, v.entity_id, v.field_id, v.value\n         FROM custom_field_values v\n         JOIN custom_field_defs d ON d.id = v.field_id AND d.org_id = v.org_id\n         WHERE v.org_id = $1\n         ORDER BY d.entity, v.entity_id, v.field_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "entity",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "entity_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "field_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "value",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "2d76485587f8e38d12a45764dcbf8284de534a0c39b48ce9873fad06b8a7146e"
+}

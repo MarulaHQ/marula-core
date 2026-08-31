@@ -1,0 +1,95 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE time_entries SET started_at = $3, ended_at = $4, minutes = $5,\n                                  billable = $6, notes = $7, work_type = $8\n           WHERE org_id = $1 AND id = $2\n           RETURNING id, org_id, ticket_id, user_id, started_at, ended_at, minutes,\n                     billable, notes, work_type, timer_session_id, created_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "ticket_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "started_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "ended_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "minutes",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "billable",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "notes",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "work_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "timer_session_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 11,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz",
+        "Timestamptz",
+        "Int4",
+        "Bool",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "f05a8caa91b074f326bad905351e4a7904333fdfc54fa27398e864c06de29b52"
+}

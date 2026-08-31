@@ -12,13 +12,14 @@
 //! batch neither duplicates rows nor spams events.
 //!
 //! Non-purpose: no I/O whatsoever (no SQL, HTTP, clock, filesystem — all
-//! external state arrives as closures); not a migration wizard — there is no
-//! field-mapping DSL, headers must already be Meridian's canonical names;
-//! not async giant-batch orchestration (worker lane owns that); device assets
-//! and further entity families ride in later waves and extend the catalogs
-//! additively.
+//! external state arrives as closures); not a migration wizard — source
+//! columns reach the canonical names either directly or through a saved
+//! field-mapping template (`validate_mapping` + `apply_field_mapping`, D2
+//! remainder); not async giant-batch orchestration (worker lane owns that);
+//! device assets and further entity families ride in later waves and extend
+//! the catalogs additively.
 
-use crate::entities::{Client, Contact, Site};
+use crate::entities::{Board, Client, Contact, Site, Ticket, TimeEntry};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use uuid::Uuid;
@@ -44,8 +45,10 @@ pub enum ImportError {
 }
 
 /// Which entity family a batch targets. One batch = exactly one kind; the
-/// parent-before-child ordering across batches (clients → sites → contacts)
-/// keeps foreign references resolvable without cross-batch transactions.
+/// parent-before-child ordering across batches keeps foreign references
+/// resolvable without cross-batch transactions. D2 remainder extends the
+/// original client/site/contact family with boards, tickets, and time
+/// entries: [`Self::import_order`] is the documented run-script order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
@@ -53,6 +56,9 @@ pub enum EntityKind {
     Client,
     Site,
     Contact,
+    Board,
+    Ticket,
+    TimeEntry,
 }
 
 impl std::str::FromStr for EntityKind {
@@ -62,6 +68,9 @@ impl std::str::FromStr for EntityKind {
             "client" => Ok(EntityKind::Client),
             "site" => Ok(EntityKind::Site),
             "contact" => Ok(EntityKind::Contact),
+            "board" => Ok(EntityKind::Board),
+            "ticket" => Ok(EntityKind::Ticket),
+            "time_entry" => Ok(EntityKind::TimeEntry),
             other => Err(format!("unknown entity_kind {other:?}")),
         }
     }
@@ -73,6 +82,24 @@ impl EntityKind {
             EntityKind::Client => "client",
             EntityKind::Site => "site",
             EntityKind::Contact => "contact",
+            EntityKind::Board => "board",
+            EntityKind::Ticket => "ticket",
+            EntityKind::TimeEntry => "time_entry",
+        }
+    }
+
+    /// Position in the parent-before-child run order
+    /// (boards → clients → sites → contacts → tickets → time entries).
+    /// A migration run script pushes batches in ascending order so every
+    /// foreign external key resolves to a row imported earlier.
+    pub const fn import_order(self) -> u8 {
+        match self {
+            EntityKind::Board => 0,
+            EntityKind::Client => 1,
+            EntityKind::Site => 2,
+            EntityKind::Contact => 3,
+            EntityKind::Ticket => 4,
+            EntityKind::TimeEntry => 5,
         }
     }
 }
@@ -298,6 +325,82 @@ pub fn enforce_limits(rows: usize, byte_len: usize) -> Result<(), ImportError> {
     Ok(())
 }
 
+// --- saved field-mapping templates (D2 remainder) -----------------------------
+
+/// Validates a saved source→canonical column mapping against the canonical
+/// field catalog for `kind`. Every TARGET must be a canonical column name;
+/// sources are arbitrary exporter headers (any non-empty string). Returns
+/// the per-problem error list so template saves can report everything at
+/// once, matching the row-validation reporting stance.
+pub fn validate_mapping(
+    kind: EntityKind,
+    mapping: &BTreeMap<String, String>,
+) -> Result<(), Vec<String>> {
+    let catalog: &[&str] = match kind {
+        EntityKind::Client => CLIENT_COLUMNS,
+        EntityKind::Site => SITE_COLUMNS,
+        EntityKind::Contact => CONTACT_COLUMNS,
+        EntityKind::Board => BOARD_COLUMNS,
+        EntityKind::Ticket => TICKET_COLUMNS,
+        EntityKind::TimeEntry => TIME_ENTRY_COLUMNS,
+    };
+    let mut errors = Vec::new();
+    if mapping.is_empty() {
+        errors.push("mapping must not be empty".into());
+    }
+    let mut targets: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for (source, target) in mapping {
+        if source.trim().is_empty() {
+            errors.push(format!("mapping source {source:?}: must not be empty"));
+        }
+        if target.trim().is_empty() {
+            errors.push(format!("mapping target for {source:?}: must not be empty"));
+        } else if !catalog.contains(&target.as_str()) {
+            errors.push(format!(
+                "mapping target {target:?} is not a canonical {} column",
+                kind.as_str()
+            ));
+        } else if !targets.insert(target.as_str()) {
+            errors.push(format!(
+                "mapping target {target:?} is claimed by more than one source column"
+            ));
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+/// Applies a saved template to raw rows: source columns named in the
+/// mapping are RENAMED to their canonical targets. Columns the mapping does
+/// not mention pass through untouched — an unmapped non-canonical column
+/// then surfaces as a loud per-row validation error, never silently
+/// dropped data. A mapping that would overwrite an already-present column
+/// is rejected (the template is ambiguous, not the data).
+pub fn apply_field_mapping(
+    mut rows: Vec<RawRow>,
+    mapping: &BTreeMap<String, String>,
+) -> Result<Vec<RawRow>, ImportError> {
+    for row in &mut rows {
+        for (source, target) in mapping {
+            let Some(value) = row.fields.get(source).cloned() else {
+                continue;
+            };
+            if row.fields.contains_key(target) && target != source {
+                return Err(ImportError::Malformed(format!(
+                    "row {}: mapping {source:?} → {target:?} collides with an existing column",
+                    row.index
+                )));
+            }
+            row.fields.remove(source);
+            row.fields.insert(target.clone(), value);
+        }
+    }
+    Ok(rows)
+}
+
 // --- specs -------------------------------------------------------------------
 
 /// A validated client company row.
@@ -337,12 +440,60 @@ pub struct ContactSpec {
     pub is_primary: bool,
 }
 
+/// A validated board row. Importing a board seeds the semantic-category
+/// status floor exactly like the boards API surface (defaults-first
+/// doctrine), so tickets can land on it immediately after.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BoardSpec {
+    pub external_key: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub is_default: bool,
+}
+
+/// A validated ticket row. Parent keys (`board_key`, and the optional
+/// client/site/contact keys) resolve through the external-id map and are
+/// IDENTITY — immutable after creation, exactly like a site's client.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TicketSpec {
+    pub external_key: String,
+    pub board_key: String,
+    pub title: String,
+    pub body: Option<String>,
+    pub priority: crate::status::Priority,
+    pub client_key: Option<String>,
+    pub site_key: Option<String>,
+    pub contact_key: Option<String>,
+    pub due_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// A validated time-entry row. `user_email` optionally attributes the work
+/// to an org user (resolved at commit time); without it the entry lands
+/// under the driving principal — a migration's documented fallback, since
+/// source systems rarely carry stable Meridian user identities.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TimeEntrySpec {
+    pub external_key: String,
+    pub ticket_key: String,
+    pub user_email: Option<String>,
+    pub started_at: chrono::DateTime<chrono::Utc>,
+    /// Defaults to `started_at + minutes` when absent.
+    pub ended_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub minutes: i64,
+    pub billable: bool,
+    pub notes: Option<String>,
+    pub work_type: Option<String>,
+}
+
 /// A validated row of whichever kind the batch targets.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ImportSpec {
     Client(ClientSpec),
     Site(SiteSpec),
     Contact(ContactSpec),
+    Board(BoardSpec),
+    Ticket(TicketSpec),
+    TimeEntry(TimeEntrySpec),
 }
 
 impl ImportSpec {
@@ -351,6 +502,9 @@ impl ImportSpec {
             ImportSpec::Client(s) => &s.external_key,
             ImportSpec::Site(s) => &s.external_key,
             ImportSpec::Contact(s) => &s.external_key,
+            ImportSpec::Board(s) => &s.external_key,
+            ImportSpec::Ticket(s) => &s.external_key,
+            ImportSpec::TimeEntry(s) => &s.external_key,
         }
     }
 
@@ -396,6 +550,36 @@ impl ImportSpec {
                     m.insert(k.into(), v.clone().unwrap_or_default());
                 }
                 m.insert("is_primary".into(), s.is_primary.to_string());
+            }
+            ImportSpec::Board(s) => {
+                m.insert("name".into(), s.name.clone());
+                m.insert(
+                    "description".into(),
+                    s.description.clone().unwrap_or_default(),
+                );
+                m.insert("is_default".into(), s.is_default.to_string());
+            }
+            ImportSpec::Ticket(s) => {
+                m.insert("title".into(), s.title.clone());
+                m.insert("body".into(), s.body.clone().unwrap_or_default());
+                m.insert("priority".into(), s.priority.as_str().to_string());
+                m.insert(
+                    "due_at".into(),
+                    s.due_at.map(|t| t.to_rfc3339()).unwrap_or_default(),
+                );
+            }
+            ImportSpec::TimeEntry(s) => {
+                m.insert("started_at".into(), s.started_at.to_rfc3339());
+                m.insert(
+                    "ended_at".into(),
+                    s.ended_at
+                        .unwrap_or_else(|| s.started_at + chrono::Duration::minutes(s.minutes))
+                        .to_rfc3339(),
+                );
+                m.insert("minutes".into(), s.minutes.to_string());
+                m.insert("billable".into(), s.billable.to_string());
+                m.insert("notes".into(), s.notes.clone().unwrap_or_default());
+                m.insert("work_type".into(), s.work_type.clone().unwrap_or_default());
             }
         }
         m
@@ -450,6 +634,40 @@ pub fn contact_projection(c: &Contact) -> BTreeMap<String, String> {
     m
 }
 
+pub fn board_projection(b: &Board) -> BTreeMap<String, String> {
+    let mut m = BTreeMap::new();
+    m.insert("name".into(), b.name.clone());
+    m.insert(
+        "description".into(),
+        b.description.clone().unwrap_or_default(),
+    );
+    m.insert("is_default".into(), b.is_default.to_string());
+    m
+}
+
+pub fn ticket_projection(t: &Ticket) -> BTreeMap<String, String> {
+    let mut m = BTreeMap::new();
+    m.insert("title".into(), t.title.clone());
+    m.insert("body".into(), t.body.clone().unwrap_or_default());
+    m.insert("priority".into(), t.priority.as_str().to_string());
+    m.insert(
+        "due_at".into(),
+        t.due_at.map(|d| d.to_rfc3339()).unwrap_or_default(),
+    );
+    m
+}
+
+pub fn time_entry_projection(e: &TimeEntry) -> BTreeMap<String, String> {
+    let mut m = BTreeMap::new();
+    m.insert("started_at".into(), e.started_at.to_rfc3339());
+    m.insert("ended_at".into(), e.ended_at.to_rfc3339());
+    m.insert("minutes".into(), e.minutes.to_string());
+    m.insert("billable".into(), e.billable.to_string());
+    m.insert("notes".into(), e.notes.clone().unwrap_or_default());
+    m.insert("work_type".into(), e.work_type.clone().unwrap_or_default());
+    m
+}
+
 // --- validation ---------------------------------------------------------------
 
 const CLIENT_COLUMNS: &[&str] = &["external_key", "name", "notes"];
@@ -475,6 +693,29 @@ const CONTACT_COLUMNS: &[&str] = &[
     "phone",
     "title",
     "is_primary",
+];
+const BOARD_COLUMNS: &[&str] = &["external_key", "name", "description", "is_default"];
+const TICKET_COLUMNS: &[&str] = &[
+    "external_key",
+    "board_key",
+    "title",
+    "body",
+    "priority",
+    "client_key",
+    "site_key",
+    "contact_key",
+    "due_at",
+];
+const TIME_ENTRY_COLUMNS: &[&str] = &[
+    "external_key",
+    "ticket_key",
+    "user_email",
+    "started_at",
+    "ended_at",
+    "minutes",
+    "billable",
+    "notes",
+    "work_type",
 ];
 
 /// One validated-or-rejected row, pre-conflict-resolution.
@@ -507,6 +748,9 @@ fn validate_row(kind: EntityKind, raw: &RawRow) -> Result<ImportSpec, Vec<String
         EntityKind::Client => CLIENT_COLUMNS,
         EntityKind::Site => SITE_COLUMNS,
         EntityKind::Contact => CONTACT_COLUMNS,
+        EntityKind::Board => BOARD_COLUMNS,
+        EntityKind::Ticket => TICKET_COLUMNS,
+        EntityKind::TimeEntry => TIME_ENTRY_COLUMNS,
     };
     let mut errors: Vec<String> = Vec::new();
     for col in raw.fields.keys() {
@@ -534,18 +778,30 @@ fn validate_row(kind: EntityKind, raw: &RawRow) -> Result<ImportSpec, Vec<String
             String::new()
         }
     };
-    let name = match get("name") {
-        Some(n) => match validate_name(n) {
-            Ok(()) => n.to_string(),
-            Err(e) => {
-                errors.push(format!("name: {e}"));
+    // The shared required title column: `name` for most families, `title`
+    // for tickets. Time entries have neither — they validate their own
+    // required fields below.
+    let name = if catalog.contains(&"name") || catalog.contains(&"title") {
+        let column = if catalog.contains(&"name") {
+            "name"
+        } else {
+            "title"
+        };
+        match get(column) {
+            Some(n) => match validate_name(n) {
+                Ok(()) => n.to_string(),
+                Err(e) => {
+                    errors.push(format!("{column}: {e}"));
+                    String::new()
+                }
+            },
+            None => {
+                errors.push(format!("{column}: required"));
                 String::new()
             }
-        },
-        None => {
-            errors.push("name: required".into());
-            String::new()
         }
+    } else {
+        String::new()
     };
 
     macro_rules! opt_text {
@@ -667,6 +923,133 @@ fn validate_row(kind: EntityKind, raw: &RawRow) -> Result<ImportSpec, Vec<String
                 is_primary,
             })
         }
+        EntityKind::Board => ImportSpec::Board(BoardSpec {
+            external_key,
+            name,
+            description: opt_text!("description", 2_000),
+            is_default: parse_bool_field(raw, "is_default", &mut errors),
+        }),
+        EntityKind::Ticket => {
+            let board_key = match get("board_key") {
+                Some(k) => k.to_string(),
+                None => {
+                    errors.push("board_key: required".into());
+                    String::new()
+                }
+            };
+            let priority = match get("priority") {
+                Some(v) => match v.parse::<crate::status::Priority>() {
+                    Ok(p) => p,
+                    Err(_) => {
+                        errors.push(format!("priority: {v:?} is not one of p1, p2, p3, p4"));
+                        crate::status::Priority::P3
+                    }
+                },
+                None => crate::status::Priority::P3,
+            };
+            let due_at = match get("due_at") {
+                Some(v) => match parse_datetime(v) {
+                    Ok(t) => Some(t),
+                    Err(e) => {
+                        errors.push(format!("due_at: {e}"));
+                        None
+                    }
+                },
+                None => None,
+            };
+            ImportSpec::Ticket(TicketSpec {
+                external_key,
+                board_key,
+                title: name,
+                body: opt_text!("body", 10_000),
+                priority,
+                client_key: opt_text!("client_key", 256),
+                site_key: opt_text!("site_key", 256),
+                contact_key: opt_text!("contact_key", 256),
+                due_at,
+            })
+        }
+        EntityKind::TimeEntry => {
+            let ticket_key = match get("ticket_key") {
+                Some(k) => k.to_string(),
+                None => {
+                    errors.push("ticket_key: required".into());
+                    String::new()
+                }
+            };
+            let started_at = match get("started_at") {
+                Some(v) => match parse_datetime(v) {
+                    Ok(t) => Some(t),
+                    Err(e) => {
+                        errors.push(format!("started_at: {e}"));
+                        None
+                    }
+                },
+                None => {
+                    errors.push("started_at: required".into());
+                    None
+                }
+            };
+            let ended_at = match get("ended_at") {
+                Some(v) => match parse_datetime(v) {
+                    Ok(t) => Some(t),
+                    Err(e) => {
+                        errors.push(format!("ended_at: {e}"));
+                        None
+                    }
+                },
+                None => None,
+            };
+            let minutes = match get("minutes") {
+                Some(v) => match v.parse::<i64>() {
+                    // One work-week of nonstop minutes is far beyond any
+                    // legitimate entry; reject obvious unit mistakes.
+                    Ok(m) if m > 0 && m <= 7 * 24 * 60 => Some(m),
+                    _ => {
+                        errors.push(format!(
+                            "minutes: {v:?} is not a positive integer of at most {}",
+                            7 * 24 * 60
+                        ));
+                        None
+                    }
+                },
+                None => {
+                    errors.push("minutes: required".into());
+                    None
+                }
+            };
+            let user_email = match get("user_email") {
+                Some(e) => match validate_email(e) {
+                    Ok(()) => Some(e.to_string()),
+                    Err(msg) => {
+                        errors.push(format!("user_email: {msg}"));
+                        None
+                    }
+                },
+                None => None,
+            };
+            // `started_at`/`minutes` feed the defaults below even when they
+            // errored (None placeholders keep the spec well-formed; the
+            // collected errors still fail the row).
+            let started = started_at.unwrap_or_else(chrono::Utc::now);
+            let minutes_val = minutes.unwrap_or(0);
+            if let (Some(started), Some(ended)) = (started_at, ended_at) {
+                if ended < started {
+                    errors.push("ended_at: earlier than started_at".into());
+                }
+            }
+            ImportSpec::TimeEntry(TimeEntrySpec {
+                external_key,
+                ticket_key,
+                user_email,
+                started_at: started,
+                ended_at,
+                minutes: minutes_val,
+                billable: parse_bool_field(raw, "billable", &mut errors),
+                notes: opt_text!("notes", 10_000),
+                work_type: opt_text!("work_type", 64),
+            })
+        }
     };
     if errors.is_empty() {
         Ok(spec)
@@ -717,6 +1100,32 @@ pub fn validate_email(email: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!("{email:?} is not a valid address"))
+    }
+}
+
+/// Parses an RFC 3339 timestamp (CSV cells are strings; JSON scalars were
+/// already stringified). Both instants canonicalize through parse+format on
+/// both the incoming and the stored side, keeping projections comparable.
+fn parse_datetime(value: &str) -> Result<chrono::DateTime<chrono::Utc>, String> {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .map(|t| t.with_timezone(&chrono::Utc))
+        .map_err(|_| format!("{value:?} is not an RFC 3339 timestamp"))
+}
+
+/// Shared true/false cell parser for the optional flag columns
+/// (`is_default`, `billable`). Absent or empty means false, matching the
+/// `is_primary` precedent; anything else collects a row error.
+fn parse_bool_field(raw: &RawRow, column: &str, errors: &mut Vec<String>) -> bool {
+    match raw.fields.get(column).map(|v| v.trim()) {
+        None | Some("") => false,
+        Some(v) => match v.to_ascii_lowercase().as_str() {
+            "true" => true,
+            "false" => false,
+            other => {
+                errors.push(format!("{column}: {other:?} is not true/false"));
+                false
+            }
+        },
     }
 }
 
@@ -975,7 +1384,7 @@ pub fn chunk_is_executable(plan: &ChunkPlan) -> bool {
 fn check_parents(spec: &ImportSpec, lookup: ParentLookup<'_>) -> Result<(), Vec<String>> {
     let mut missing = Vec::new();
     match spec {
-        ImportSpec::Client(_) => {}
+        ImportSpec::Client(_) | ImportSpec::Board(_) => {}
         ImportSpec::Site(s) => {
             if lookup(EntityKind::Client, &s.client_key).is_none() {
                 missing.push(format!(
@@ -997,6 +1406,43 @@ fn check_parents(spec: &ImportSpec, lookup: ParentLookup<'_>) -> Result<(), Vec<
                         "site_key {site_key:?}: no imported site with this external key"
                     ));
                 }
+            }
+        }
+        ImportSpec::Ticket(t) => {
+            if lookup(EntityKind::Board, &t.board_key).is_none() {
+                missing.push(format!(
+                    "board_key {:?}: no imported board with this external key",
+                    t.board_key
+                ));
+            }
+            if let Some(client_key) = &t.client_key {
+                if lookup(EntityKind::Client, client_key).is_none() {
+                    missing.push(format!(
+                        "client_key {client_key:?}: no imported client with this external key"
+                    ));
+                }
+            }
+            if let Some(site_key) = &t.site_key {
+                if lookup(EntityKind::Site, site_key).is_none() {
+                    missing.push(format!(
+                        "site_key {site_key:?}: no imported site with this external key"
+                    ));
+                }
+            }
+            if let Some(contact_key) = &t.contact_key {
+                if lookup(EntityKind::Contact, contact_key).is_none() {
+                    missing.push(format!(
+                        "contact_key {contact_key:?}: no imported contact with this external key"
+                    ));
+                }
+            }
+        }
+        ImportSpec::TimeEntry(e) => {
+            if lookup(EntityKind::Ticket, &e.ticket_key).is_none() {
+                missing.push(format!(
+                    "ticket_key {:?}: no imported ticket with this external key",
+                    e.ticket_key
+                ));
             }
         }
     }

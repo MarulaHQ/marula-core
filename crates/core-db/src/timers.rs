@@ -165,6 +165,58 @@ where
     Ok(())
 }
 
+/// Content-only time-entry update (import framework, TASKLIST D2
+/// remainder). The owner (`user_id`) and ticket attachment are identity —
+/// immutable here, exactly like an imported row's parents.
+#[allow(clippy::too_many_arguments)]
+pub async fn update_time_entry<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    id: Uuid,
+    started_at: chrono::DateTime<chrono::Utc>,
+    ended_at: chrono::DateTime<chrono::Utc>,
+    minutes: i64,
+    billable: bool,
+    notes: Option<&str>,
+    work_type: Option<&str>,
+) -> DbResult<TimeEntry>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query!(
+        r#"UPDATE time_entries SET started_at = $3, ended_at = $4, minutes = $5,
+                                  billable = $6, notes = $7, work_type = $8
+           WHERE org_id = $1 AND id = $2
+           RETURNING id, org_id, ticket_id, user_id, started_at, ended_at, minutes,
+                     billable, notes, work_type, timer_session_id, created_at"#,
+        org_id,
+        id,
+        started_at,
+        ended_at,
+        minutes as i32,
+        billable,
+        notes,
+        work_type,
+    )
+    .fetch_optional(executor)
+    .await?
+    .ok_or(DbError::NotFound)?;
+    Ok(TimeEntry {
+        id: row.id,
+        org_id: row.org_id,
+        ticket_id: row.ticket_id,
+        user_id: row.user_id,
+        started_at: row.started_at,
+        ended_at: row.ended_at,
+        minutes: row.minutes as i64,
+        billable: row.billable,
+        notes: row.notes,
+        work_type: row.work_type,
+        timer_session_id: row.timer_session_id,
+        created_at: row.created_at,
+    })
+}
+
 pub async fn get_time_entry<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<TimeEntry>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
