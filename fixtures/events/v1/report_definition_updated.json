@@ -1,0 +1,13 @@
+{
+  "event_type": "report_definition.updated",
+  "entity": "report_definition",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "definition_id": "00000000-0000-0000-0000-00000000001d",
+    "kind": "tickets",
+    "name": "Tickets by status",
+    "scope": "org"
+  }
+}

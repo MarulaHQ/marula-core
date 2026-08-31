@@ -1547,6 +1547,59 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             }
         ),
     },
+    // -- report definitions ------------------------------------------------
+    PublishedEvent {
+        event_type: types::REPORT_DEFINITION_CREATED,
+        entity: "report_definition",
+        variant: "default",
+        shape: untyped_shape!(
+            ["definition_id", "name", "kind", "scope"],
+            serde_json::json!({
+                "definition_id": su(29),
+                "name": "Tickets by status",
+                "kind": "tickets",
+                "scope": "org",
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::REPORT_DEFINITION_UPDATED,
+        entity: "report_definition",
+        variant: "default",
+        shape: untyped_shape!(
+            ["definition_id", "name", "kind", "scope"],
+            serde_json::json!({
+                "definition_id": su(29),
+                "name": "Tickets by status",
+                "kind": "tickets",
+                "scope": "org",
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::REPORT_DEFINITION_DELETED,
+        entity: "report_definition",
+        variant: "default",
+        shape: untyped_shape!(
+            ["definition_id", "name"],
+            serde_json::json!({
+                "definition_id": su(29),
+                "name": "Tickets by status",
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::BOARD_UPDATED,
+        entity: "board",
+        variant: "default",
+        shape: untyped_shape!(
+            ["board_id", "name"],
+            serde_json::json!({
+                "board_id": su(2),
+                "name": "Field Services",
+            })
+        ),
+    },
 ];
 
 fn sample_status(name: &str) -> BoardStatus {
