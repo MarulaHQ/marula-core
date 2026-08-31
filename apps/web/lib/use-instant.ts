@@ -89,13 +89,44 @@ export function useInstantChannels(channels: string[]): void {
 }
 
 /** The optimistic write entry point: mutate → render → reconcile. */
-export function useInstantWrite(): (spec: WriteSpec) => Promise<WriteResult> {
+export interface InstantWrite {
+  (spec: WriteSpec): Promise<WriteResult>;
+}
+
+/** The IF2 metadata needed to stamp a created entity's version cursor. */
+export interface MutationStamp {
+  seq: number;
+  updated_at: string;
+  version: number;
+}
+
+/**
+ * The optimistic write entry point plus the create-stamp seam: when a
+ * write CREATES an entity, the optimistic render used a temp id but the
+ * envelope carries the server id + seq — stamp it so the NEXT write on
+ * that entity carries its If-Match version.
+ */
+export function useInstantWrite(): {
+  mutate: InstantWrite;
+  stampEntity(entityId: string, meta: MutationStamp): void;
+} {
   const runtime = instantRuntime();
-  return useCallback(
-    (spec: WriteSpec) =>
+  const mutate = useCallback<InstantWrite>(
+    (spec) =>
       executeInstantWrite(runtime.store, runtime.queue, runtime.transport, spec),
     [runtime],
   );
+  const stampEntity = useCallback(
+    (entityId: string, meta: MutationStamp) => {
+      runtime.store.applyMutation(
+        entityId,
+        { ...meta, after: null, before: null },
+        { skipApply: true },
+      );
+    },
+    [runtime],
+  );
+  return { mutate, stampEntity };
 }
 
 export interface OutboxState {

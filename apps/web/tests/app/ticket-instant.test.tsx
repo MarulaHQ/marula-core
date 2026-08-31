@@ -75,17 +75,20 @@ function mutation(statusId: string, seq: number) {
   };
 }
 
+const CHECKLIST_ITEM_ID = "00000000-0000-4000-8000-00000000c001";
+
 function setupApi() {
   const mock = new MockApi();
   let seq = 3;
   let status = STATUS_NEW;
+  const checklistItems: Record<string, unknown>[] = [];
   mock.on("GET", "/api/v1/me", () => ({ json: ME_FIXTURE }));
   mock.on("GET", "/api/v1/notifications/unread-count", () => ({ json: { count: 0 } }));
   mock.on("GET", "/api/v1/notifications", () => ({ json: { items: [], next_cursor: null } }));
   mock.on("GET", `/api/v1/tickets/${TICKET_ID}`, () => ({ json: ticketJson(status) }));
   mock.on("GET", `/api/v1/tickets/${TICKET_ID}/comments`, () => ({ json: [] }));
   mock.on("GET", `/api/v1/tickets/${TICKET_ID}/checklist`, () => ({
-    json: { blocking: [], enforcement_active: false, items: [] },
+    json: { blocking: [], enforcement_active: false, items: checklistItems },
   }));
   mock.on("GET", `/api/v1/tickets/${TICKET_ID}/sla`, () => ({ json: null }));
   mock.on("GET", `/api/v1/tickets/${TICKET_ID}/attachments`, () => ({ json: [] }));
@@ -102,6 +105,62 @@ function setupApi() {
     seq += 1;
     status = body.status_id;
     return { json: mutation(status, seq) };
+  });
+  mock.on("POST", `/api/v1/tickets/${TICKET_ID}/checklist`, (ctx) => {
+    const body = ctx.body as { text: string; idempotency_key?: string };
+    const item = {
+      id: CHECKLIST_ITEM_ID,
+      org_id: ME_FIXTURE.org_id,
+      ticket_id: TICKET_ID,
+      text: body.text,
+      checked: false,
+      sort_order: checklistItems.length,
+      template_item_id: null,
+    };
+    checklistItems.push(item);
+    const view = {
+      items: checklistItems,
+      progress: {},
+      enforcement_active: false,
+      blocking: [],
+    };
+    return {
+      json: {
+        ...view,
+        mutation: {
+          after: item,
+          before: null,
+          seq: 1,
+          updated_at: "2026-08-30T09:40:00Z",
+          version: 1,
+          idempotency_key: body.idempotency_key ?? null,
+        },
+      },
+    };
+  });
+  mock.on("POST", `/api/v1/tickets/${TICKET_ID}/checklist/${CHECKLIST_ITEM_ID}`, (ctx) => {
+    const body = ctx.body as { checked: boolean };
+    const before = { ...checklistItems[0] };
+    checklistItems[0] = { ...before, checked: body.checked };
+    const view = {
+      items: checklistItems,
+      progress: {},
+      enforcement_active: false,
+      blocking: [],
+    };
+    return {
+      json: {
+        ...view,
+        mutation: {
+          after: checklistItems[0],
+          before,
+          seq: 2,
+          updated_at: "2026-08-30T09:41:00Z",
+          version: 2,
+          idempotency_key: null,
+        },
+      },
+    };
   });
   mock.install();
   return mock;
@@ -202,6 +261,45 @@ describe("/tickets/[id] — optimistic writes with authoritative reconcile", () 
       const pill = screen.getAllByText("Working");
       expect(pill.length).toBeGreaterThanOrEqual(1);
     });
+  });
+});
+
+describe("/tickets/[id] — checklist writes through the IF1/IF2 envelope", () => {
+  it("reconciles a checklist add from mutation.after and carries If-Match on the toggle", async () => {
+    const mock = setupApi();
+    render(page());
+    await screen.findByText("Broken printer", {}, { timeout: 5000 });
+
+    fireEvent.change(screen.getByPlaceholderText("Add checklist item…"), {
+      target: { value: "Replace toner" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await waitFor(() => {
+      expect(mock.callsTo("POST", `/api/v1/tickets/${TICKET_ID}/checklist`)).toHaveLength(1);
+    });
+    const addBody = mock.lastBody<{ idempotency_key?: string; version?: number }>(
+      "POST",
+      `/api/v1/tickets/${TICKET_ID}/checklist`,
+    );
+    expect(typeof addBody.idempotency_key).toBe("string");
+    expect(addBody.version).toBeUndefined();
+
+    // The optimistic temp row is replaced by the applied item.
+    expect(await screen.findByText("Replace toner", {}, { timeout: 5000 })).toBeInTheDocument();
+
+    // The next write on the created item echoes its observed seq.
+    fireEvent.click(screen.getByRole("checkbox"));
+    await waitFor(() => {
+      expect(
+        mock.callsTo("POST", `/api/v1/tickets/${TICKET_ID}/checklist/${CHECKLIST_ITEM_ID}`),
+      ).toHaveLength(1);
+    });
+    const toggleBody = mock.lastBody<{ checked: boolean; version?: number; idempotency_key?: string }>(
+      "POST",
+      `/api/v1/tickets/${TICKET_ID}/checklist/${CHECKLIST_ITEM_ID}`,
+    );
+    expect(toggleBody.checked).toBe(true);
+    expect(toggleBody.version).toBe(1);
   });
 });
 

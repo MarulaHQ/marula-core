@@ -11,6 +11,7 @@
 "use client";
 
 import type { components } from "@meridian/sdk";
+import { snapshotOf } from "@meridian/sdk";
 import {
   Button,
   EmptyState,
@@ -166,7 +167,7 @@ export default function TicketWorkspacePage() {
     ticketModelKey(ticketId),
     detailSpec,
   );
-  const mutate = useInstantWrite();
+  const { mutate, stampEntity } = useInstantWrite();
   const [error, setError] = useState<string | null>(null);
 
   useInstantChannels([
@@ -283,14 +284,17 @@ export default function TicketWorkspacePage() {
         setStagedFiles([]);
         return;
       }
-      // Accepted: swap the optimistic row for the applied comment.
-      const applied = result.mutation?.after as TicketComment | null;
+      // Accepted: swap the optimistic row for the applied comment, and
+      // stamp the server id's version cursor for future edits.
+      const applied =
+        result.mutation !== null ? snapshotOf(result.mutation).after : null;
+      if (applied !== null && result.mutation !== null) {
+        stampEntity(applied.id, result.mutation);
+      }
       patchDetail((m) => ({
         ...m,
         comments: m.comments.map((c) =>
-          c.id === tempId && applied !== null && typeof applied?.id === "string"
-            ? applied
-            : c,
+          c.id === tempId && applied !== null ? (applied as TicketComment) : c,
         ),
       }));
       setError(null);
@@ -379,11 +383,11 @@ export default function TicketWorkspacePage() {
       return;
     }
     setChecklistDraft("");
-    if (result.status === "accepted") {
-      const applied = result.mutation?.after as
-        | components["schemas"]["ChecklistItem"]
-        | null;
-      if (applied !== null && typeof applied?.id === "string") {
+    if (result.status === "accepted" && result.mutation !== null) {
+      // The checklist envelope carries the applied item in `mutation.after`.
+      const { after } = snapshotOf(result.mutation);
+      if (after !== null) {
+        stampEntity(after.id, result.mutation);
         patchDetail((m) => ({
           ...m,
           checklist:
@@ -391,13 +395,15 @@ export default function TicketWorkspacePage() {
               ? m.checklist
               : {
                   ...m.checklist,
-                  items: m.checklist.items.map((i) => (i.id === tempId ? applied : i)),
+                  items: m.checklist.items.map((i) =>
+                    i.id === tempId ? (after as components["schemas"]["ChecklistItem"]) : i,
+                  ),
                 },
         }));
         return;
       }
     }
-    // Queued or unshaped response: settle on the server's snapshot.
+    // Queued without an immediate envelope: settle on the server snapshot.
     if (result.status === "queued") void refresh();
   }
 
@@ -441,6 +447,25 @@ export default function TicketWorkspacePage() {
     });
     if (result.status === "rejected") {
       setError(result.message ?? "Could not update checklist item");
+      return;
+    }
+    // Authoritative toggle: the envelope carries the applied item.
+    if (result.status === "accepted" && result.mutation !== null) {
+      const { after } = snapshotOf(result.mutation);
+      if (after !== null) {
+        patchDetail((m) => ({
+          ...m,
+          checklist:
+            m.checklist === null
+              ? m.checklist
+              : {
+                  ...m.checklist,
+                  items: m.checklist.items.map((i) =>
+                    i.id === itemId ? (after as components["schemas"]["ChecklistItem"]) : i,
+                  ),
+                },
+        }));
+      }
     }
   }
 

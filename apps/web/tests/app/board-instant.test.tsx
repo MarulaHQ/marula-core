@@ -152,6 +152,45 @@ describe("/boards/[id] — instant read model", () => {
     expect(mock.callsTo("GET", `/api/v1/tickets/${created.id}`)).toHaveLength(1);
   });
 
+  it("applies a routable status_changed event as a per-ticket delta", async () => {
+    // Core event payloads carry board_id/assignee_id (gap-1 closure), so a
+    // status change fans out to the board channel and patches one row.
+    const mock = setupApi([TICKET_A]);
+    const moved = { ...TICKET_A, category: "in_progress" };
+    mock.on("GET", `/api/v1/tickets/${TICKET_A.id}`, () => ({ json: moved }));
+
+    render(page());
+    await screen.findByText("First ticket", {}, { timeout: 5000 });
+
+    instantRuntime().socket.deliver(
+      JSON.stringify({
+        type: "event",
+        channel: `board:${BOARD_ID}`,
+        event: {
+          id: "e3",
+          type: "ticket.status_changed",
+          entity: "ticket",
+          entity_id: TICKET_A.id,
+          occurred_at: "2026-08-30T10:02:00Z",
+          payload: {
+            ticket_id: TICKET_A.id,
+            board_id: BOARD_ID,
+            assignee_id: ME_FIXTURE.user_id,
+            from_category: "open",
+            to_category: "in_progress",
+          },
+        },
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("in_progress")).toBeInTheDocument();
+    });
+    // Delta, not a re-snapshot.
+    expect(mock.callsTo("GET", "/api/v1/tickets")).toHaveLength(1);
+    expect(mock.callsTo("GET", `/api/v1/tickets/${TICKET_A.id}`)).toHaveLength(1);
+  });
+
   it("keeps rendering from cache when irrelevant events arrive", async () => {
     const mock = setupApi([TICKET_A]);
     render(page());
