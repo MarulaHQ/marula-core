@@ -538,7 +538,8 @@ pub async fn effects(
         let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, req.org_id, req.ticket_id)
             .await
             .map_err(|_| ApiError::NotFound)?;
-        let _ = ticket;
+        // `ticket.board_id` rides every emitted payload so the realtime
+        // layer can fan these automation writes out to the board channel.
 
         // Every payload this request emits carries the loop guard.
         let marker = serde_json::json!({ core_domain::automations::VIA_AUTOMATION_KEY: true });
@@ -569,6 +570,7 @@ pub async fn effects(
                     .await?;
                     let mut payload = serde_json::to_value(core_domain::events::TicketAssigned {
                         ticket_id: req.ticket_id,
+                        board_id: ticket.board_id,
                         assignee_id: Some(*user_id),
                         assigned_by: None,
                     })

@@ -66,9 +66,10 @@ fn uuid_field(payload: &serde_json::Value, key: &str) -> Option<Uuid> {
 ///
 /// Routing table (driven by the payloads core-api actually emits):
 /// - `ticket.*`: `payload.board_id` → board channel; `payload.assignee_id`
-///   → user channel. Events carrying neither (e.g. today's
-///   `ticket.updated` payload) are not WS-routable yet; clients pick them
-///   up via REST reconciliation.
+///   → user channel. Emissions carry both where the write knows them
+///   (created/updated/status_changed/assigned/closed/field_set/
+///   checklist_updated), so clients reconcile live deltas; a payload with
+///   neither field is not WS-routable and clients pick it up via REST.
 /// - `appointment.*`: `payload.appointment.user_id` (or flat
 ///   `payload.user_id` for cancellations) → user channel, plus the org
 ///   channel for the dispatch board so every live board reconciles.
@@ -196,9 +197,70 @@ mod tests {
     }
 
     #[test]
-    fn minimal_ticket_update_is_not_routable() {
+    fn payload_without_routing_fields_is_not_routable() {
+        // Defensive: a ticket event that somehow drops board_id and
+        // assignee_id must not silently fan out to nothing-or-everything.
         let e = envelope("ticket", json!({ "ticket_id": Uuid::now_v7() }));
         assert!(routes_for(&e).is_empty());
+    }
+
+    #[test]
+    fn ticket_update_routes_to_board_and_assignee() {
+        let (board, assignee) = (Uuid::now_v7(), Uuid::now_v7());
+        let e = envelope(
+            "ticket",
+            json!({
+                "ticket_id": Uuid::now_v7(),
+                "board_id": board.to_string(),
+                "assignee_id": assignee.to_string(),
+            }),
+        );
+        assert_eq!(
+            routes_for(&e),
+            vec![Channel::Board(board), Channel::User(assignee)]
+        );
+    }
+
+    #[test]
+    fn status_changed_and_checklist_updated_route_to_board() {
+        let board = Uuid::now_v7();
+        let status = envelope(
+            "ticket",
+            json!({
+                "ticket_id": Uuid::now_v7(),
+                "board_id": board.to_string(),
+                "from_category": "open",
+                "to_category": "closed",
+            }),
+        );
+        assert_eq!(routes_for(&status), vec![Channel::Board(board)]);
+
+        let checklist = envelope(
+            "ticket",
+            json!({
+                "ticket_id": Uuid::now_v7(),
+                "board_id": board.to_string(),
+                "items": [],
+            }),
+        );
+        assert_eq!(routes_for(&checklist), vec![Channel::Board(board)]);
+    }
+
+    #[test]
+    fn ticket_assigned_routes_to_board_and_new_assignee() {
+        let (board, assignee) = (Uuid::now_v7(), Uuid::now_v7());
+        let e = envelope(
+            "ticket",
+            json!({
+                "ticket_id": Uuid::now_v7(),
+                "board_id": board.to_string(),
+                "assignee_id": assignee.to_string(),
+            }),
+        );
+        assert_eq!(
+            routes_for(&e),
+            vec![Channel::Board(board), Channel::User(assignee)]
+        );
     }
 
     #[test]

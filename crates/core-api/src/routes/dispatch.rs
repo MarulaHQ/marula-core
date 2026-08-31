@@ -538,6 +538,7 @@ pub async fn assign(
                 Some(after.id.to_string().as_str()),
                 &serde_json::to_value(core_domain::events::TicketAssigned {
                     ticket_id: after.id,
+                    board_id: after.board_id,
                     assignee_id: after.assignee_id,
                     assigned_by: Some(actor),
                 })

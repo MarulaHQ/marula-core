@@ -117,14 +117,22 @@ pub struct AddCommentRequest {
     pub instant: instant::MutationParams,
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct AddChecklistItemRequest {
     pub text: String,
+    /// Instant-first autosave parameters (IF1): idempotency key + entity
+    /// version. Absent in legacy clients — purely additive.
+    #[serde(flatten, default)]
+    pub instant: instant::MutationParams,
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct SetChecklistItemRequest {
     pub checked: bool,
+    /// Instant-first autosave parameters (IF1): idempotency key + entity
+    /// version. Absent in legacy clients — purely additive.
+    #[serde(flatten, default)]
+    pub instant: instant::MutationParams,
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams, ToSchema)]
@@ -164,6 +172,16 @@ pub struct TicketStatusMutationResponse {
 pub struct TicketCommentMutationResponse {
     #[serde(flatten)]
     pub comment: core_domain::entities::TicketComment,
+    pub mutation: instant::MutationMeta,
+}
+
+/// Same additive envelope for checklist writes: the full checklist view at
+/// the top level (unchanged shape) plus the read-your-write metadata for
+/// the affected item.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TicketChecklistMutationResponse {
+    #[serde(flatten)]
+    pub view: TicketChecklistView,
     pub mutation: instant::MutationMeta,
 }
 
@@ -424,6 +442,7 @@ pub async fn create(
                 Some(ticket.id.to_string().as_str()),
                 &serde_json::json!({
                     "ticket_id": ticket.id,
+                    "board_id": req.board_id,
                     "field_id": value.field_id,
                     "value": value.value,
                 }),
@@ -586,6 +605,7 @@ pub async fn patch(
                     Some(after.id.to_string().as_str()),
                     &serde_json::json!({
                         "ticket_id": after.id,
+                        "board_id": after.board_id,
                         "field_id": value.field_id,
                         "value": value.value,
                     }),
@@ -598,7 +618,11 @@ pub async fn patch(
             types::TICKET_UPDATED,
             "ticket",
             Some(after.id.to_string().as_str()),
-            &serde_json::json!({ "ticket_id": after.id }),
+            &serde_json::json!({
+                "ticket_id": after.id,
+                "board_id": after.board_id,
+                "assignee_id": after.assignee_id,
+            }),
         )
         .await?;
         if before.assignee_id != after.assignee_id {
@@ -608,6 +632,7 @@ pub async fn patch(
                 Some(after.id.to_string().as_str()),
                 &serde_json::to_value(core_domain::events::TicketAssigned {
                     ticket_id: after.id,
+                    board_id: after.board_id,
                     assignee_id: after.assignee_id,
                     assigned_by: Some(user_id),
                 })
@@ -746,6 +771,7 @@ pub async fn change_status(
                 Some(id.to_string().as_str()),
                 &serde_json::to_value(core_domain::events::TicketChecklistUpdated {
                     ticket_id: id,
+                    board_id: before.board_id,
                     items: checklist,
                     updated_by: None,
                 })
@@ -790,6 +816,8 @@ pub async fn change_status(
             Some(after.id.to_string().as_str()),
             &serde_json::to_value(core_domain::events::TicketStatusChanged {
                 ticket_id: after.id,
+                board_id: after.board_id,
+                assignee_id: after.assignee_id,
                 from_status: before.status_id.to_string(),
                 to_status: target.name.clone(),
                 from_category: before.category,
@@ -805,7 +833,11 @@ pub async fn change_status(
                 types::TICKET_CLOSED,
                 "ticket",
                 Some(after.id.to_string().as_str()),
-                &serde_json::json!({ "ticket_id": after.id, "resolved_at": after.resolved_at }),
+                &serde_json::json!({
+                    "ticket_id": after.id,
+                    "board_id": after.board_id,
+                    "resolved_at": after.resolved_at
+                }),
             )
             .await?;
         }
@@ -1224,7 +1256,7 @@ fn blocking_of(items: &[ChecklistItem], enforcement_active: bool) -> Vec<String>
 /// GET response for a ticket's checklist: instances, derived progress,
 /// and the board's live enforcement posture. `blocking` lists the unchecked
 /// REQUIRED items when enforcement is active (empty otherwise).
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct TicketChecklistView {
     pub items: Vec<ChecklistItem>,
     pub progress: ChecklistProgress,
@@ -1285,15 +1317,19 @@ pub async fn get_checklist(
 
 /// POST /api/tickets/{id}/checklist — appends an ad-hoc checklist item.
 /// Ad-hoc items never block closure; emits `ticket.checklist_updated`.
+/// Instant-first (IF1/IF2): idempotency-keyed and returns the
+/// read-your-write mutation metadata for the created item.
 #[utoipa::path(operation_id = "tickets_add_checklist_item", post, path = "/api/tickets/{id}/checklist", tag = "tickets", security(("bearer" = [])),
     params(("id" = Uuid, Path)), request_body = AddChecklistItemRequest,
-    responses((status = 200, body = TicketChecklistView)))]
+    responses((status = 200, body = TicketChecklistMutationResponse),
+              (status = 404, description = "ticket not visible in scope (rls_sparse)"),
+              (status = 409, description = "idempotency key reused")))]
 pub async fn add_checklist_item(
     State(state): State<AppState>,
     extensions: Extensions,
     Path(id): Path<Uuid>,
     Json(req): Json<AddChecklistItemRequest>,
-) -> ApiResult<Json<TicketChecklistView>> {
+) -> ApiResult<Json<TicketChecklistMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(
         &authed.principal,
@@ -1304,9 +1340,28 @@ pub async fn add_checklist_item(
     }
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
+    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    let key = req.instant.idempotency_key.clone();
+    // Hoisted so a retried create replays the SAME stored item result.
+    let item_id = Uuid::now_v7();
 
-    let view = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id).await?;
+    let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        if let InstantClaim::Replay(stored) = instant::claim(
+            &mut ctx,
+            instant::ClaimSpec {
+                entity: "checklist_item",
+                entity_id: None,
+                key: key.as_deref(),
+                fingerprint: &fingerprint,
+            },
+        )
+        .await?
+        {
+            return Ok((ctx, MutationOutcome::Replayed(stored)));
+        }
+        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
         authorize_board_op(
             &mut ctx.tx,
             &authed.principal,
@@ -1317,7 +1372,7 @@ pub async fn add_checklist_item(
         let existing = core_db::tickets::list_checklist(&mut *ctx.tx, org_id, id).await?;
         core_db::tickets::add_checklist_item(
             &mut *ctx.tx,
-            Uuid::now_v7(),
+            item_id,
             org_id,
             id,
             req.text.trim(),
@@ -1325,48 +1380,85 @@ pub async fn add_checklist_item(
         )
         .await?;
         let (items, progress) = core_db::checklists::view(&mut ctx.tx, org_id, id).await?;
+        let created = items
+            .iter()
+            .find(|item| item.id == item_id)
+            .cloned()
+            .ok_or_else(|| {
+                ApiError::Internal(anyhow::anyhow!("checklist item vanished in-transaction"))
+            })?;
         ctx.emit(
             types::TICKET_CHECKLIST_UPDATED,
             "ticket",
             Some(id.to_string().as_str()),
             &serde_json::to_value(core_domain::events::TicketChecklistUpdated {
                 ticket_id: id,
+                board_id: ticket.board_id,
                 items: items.clone(),
                 updated_by: Some(user_id),
             })
             .unwrap_or_default(),
         )
         .await?;
+        let write_seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: "checklist_item",
+                entity_id: item_id,
+                version: req.instant.version,
+            },
+        )
+        .await?;
         let enforcement_active =
             checklist_enforcement(&mut ctx.tx, org_id, ticket.board_id).await?;
         let blocking = blocking_of(&items, enforcement_active);
+        let view = TicketChecklistView {
+            items,
+            progress,
+            enforcement_active,
+            blocking,
+        };
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: "checklist_item",
+                entity_id: item_id,
+                op: "checklist_item_add",
+                seq: write_seq,
+                before: None,
+                after: serde_json::to_value(&created).unwrap_or(Value::Null),
+                updated_at: chrono::Utc::now(),
+                key: key.as_deref(),
+                payload: &view,
+            },
+        )
+        .await?;
         Ok((
             ctx,
-            TicketChecklistView {
-                items,
-                progress,
-                enforcement_active,
-                blocking,
-            },
+            MutationOutcome::Applied(TicketChecklistMutationResponse { view, mutation }),
         ))
     })
     .await?;
-    Ok(Json(view))
+    Ok(Json(outcome.into_response()?))
 }
 
 /// POST /api/tickets/{id}/checklist/{item_id} — toggles one checklist item;
-/// emits `ticket.checklist_updated` in the same transaction.
+/// emits `ticket.checklist_updated` in the same transaction. Instant-first
+/// (IF1/IF2): idempotency-keyed and returns the read-your-write mutation
+/// metadata for the toggled item.
 #[utoipa::path(operation_id = "tickets_set_checklist_item", post, path = "/api/tickets/{id}/checklist/{item_id}", tag = "tickets",
     security(("bearer" = [])),
     params(("id" = Uuid, Path), ("item_id" = Uuid, Path)),
     request_body = SetChecklistItemRequest,
-    responses((status = 200, body = TicketChecklistView)))]
+    responses((status = 200, body = TicketChecklistMutationResponse),
+              (status = 404, description = "ticket or item not visible in scope (rls_sparse)"),
+              (status = 409, description = "idempotency key reused")))]
 pub async fn set_checklist_item(
     State(state): State<AppState>,
     extensions: Extensions,
     Path((id, item_id)): Path<(Uuid, Uuid)>,
     Json(req): Json<SetChecklistItemRequest>,
-) -> ApiResult<Json<TicketChecklistView>> {
+) -> ApiResult<Json<TicketChecklistMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(
         &authed.principal,
@@ -1374,9 +1466,26 @@ pub async fn set_checklist_item(
     )?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
+    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    let key = req.instant.idempotency_key.clone();
 
-    let view = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id).await?;
+    let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        if let InstantClaim::Replay(stored) = instant::claim(
+            &mut ctx,
+            instant::ClaimSpec {
+                entity: "checklist_item",
+                entity_id: Some(item_id),
+                key: key.as_deref(),
+                fingerprint: &fingerprint,
+            },
+        )
+        .await?
+        {
+            return Ok((ctx, MutationOutcome::Replayed(stored)));
+        }
+        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
         authorize_board_op(
             &mut ctx.tx,
             &authed.principal,
@@ -1384,6 +1493,11 @@ pub async fn set_checklist_item(
             BoardOp::WorkTicket,
         )
         .await?;
+        let before = core_db::tickets::list_checklist(&mut *ctx.tx, org_id, id)
+            .await?
+            .into_iter()
+            .find(|item| item.id == item_id)
+            .ok_or(ApiError::NotFound)?;
         core_db::tickets::set_checklist_item(
             &mut *ctx.tx,
             org_id,
@@ -1393,33 +1507,66 @@ pub async fn set_checklist_item(
         )
         .await?;
         let (items, progress) = core_db::checklists::view(&mut ctx.tx, org_id, id).await?;
+        let updated = items
+            .iter()
+            .find(|item| item.id == item_id)
+            .cloned()
+            .ok_or_else(|| {
+                ApiError::Internal(anyhow::anyhow!("checklist item vanished in-transaction"))
+            })?;
         ctx.emit(
             types::TICKET_CHECKLIST_UPDATED,
             "ticket",
             Some(id.to_string().as_str()),
             &serde_json::to_value(core_domain::events::TicketChecklistUpdated {
                 ticket_id: id,
+                board_id: ticket.board_id,
                 items: items.clone(),
                 updated_by: Some(user_id),
             })
             .unwrap_or_default(),
         )
         .await?;
+        let write_seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: "checklist_item",
+                entity_id: item_id,
+                version: req.instant.version,
+            },
+        )
+        .await?;
         let enforcement_active =
             checklist_enforcement(&mut ctx.tx, org_id, ticket.board_id).await?;
         let blocking = blocking_of(&items, enforcement_active);
+        let view = TicketChecklistView {
+            items,
+            progress,
+            enforcement_active,
+            blocking,
+        };
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: "checklist_item",
+                entity_id: item_id,
+                op: "checklist_item_toggle",
+                seq: write_seq,
+                before: Some(serde_json::to_value(&before).unwrap_or(Value::Null)),
+                after: serde_json::to_value(&updated).unwrap_or(Value::Null),
+                updated_at: chrono::Utc::now(),
+                key: key.as_deref(),
+                payload: &view,
+            },
+        )
+        .await?;
         Ok((
             ctx,
-            TicketChecklistView {
-                items,
-                progress,
-                enforcement_active,
-                blocking,
-            },
+            MutationOutcome::Applied(TicketChecklistMutationResponse { view, mutation }),
         ))
     })
     .await?;
-    Ok(Json(view))
+    Ok(Json(outcome.into_response()?))
 }
 
 /// GET /api/tickets/{id}/time-entries

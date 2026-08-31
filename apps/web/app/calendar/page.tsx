@@ -4,7 +4,10 @@
 // Monday-start week grid (columns = days, rows = hours) rendering
 // appointments and on-call blocks as bordered blocks, plus a
 // "New appointment" dialog whose submit runs the conflict dry-run first
-// so clashes surface before any write.
+// so clashes surface before any write. Weeks hydrate once through the
+// IF4 calendar read model (returning to a viewed week renders from cache
+// with no refetch and no flash) and appointment.* events reconcile the
+// open week as deltas (IF5).
 //
 // Non-purpose: no drag-and-drop rescheduling (dispatch-board scope), no
 // availability editing UI, no iCal feeds. Blocks render in the VIEWER'S
@@ -12,31 +15,23 @@
 "use client";
 
 import { Button, Card, Dialog, DialogActions, DialogContent, FieldHint, Input, Label } from "@meridian/ui";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api, useRequireAuth } from "../../lib/api";
+import {
+  calendarModelKey,
+  makeCalendarSpec,
+  type CalendarView,
+} from "../../lib/instant/read-models";
+import {
+  useInstantChannels,
+  useInstantCollection,
+} from "../../lib/use-instant";
 
 const HOUR_START = 7;
 const HOUR_END = 20;
 const ROW_PX = 44;
 
-interface CalItem {
-  item_type: string;
-  id: string;
-  user_id: string;
-  starts_at: string;
-  ends_at: string;
-  title: string | null;
-  kind: string | null;
-  category: string | null;
-}
-
-interface CalView {
-  user_id: string | null;
-  from: string;
-  to: string;
-  timezone: string;
-  items: CalItem[];
-}
+type CalItem = CalendarView["items"][number];
 
 function mondayOf(d: Date): Date {
   const out = new Date(d);
@@ -55,38 +50,33 @@ export default function CalendarPage() {
   const auth = useRequireAuth();
   const [weekStart, setWeekStart] = useState<Date>(() => mondayOf(new Date()));
   const [mode, setMode] = useState<"personal" | "team">("personal");
-  const [view, setView] = useState<CalView | null>(null);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      if (mode === "personal") {
-        const { data } = await api.api.GET("/api/v1/calendar/week", {
-          params: { query: { date: isoDay(weekStart) } },
-        });
-        setView((data ?? null) as CalView | null);
-      } else {
-        const to = new Date(weekStart);
-        to.setDate(to.getDate() + 7);
-        const { data } = await api.api.GET("/api/v1/calendar/team", {
-          params: {
-            query: { from: weekStart.toISOString(), to: to.toISOString() },
-          },
-        });
-        setView((data ?? null) as CalView | null);
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [mode, weekStart]);
-
-  useEffect(() => {
-    if (auth.status === "authed") void load();
-  }, [auth.status, load]);
+  // IF4/IF5: one cached read model per scope+week. Visited weeks render
+  // from cache instantly; appointment events reconcile the open week.
+  const weekIso = isoDay(weekStart);
+  const weekEnd = useMemo(() => {
+    const to = new Date(weekStart);
+    to.setDate(to.getDate() + 7);
+    return to;
+  }, [weekStart]);
+  const calSpec = useMemo(
+    () =>
+      makeCalendarSpec(api.api, {
+        mode,
+        date: weekIso,
+        from: weekStart.toISOString(),
+        to: weekEnd.toISOString(),
+      }),
+    [mode, weekIso, weekStart, weekEnd],
+  );
+  const { data: view, loading, refresh } = useInstantCollection(
+    calendarModelKey(mode === "team" ? "team" : (auth.me?.user_id ?? "personal"), weekIso),
+    calSpec,
+  );
+  // Appointment events fan out on the org channel (route table: org first).
+  useInstantChannels(auth.me ? [`org:${auth.me.org_id}`] : []);
 
   const days = useMemo(
     () =>
@@ -209,7 +199,7 @@ export default function CalendarPage() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         defaultDate={isoDay(weekStart)}
-        onCreated={() => void load()}
+        onCreated={() => void refresh()}
         onError={(m) => setError(m)}
       />
     </div>

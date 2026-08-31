@@ -61,6 +61,47 @@ export interface MfaRequired {
 export type LoginResult = TokenPair | MfaRequired;
 
 /**
+ * Runtime-typed view of the applied/prior entity snapshot inside a
+ * {@link MutationMeta}-like envelope. The OpenAPI schema types snapshots as
+ * opaque objects (they are entity-shaped at runtime, varying per endpoint),
+ * so the SDK owns this honest accessor instead of every consumer casting.
+ */
+export interface EntitySnapshot {
+  id: string;
+  updated_at?: string;
+  [field: string]: unknown;
+}
+
+/** The additive `mutation` object every gated mutation response carries. */
+export interface MutationMetaView {
+  after: unknown;
+  before: unknown;
+  seq: number;
+  updated_at: string;
+  version: number;
+  idempotency_key?: string | null;
+}
+
+/**
+ * Narrows the applied/prior snapshots of an IF2 mutation envelope.
+ * Returns null for a missing snapshot (`before` is null on creates and on
+ * records that predate the write trail) or one without an `id`.
+ */
+export function snapshotOf(meta: MutationMetaView): {
+  after: EntitySnapshot | null;
+  before: EntitySnapshot | null;
+} {
+  const asSnapshot = (value: unknown): EntitySnapshot | null => {
+    if (value === null || typeof value !== "object") return null;
+    const record = value as { id?: unknown };
+    return typeof record.id === "string"
+      ? (value as EntitySnapshot)
+      : null;
+  };
+  return { after: asSnapshot(meta.after), before: asSnapshot(meta.before) };
+}
+
+/**
  * Typed Meridian API client. Generated types come from `paths`; the wrapper
  * adds bearer-token management and the auth endpoints' convenience methods.
  */

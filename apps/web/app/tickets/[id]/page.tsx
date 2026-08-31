@@ -3,12 +3,15 @@
 // Purpose: three-pane workbench per design/mockups/ticket-workspace-light.png
 // — ticket list (left), detail (center), activity (comments + checklist +
 // timer controls, right) — composed with @meridian/layout so pane geometry
-// persists per user. Status changes go through the semantic-category
-// transition endpoint; the timer binds to this ticket.
+// persists per user. Data flows through the IF4/IF5 instant layer: the
+// detail and my-work read models hydrate once and live through WS deltas,
+// and every write renders optimistically then reconciles from the IF2
+// read-your-write envelope (or queues durably offline, IF6).
 // Non-purpose: no board editing and no admin actions here.
 "use client";
 
 import type { components } from "@meridian/sdk";
+import { snapshotOf } from "@meridian/sdk";
 import {
   Button,
   EmptyState,
@@ -24,7 +27,7 @@ import {
 } from "@meridian/ui";
 import { PanelLayout, usePanelLayout } from "@meridian/layout";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { AppHeader } from "../../../components/app-header";
 import { TicketCustomFields } from "../../../components/ticket-custom-fields";
 import {
@@ -33,12 +36,21 @@ import {
   uploadAttachment,
   useRequireAuth,
 } from "../../../lib/api";
+import {
+  makeMyWorkSpec,
+  makeTicketDetailSpec,
+  MY_WORK_KEY,
+  ticketModelKey,
+  type TicketDetailModel,
+} from "../../../lib/instant/read-models";
+import {
+  useInstantChannels,
+  useInstantCollection,
+  useInstantWrite,
+} from "../../../lib/use-instant";
 
-type Ticket = components["schemas"]["TicketWithFields"];
 type MyWorkItem = components["schemas"]["MyWorkItem"];
 type TicketComment = components["schemas"]["TicketComment"];
-type ChecklistItem = components["schemas"]["ChecklistItem"];
-type TicketChecklistView = components["schemas"]["TicketChecklistView"];
 type BoardStatus = components["schemas"]["BoardStatus"];
 type BoardTransitionsResponse = components["schemas"]["BoardTransitionsResponse"];
 type TicketSlaStatus = components["schemas"]["TicketSlaStatus"];
@@ -147,72 +159,62 @@ export default function TicketWorkspacePage() {
     },
   });
 
-  const [ticket, setTicket] = useState<Ticket | null>(null);
-  const [sla, setSla] = useState<TicketSlaStatus | null>(null);
-  const [statuses, setStatuses] = useState<BoardStatus[]>([]);
-  const [workflow, setWorkflow] = useState<BoardTransitionsResponse>({ mode: "floor", edges: [] });
-  const [comments, setComments] = useState<TicketComment[]>([]);
-  const [checklist, setChecklist] = useState<TicketChecklistView | null>(null);
-  const [commentDraft, setCommentDraft] = useState("");
-  const [checklistDraft, setChecklistDraft] = useState("");
-  // Attachments (2.14): files staged in the composer + everything already
-  // on the ticket, grouped per comment for the paperclip rows.
-  const [stagedFiles, setStagedFiles] = useState<File[]>([]);
-  const [ticketAttachments, setTicketAttachments] = useState<Attachment[]>([]);
+  // IF4/IF5: hydrate-once detail snapshot + live deltas; writes reconcile
+  // through the mutation envelope. Explicit refresh only re-snapshots on
+  // user action (custom-field verdicts), never on navigation.
+  const detailSpec = useMemo(() => makeTicketDetailSpec(api.api, ticketId), [ticketId]);
+  const { data: model, loading, refresh, patch: patchModel } = useInstantCollection(
+    ticketModelKey(ticketId),
+    detailSpec,
+  );
+  const { mutate, stampEntity } = useInstantWrite();
   const [error, setError] = useState<string | null>(null);
 
-  const refreshTicket = useCallback(async () => {
-    if (ticketId === "") return;
-    const [t, c, cl, sla, atts] = await Promise.all([
-      api.api.GET("/api/v1/tickets/{id}", { params: { path: { id: ticketId } } }),
-      api.api.GET("/api/v1/tickets/{id}/comments", { params: { path: { id: ticketId } } }),
-      api.api.GET("/api/v1/tickets/{id}/checklist", { params: { path: { id: ticketId } } }),
-      // SLA clock readout; absent (no policy) renders no badge.
-      api.api.GET("/api/v1/tickets/{id}/sla", { params: { path: { id: ticketId } } }),
-      // Attachments (2.14); absent only on older servers.
-      api.api.GET("/api/v1/tickets/{id}/attachments", { params: { path: { id: ticketId } } }),
-    ]);
-    if (t.error !== undefined) {
-      setError("Ticket not found in your organization");
-      return;
-    }
-    setTicket(t.data);
-    setComments(c.data ?? []);
-    setChecklist(cl.data ?? null);
-    setSla(sla.data ?? null);
-    setTicketAttachments(atts.data ?? []);
-    setError(null);
-    if (t.data.board_id !== null && statuses.length === 0) {
-      // Statuses + the board's effective workflow arrive together so the
-      // status control can group by category and pre-disable illegal moves.
-      const [s, tr] = await Promise.all([
-        api.api.GET("/api/v1/boards/{id}/statuses", {
-          params: { path: { id: t.data.board_id } },
-        }),
-        api.api.GET("/api/v1/boards/{id}/transitions", {
-          params: { path: { id: t.data.board_id } },
-        }),
-      ]);
-      if (s.error === undefined) setStatuses(s.data);
-      if (tr.error === undefined) setWorkflow(tr.data);
-    }
-  }, [ticketId, statuses.length]);
+  useInstantChannels([
+    model?.ticket?.board_id !== undefined && model?.ticket?.board_id !== null
+      ? `board:${model.ticket.board_id}`
+      : "",
+    auth.me !== null ? `user:${auth.me.user_id}` : "",
+  ]);
 
-  useEffect(() => {
-    if (auth.status === "authed") void refreshTicket();
-  }, [auth.status, refreshTicket]);
+  const ticket = model?.ticket ?? null;
+  const statuses = model?.statuses ?? [];
+  const workflow = model?.workflow ?? { mode: "floor" as const, edges: [] };
+
+  // Comment composer state.
+  const [commentDraft, setCommentDraft] = useState("");
+  const [checklistDraft, setChecklistDraft] = useState("");
+  // Attachments (2.14): files staged in the composer; already-stored
+  // attachments come from the detail read model, grouped per comment.
+  const [stagedFiles, setStagedFiles] = useState<File[]>([]);
 
   async function changeStatus(statusId: string) {
-    const res = await api.api.POST("/api/v1/tickets/{id}/status", {
-      params: { path: { id: ticketId } },
-      body: { status_id: statusId },
+    if (ticket === null) return;
+    const before = ticket;
+    const target = statuses.find((s) => s.id === statusId) ?? null;
+    const result = await mutate({
+      describe: `Set status ${target?.name ?? statusId} on ${ticket.number}`,
+      entityId: ticket.id,
+      method: "POST",
+      path: `/api/v1/tickets/${ticket.id}/status`,
+      buildBody: (base) => ({ status_id: statusId, ...base }),
+      optimistic: () => {
+        if (target === null) return;
+        patchDetail((m) => ({
+          ...m,
+          ticket: m.ticket === null ? m.ticket : { ...m.ticket, status_id: statusId, category: target.category },
+        }));
+      },
+      captureBefore: () => before,
+      revert: () => {
+        patchDetail((m) => ({ ...m, ticket: m.ticket === null ? m.ticket : { ...m.ticket, ...before } }));
+      },
     });
-    if (res.error !== undefined) {
+    if (result.status === "rejected") {
       setError("That status change is not allowed by this board's workflow");
       return;
     }
     setError(null);
-    void refreshTicket();
   }
 
   async function startTimer() {
@@ -223,7 +225,13 @@ export default function TicketWorkspacePage() {
     await api.api.POST("/api/v1/timers/stop", { body: {} });
   }
 
+  /** Synchronous detail-model patch for optimistic/authoritative renders. */
+  function patchDetail(updater: (m: TicketDetailModel) => TicketDetailModel): void {
+    patchModel(updater);
+  }
+
   async function postComment() {
+    if (ticket === null) return;
     const body = commentDraft.trim();
     if (body === "") return;
     try {
@@ -233,13 +241,65 @@ export default function TicketWorkspacePage() {
       for (const file of stagedFiles) {
         uploaded.push((await uploadAttachment(ticketId, file)).id);
       }
-      await api.api.POST("/api/v1/tickets/{id}/comments", {
-        params: { path: { id: ticketId } },
-        body: { body, kind: "internal", attachment_ids: uploaded },
+      const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const optimistic: TicketComment = {
+        id: tempId,
+        ticket_id: ticketId,
+        author_id: auth.me?.user_id ?? "",
+        author_name: auth.me?.display_name ?? "",
+        body,
+        kind: "internal",
+        created_at: new Date().toISOString(),
+        attachment_ids: uploaded,
+      } as unknown as TicketComment;
+      const result = await mutate({
+        describe: `Comment on ${ticket.number}`,
+        entityId: tempId,
+        method: "POST",
+        path: `/api/v1/tickets/${ticketId}/comments`,
+        buildBody: (base) => ({
+          body,
+          kind: "internal",
+          attachment_ids: uploaded,
+          ...base,
+        }),
+        optimistic: () => {
+          patchDetail((m) => ({ ...m, comments: [...m.comments, optimistic] }));
+        },
+        captureBefore: () => null,
+        revert: () => {
+          patchDetail((m) => ({
+            ...m,
+            comments: m.comments.filter((c) => c.id !== tempId),
+          }));
+        },
       });
+      if (result.status === "rejected") {
+        setError(result.message ?? "Could not post comment");
+        return;
+      }
+      if (result.status === "queued") {
+        setError(null);
+        setCommentDraft("");
+        setStagedFiles([]);
+        return;
+      }
+      // Accepted: swap the optimistic row for the applied comment, and
+      // stamp the server id's version cursor for future edits.
+      const applied =
+        result.mutation !== null ? snapshotOf(result.mutation).after : null;
+      if (applied !== null && result.mutation !== null) {
+        stampEntity(applied.id, result.mutation);
+      }
+      patchDetail((m) => ({
+        ...m,
+        comments: m.comments.map((c) =>
+          c.id === tempId && applied !== null ? (applied as TicketComment) : c,
+        ),
+      }));
+      setError(null);
       setCommentDraft("");
       setStagedFiles([]);
-      void refreshTicket();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not post comment");
     }
@@ -247,7 +307,7 @@ export default function TicketWorkspacePage() {
 
   /** Paperclip rows for one comment (or null = unlinked/ticket files). */
   function attachmentsFor(commentId: string | null): Attachment[] {
-    return ticketAttachments.filter((a) =>
+    return (model?.attachments ?? []).filter((a) =>
       commentId === null ? a.ticket_comment_id === null || a.ticket_comment_id === undefined : a.ticket_comment_id === commentId,
     );
   }
@@ -275,20 +335,138 @@ export default function TicketWorkspacePage() {
   async function addChecklistItem() {
     const text = checklistDraft.trim();
     if (text === "") return;
-    await api.api.POST("/api/v1/tickets/{id}/checklist", {
-      params: { path: { id: ticketId } },
-      body: { text },
+    const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const result = await mutate({
+      describe: "Add checklist item",
+      entityId: tempId,
+      method: "POST",
+      path: `/api/v1/tickets/${ticketId}/checklist`,
+      buildBody: (base) => ({ text, ...base }),
+      optimistic: () => {
+        patchDetail((m) => ({
+          ...m,
+          checklist:
+            m.checklist === null
+              ? m.checklist
+              : {
+                  ...m.checklist,
+                  items: [
+                    ...m.checklist.items,
+                    {
+                      id: tempId,
+                      text,
+                      checked: false,
+                      checked_at: null,
+                      checked_by: null,
+                      org_id: m.ticket?.org_id ?? "",
+                      sort_order: m.checklist.items.length,
+                      template_item_id: null,
+                      ticket_id: ticketId,
+                    },
+                  ],
+                },
+        }));
+      },
+      captureBefore: () => null,
+      revert: () => {
+        patchDetail((m) => ({
+          ...m,
+          checklist:
+            m.checklist === null
+              ? m.checklist
+              : { ...m.checklist, items: m.checklist.items.filter((i) => i.id !== tempId) },
+        }));
+      },
     });
+    if (result.status === "rejected") {
+      setError(result.message ?? "Could not add checklist item");
+      return;
+    }
     setChecklistDraft("");
-    void refreshTicket();
+    if (result.status === "accepted" && result.mutation !== null) {
+      // The checklist envelope carries the applied item in `mutation.after`.
+      const { after } = snapshotOf(result.mutation);
+      if (after !== null) {
+        stampEntity(after.id, result.mutation);
+        patchDetail((m) => ({
+          ...m,
+          checklist:
+            m.checklist === null
+              ? m.checklist
+              : {
+                  ...m.checklist,
+                  items: m.checklist.items.map((i) =>
+                    i.id === tempId ? (after as components["schemas"]["ChecklistItem"]) : i,
+                  ),
+                },
+        }));
+        return;
+      }
+    }
+    // Queued without an immediate envelope: settle on the server snapshot.
+    if (result.status === "queued") void refresh();
   }
 
   async function toggleChecklistItem(itemId: string, checked: boolean) {
-    await api.api.POST("/api/v1/tickets/{id}/checklist/{item_id}", {
-      params: { path: { id: ticketId, item_id: itemId } },
-      body: { checked },
+    if (itemId.startsWith("pending-")) return;
+    const result = await mutate({
+      describe: checked ? "Check off item" : "Uncheck item",
+      entityId: itemId,
+      method: "POST",
+      path: `/api/v1/tickets/${ticketId}/checklist/${itemId}`,
+      buildBody: (base) => ({ checked, ...base }),
+      optimistic: () => {
+        patchDetail((m) => ({
+          ...m,
+          checklist:
+            m.checklist === null
+              ? m.checklist
+              : {
+                  ...m.checklist,
+                  items: m.checklist.items.map((i) =>
+                    i.id === itemId ? { ...i, checked } : i,
+                  ),
+                },
+        }));
+      },
+      captureBefore: () => null,
+      revert: () => {
+        patchDetail((m) => ({
+          ...m,
+          checklist:
+            m.checklist === null
+              ? m.checklist
+              : {
+                  ...m.checklist,
+                  items: m.checklist.items.map((i) =>
+                    i.id === itemId ? { ...i, checked: !checked } : i,
+                  ),
+                },
+        }));
+      },
     });
-    void refreshTicket();
+    if (result.status === "rejected") {
+      setError(result.message ?? "Could not update checklist item");
+      return;
+    }
+    // Authoritative toggle: the envelope carries the applied item.
+    if (result.status === "accepted" && result.mutation !== null) {
+      const { after } = snapshotOf(result.mutation);
+      if (after !== null) {
+        patchDetail((m) => ({
+          ...m,
+          checklist:
+            m.checklist === null
+              ? m.checklist
+              : {
+                  ...m.checklist,
+                  items: m.checklist.items.map((i) =>
+                    i.id === itemId ? (after as components["schemas"]["ChecklistItem"]) : i,
+                  ),
+                },
+        }));
+      }
+    }
   }
 
   if (auth.status !== "authed") {
@@ -323,7 +501,7 @@ export default function TicketWorkspacePage() {
                       {statuses.find((s) => s.id === ticket.status_id)?.name ?? ticket.category}
                     </StatusTag>
                     {(() => {
-                      const badge = sla === null ? null : slaBadge(sla);
+                      const badge = model?.sla == null ? null : slaBadge(model.sla);
                       return badge !== null ? (
                         <StatusTag tone={badge.tone}>{badge.label}</StatusTag>
                       ) : null;
@@ -352,12 +530,12 @@ export default function TicketWorkspacePage() {
 
                   {/* Custom fields (TASKLIST 2.17): definitions for this
                       board with kind-appropriate inputs; server verdicts
-                      render inline. */}
+                      re-snapshot the detail model (never the page). */}
                   <TicketCustomFields
                     ticketId={ticket.id}
                     boardId={ticket.board_id}
                     values={ticket.custom_fields ?? []}
-                    onChanged={() => void refreshTicket()}
+                    onChanged={() => void refresh()}
                   />
 
                   <fieldset className="grid gap-3">
@@ -425,12 +603,12 @@ export default function TicketWorkspacePage() {
                 <div className="grid content-start gap-4 p-4">
                   <section className="grid gap-2">
                     <Label>Comments</Label>
-                    {comments.length === 0 && (
+                    {(model?.comments ?? []).length === 0 && (
                       <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>
                         No comments yet.
                       </p>
                     )}
-                    {comments.map((c) => (
+                    {(model?.comments ?? []).map((c) => (
                       <article key={c.id} className="rounded-[2px] border p-2 text-xs" style={{ borderColor: "var(--m-border)" }}>
                         <header className="mb-1 flex justify-between">
                           <StatusTag tone="neutral">{c.kind}</StatusTag>
@@ -490,14 +668,14 @@ export default function TicketWorkspacePage() {
 
                   <section className="grid gap-2">
                     <Label>Pre-close checklist</Label>
-                    {checklist?.enforcement_active && checklist.blocking.length > 0 ? (
+                    {model?.checklist?.enforcement_active && model.checklist.blocking.length > 0 ? (
                       <p className="text-xs" style={{ color: "var(--m-warning)" }}>
-                        {checklist.blocking.length} item
-                        {checklist.blocking.length === 1 ? "" : "s"} must be checked before this
+                        {model.checklist.blocking.length} item
+                        {model.checklist.blocking.length === 1 ? "" : "s"} must be checked before this
                         ticket can close.
                       </p>
                     ) : null}
-                    {checklist?.items.map((item) => (
+                    {(model?.checklist?.items ?? []).map((item) => (
                       <label key={item.id} className="flex items-center gap-2 text-xs">
                         <input
                           type="checkbox"
@@ -525,8 +703,12 @@ export default function TicketWorkspacePage() {
             }
             return (
               <div className="flex h-full items-center justify-center">
-                {error !== null ? (
-                  <p className="text-xs" style={{ color: "var(--m-status-danger-fg)" }}>{error}</p>
+                {loading && ticket === null ? (
+                  <Spinner />
+                ) : ticket === null && !loading ? (
+                  <p className="text-xs" style={{ color: "var(--m-status-danger-fg)" }}>
+                    Ticket not found in your organization
+                  </p>
                 ) : (
                   <Spinner />
                 )}
@@ -539,28 +721,20 @@ export default function TicketWorkspacePage() {
   );
 }
 
-/// Left pane: the caller's my-work queue (same ordering as /today).
+/// Left pane: the caller's my-work queue (same ordering as /today) through
+/// the shared my-work read model — hydrate-once, delta-reconciled.
 function MyWorkList({ selectedId, onSelect }: { selectedId: string; onSelect(id: string): void }) {
-  const [tickets, setTickets] = useState<MyWorkItem[] | null>(null);
+  const myWorkSpec = useMemo(() => makeMyWorkSpec(api.api), []);
+  const { data: tickets, loading } = useInstantCollection(MY_WORK_KEY, myWorkSpec);
 
-  useEffect(() => {
-    let cancelled = false;
-    void api.api.GET("/api/v1/tickets/my-work").then((res) => {
-      if (!cancelled && res.error === undefined) setTickets(res.data);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  if (tickets === null) {
+  if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
         <Spinner />
       </div>
     );
   }
-  if (tickets.length === 0) {
+  if (tickets === undefined || tickets.length === 0) {
     return <EmptyState message="Your open tickets appear here." />;
   }
   return (

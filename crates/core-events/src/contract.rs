@@ -334,6 +334,8 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
                 from_category: TicketStatusCategory::Open,
                 to_category: TicketStatusCategory::Waiting,
                 changed_by: Some(su(5)),
+                board_id: su(2),
+                assignee_id: Some(su(4)),
                 occurred_at: st(2),
             }
         ),
@@ -348,6 +350,7 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
                 ticket_id: su(1),
                 assignee_id: Some(su(4)),
                 assigned_by: Some(su(5)),
+                board_id: su(2),
             }
         ),
     },
@@ -428,6 +431,7 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
                     template_item_id: Some(su(9)),
                 }],
                 updated_by: Some(su(5)),
+                board_id: su(2),
             }
         ),
     },
