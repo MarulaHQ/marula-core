@@ -54,6 +54,7 @@ pub mod email_admin;
 pub mod export;
 pub mod imports;
 pub mod internal;
+pub mod invoices;
 pub mod kb;
 pub mod manifest;
 pub mod notifications;
@@ -551,6 +552,27 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             get(billing::preview_contract),
         )
         .route(&rp("/billing/preview"), get(billing::preview_org))
+        // native invoicing v1 (TASKLIST Phase 3, Wave 9 invoicing lane):
+        // invoice runs, invoices + lines, print documents, payments via
+        // the PaymentProvider seam, and forward-only dunning states.
+        // Mutations instant-first.
+        .route(
+            &rp("/billing/invoice-runs"),
+            get(invoices::list_runs).post(invoices::create_run),
+        )
+        .route(&rp("/billing/invoice-runs/{id}"), get(invoices::get_run))
+        .route(&rp("/invoices"), get(invoices::list_invoices))
+        .route(&rp("/invoices/{id}"), get(invoices::get_invoice))
+        .route(&rp("/invoices/{id}/document"), get(invoices::get_document))
+        .route(&rp("/invoices/{id}/void"), post(invoices::void_invoice))
+        .route(
+            &rp("/invoices/{id}/payments"),
+            get(invoices::list_payments).post(invoices::record_payment),
+        )
+        .route(
+            &rp("/invoices/{id}/dunning"),
+            post(invoices::transition_dunning),
+        )
         // import framework (TASKLIST D2): org-admin gated CSV/JSON mapper.
         // The two payload-heavy posts raise axum's default body cap like
         // attachments do; chunk/batch ids flow through the path.

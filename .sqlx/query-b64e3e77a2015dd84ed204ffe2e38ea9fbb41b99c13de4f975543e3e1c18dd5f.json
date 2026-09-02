@@ -1,0 +1,77 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, org_id, invoice_id, amount_minor, currency, provider, provider_ref,\n                  notes, received_at, created_by\n           FROM invoice_payments WHERE org_id = $1 AND invoice_id = $2\n           ORDER BY received_at, id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "invoice_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "amount_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "provider",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "provider_ref",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "notes",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "received_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_by",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "b64e3e77a2015dd84ed204ffe2e38ea9fbb41b99c13de4f975543e3e1c18dd5f"
+}

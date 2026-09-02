@@ -1,0 +1,147 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, org_id, run_id, client_id, contract_id, number, status, currency,\n                  period_from, period_to, issued_at, due_on, total_minor, total_paid_minor,\n                  dunning_state, dunning_updated_at, dunning_note, notes, created_by,\n                  created_at, updated_at\n           FROM invoices\n           WHERE org_id = $1\n             AND ($2::uuid IS NULL OR client_id = $2)\n             AND ($3::uuid IS NULL OR contract_id = $3)\n             AND ($4::text IS NULL OR status = $4)\n             AND ($5::text IS NULL OR dunning_state = $5)\n           ORDER BY number DESC\n           LIMIT $6",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "run_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "client_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "contract_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "number",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "period_from",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 9,
+        "name": "period_to",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 10,
+        "name": "issued_at",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 11,
+        "name": "due_on",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 12,
+        "name": "total_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 13,
+        "name": "total_paid_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 14,
+        "name": "dunning_state",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 15,
+        "name": "dunning_updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 16,
+        "name": "dunning_note",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 17,
+        "name": "notes",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 18,
+        "name": "created_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 19,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 20,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "493913967b16cc172d63619d410a2ef5a696d663bf151fb5034c169875fc3cbb"
+}

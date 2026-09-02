@@ -1,0 +1,83 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, org_id, number, period_from, period_to, invoice_count,\n                  total_minor, currency, due_in_days, created_by, created_at\n           FROM invoice_runs WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "number",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "period_from",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 4,
+        "name": "period_to",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 5,
+        "name": "invoice_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "total_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "due_in_days",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 10,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "925f99c4da0c92848927463c9ec1092403bdc6c95b2c84e2833b04a777f40cac"
+}

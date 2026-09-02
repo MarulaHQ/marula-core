@@ -386,6 +386,34 @@ pub enum BillingLineKind {
     FixedFee,
 }
 
+impl BillingLineKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            BillingLineKind::RecurringBase => "recurring_base",
+            BillingLineKind::RetainerBase => "retainer_base",
+            BillingLineKind::RetainerOverage => "retainer_overage",
+            BillingLineKind::TimeMaterials => "time_materials",
+            BillingLineKind::FixedFee => "fixed_fee",
+        }
+    }
+}
+
+impl FromStr for BillingLineKind {
+    type Err = DomainError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "recurring_base" => Ok(Self::RecurringBase),
+            "retainer_base" => Ok(Self::RetainerBase),
+            "retainer_overage" => Ok(Self::RetainerOverage),
+            "time_materials" => Ok(Self::TimeMaterials),
+            "fixed_fee" => Ok(Self::FixedFee),
+            other => Err(DomainError::Validation(format!(
+                "invalid billing line kind: {other}"
+            ))),
+        }
+    }
+}
+
 /// One draft invoice-line candidate. This is a PREVIEW shape: nothing
 /// persists until Wave 9's invoice run.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

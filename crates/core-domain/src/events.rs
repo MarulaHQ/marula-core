@@ -138,6 +138,14 @@ pub mod types {
     pub const CONTRACT_CREATED: &str = "contract.created";
     pub const CONTRACT_UPDATED: &str = "contract.updated";
     pub const CONTRACT_REMOVED: &str = "contract.removed";
+    /// Native invoicing v1 (TASKLIST Phase 3, Wave 9): invoice runs,
+    /// invoice lifecycle, payments through the `PaymentProvider` seam,
+    /// and dunning-state transitions (states as data, forward-only).
+    pub const INVOICE_RUN_COMPLETED: &str = "invoice_run.completed";
+    pub const INVOICE_CREATED: &str = "invoice.created";
+    pub const INVOICE_VOIDED: &str = "invoice.voided";
+    pub const INVOICE_PAYMENT_RECORDED: &str = "invoice.payment_recorded";
+    pub const INVOICE_DUNNING_CHANGED: &str = "invoice.dunning_changed";
     /// Projects line (TASKLIST Phase 3, migration 0030): project/phase/task
     /// lifecycle, saved views, templates, and the milestone billing seam.
     pub const PROJECT_CREATED: &str = "project.created";
@@ -778,13 +786,68 @@ pub struct ContractUpdated {
 }
 
 /// contract.removed — the agreement (with its rate card and fee schedule)
-/// was deleted. No invoice references can exist yet (Wave 9 will guard).
+/// was deleted. Invoiced contracts cannot be deleted: the Wave 9 invoicing
+/// lane guards deletes behind existing invoice references.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ContractRemoved {
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub contract_id: uuid::Uuid,
     pub number: String,
+}
+
+/// invoice_run.completed — the roll-up of one evaluation sweep: window,
+/// invoice count, and summed total. Emitted once per run, after every
+/// invoice it created committed in the same transaction.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct InvoiceRunCompleted {
+    pub run: crate::entities::InvoiceRun,
+}
+
+/// invoice.created — an issued invoice snapshot (lines excluded;
+/// consumers refetch the detail). One per contract that produced at
+/// least one candidate line in the run's window.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct InvoiceCreated {
+    pub invoice: crate::entities::Invoice,
+}
+
+/// invoice.voided — the invoice was withdrawn. Consumption markers
+/// (billed periods, time-entry links) stay: voiding releases nothing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct InvoiceVoided {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub invoice_id: uuid::Uuid,
+    pub number: String,
+}
+
+/// invoice.payment_recorded — a receipt landed through the
+/// `PaymentProvider` seam. `invoice_status` is the invoice's status AFTER
+/// the payment applied (`issued` while a balance remains, `paid` once
+/// settled).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct InvoicePaymentRecorded {
+    pub payment: crate::entities::InvoicePayment,
+    pub invoice_status: String,
+}
+
+/// invoice.dunning_changed — a forward-only collections-posture move
+/// (`none` → `reminder_sent` → `overdue` → `final_notice` →
+/// `collections`; skipping rungs is allowed, backwards is refused).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct InvoiceDunningChanged {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub invoice_id: uuid::Uuid,
+    pub number: String,
+    pub from_state: String,
+    pub to_state: String,
+    pub note: Option<String>,
+    pub changed_at: DateTime<Utc>,
 }
 
 #[cfg(test)]

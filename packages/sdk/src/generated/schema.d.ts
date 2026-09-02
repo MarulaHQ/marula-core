@@ -795,6 +795,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/billing/invoice-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/billing/invoice-runs — most recent runs first. */
+        get: operations["billing_invoice_runs_list"];
+        put?: never;
+        /**
+         * POST /api/billing/invoice-runs — evaluate every billable contract over
+         *     the window (optionally one client's) and persist one invoice per
+         *     contract with at least one candidate line. Idempotency-keyed (IF1):
+         *     the same key with the same body replays the stored run.
+         */
+        post: operations["billing_invoice_runs_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/billing/invoice-runs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/billing/invoice-runs/{id} — one run's roll-up. */
+        get: operations["billing_invoice_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/billing/preview": {
         parameters: {
             query?: never;
@@ -1389,8 +1429,8 @@ export interface paths {
         /**
          * DELETE /api/contracts/{id} — removes the contract aggregate. A typed
          *     404 (`rls_sparse`) means the target was never visible in scope.
-         *     Wave 9's invoice run adds the billing-lock guard once invoice
-         *     references can exist.
+         *     The Wave 9 invoicing lane's billing-lock guard refuses the delete
+         *     once invoices reference the contract (typed 409).
          */
         delete: operations["contracts_delete"];
         options?: never;
@@ -1806,6 +1846,131 @@ export interface paths {
          *     preference gates, events + audit, all in ONE transaction.
          */
         post: operations["internal_sla_verdict"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/invoices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/invoices — list with client/contract/status/dunning filters. */
+        get: operations["invoices_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/invoices/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/invoices/{id} — the invoice aggregate (document, lines,
+         *     payment receipts).
+         */
+        get: operations["invoices_get_one"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/invoices/{id}/document": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/invoices/{id}/document — the print-ready HTML invoice
+         *     document (print-to-PDF from any browser; v1 ships no PDF binary
+         *     output — see TASKLIST).
+         */
+        get: operations["invoices_document"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/invoices/{id}/dunning": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/invoices/{id}/dunning — move an ISSUED invoice's dunning
+         *     state forward (none → reminder_sent → overdue → final_notice →
+         *     collections; skipping rungs is allowed, backwards is refused).
+         *     States are data: the write emits `invoice.dunning_changed` and lands
+         *     in the write trail. Instant-first gated (IF1/IF2).
+         */
+        post: operations["invoices_dunning_transition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/invoices/{id}/payments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/invoices/{id}/payments — the payment receipts. */
+        get: operations["invoices_payments_list"];
+        put?: never;
+        /**
+         * POST /api/invoices/{id}/payments — record a payment through the
+         *     `PaymentProvider` seam. The charge runs INSIDE the mutation
+         *     transaction so receipt, payment row, and invoice status commit (or
+         *     roll back) atomically. Instant-first gated (IF1/IF2).
+         */
+        post: operations["invoices_payments_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/invoices/{id}/void": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/invoices/{id}/void — withdraw an ISSUED invoice. Terminal:
+         *     consumption markers stay, so re-running the window can never
+         *     double-bill. Instant-first gated (IF1/IF2).
+         */
+        post: operations["invoices_void"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4774,6 +4939,28 @@ export interface components {
             /** Format: int32 */
             position?: number | null;
         };
+        CreateInvoiceRunRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * Format: uuid
+             * @description Restrict the run to one client's billable contracts.
+             */
+            client_id?: string | null;
+            /**
+             * Format: int32
+             * @description Payment terms for the issued invoices, in days (default 30).
+             */
+            due_in_days?: number | null;
+            /**
+             * Format: date
+             * @description Window start (inclusive), ISO date.
+             */
+            from: string;
+            /**
+             * Format: date
+             * @description Window end (inclusive), ISO date.
+             */
+            to: string;
+        };
         CreateOnCallRequest: {
             /** @description Rotation label ('primary', 'secondary', 'escalation', …). */
             category: string;
@@ -5215,6 +5402,21 @@ export interface components {
              *     the template's canonical columns before validation (D2 remainder).
              */
             template_id?: string | null;
+        };
+        /**
+         * @description Collections posture of an issued invoice. Forward-only: states are
+         *     data moved by explicit API writes (events + write trail), never a
+         *     background side effect.
+         * @enum {string}
+         */
+        DunningState: "none" | "reminder_sent" | "overdue" | "final_notice" | "collections";
+        DunningTransitionRequest: components["schemas"]["MutationParams"] & {
+            note?: string | null;
+            /**
+             * @description The target state; must be strictly forward on the ladder
+             *     (skipping rungs is allowed).
+             */
+            to_state: components["schemas"]["DunningState"];
         };
         EffectsRequest: {
             /** @description AutomationAction documents, parsed and validated via core-domain. */
@@ -5664,6 +5866,187 @@ export interface components {
             name: string;
             /** Format: date */
             start_date?: string | null;
+        };
+        /**
+         * @description The billing document. Derives from exactly one contract; `currency`
+         *     and `total_minor` come from the contract's evaluation (line sum).
+         */
+        Invoice: {
+            /** Format: uuid */
+            client_id: string;
+            /** Format: uuid */
+            contract_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** @description ISO 4217 code copied from the contract; every amount uses it. */
+            currency: string;
+            /** Format: date */
+            due_on: string;
+            dunning_note?: string | null;
+            dunning_state: components["schemas"]["DunningState"];
+            /** Format: date-time */
+            dunning_updated_at?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: date */
+            issued_at: string;
+            notes?: string | null;
+            /** @description Human invoice number, unique per org (e.g. "INV-000042"). */
+            number: string;
+            /** Format: uuid */
+            org_id: string;
+            /**
+             * Format: date
+             * @description The billed period, when the contract type has one (recurring /
+             *     retainer / T&M window slice); `None` for fixed-fee schedules.
+             */
+            period_from?: string | null;
+            /** Format: date */
+            period_to?: string | null;
+            /**
+             * Format: uuid
+             * @description The run that created this invoice (`None` for future manual invoices).
+             */
+            run_id?: string | null;
+            status: components["schemas"]["InvoiceStatus"];
+            /**
+             * Format: int64
+             * @description Sum of line amounts, minor units.
+             */
+            total_minor: number;
+            /**
+             * Format: int64
+             * @description Recorded payment total, minor units.
+             */
+            total_paid_minor: number;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /** @description The invoice aggregate: document, lines, and payment receipts. */
+        InvoiceDetail: components["schemas"]["Invoice"] & {
+            lines: components["schemas"]["InvoiceLine"][];
+            payments: components["schemas"]["InvoicePayment"][];
+        };
+        /**
+         * @description One persisted billing line; mirrors the engine's `BillingCandidateLine`
+         *     (kind reuse via [`crate::entities::BillingLineKind`]) minus the
+         *     denormalized contract/client names.
+         */
+        InvoiceLine: {
+            /** Format: int64 */
+            amount_minor: number;
+            /** Format: uuid */
+            contract_id: string;
+            description: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            invoice_id: string;
+            kind: components["schemas"]["BillingLineKind"];
+            /** Format: uuid */
+            org_id: string;
+            /** Format: date */
+            period_end: string;
+            /** Format: date */
+            period_start: string;
+            /** Format: int32 */
+            position: number;
+            /**
+             * Format: int64
+             * @description Labor minutes on the line (T&M / overage); 0 for amount lines.
+             */
+            quantity_minutes: number;
+            /** Format: int64 */
+            unit_amount_minor: number;
+        };
+        InvoiceListQuery: {
+            /** Format: uuid */
+            client_id?: string | null;
+            /** Format: uuid */
+            contract_id?: string | null;
+            /**
+             * @description Exact dunning state:
+             *     `none|reminder_sent|overdue|final_notice|collections`.
+             */
+            dunning_state?: string | null;
+            /** @description Exact status: `draft|issued|paid|void`. */
+            status?: string | null;
+        };
+        /** @description Instant-first mutation response (IF2) for invoice mutations. */
+        InvoiceMutationResponse: components["schemas"]["Invoice"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        /**
+         * @description A payment receipt recorded through the `PaymentProvider` seam. The
+         *     provider stays a string (`none` in v1 — the built-in provider approves
+         *     locally without external PSP calls).
+         */
+        InvoicePayment: {
+            /** Format: int64 */
+            amount_minor: number;
+            /** Format: uuid */
+            created_by?: string | null;
+            currency: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            invoice_id: string;
+            notes?: string | null;
+            /** Format: uuid */
+            org_id: string;
+            provider: string;
+            provider_ref?: string | null;
+            /** Format: date-time */
+            received_at: string;
+        };
+        /**
+         * @description The invoice-run batch record: one evaluation sweep over a window and
+         *     the roll-up of the invoices it created.
+         */
+        InvoiceRun: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /**
+             * @description Currency of the summed total; `None` when the run created no
+             *     invoices (mixed currencies are rejected before any write).
+             */
+            currency?: string | null;
+            /** Format: int32 */
+            due_in_days: number;
+            /** Format: uuid */
+            id: string;
+            /** Format: int32 */
+            invoice_count: number;
+            /** @description Human run number, unique per org (e.g. "RUN-000007"). */
+            number: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: date */
+            period_from: string;
+            /** Format: date */
+            period_to: string;
+            /** Format: int64 */
+            total_minor: number;
+        };
+        /** @description Instant-first mutation response (IF2) for an invoice run. */
+        InvoiceRunResponse: {
+            invoices: components["schemas"]["IssuedInvoice"][];
+            mutation: components["schemas"]["MutationMeta"];
+            run: components["schemas"]["InvoiceRun"];
+        };
+        /**
+         * @description Document lifecycle of an invoice.
+         * @enum {string}
+         */
+        InvoiceStatus: "draft" | "issued" | "paid" | "void";
+        /** @description One issued invoice: the document plus its lines. */
+        IssuedInvoice: {
+            invoice: components["schemas"]["Invoice"];
+            lines: components["schemas"]["InvoiceLine"][];
         };
         /** @description A KB article. */
         KbArticle: {
@@ -6403,6 +6786,16 @@ export interface components {
              */
             session_id?: string | null;
         };
+        /**
+         * @description Payment receipt response. The invoice is nested (not flattened) so
+         *     the stored replay payload — `{payment, invoice}` plus the merged
+         *     mutation metadata — deserializes into this shape byte-identically.
+         */
+        PaymentMutationResponse: {
+            invoice: components["schemas"]["Invoice"];
+            mutation: components["schemas"]["MutationMeta"];
+            payment: components["schemas"]["InvoicePayment"];
+        };
         PhaseMutationResponse: components["schemas"]["ProjectPhase"] & {
             mutation: components["schemas"]["MutationMeta"];
         };
@@ -6751,6 +7144,15 @@ export interface components {
             /** Format: int64 */
             rate_minor: number;
             work_type: string;
+        };
+        RecordPaymentRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * Format: int64
+             * @description Amount to collect, minor units; must not exceed the outstanding
+             *     balance. Currency is always the invoice's own.
+             */
+            amount_minor: number;
+            notes?: string | null;
         };
         RecoveryCodesResponse: {
             /** @description Plaintext codes — displayed once, stored only as argon2id hashes. */
@@ -7733,6 +8135,7 @@ export interface components {
          * @enum {string}
          */
         VizHint: "bar" | "line" | "pie" | "table";
+        VoidInvoiceRequest: components["schemas"]["MutationParams"];
         WebauthnBeginResponse: {
             /** @description Opaque ceremony binding — pass back to finish. */
             challenge_token: string;
@@ -9026,6 +9429,90 @@ export interface operations {
             };
         };
     };
+    billing_invoice_runs_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvoiceRun"][];
+                };
+            };
+        };
+    };
+    billing_invoice_runs_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateInvoiceRunRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvoiceRunResponse"];
+                };
+            };
+            /** @description mixed-currency run or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    billing_invoice_runs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvoiceRun"];
+                };
+            };
+            /** @description run not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     billing_preview: {
         parameters: {
             query?: {
@@ -10199,6 +10686,13 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description contract has invoices */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     contracts_patch: {
@@ -10938,6 +11432,250 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["VerdictResponse"];
                 };
+            };
+        };
+    };
+    invoices_list: {
+        parameters: {
+            query?: {
+                client_id?: string | null;
+                contract_id?: string | null;
+                /** @description Exact status: `draft|issued|paid|void`. */
+                status?: string | null;
+                /**
+                 * @description Exact dunning state:
+                 *     `none|reminder_sent|overdue|final_notice|collections`.
+                 */
+                dunning_state?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Invoice"][];
+                };
+            };
+        };
+    };
+    invoices_get_one: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvoiceDetail"];
+                };
+            };
+            /** @description invoice not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    invoices_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+            /** @description invoice not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    invoices_dunning_transition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DunningTransitionRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvoiceMutationResponse"];
+                };
+            };
+            /** @description invoice not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invoice not issuable, version conflict, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description backwards or same-state transition */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    invoices_payments_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvoicePayment"][];
+                };
+            };
+            /** @description invoice not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    invoices_payments_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordPaymentRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentMutationResponse"];
+                };
+            };
+            /** @description invoice not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invoice not payable, overpayment, version conflict, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    invoices_void: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VoidInvoiceRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvoiceMutationResponse"];
+                };
+            };
+            /** @description invoice not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invoice not voidable, version conflict, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
