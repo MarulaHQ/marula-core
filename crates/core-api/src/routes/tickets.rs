@@ -471,6 +471,7 @@ pub async fn create(
                 updated_at: enriched.ticket.updated_at,
                 key: key.as_deref(),
                 payload: &enriched,
+                provenance: Default::default(),
             },
         )
         .await?;
@@ -653,6 +654,7 @@ pub async fn patch(
                 updated_at: enriched.ticket.updated_at,
                 key: key.as_deref(),
                 payload: &enriched,
+                provenance: Default::default(),
             },
         )
         .await?;
@@ -883,6 +885,7 @@ pub async fn change_status(
                 updated_at: after.updated_at,
                 key: key.as_deref(),
                 payload: &after,
+                provenance: Default::default(),
             },
         )
         .await?;
@@ -1220,6 +1223,7 @@ pub async fn add_comment(
                 updated_at: comment.created_at,
                 key: key.as_deref(),
                 payload: &comment,
+                provenance: Default::default(),
             },
         )
         .await?;
@@ -1430,6 +1434,7 @@ pub async fn add_checklist_item(
                 updated_at: chrono::Utc::now(),
                 key: key.as_deref(),
                 payload: &view,
+                provenance: Default::default(),
             },
         )
         .await?;
@@ -1557,6 +1562,7 @@ pub async fn set_checklist_item(
                 updated_at: chrono::Utc::now(),
                 key: key.as_deref(),
                 payload: &view,
+                provenance: Default::default(),
             },
         )
         .await?;

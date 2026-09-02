@@ -226,6 +226,7 @@ pub async fn start(
                 updated_at: session.started_at,
                 key: key.as_deref(),
                 payload: &session,
+                provenance: Default::default(),
             },
         )
         .await?;
@@ -444,6 +445,7 @@ pub async fn stop(
                 updated_at: entry.ended_at,
                 key: key.as_deref(),
                 payload: &entry,
+                provenance: Default::default(),
             },
         )
         .await?;

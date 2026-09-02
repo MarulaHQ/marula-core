@@ -582,6 +582,7 @@ pub async fn create_run(
                 updated_at: run.created_at,
                 key: key.as_deref(),
                 payload: &payload,
+                provenance: Default::default(),
             },
         )
         .await?;
@@ -864,6 +865,7 @@ pub async fn void_invoice(
                 updated_at: voided.updated_at,
                 key: key.as_deref(),
                 payload: &voided,
+                provenance: Default::default(),
             },
         )
         .await?;
@@ -1021,6 +1023,7 @@ pub async fn record_payment(
                     payment: &payment,
                     invoice: &after,
                 },
+                provenance: Default::default(),
             },
         )
         .await?;
@@ -1162,6 +1165,7 @@ pub async fn transition_dunning(
                 updated_at: after.updated_at,
                 key: key.as_deref(),
                 payload: &after,
+                provenance: Default::default(),
             },
         )
         .await?;

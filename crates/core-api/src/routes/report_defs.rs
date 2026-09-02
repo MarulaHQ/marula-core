@@ -348,6 +348,7 @@ pub async fn create(
                 updated_at: view.updated_at,
                 key: key.as_deref(),
                 payload: &view,
+                provenance: Default::default(),
             },
         )
         .await?;
@@ -486,6 +487,7 @@ pub async fn update(
                 updated_at: view.updated_at,
                 key: key.as_deref(),
                 payload: &view,
+                provenance: Default::default(),
             },
         )
         .await?;
@@ -579,6 +581,7 @@ pub async fn remove(
                 updated_at: before.updated_at,
                 key: None,
                 payload: &before,
+                provenance: Default::default(),
             },
         )
         .await?;

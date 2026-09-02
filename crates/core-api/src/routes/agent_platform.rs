@@ -1286,6 +1286,9 @@ async fn apply_ticket_proposal(
             after: serde_json::to_value(&after).unwrap_or(Value::Null),
             updated_at: after.updated_at,
             key: Some(&idempotency_key),
+            // IF8 approve-apply is a human decision write; agent linkage
+            // lives on the proposal row, not on this trail entry.
+            provenance: Default::default(),
             payload: &after,
         },
     )

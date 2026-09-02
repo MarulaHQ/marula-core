@@ -64,6 +64,7 @@ pub mod openapi;
 pub mod portal;
 pub mod portal_admin;
 pub mod projects;
+pub mod provenance;
 pub mod report_defs;
 pub mod report_schedules;
 pub mod reports;
@@ -636,6 +637,11 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(&rp("/org/exports"), post(export::create))
         // audit (admin)
         .route(&rp("/audit-events"), get(audit::list))
+        // provenance read model (TASKLIST IF9): the 2.3 audit query API
+        // extended with per-field write-trail provenance (doctrine #9);
+        // RBAC tiers resolve inside the handler (manager+ org-wide,
+        // others own-actions only)
+        .route(&rp("/provenance"), get(provenance::list))
         // operational reports (TASKLIST R1): read-model views only
         .route(&rp("/reports/{kind}"), get(reports::report))
         // plugin runtime v1: signed webhooks OUT + API keys (admin;

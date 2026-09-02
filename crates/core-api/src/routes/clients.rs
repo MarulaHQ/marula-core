@@ -191,6 +191,7 @@ pub async fn create(
                 updated_at: client.created_at,
                 key: key.as_deref(),
                 payload: &client,
+                provenance: Default::default(),
             },
         )
         .await?;

@@ -546,6 +546,12 @@ pub async fn revert(
                 after: serde_json::to_value(&enriched.ticket).unwrap_or(Value::Null),
                 updated_at: enriched.ticket.updated_at,
                 key: key.as_deref(),
+                // IF7 revert riding the normal path: flagged, never a
+                // rewritten row (IF9 keeps the trail append-only).
+                provenance: instant::ProvenanceContext {
+                    is_undo: true,
+                    ..Default::default()
+                },
                 payload: &stored,
             },
         )
