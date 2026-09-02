@@ -42,6 +42,11 @@ pub mod types {
     pub const TICKET_COMMENT_ADDED: &str = "ticket.comment_added";
     pub const TICKET_CHECKLIST_UPDATED: &str = "ticket.checklist_updated";
     pub const TICKET_CLOSED: &str = "ticket.closed";
+    /// Undo (IF7): a revert executed as a normal authorized idempotent
+    /// write appended a NEW trail row restoring prior values. The
+    /// append-only trail is never rewritten — this event IS the audited
+    /// revert.
+    pub const TICKET_REVERTED: &str = "ticket.reverted";
     pub const TIMER_STARTED: &str = "timer.started";
     pub const TIMER_PAUSED: &str = "timer.paused";
     pub const TIMER_RESUMED: &str = "timer.resumed";
@@ -262,6 +267,32 @@ pub struct TicketAssigned {
     pub assignee_id: Option<UserId>,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub assigned_by: Option<UserId>,
+}
+
+/// `ticket.reverted` — an IF7 revert restored prior field values by
+/// appending a NEW write-trail row (op `revert`); nothing in the trail was
+/// rewritten. `reverted_seq` names the trail write the revert stepped back
+/// over; `fields` lists the record fields whose values were restored.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TicketReverted {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub ticket_id: TicketId,
+    /// Board the ticket lives on — drives WS fan-out to `board:<id>`.
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub board_id: BoardId,
+    /// Current assignee — drives WS fan-out to `user:<id>`.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub assignee_id: Option<UserId>,
+    /// The write-trail seq the revert stepped back over.
+    pub reverted_seq: i64,
+    /// Record fields whose values were restored.
+    pub fields: Vec<String>,
+    /// Whether the revert was a whole-record step (no explicit field list).
+    pub whole_record: bool,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub reverted_by: Option<UserId>,
+    pub occurred_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

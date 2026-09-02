@@ -2202,7 +2202,7 @@ async fn commit_update(
                 *internal_id,
                 core_db::tickets::TicketPatch {
                     title: Some(&ticket.title),
-                    body: ticket.body.as_deref(),
+                    body: ticket.body.as_deref().map(Some),
                     priority: Some(ticket.priority),
                     // Parent links are identity, never content drift.
                     assignee_id: None,

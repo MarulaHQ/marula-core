@@ -3356,6 +3356,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tickets/{id}/revert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/tickets/{id}/revert — undo one server-accepted edit by
+         *     restoring its prior values as a NORMAL authorized idempotent write
+         *     (IF1 envelope end to end). Appends a new trail row (op `revert`),
+         *     emits `ticket.reverted` on the event bus, and writes the audited
+         *     `ticket.reverted` trail row — the append-only history is never
+         *     rewritten.
+         */
+        post: operations["tickets_revert"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tickets/{id}/sla": {
         parameters: {
             query?: never;
@@ -3412,6 +3436,26 @@ export interface paths {
         };
         /** GET /api/tickets/{id}/time-entries */
         get: operations["tickets_ticket_time_entries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{id}/undo-stack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/tickets/{id}/undo-stack — the per-field / per-record
+         *     applied-state history read model for one record.
+         */
+        get: operations["tickets_undo_stack"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7403,6 +7447,32 @@ export interface components {
              */
             version: number;
         };
+        /** @description What the revert restored. */
+        RevertDetail: {
+            /** @description Record fields whose values were restored. */
+            fields: string[];
+            /**
+             * Format: int64
+             * @description The write-trail seq the revert stepped back over.
+             */
+            reverted_seq: number;
+            /** @description Whether this was a whole-record step (no explicit field list). */
+            whole_record: boolean;
+        };
+        /** @description POST /api/tickets/{id}/revert body. */
+        RevertTicketRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * @description Explicit per-field revert: restore ONLY these fields to their values
+             *     at the target write. Omit for a whole-record step (rejected with
+             *     `undo_reverts_only` while the record is closed).
+             */
+            fields?: string[] | null;
+            /**
+             * Format: int64
+             * @description The write-trail `seq` to step back over (from the undo stack).
+             */
+            seq: number;
+        };
         /**
          * @description Wire format selector for an import payload.
          * @enum {string}
@@ -7946,6 +8016,15 @@ export interface components {
          */
         TicketNumber: string;
         /**
+         * @description The reverted ticket with the mutation envelope, plus what was reverted.
+         *     Deserializable so an IF1 idempotent replay can reconstruct the exact
+         *     stored response.
+         */
+        TicketRevertResponse: components["schemas"]["TicketWithFields"] & {
+            mutation: components["schemas"]["MutationMeta"];
+            revert: components["schemas"]["RevertDetail"];
+        };
+        /**
          * @description Per-ticket SLA clock state. Accumulates paused business seconds so a
          *     Waiting stretch does not consume the resolution budget.
          */
@@ -8127,6 +8206,84 @@ export interface components {
             from_status_id: string;
             /** Format: uuid */
             to_status_id: string;
+        };
+        /** @description One field of one applied write — per-field undo granularity. */
+        UndoFieldStep: {
+            /** Format: uuid */
+            actor_id: string;
+            actor_kind: string;
+            changed: boolean;
+            created_at: string;
+            field: string;
+            /** @description Value after the write (absent keys read as `null`). */
+            new_value: Record<string, never> | null;
+            op: string;
+            /** @description Value before the write (absent keys read as `null`). */
+            prior: Record<string, never> | null;
+            /** Format: int64 */
+            seq: number;
+            /** Format: uuid */
+            write_id: string;
+        };
+        /**
+         * @description The record's undo posture: `open` = near-total undo; `reverts_only` =
+         *     explicit actioned per-field reverts only (record is closed).
+         * @enum {string}
+         */
+        UndoMode: "open" | "reverts_only";
+        UndoStackQuery: {
+            /**
+             * Format: int64
+             * @description Maximum steps / field rows returned (1–200, default 50). Newest
+             *     first; the first step's `seq` is the record's current version.
+             */
+            limit?: number | null;
+        };
+        UndoStackResponse: {
+            /**
+             * Format: int64
+             * @description The record's current version — echo it as `version` on a revert.
+             */
+            current_version: number;
+            entity: string;
+            /** Format: uuid */
+            entity_id: string;
+            /** @description Per-field history, newest write first. */
+            fields: components["schemas"]["UndoFieldStep"][];
+            /** @description Near-total (`open`) vs actioned-reverts-only (`reverts_only`). */
+            mode: components["schemas"]["UndoMode"];
+            /** @description Applied writes, newest first. */
+            steps: components["schemas"]["UndoStep"][];
+        };
+        /** @description One applied write on the record — one step of the undo stack. */
+        UndoStep: {
+            /** Format: uuid */
+            actor_id: string;
+            /** @description `human` | `agent` | ... (the audit actor vocabulary). */
+            actor_kind: string;
+            /** @description Applied entity snapshot. */
+            after: Record<string, never>;
+            /** @description Prior entity snapshot; `null` on creates. */
+            before: Record<string, never> | null;
+            created_at: string;
+            idempotency_key?: string | null;
+            /** @description Machine op name (`create`, `update`, `status_change`, `revert`, ...). */
+            op: string;
+            /**
+             * @description The revert path can restore this write's prior values (`create`
+             *     steps are visible history but not value-restorable).
+             */
+            restorable: boolean;
+            /**
+             * Format: int64
+             * @description Per-entity monotonic write number (the version this write produced).
+             */
+            seq: number;
+            /**
+             * Format: uuid
+             * @description Trail row id (stable reference for actioned reverts).
+             */
+            write_id: string;
         };
         UnreadCount: {
             /** Format: int64 */
@@ -14817,6 +14974,45 @@ export interface operations {
             };
         };
     };
+    tickets_revert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevertTicketRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketRevertResponse"];
+                };
+            };
+            /** @description version conflict, idempotency key reuse, or undo_reverts_only (closed record, whole-record revert) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unknown target seq, non-restorable step/field, or nothing to restore */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     tickets_sla_status: {
         parameters: {
             query?: never;
@@ -14902,6 +15098,40 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["TimeEntry"][];
                 };
+            };
+        };
+    };
+    tickets_undo_stack: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Maximum steps / field rows returned (1–200, default 50). Newest
+                 *     first; the first step's `seq` is the record's current version.
+                 */
+                limit?: number | null;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UndoStackResponse"];
+                };
+            };
+            /** @description ticket not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

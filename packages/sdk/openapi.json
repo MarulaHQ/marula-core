@@ -9880,6 +9880,65 @@
           }
         ]
       },
+      "RevertDetail": {
+        "description": "What the revert restored.",
+        "properties": {
+          "fields": {
+            "description": "Record fields whose values were restored.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "reverted_seq": {
+            "description": "The write-trail seq the revert stepped back over.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "whole_record": {
+            "description": "Whether this was a whole-record step (no explicit field list).",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "reverted_seq",
+          "fields",
+          "whole_record"
+        ],
+        "type": "object"
+      },
+      "RevertTicketRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1): idempotency key + entity\nversion, exactly as any autosave write."
+          },
+          {
+            "properties": {
+              "fields": {
+                "description": "Explicit per-field revert: restore ONLY these fields to their values\nat the target write. Omit for a whole-record step (rejected with\n`undo_reverts_only` while the record is closed).",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "seq": {
+                "description": "The write-trail `seq` to step back over (from the undo stack).",
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "seq"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "POST /api/tickets/{id}/revert body."
+      },
       "RowFormat": {
         "description": "Wire format selector for an import payload.",
         "enum": [
@@ -11333,6 +11392,29 @@
         "description": "Human-facing ticket number, e.g. `MER-2841`. Globally unique per org,\nassigned from a per-org sequence.",
         "type": "string"
       },
+      "TicketRevertResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/TicketWithFields"
+          },
+          {
+            "properties": {
+              "mutation": {
+                "$ref": "#/components/schemas/MutationMeta"
+              },
+              "revert": {
+                "$ref": "#/components/schemas/RevertDetail"
+              }
+            },
+            "required": [
+              "mutation",
+              "revert"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "The reverted ticket with the mutation envelope, plus what was reverted.\nDeserializable so an IF1 idempotent replay can reconstruct the exact\nstored response."
+      },
       "TicketSlaState": {
         "description": "Per-ticket SLA clock state. Accumulates paused business seconds so a\nWaiting stretch does not consume the resolution budget.",
         "properties": {
@@ -11780,6 +11862,192 @@
         "required": [
           "from_status_id",
           "to_status_id"
+        ],
+        "type": "object"
+      },
+      "UndoFieldStep": {
+        "description": "One field of one applied write — per-field undo granularity.",
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "actor_kind": {
+            "type": "string"
+          },
+          "changed": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "field": {
+            "type": "string"
+          },
+          "new_value": {
+            "description": "Value after the write (absent keys read as `null`).",
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "op": {
+            "type": "string"
+          },
+          "prior": {
+            "description": "Value before the write (absent keys read as `null`).",
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "seq": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "write_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "write_id",
+          "seq",
+          "op",
+          "field",
+          "prior",
+          "new_value",
+          "changed",
+          "actor_id",
+          "actor_kind",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "UndoMode": {
+        "description": "The record's undo posture: `open` = near-total undo; `reverts_only` =\nexplicit actioned per-field reverts only (record is closed).",
+        "enum": [
+          "open",
+          "reverts_only"
+        ],
+        "type": "string"
+      },
+      "UndoStackQuery": {
+        "properties": {
+          "limit": {
+            "description": "Maximum steps / field rows returned (1–200, default 50). Newest\nfirst; the first step's `seq` is the record's current version.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "UndoStackResponse": {
+        "properties": {
+          "current_version": {
+            "description": "The record's current version — echo it as `version` on a revert.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "entity": {
+            "type": "string"
+          },
+          "entity_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "fields": {
+            "description": "Per-field history, newest write first.",
+            "items": {
+              "$ref": "#/components/schemas/UndoFieldStep"
+            },
+            "type": "array"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/UndoMode",
+            "description": "Near-total (`open`) vs actioned-reverts-only (`reverts_only`)."
+          },
+          "steps": {
+            "description": "Applied writes, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/UndoStep"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "entity",
+          "entity_id",
+          "mode",
+          "current_version",
+          "steps",
+          "fields"
+        ],
+        "type": "object"
+      },
+      "UndoStep": {
+        "description": "One applied write on the record — one step of the undo stack.",
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "actor_kind": {
+            "description": "`human` | `agent` | ... (the audit actor vocabulary).",
+            "type": "string"
+          },
+          "after": {
+            "description": "Applied entity snapshot.",
+            "type": "object"
+          },
+          "before": {
+            "description": "Prior entity snapshot; `null` on creates.",
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "op": {
+            "description": "Machine op name (`create`, `update`, `status_change`, `revert`, ...).",
+            "type": "string"
+          },
+          "restorable": {
+            "description": "The revert path can restore this write's prior values (`create`\nsteps are visible history but not value-restorable).",
+            "type": "boolean"
+          },
+          "seq": {
+            "description": "Per-entity monotonic write number (the version this write produced).",
+            "format": "int64",
+            "type": "integer"
+          },
+          "write_id": {
+            "description": "Trail row id (stable reference for actioned reverts).",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "write_id",
+          "seq",
+          "op",
+          "actor_id",
+          "actor_kind",
+          "before",
+          "after",
+          "restorable",
+          "created_at"
         ],
         "type": "object"
       },
@@ -22570,6 +22838,59 @@
         ]
       }
     },
+    "/api/v1/tickets/{id}/revert": {
+      "post": {
+        "operationId": "tickets_revert",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevertTicketRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketRevertResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "description": "version conflict, idempotency key reuse, or undo_reverts_only (closed record, whole-record revert)"
+          },
+          "422": {
+            "description": "unknown target seq, non-restorable step/field, or nothing to restore"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/tickets/{id}/revert — undo one server-accepted edit by\nrestoring its prior values as a NORMAL authorized idempotent write\n(IF1 envelope end to end). Appends a new trail row (op `revert`),\nemits `ticket.reverted` on the event bus, and writes the audited\n`ticket.reverted` trail row — the append-only history is never\nrewritten.",
+        "tags": [
+          "tickets"
+        ]
+      }
+    },
     "/api/v1/tickets/{id}/sla": {
       "get": {
         "operationId": "tickets_sla_status",
@@ -22698,6 +23019,59 @@
           }
         ],
         "summary": "GET /api/tickets/{id}/time-entries",
+        "tags": [
+          "tickets"
+        ]
+      }
+    },
+    "/api/v1/tickets/{id}/undo-stack": {
+      "get": {
+        "operationId": "tickets_undo_stack",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Maximum steps / field rows returned (1–200, default 50). Newest\nfirst; the first step's `seq` is the record's current version.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UndoStackResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "ticket not visible in scope"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/tickets/{id}/undo-stack — the per-field / per-record\napplied-state history read model for one record.",
         "tags": [
           "tickets"
         ]

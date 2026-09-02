@@ -41,6 +41,7 @@ pub mod sla;
 pub mod tickets;
 pub mod time_audit;
 pub mod timers;
+pub mod undo;
 pub mod users;
 pub mod webhooks;
 

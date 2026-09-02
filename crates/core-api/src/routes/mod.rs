@@ -73,6 +73,7 @@ pub mod sla_admin;
 pub mod tickets;
 pub mod time;
 pub mod timers;
+pub mod undo;
 pub mod webhook_admin;
 pub mod webhooks;
 
@@ -808,6 +809,10 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // CRUD + cursor-paged listing with next-run preview; module owns
         // its own router.
         .merge(report_schedules::routes(gen))
+        // undo as a core capability (TASKLIST IF7): per-field/per-record
+        // applied-state history + revert-as-normal-IF1-write; module owns
+        // its own router.
+        .merge(undo::routes(gen))
         // Stamps org_id onto the current request span (telemetry) once the
         // auth middleware below has resolved it.
         .layer(middleware::from_fn(crate::otel_http::record_org))

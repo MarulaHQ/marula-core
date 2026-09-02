@@ -216,7 +216,7 @@ async fn ticket_events_resolve_to_fresh_upserts_then_delete_when_gone() {
             ticket,
             core_db::tickets::TicketPatch {
                 title: Some("VPN tunnel stable again"),
-                body: Some("monitoring confirms clean"),
+                body: Some(Some("monitoring confirms clean")),
                 priority: None,
                 assignee_id: None,
                 client_id: None,
