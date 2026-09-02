@@ -25,6 +25,12 @@ pub mod types {
     /// mutations inside the batch keep emitting their ordinary events.
     pub const IMPORT_BATCH_STARTED: &str = "import.batch_started";
     pub const IMPORT_BATCH_FINISHED: &str = "import.batch_finished";
+    /// Migration connector lifecycle (TASKLIST D3): a third-party bulk-push
+    /// session opened / closed. Parallel to the import batch events — the
+    /// connector session pairs 1:1 with a D2 batch, but webhook consumers
+    /// see the connector-level bracket without parsing engine internals.
+    pub const MIGRATION_PUSH_SESSION_STARTED: &str = "migration.push_session_started";
+    pub const MIGRATION_PUSH_SESSION_FINISHED: &str = "migration.push_session_finished";
     pub const BOARD_CREATED: &str = "board.created";
     /// Board content update (import framework, TASKLIST D2 remainder).
     pub const BOARD_UPDATED: &str = "board.updated";
@@ -390,6 +396,35 @@ pub struct ImportBatchStarted {
 pub struct ImportBatchFinished {
     pub batch_id: crate::ids::ImportBatchId,
     pub entity_kind: String,
+    pub rows_total: i32,
+    pub rows_created: i32,
+    pub rows_updated: i32,
+    pub rows_skipped: i32,
+    pub rows_failed: i32,
+}
+
+/// A migration connector push session opened (payload for
+/// `migration.push_session_started`, TASKLIST D3). The session pairs 1:1
+/// with the D2 import batch that does the writing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MigrationPushSessionStarted {
+    pub session_id: MigrationSessionId,
+    pub batch_id: ImportBatchId,
+    pub entity_kind: String,
+    pub conflict_policy: String,
+    pub label: String,
+}
+
+/// A migration connector push session closed (payload for
+/// `migration.push_session_finished`). Counters mirror the underlying D2
+/// batch's cumulative totals; `chunks_committed` is the checkpoint cursor
+/// length the tool actually pushed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MigrationPushSessionFinished {
+    pub session_id: MigrationSessionId,
+    pub batch_id: ImportBatchId,
+    pub entity_kind: String,
+    pub chunks_committed: i32,
     pub rows_total: i32,
     pub rows_created: i32,
     pub rows_updated: i32,

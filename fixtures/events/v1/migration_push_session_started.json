@@ -1,0 +1,14 @@
+{
+  "event_type": "migration.push_session_started",
+  "entity": "migration_push_session",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "batch_id": "00000000-0000-0000-0000-00000000000c",
+    "conflict_policy": "update",
+    "entity_kind": "client",
+    "label": "connectwise-clients-2026",
+    "session_id": "00000000-0000-0000-0000-000000000022"
+  }
+}

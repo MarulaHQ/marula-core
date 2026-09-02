@@ -26,6 +26,8 @@ pub type AuditEventId = Uuid;
 pub type OutboxEventId = Uuid;
 /// An import batch run identifier (import framework, TASKLIST D2).
 pub type ImportBatchId = Uuid;
+/// A migration connector push session identifier (TASKLIST D3).
+pub type MigrationSessionId = Uuid;
 pub type ApiKeyId = Uuid;
 pub type PortalUserId = Uuid;
 pub type ContractId = Uuid;

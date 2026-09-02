@@ -27,7 +27,8 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 /// Capability scopes a machine key may hold. Kept deliberately small for
-/// v1: read/write on the three data modules connectors actually need.
+/// v1: read/write on the three data modules connectors actually need, plus
+/// the D3 migration connector's broad push/pull grants.
 pub const KNOWN_SCOPES: &[&str] = &[
     "tickets:read",
     "tickets:write",
@@ -35,6 +36,8 @@ pub const KNOWN_SCOPES: &[&str] = &[
     "clients:write",
     "timers:read",
     "timers:write",
+    "migration:read",
+    "migration:write",
 ];
 
 // --- hashing ------------------------------------------------------------------

@@ -2315,6 +2315,115 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/migration/pull/{family}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/migration/pull/{family} — stateless cursor-paged export of one
+         *     entity family: internal id + stable external key + the canonical
+         *     import projection. Keyset-paged on the uuidv7 id (creation order), so
+         *     pages never skip or repeat rows under concurrent writes.
+         */
+        get: operations["migration_pull"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/migration/push/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/migration/push/sessions — opens a connector push session over
+         *     a fresh D2 import batch. One session targets exactly one entity kind;
+         *     cross-family ordering is the tool's run script's job (the D2 import
+         *     order: client → site → contact → board → ticket → time entry).
+         */
+        post: operations["migration_create_push_session"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/migration/push/sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/migration/push/sessions/{id} — the resume view: where the
+         *     checkpoint stands and which chunks committed.
+         */
+        get: operations["migration_get_push_session"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/migration/push/sessions/{session_id}/chunks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/migration/push/sessions/{id}/chunks — plans then executes ONE
+         *     chunk through the D2 commit path, then stamps the checkpoint. A
+         *     fail-policy chunk with any conflict persists nothing and returns the
+         *     typed 409 with the full per-row report (checkpoint untouched — fix the
+         *     rows and re-send the same index).
+         */
+        post: operations["migration_push_chunk"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/migration/push/sessions/{session_id}/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/migration/push/sessions/{id}/finish — closes the session and
+         *     its D2 batch, emitting BOTH the engine lifecycle event
+         *     (`import.batch_finished`) and the connector-level
+         *     `migration.push_session_finished`.
+         */
+        post: operations["migration_finish_push_session"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/notification-preferences": {
         parameters: {
             query?: never;
@@ -5273,6 +5382,12 @@ export interface components {
         CommentListQuery: {
             kind?: null | components["schemas"]["NoteKind"];
         };
+        /** @description One committed chunk's position in the resume view. */
+        CommittedChunkRef: {
+            /** Format: int64 */
+            chunk_index: number;
+            committed_at: string;
+        };
         ConflictCheckRequest: {
             /** Format: date-time */
             ends_at: string;
@@ -5779,6 +5894,15 @@ export interface components {
         CreateProposalResponse: {
             proposal: components["schemas"]["AgentProposalView"];
         };
+        /** @description POST /api/migration/push/sessions body. */
+        CreatePushSessionRequest: {
+            conflict_policy: components["schemas"]["ConflictPolicy"];
+            entity_kind: components["schemas"]["EntityKind"];
+            /** @description Operator-facing run label. */
+            label?: string | null;
+            /** @description Free-form note about the third-party source system. */
+            source_note?: string | null;
+        };
         /** @description POST /api/report-definitions body. */
         CreateReportDefinitionRequest: components["schemas"]["MutationParams"] & {
             description?: string | null;
@@ -5975,15 +6099,15 @@ export interface components {
              */
             user_id?: string | null;
         };
-        DecideProposalRequest: {
-            note?: string | null;
-        };
         /**
          * @description A staff decision body. `decision_note` is the (optional) reason shown
          *     to the client on decline and a confirmation note on approve.
          */
         DecideAppointmentRequest: components["schemas"]["MutationParams"] & {
             decision_note?: string | null;
+        };
+        DecideProposalRequest: {
+            note?: string | null;
         };
         /**
          * @description Instant-first mutation response (IF2) for a decision. `appointment`
@@ -8097,7 +8221,6 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
-<<<<<<< HEAD
         /**
          * @description Proposal classification: who will see the change if it lands.
          * @enum {string}
@@ -8120,7 +8243,6 @@ export interface components {
          * @enum {string}
          */
         ProposalStatus: "proposed" | "approved" | "declined" | "withdrawn" | "applied";
-=======
         /** @description One provenance entry: a single field change within one applied write. */
         ProvenanceEvent: {
             /**
@@ -8172,7 +8294,6 @@ export interface components {
             /** @description Opaque cursor for the next page; absent when exhausted. */
             next_cursor?: string | null;
         };
->>>>>>> p9-if9-provenance
         PublicProvider: {
             display_name: string;
             /** @description URL path segment for /api/auth/oidc/{name}/login. */
@@ -8186,6 +8307,176 @@ export interface components {
              *     history, never an in-place edit.
              */
             slug: string;
+        };
+        /**
+         * @description One exported row: internal id, stable source key when the row was ever
+         *     pushed under one, and the canonical projection (the SAME field catalog
+         *     the push side diffs against).
+         */
+        PullItem: {
+            external_key?: string | null;
+            /** Format: uuid */
+            id: string;
+            projection: Record<string, never>;
+        };
+        /** @description GET /api/migration/pull/{family} envelope. */
+        PullPage: {
+            family: components["schemas"]["EntityKind"];
+            items: components["schemas"]["PullItem"][];
+            /** @description Pass back as `cursor`; absent when exhausted. */
+            next_cursor?: string | null;
+        };
+        /** @description GET /api/migration/pull/{family} query. */
+        PullQuery: {
+            /**
+             * @description Opaque keyset cursor from a previous page's `next_cursor` (the last
+             *     row id). Absent = start of the family.
+             */
+            cursor?: string | null;
+            /**
+             * Format: int64
+             * @description Page size, clamped to [1, 200] (default 100).
+             */
+            limit?: number | null;
+        };
+        /**
+         * @description The checkpoint cursor of a push session: what the server has committed
+         *     and what it expects next. `last_committed_chunk` is `-1` on a fresh
+         *     session.
+         */
+        PushCheckpoint: {
+            /**
+             * Format: int64
+             * @description Highest committed chunk index; -1 before the first chunk.
+             */
+            last_committed_chunk: number;
+            /**
+             * Format: int64
+             * @description The chunk index the next POST must carry.
+             */
+            next_chunk: number;
+        };
+        /**
+         * @description The per-row report of one chunk — the D2 contract shape, kept
+         *     Serialize+Deserialize so a committed chunk's stored copy replays
+         *     faithfully on an exact re-send.
+         */
+        PushChunkReport: {
+            /** Format: uuid */
+            batch_id: string;
+            conflict_policy: components["schemas"]["ConflictPolicy"];
+            dry_run: boolean;
+            entity_kind: components["schemas"]["EntityKind"];
+            rows: components["schemas"]["RowReport"][];
+            summary: components["schemas"]["PushChunkSummary"];
+        };
+        /** @description POST /api/migration/push/sessions/{id}/chunks body. */
+        PushChunkRequest: components["schemas"]["RowsPayload"] & {
+            /**
+             * Format: int64
+             * @description Position of this chunk in the run. Must be the checkpoint's
+             *     `next_chunk`; a lower index replays (same payload) or 409s
+             *     (`migration_chunk_reused`, different payload); a higher index 409s
+             *     (`migration_cursor_mismatch`) — chunks are sequential.
+             */
+            chunk_index: number;
+        };
+        PushChunkResponse: {
+            checkpoint: components["schemas"]["PushCheckpoint"];
+            /** Format: int64 */
+            chunk_index: number;
+            /**
+             * @description `true` when an exact re-send replayed the stored report without
+             *     touching data (retry after a lost response is free).
+             */
+            replay: boolean;
+            report: components["schemas"]["PushChunkReport"];
+            /** Format: int64 */
+            rows_created: number;
+            /** Format: int64 */
+            rows_failed: number;
+            /** Format: int64 */
+            rows_skipped: number;
+            /**
+             * Format: int64
+             * @description Cumulative batch counters after this chunk.
+             */
+            rows_total: number;
+            /** Format: int64 */
+            rows_updated: number;
+            /** Format: uuid */
+            session_id: string;
+        };
+        /**
+         * @description u32-friendly mirror of the per-chunk summary so the generated SDK gets
+         *     plain integers without overflow caveats (same shape as D2's
+         *     `ChunkSummaryWire`, but also deserialize for replay).
+         */
+        PushChunkSummary: {
+            /** Format: int32 */
+            failed: number;
+            /** Format: int32 */
+            ok: number;
+            /** Format: int32 */
+            total: number;
+            /** Format: int32 */
+            would_skip: number;
+            /** Format: int32 */
+            would_update: number;
+        };
+        /** @description 201 body: the session id, its D2 batch, and the starting cursor. */
+        PushSessionCreated: {
+            /** Format: uuid */
+            batch_id: string;
+            checkpoint: components["schemas"]["PushCheckpoint"];
+            conflict_policy: components["schemas"]["ConflictPolicy"];
+            entity_kind: components["schemas"]["EntityKind"];
+            label: string;
+            /** Format: uuid */
+            session_id: string;
+        };
+        /**
+         * @description POST /api/migration/push/sessions/{id}/finish — closes the session and
+         *     its D2 batch; returns the cumulative run totals.
+         */
+        PushSessionFinishedResponse: {
+            /** Format: uuid */
+            batch_id: string;
+            checkpoint: components["schemas"]["PushCheckpoint"];
+            /** Format: int64 */
+            chunks_committed: number;
+            conflict_policy: components["schemas"]["ConflictPolicy"];
+            entity_kind: components["schemas"]["EntityKind"];
+            /** Format: int32 */
+            rows_created: number;
+            /** Format: int32 */
+            rows_failed: number;
+            /** Format: int32 */
+            rows_skipped: number;
+            /** Format: int32 */
+            rows_total: number;
+            /** Format: int32 */
+            rows_updated: number;
+            /** Format: uuid */
+            session_id: string;
+        };
+        /**
+         * @description GET /api/migration/push/sessions/{id} — the resume view a tool asks
+         *     after a crash: where the checkpoint stands and which chunks committed.
+         */
+        PushSessionView: {
+            /** Format: uuid */
+            batch_id: string;
+            checkpoint: components["schemas"]["PushCheckpoint"];
+            committed_chunks: components["schemas"]["CommittedChunkRef"][];
+            conflict_policy: components["schemas"]["ConflictPolicy"];
+            created_at: string;
+            entity_kind: components["schemas"]["EntityKind"];
+            finished_at?: string | null;
+            label: string;
+            /** Format: uuid */
+            session_id: string;
+            source_note?: string | null;
         };
         PutCapabilityRequest: {
             /** @description `<namespace>:read` | `<namespace>:write`. */
@@ -13754,6 +14045,126 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MeResponse"];
+                };
+            };
+        };
+    };
+    migration_pull: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a previous page's `next_cursor` (the last
+                 *     row id). Absent = start of the family.
+                 */
+                cursor?: string | null;
+                /** @description Page size, clamped to [1, 200] (default 100). */
+                limit?: number | null;
+            };
+            header?: never;
+            path: {
+                /** @description Entity family: client, site, contact, board, ticket, time_entry, kb_category, kb_article */
+                family: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PullPage"];
+                };
+            };
+        };
+    };
+    migration_create_push_session: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePushSessionRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushSessionCreated"];
+                };
+            };
+        };
+    };
+    migration_get_push_session: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushSessionView"];
+                };
+            };
+        };
+    };
+    migration_push_chunk: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PushChunkRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushChunkResponse"];
+                };
+            };
+        };
+    };
+    migration_finish_push_session: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushSessionFinishedResponse"];
                 };
             };
         };

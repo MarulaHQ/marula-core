@@ -250,6 +250,12 @@ use utoipa::OpenApi;
         crate::routes::imports::delete_template,
         crate::routes::imports::stage_chunk,
         crate::routes::imports::run_batch,
+        // migration connector (TASKLIST D3)
+        crate::routes::connector::create_session,
+        crate::routes::connector::get_session,
+        crate::routes::connector::post_chunk,
+        crate::routes::connector::finish_session,
+        crate::routes::connector::pull,
         crate::routes::export::create,
         crate::routes::export::download,
         crate::routes::attachments::upload,
@@ -349,6 +355,20 @@ use utoipa::OpenApi;
         crate::routes::imports::StageChunkRequest,
         crate::routes::imports::StageChunkResponse,
         crate::routes::imports::RunBatchResponse,
+        // migration connector (TASKLIST D3)
+        crate::routes::connector::PushCheckpoint,
+        crate::routes::connector::CreatePushSessionRequest,
+        crate::routes::connector::PushSessionCreated,
+        crate::routes::connector::CommittedChunkRef,
+        crate::routes::connector::PushSessionView,
+        crate::routes::connector::PushChunkSummary,
+        crate::routes::connector::PushChunkReport,
+        crate::routes::connector::PushChunkRequest,
+        crate::routes::connector::PushChunkResponse,
+        crate::routes::connector::PushSessionFinishedResponse,
+        crate::routes::connector::PullQuery,
+        crate::routes::connector::PullItem,
+        crate::routes::connector::PullPage,
         // org-data export (TASKLIST D1, generalizes the U5 manifest)
         crate::routes::export::ExportCreatedResponse,
         core_domain::entities::export::ExportBundle,
@@ -779,6 +799,7 @@ use utoipa::OpenApi;
         (name = "documents", description = "Documents with immutable, append-only, diffable versions (restore-creates-new-version)"),
         (name = "alerts", description = "Alert ingestor: HMAC-signed webhook ingest, dedup/correlation, storm collapse into incident tickets"),
         (name = "agent-platform", description = "Agent platform v1: capability registry (deny-by-default, involvement dial), versioned agent skills, IF8 proposal pipeline (approval by default)"),
+        (name = "migration", description = "Migration connector (third-party tools): bulk push riding the import engine with checkpoint cursors, cursor-paged read-model pull; API-key scoped (migration:read/write), per-key rate limited"),
     )
 )]
 pub struct ApiDoc;

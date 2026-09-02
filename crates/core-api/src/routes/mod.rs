@@ -49,6 +49,7 @@ pub mod boards;
 pub mod calendar;
 pub mod checklists;
 pub mod clients;
+pub mod connector;
 pub mod custom_fields;
 pub mod dispatch;
 pub mod documents;
@@ -868,6 +869,10 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // applied-state history + revert-as-normal-IF1-write; module owns
         // its own router.
         .merge(undo::routes(gen))
+        // migration connector (TASKLIST D3): authenticated bulk push
+        // (rides the D2 engine, checkpoint cursors) + cursor-paged pull
+        // exports; module owns its own router.
+        .merge(connector::routes(gen))
         // Stamps org_id onto the current request span (telemetry) once the
         // auth middleware below has resolved it.
         .layer(middleware::from_fn(crate::otel_http::record_org))

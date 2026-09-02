@@ -2751,6 +2751,23 @@
         },
         "type": "object"
       },
+      "CommittedChunkRef": {
+        "description": "One committed chunk's position in the resume view.",
+        "properties": {
+          "chunk_index": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "committed_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "chunk_index",
+          "committed_at"
+        ],
+        "type": "object"
+      },
       "ConflictCheckRequest": {
         "properties": {
           "ends_at": {
@@ -4180,6 +4197,36 @@
         ],
         "type": "object"
       },
+      "CreatePushSessionRequest": {
+        "description": "POST /api/migration/push/sessions body.",
+        "properties": {
+          "conflict_policy": {
+            "$ref": "#/components/schemas/ConflictPolicy"
+          },
+          "entity_kind": {
+            "$ref": "#/components/schemas/EntityKind"
+          },
+          "label": {
+            "description": "Operator-facing run label.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_note": {
+            "description": "Free-form note about the third-party source system.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "entity_kind",
+          "conflict_policy"
+        ],
+        "type": "object"
+      },
       "CreateReportDefinitionRequest": {
         "allOf": [
           {
@@ -4723,17 +4770,6 @@
         },
         "type": "object"
       },
-<<<<<<< HEAD
-      "DecideProposalRequest": {
-        "properties": {
-          "note": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-=======
       "DecideAppointmentRequest": {
         "allOf": [
           {
@@ -4753,6 +4789,17 @@
           }
         ],
         "description": "A staff decision body. `decision_note` is the (optional) reason shown\nto the client on decline and a confirmation note on approve."
+      },
+      "DecideProposalRequest": {
+        "properties": {
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
       },
       "DecideResponse": {
         "description": "Instant-first mutation response (IF2) for a decision. `appointment`\nis present ONLY on approve: the calendar booking this decision made.",
@@ -4778,7 +4825,6 @@
           "request",
           "mutation"
         ],
->>>>>>> p9-portal-v2
         "type": "object"
       },
       "DeclarationView": {
@@ -10252,7 +10298,6 @@
         ],
         "type": "object"
       },
-<<<<<<< HEAD
       "ProposalClassification": {
         "description": "Proposal classification: who will see the change if it lands.",
         "enum": [
@@ -10267,7 +10312,40 @@
         "properties": {
           "cursor": {
             "description": "Opaque keyset cursor from a previous page's `next_cursor`.",
-=======
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "description": "Page size, clamped to [1, 200].",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "status": {
+            "description": "Filter by lifecycle state.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "ProposalStatus": {
+        "description": "Proposal lifecycle state.",
+        "enum": [
+          "proposed",
+          "approved",
+          "declined",
+          "withdrawn",
+          "applied"
+        ],
+        "type": "string"
+      },
       "ProvenanceEvent": {
         "description": "One provenance entry: a single field change within one applied write.",
         "properties": {
@@ -10325,24 +10403,11 @@
           },
           "ruleset_hash": {
             "description": "Rule-set hash that governed the write, when present.",
->>>>>>> p9-if9-provenance
             "type": [
               "string",
               "null"
             ]
           },
-<<<<<<< HEAD
-          "limit": {
-            "description": "Page size, clamped to [1, 200].",
-            "format": "int64",
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
-          "status": {
-            "description": "Filter by lifecycle state.",
-=======
           "seq": {
             "description": "The write's per-entity sequence (mirrors `mutation.version`).",
             "format": "int64",
@@ -10358,27 +10423,10 @@
           },
           "skill": {
             "description": "Skill that authored the write, when present.",
->>>>>>> p9-if9-provenance
             "type": [
               "string",
               "null"
             ]
-<<<<<<< HEAD
-          }
-        },
-        "type": "object"
-      },
-      "ProposalStatus": {
-        "description": "Proposal lifecycle state.",
-        "enum": [
-          "proposed",
-          "approved",
-          "declined",
-          "withdrawn",
-          "applied"
-        ],
-        "type": "string"
-=======
           },
           "undo": {
             "description": "True for undo reverts (IF7) riding the normal write path.",
@@ -10425,7 +10473,6 @@
           "events"
         ],
         "type": "object"
->>>>>>> p9-if9-provenance
       },
       "PublicProvider": {
         "properties": {
@@ -10457,6 +10504,398 @@
         "required": [
           "slug",
           "manifest"
+        ],
+        "type": "object"
+      },
+      "PullItem": {
+        "description": "One exported row: internal id, stable source key when the row was ever\npushed under one, and the canonical projection (the SAME field catalog\nthe push side diffs against).",
+        "properties": {
+          "external_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "projection": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "projection"
+        ],
+        "type": "object"
+      },
+      "PullPage": {
+        "description": "GET /api/migration/pull/{family} envelope.",
+        "properties": {
+          "family": {
+            "$ref": "#/components/schemas/EntityKind"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PullItem"
+            },
+            "type": "array"
+          },
+          "next_cursor": {
+            "description": "Pass back as `cursor`; absent when exhausted.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "family",
+          "items"
+        ],
+        "type": "object"
+      },
+      "PullQuery": {
+        "description": "GET /api/migration/pull/{family} query.",
+        "properties": {
+          "cursor": {
+            "description": "Opaque keyset cursor from a previous page's `next_cursor` (the last\nrow id). Absent = start of the family.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "description": "Page size, clamped to [1, 200] (default 100).",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "PushCheckpoint": {
+        "description": "The checkpoint cursor of a push session: what the server has committed\nand what it expects next. `last_committed_chunk` is `-1` on a fresh\nsession.",
+        "properties": {
+          "last_committed_chunk": {
+            "description": "Highest committed chunk index; -1 before the first chunk.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "next_chunk": {
+            "description": "The chunk index the next POST must carry.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "last_committed_chunk",
+          "next_chunk"
+        ],
+        "type": "object"
+      },
+      "PushChunkReport": {
+        "description": "The per-row report of one chunk — the D2 contract shape, kept\nSerialize+Deserialize so a committed chunk's stored copy replays\nfaithfully on an exact re-send.",
+        "properties": {
+          "batch_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "conflict_policy": {
+            "$ref": "#/components/schemas/ConflictPolicy"
+          },
+          "dry_run": {
+            "type": "boolean"
+          },
+          "entity_kind": {
+            "$ref": "#/components/schemas/EntityKind"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/RowReport"
+            },
+            "type": "array"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/PushChunkSummary"
+          }
+        },
+        "required": [
+          "batch_id",
+          "dry_run",
+          "entity_kind",
+          "conflict_policy",
+          "summary",
+          "rows"
+        ],
+        "type": "object"
+      },
+      "PushChunkRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/RowsPayload"
+          },
+          {
+            "properties": {
+              "chunk_index": {
+                "description": "Position of this chunk in the run. Must be the checkpoint's\n`next_chunk`; a lower index replays (same payload) or 409s\n(`migration_chunk_reused`, different payload); a higher index 409s\n(`migration_cursor_mismatch`) — chunks are sequential.",
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "chunk_index"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "POST /api/migration/push/sessions/{id}/chunks body."
+      },
+      "PushChunkResponse": {
+        "properties": {
+          "checkpoint": {
+            "$ref": "#/components/schemas/PushCheckpoint"
+          },
+          "chunk_index": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "replay": {
+            "description": "`true` when an exact re-send replayed the stored report without\ntouching data (retry after a lost response is free).",
+            "type": "boolean"
+          },
+          "report": {
+            "$ref": "#/components/schemas/PushChunkReport"
+          },
+          "rows_created": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "rows_failed": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "rows_skipped": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "rows_total": {
+            "description": "Cumulative batch counters after this chunk.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "rows_updated": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "session_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "chunk_index",
+          "replay",
+          "report",
+          "checkpoint",
+          "rows_total",
+          "rows_created",
+          "rows_updated",
+          "rows_skipped",
+          "rows_failed"
+        ],
+        "type": "object"
+      },
+      "PushChunkSummary": {
+        "description": "u32-friendly mirror of the per-chunk summary so the generated SDK gets\nplain integers without overflow caveats (same shape as D2's\n`ChunkSummaryWire`, but also deserialize for replay).",
+        "properties": {
+          "failed": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "ok": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "would_skip": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "would_update": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "ok",
+          "would_update",
+          "would_skip",
+          "failed"
+        ],
+        "type": "object"
+      },
+      "PushSessionCreated": {
+        "description": "201 body: the session id, its D2 batch, and the starting cursor.",
+        "properties": {
+          "batch_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "checkpoint": {
+            "$ref": "#/components/schemas/PushCheckpoint"
+          },
+          "conflict_policy": {
+            "$ref": "#/components/schemas/ConflictPolicy"
+          },
+          "entity_kind": {
+            "$ref": "#/components/schemas/EntityKind"
+          },
+          "label": {
+            "type": "string"
+          },
+          "session_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "batch_id",
+          "entity_kind",
+          "conflict_policy",
+          "label",
+          "checkpoint"
+        ],
+        "type": "object"
+      },
+      "PushSessionFinishedResponse": {
+        "description": "POST /api/migration/push/sessions/{id}/finish — closes the session and\nits D2 batch; returns the cumulative run totals.",
+        "properties": {
+          "batch_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "checkpoint": {
+            "$ref": "#/components/schemas/PushCheckpoint"
+          },
+          "chunks_committed": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "conflict_policy": {
+            "$ref": "#/components/schemas/ConflictPolicy"
+          },
+          "entity_kind": {
+            "$ref": "#/components/schemas/EntityKind"
+          },
+          "rows_created": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "rows_failed": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "rows_skipped": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "rows_total": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "rows_updated": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "session_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "batch_id",
+          "entity_kind",
+          "conflict_policy",
+          "chunks_committed",
+          "rows_total",
+          "rows_created",
+          "rows_updated",
+          "rows_skipped",
+          "rows_failed",
+          "checkpoint"
+        ],
+        "type": "object"
+      },
+      "PushSessionView": {
+        "description": "GET /api/migration/push/sessions/{id} — the resume view a tool asks\nafter a crash: where the checkpoint stands and which chunks committed.",
+        "properties": {
+          "batch_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "checkpoint": {
+            "$ref": "#/components/schemas/PushCheckpoint"
+          },
+          "committed_chunks": {
+            "items": {
+              "$ref": "#/components/schemas/CommittedChunkRef"
+            },
+            "type": "array"
+          },
+          "conflict_policy": {
+            "$ref": "#/components/schemas/ConflictPolicy"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "entity_kind": {
+            "$ref": "#/components/schemas/EntityKind"
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "session_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "source_note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "session_id",
+          "batch_id",
+          "entity_kind",
+          "conflict_policy",
+          "label",
+          "created_at",
+          "checkpoint",
+          "committed_chunks"
         ],
         "type": "object"
       },
@@ -20493,6 +20932,101 @@
         ]
       }
     },
+    "/api/v1/mcp/capabilities": {
+      "get": {
+        "operationId": "mcp_capabilities_list",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilityGrantList"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/v1/mcp/capabilities — every granted capability of the org.",
+        "tags": [
+          "agent-platform"
+        ]
+      },
+      "put": {
+        "operationId": "mcp_capability_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutCapabilityRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilityGrantView"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "description": "owner/admin surface"
+          },
+          "422": {
+            "description": "invalid capability or dial position"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "PUT /api/v1/mcp/capabilities — grant or re-dial one capability.",
+        "tags": [
+          "agent-platform"
+        ]
+      }
+    },
+    "/api/v1/mcp/capabilities/{capability}": {
+      "delete": {
+        "operationId": "mcp_capability_revoke",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "capability",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "DELETE /api/v1/mcp/capabilities/{capability} — revoke (deny again).",
+        "tags": [
+          "agent-platform"
+        ]
+      }
+    },
     "/api/v1/me": {
       "get": {
         "operationId": "handlers_me",
@@ -20516,6 +21050,225 @@
         "summary": "GET /api/me — the authenticated principal with resolved permissions.",
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/api/v1/migration/pull/{family}": {
+      "get": {
+        "operationId": "migration_pull",
+        "parameters": [
+          {
+            "description": "Entity family: client, site, contact, board, ticket, time_entry, kb_category, kb_article",
+            "in": "path",
+            "name": "family",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Opaque keyset cursor from a previous page's `next_cursor` (the last\nrow id). Absent = start of the family.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Page size, clamped to [1, 200] (default 100).",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PullPage"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/migration/pull/{family} — stateless cursor-paged export of one\nentity family: internal id + stable external key + the canonical\nimport projection. Keyset-paged on the uuidv7 id (creation order), so\npages never skip or repeat rows under concurrent writes.",
+        "tags": [
+          "migration"
+        ]
+      }
+    },
+    "/api/v1/migration/push/sessions": {
+      "post": {
+        "operationId": "migration_create_push_session",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePushSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushSessionCreated"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/migration/push/sessions — opens a connector push session over\na fresh D2 import batch. One session targets exactly one entity kind;\ncross-family ordering is the tool's run script's job (the D2 import\norder: client → site → contact → board → ticket → time entry).",
+        "tags": [
+          "migration"
+        ]
+      }
+    },
+    "/api/v1/migration/push/sessions/{session_id}": {
+      "get": {
+        "operationId": "migration_get_push_session",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushSessionView"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/migration/push/sessions/{id} — the resume view: where the\ncheckpoint stands and which chunks committed.",
+        "tags": [
+          "migration"
+        ]
+      }
+    },
+    "/api/v1/migration/push/sessions/{session_id}/chunks": {
+      "post": {
+        "operationId": "migration_push_chunk",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushChunkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushChunkResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/migration/push/sessions/{id}/chunks — plans then executes ONE\nchunk through the D2 commit path, then stamps the checkpoint. A\nfail-policy chunk with any conflict persists nothing and returns the\ntyped 409 with the full per-row report (checkpoint untouched — fix the\nrows and re-send the same index).",
+        "tags": [
+          "migration"
+        ]
+      }
+    },
+    "/api/v1/migration/push/sessions/{session_id}/finish": {
+      "post": {
+        "operationId": "migration_finish_push_session",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushSessionFinishedResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/migration/push/sessions/{id}/finish — closes the session and\nits D2 batch, emitting BOTH the engine lifecycle event\n(`import.batch_finished`) and the connector-level\n`migration.push_session_finished`.",
+        "tags": [
+          "migration"
         ]
       }
     },
@@ -20942,118 +21695,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CategoryMutationResponse"
-                }
-              }
-            },
-            "description": ""
-          },
-          "404": {
-            "description": "category not visible in scope"
-          },
-          "409": {
-            "description": "version conflict, slug reuse, or idempotency key reused"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "PATCH /api/kb/categories/{id} — instant-first (IF1/IF2).",
-        "tags": [
-          "kb"
-        ]
-      }
-    },
-    "/api/v1/mcp/capabilities": {
-      "get": {
-        "operationId": "mcp_capabilities_list",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CapabilityGrantList"
-                }
-              }
-            },
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "GET /api/v1/mcp/capabilities — every granted capability of the org.",
-        "tags": [
-          "agent-platform"
-        ]
-      },
-      "put": {
-        "operationId": "mcp_capability_put",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PutCapabilityRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CapabilityGrantView"
-                }
-              }
-            },
-            "description": ""
-          },
-          "403": {
-            "description": "owner/admin surface"
-          },
-          "422": {
-            "description": "invalid capability or dial position"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "PUT /api/v1/mcp/capabilities — grant or re-dial one capability.",
-        "tags": [
-          "agent-platform"
-        ]
-      }
-    },
-    "/api/v1/mcp/capabilities/{capability}": {
-      "delete": {
-        "operationId": "mcp_capability_revoke",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "capability",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-<<<<<<< HEAD
-          "204": {
-            "description": ""
-=======
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
                   "$ref": "#/components/schemas/OrgProfileResponse"
                 }
               }
@@ -21062,7 +21703,6 @@
           },
           "422": {
             "description": ""
->>>>>>> p9-portal-v2
           }
         },
         "security": [
@@ -21070,15 +21710,9 @@
             "bearer": []
           }
         ],
-<<<<<<< HEAD
-        "summary": "DELETE /api/v1/mcp/capabilities/{capability} — revoke (deny again).",
-        "tags": [
-          "agent-platform"
-=======
         "summary": "PATCH /api/org — updates name and/or ticket prefix (Admin:edit).\nIdempotent; emits `org.updated` + audit row.",
         "tags": [
           "settings"
->>>>>>> p9-portal-v2
         ]
       }
     },
@@ -26545,6 +27179,10 @@
     {
       "description": "Agent platform v1: capability registry (deny-by-default, involvement dial), versioned agent skills, IF8 proposal pipeline (approval by default)",
       "name": "agent-platform"
+    },
+    {
+      "description": "Migration connector (third-party tools): bulk push riding the import engine with checkpoint cursors, cursor-paged read-model pull; API-key scoped (migration:read/write), per-key rate limited",
+      "name": "migration"
     }
   ]
 }
