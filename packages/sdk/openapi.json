@@ -220,6 +220,229 @@
           }
         ]
       },
+      "AgentProposalPage": {
+        "description": "GET /api/agent-proposals envelope.",
+        "properties": {
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "proposals": {
+            "items": {
+              "$ref": "#/components/schemas/AgentProposalView"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "proposals"
+        ],
+        "type": "object"
+      },
+      "AgentProposalView": {
+        "description": "One IF8 proposal with the full snapshot the approval decision needs.",
+        "properties": {
+          "agent_kind": {
+            "type": "string"
+          },
+          "agent_ref": {
+            "type": "string"
+          },
+          "applied_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "base_version": {
+            "description": "The entity write-seq the proposal was created against.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "before_value": {
+            "description": "The value the agent saw (`null` when the record did not exist).",
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "capability": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "classification": {
+            "$ref": "#/components/schemas/ProposalClassification"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "decided_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "decided_by": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "decision_note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dial_mode": {
+            "$ref": "#/components/schemas/CapabilityMode",
+            "description": "Involvement-dial snapshot at proposal time."
+          },
+          "entity": {
+            "description": "Record coordinates (v1 applies `ticket`/`update` only; the store is\ngeneric).",
+            "type": "string"
+          },
+          "entity_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "for_user": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "op": {
+            "type": "string"
+          },
+          "proposed_value": {
+            "description": "The proposed after value.",
+            "type": "object"
+          },
+          "rationale": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rule_set_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "session_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "skill_slug": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "skill_version": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/ProposalStatus"
+          },
+          "tool": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "entity",
+          "op",
+          "before_value",
+          "proposed_value",
+          "classification",
+          "dial_mode",
+          "base_version",
+          "status",
+          "agent_kind",
+          "agent_ref",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "AgentSkillList": {
+        "properties": {
+          "skills": {
+            "items": {
+              "$ref": "#/components/schemas/AgentSkillView"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "skills"
+        ],
+        "type": "object"
+      },
+      "AgentSkillView": {
+        "description": "One immutable skill version.",
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "created_by": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "manifest": {
+            "description": "`{capabilities, prompts, rules}` — declarative manifest (§4).",
+            "type": "object"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "version",
+          "manifest",
+          "created_by",
+          "created_at"
+        ],
+        "type": "object"
+      },
       "Aggregate": {
         "description": "Aggregation function of a measure. `Count` may omit the column\n(`COUNT(*)`); every other aggregate requires one, and the catalog\ndecides which column types each accepts.",
         "enum": [
@@ -1979,6 +2202,57 @@
         ],
         "type": "object"
       },
+      "CapabilityGrantList": {
+        "properties": {
+          "grants": {
+            "items": {
+              "$ref": "#/components/schemas/CapabilityGrantView"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "grants"
+        ],
+        "type": "object"
+      },
+      "CapabilityGrantView": {
+        "description": "One granted capability with its dial position.",
+        "properties": {
+          "capability": {
+            "type": "string"
+          },
+          "granted_at": {
+            "type": "string"
+          },
+          "granted_by": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/CapabilityMode"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "capability",
+          "mode",
+          "granted_by",
+          "granted_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "CapabilityMode": {
+        "description": "Wire involvement-dial position of a capability grant.",
+        "enum": [
+          "proposed",
+          "autonomous"
+        ],
+        "type": "string"
+      },
       "CategoryMutationResponse": {
         "allOf": [
           {
@@ -3661,6 +3935,115 @@
           }
         ]
       },
+      "CreateProposalRequest": {
+        "description": "POST /api/agent-proposals body.",
+        "properties": {
+          "agent_ref": {
+            "description": "Agent provenance (§5). Optional: the machine identity defaults to\nthe caller's (`api-key:<id>` / `user:<id>`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "before_value": {
+            "description": "The value the agent saw when it drafted the change (the IF8\nbefore-snapshot). `null` for creates. Application re-reads the\nlive entity, so this is decision context, not a blind write.",
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "capability": {
+            "description": "Write capability this change belongs to (must be granted).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "classification": {
+            "$ref": "#/components/schemas/ProposalClassification"
+          },
+          "entity": {
+            "type": "string"
+          },
+          "entity_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "for_user": {
+            "description": "The user the agent acted on behalf of.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "op": {
+            "type": "string"
+          },
+          "proposed_value": {
+            "type": "object"
+          },
+          "rationale": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rule_set_hash": {
+            "description": "Hash of the evaluated rule set at proposal time.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "session_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "skill_slug": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "skill_version": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "tool": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "entity",
+          "op",
+          "proposed_value"
+        ],
+        "type": "object"
+      },
+      "CreateProposalResponse": {
+        "description": "POST /api/agent-proposals response: the stored proposal.",
+        "properties": {
+          "proposal": {
+            "$ref": "#/components/schemas/AgentProposalView"
+          }
+        },
+        "required": [
+          "proposal"
+        ],
+        "type": "object"
+      },
       "CreateReportDefinitionRequest": {
         "allOf": [
           {
@@ -4196,6 +4579,17 @@
           "user_id": {
             "description": "Whose calendar. Defaults to the caller; another user requires\nowner/admin.",
             "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "DecideProposalRequest": {
+        "properties": {
+          "note": {
             "type": [
               "string",
               "null"
@@ -9292,6 +9686,54 @@
         ],
         "type": "object"
       },
+      "ProposalClassification": {
+        "description": "Proposal classification: who will see the change if it lands.",
+        "enum": [
+          "internal",
+          "client_visible",
+          "external_commit"
+        ],
+        "type": "string"
+      },
+      "ProposalListQuery": {
+        "description": "GET /api/agent-proposals query.",
+        "properties": {
+          "cursor": {
+            "description": "Opaque keyset cursor from a previous page's `next_cursor`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "description": "Page size, clamped to [1, 200].",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "status": {
+            "description": "Filter by lifecycle state.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "ProposalStatus": {
+        "description": "Proposal lifecycle state.",
+        "enum": [
+          "proposed",
+          "approved",
+          "declined",
+          "withdrawn",
+          "applied"
+        ],
+        "type": "string"
+      },
       "PublicProvider": {
         "properties": {
           "display_name": {
@@ -9305,6 +9747,39 @@
         "required": [
           "name",
           "display_name"
+        ],
+        "type": "object"
+      },
+      "PublishSkillRequest": {
+        "properties": {
+          "manifest": {
+            "description": "`{capabilities: [...], prompts: [...], rules: [...]}`.",
+            "type": "object"
+          },
+          "slug": {
+            "description": "Slug; version is derived server-side (max + 1) — append-only\nhistory, never an in-place edit.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "manifest"
+        ],
+        "type": "object"
+      },
+      "PutCapabilityRequest": {
+        "properties": {
+          "capability": {
+            "description": "`<namespace>:read` | `<namespace>:write`.",
+            "type": "string"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/CapabilityMode"
+          }
+        },
+        "required": [
+          "capability",
+          "mode"
         ],
         "type": "object"
       },
@@ -10499,6 +10974,18 @@
           "name",
           "created_at"
         ],
+        "type": "object"
+      },
+      "SkillListQuery": {
+        "properties": {
+          "slug": {
+            "description": "When present, every version of this slug (newest first) instead of\nthe latest version of each slug.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
         "type": "object"
       },
       "SlaCalendar": {
@@ -12605,6 +13092,429 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/agent-proposals": {
+      "get": {
+        "operationId": "agent_proposals_list",
+        "parameters": [
+          {
+            "description": "Filter by lifecycle state.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Opaque keyset cursor from a previous page's `next_cursor`.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Page size, clamped to [1, 200].",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentProposalPage"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/agent-proposals — cursor-paged listing, newest first.",
+        "tags": [
+          "agent-platform"
+        ]
+      },
+      "post": {
+        "operationId": "agent_proposals_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProposalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateProposalResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "description": "capability not granted (deny-by-default)"
+          },
+          "422": {
+            "description": "validation failed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/agent-proposals — file a proposal (IF8). Accepts human-JWT\ncallers for administrative simulation, but the API-key/machine path is\nthe intended caller: the machine principal's key id becomes the\nagent_ref when none is supplied. The dial position is captured from\nthe capability's grant row at creation time.",
+        "tags": [
+          "agent-platform"
+        ]
+      }
+    },
+    "/api/v1/agent-proposals/{id}": {
+      "get": {
+        "operationId": "agent_proposals_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentProposalView"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/agent-proposals/{id}.",
+        "tags": [
+          "agent-platform"
+        ]
+      }
+    },
+    "/api/v1/agent-proposals/{id}/approve": {
+      "post": {
+        "operationId": "agent_proposals_approve",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecideProposalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentProposalView"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "description": "not a permitted approver"
+          },
+          "404": {
+            "description": "not in scope"
+          },
+          "409": {
+            "description": "proposal already decided"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/agent-proposals/{id}/approve — decide FOR. Approved ticket\nupdate proposals apply immediately through the IF1 instant-first path\nin the SAME transaction (idempotency-keyed, version-gated, write-trail\nrow — stays undoable); other entity/op combinations stay approved-\npending until the write-execution lanes widen application.",
+        "tags": [
+          "agent-platform"
+        ]
+      }
+    },
+    "/api/v1/agent-proposals/{id}/decline": {
+      "post": {
+        "operationId": "agent_proposals_decline",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecideProposalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentProposalView"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "description": "not a permitted approver"
+          },
+          "404": {
+            "description": "not in scope"
+          },
+          "409": {
+            "description": "proposal already decided"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/agent-proposals/{id}/decline — decide AGAINST. A declined\nproposal produces NO write at all; the row is the audit record.",
+        "tags": [
+          "agent-platform"
+        ]
+      }
+    },
+    "/api/v1/agent-proposals/{id}/withdraw": {
+      "post": {
+        "operationId": "agent_proposals_withdraw",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentProposalView"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "description": "only the proposing agent or an admin may withdraw"
+          },
+          "404": {
+            "description": "not in scope"
+          },
+          "409": {
+            "description": "proposal already decided"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/agent-proposals/{id}/withdraw — the proposing agent (or an\nadmin) cancels its own open proposal. No write ever happened.",
+        "tags": [
+          "agent-platform"
+        ]
+      }
+    },
+    "/api/v1/agent-skills": {
+      "get": {
+        "operationId": "agent_skills_list",
+        "parameters": [
+          {
+            "description": "When present, every version of this slug (newest first) instead of\nthe latest version of each slug.",
+            "in": "query",
+            "name": "slug",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentSkillList"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/v1/agent-skills — latest version per slug (or one slug's history).",
+        "tags": [
+          "agent-platform"
+        ]
+      },
+      "post": {
+        "operationId": "agent_skills_publish",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishSkillRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentSkillView"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "description": "owner/admin surface"
+          },
+          "422": {
+            "description": "invalid slug or manifest"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/v1/agent-skills — publish a NEW version of a skill.",
+        "tags": [
+          "agent-platform"
+        ]
+      }
+    },
+    "/api/v1/agent-skills/{id}": {
+      "get": {
+        "operationId": "agent_skills_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentSkillView"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/v1/agent-skills/{id} — one immutable version.",
+        "tags": [
+          "agent-platform"
+        ]
+      }
+    },
     "/api/v1/alert-sources": {
       "get": {
         "operationId": "alert_sources_list",
@@ -18451,6 +19361,101 @@
         ]
       }
     },
+    "/api/v1/mcp/capabilities": {
+      "get": {
+        "operationId": "mcp_capabilities_list",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilityGrantList"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/v1/mcp/capabilities — every granted capability of the org.",
+        "tags": [
+          "agent-platform"
+        ]
+      },
+      "put": {
+        "operationId": "mcp_capability_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutCapabilityRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilityGrantView"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "description": "owner/admin surface"
+          },
+          "422": {
+            "description": "invalid capability or dial position"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "PUT /api/v1/mcp/capabilities — grant or re-dial one capability.",
+        "tags": [
+          "agent-platform"
+        ]
+      }
+    },
+    "/api/v1/mcp/capabilities/{capability}": {
+      "delete": {
+        "operationId": "mcp_capability_revoke",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "capability",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "DELETE /api/v1/mcp/capabilities/{capability} — revoke (deny again).",
+        "tags": [
+          "agent-platform"
+        ]
+      }
+    },
     "/api/v1/me": {
       "get": {
         "operationId": "handlers_me",
@@ -23540,6 +24545,10 @@
     {
       "description": "Alert ingestor: HMAC-signed webhook ingest, dedup/correlation, storm collapse into incident tickets",
       "name": "alerts"
+    },
+    {
+      "description": "Agent platform v1: capability registry (deny-by-default, involvement dial), versioned agent skills, IF8 proposal pipeline (approval by default)",
+      "name": "agent-platform"
     }
   ]
 }

@@ -75,6 +75,23 @@ pub mod types {
     pub const REPORT_SCHEDULE_CREATED: &str = "report_schedule.created";
     pub const REPORT_SCHEDULE_UPDATED: &str = "report_schedule.updated";
     pub const REPORT_SCHEDULE_DELETED: &str = "report_schedule.deleted";
+    /// Agent platform v1 (TASKLIST Phase 3, IF8; docs/10-agent-platform
+    /// §4/§5): the proposal pipeline. `agent_proposal.created` fires when
+    /// an agent-authored change is filed for approval; approved (applied
+    /// through the IF1 write path in the same transaction), declined (no
+    /// write at all), and withdrawn (agent cancelled) close it out.
+    pub const AGENT_PROPOSAL_CREATED: &str = "agent_proposal.created";
+    pub const AGENT_PROPOSAL_APPROVED: &str = "agent_proposal.approved";
+    pub const AGENT_PROPOSAL_DECLINED: &str = "agent_proposal.declined";
+    pub const AGENT_PROPOSAL_WITHDRAWN: &str = "agent_proposal.withdrawn";
+    /// Versioned agent-skill manifests (§4): first publication
+    /// (`agent_skill.created`) and every appended version thereafter,
+    /// rollbacks included (`agent_skill.updated` — history is append-only).
+    pub const AGENT_SKILL_CREATED: &str = "agent_skill.created";
+    pub const AGENT_SKILL_UPDATED: &str = "agent_skill.updated";
+    /// Capability-registry changes (deny-by-default MCP/agent surface):
+    /// a capability was granted/re-dialed or revoked for the org.
+    pub const MCP_CAPABILITY_UPDATED: &str = "mcp_capability.updated";
     /// Emitted when an org- or user-scoped setting changes through the
     /// typed settings registry.
     pub const SETTING_UPDATED: &str = "setting.updated";

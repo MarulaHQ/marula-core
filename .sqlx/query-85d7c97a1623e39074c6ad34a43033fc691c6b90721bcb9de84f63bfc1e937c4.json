@@ -1,0 +1,182 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE agent_proposals\n           SET status = $3, decided_by = $4, decided_at = now(), decision_note = $5,\n               updated_at = now()\n           WHERE org_id = $1 AND id = $2 AND status = 'proposed'\n           RETURNING id, org_id, entity, entity_id, op, before_value, proposed_value,\n             classification, capability, dial_mode, base_version, status, agent_kind, agent_ref,\n             skill_slug, skill_version, rule_set_hash, session_id, tool, for_user, rationale,\n             decided_by, decided_at, decision_note, applied_at, created_at, updated_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "entity",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "entity_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "op",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "before_value",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "proposed_value",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "classification",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "capability",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "dial_mode",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "base_version",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "agent_kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "agent_ref",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "skill_slug",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 15,
+        "name": "skill_version",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 16,
+        "name": "rule_set_hash",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 17,
+        "name": "session_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 18,
+        "name": "tool",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 19,
+        "name": "for_user",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 20,
+        "name": "rationale",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 21,
+        "name": "decided_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 22,
+        "name": "decided_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 23,
+        "name": "decision_note",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 24,
+        "name": "applied_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 25,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 26,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "85d7c97a1623e39074c6ad34a43033fc691c6b90721bcb9de84f63bfc1e937c4"
+}

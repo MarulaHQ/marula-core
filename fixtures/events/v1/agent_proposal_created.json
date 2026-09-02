@@ -1,0 +1,18 @@
+{
+  "event_type": "agent_proposal.created",
+  "entity": "agent_proposal",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "agent_ref": "api-key:00000000-0000-0000-0000-000000000035",
+    "classification": "internal",
+    "dial_mode": "proposed",
+    "entity": "ticket",
+    "entity_id": "00000000-0000-0000-0000-000000000001",
+    "op": "update",
+    "proposal_id": "00000000-0000-0000-0000-000000000022",
+    "skill_slug": "triage-drafter",
+    "skill_version": 2
+  }
+}

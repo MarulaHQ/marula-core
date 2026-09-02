@@ -1773,6 +1773,136 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             })
         ),
     },
+    // -- agent platform (IF8 proposals, skills, capability registry) ---------
+    PublishedEvent {
+        event_type: types::AGENT_PROPOSAL_CREATED,
+        entity: "agent_proposal",
+        variant: "default",
+        shape: untyped_shape!(
+            [
+                "proposal_id",
+                "entity",
+                "entity_id",
+                "op",
+                "classification",
+                "dial_mode",
+                "agent_ref",
+                "skill_slug",
+                "skill_version"
+            ],
+            serde_json::json!({
+                "proposal_id": su(34),
+                "entity": "ticket",
+                "entity_id": su(1),
+                "op": "update",
+                "classification": "internal",
+                "dial_mode": "proposed",
+                "agent_ref": "api-key:00000000-0000-0000-0000-000000000035",
+                "skill_slug": "triage-drafter",
+                "skill_version": 2,
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::AGENT_PROPOSAL_APPROVED,
+        entity: "agent_proposal",
+        variant: "default",
+        shape: untyped_shape!(
+            [
+                "proposal_id",
+                "entity",
+                "entity_id",
+                "approved_by",
+                "applied"
+            ],
+            serde_json::json!({
+                "proposal_id": su(34),
+                "entity": "ticket",
+                "entity_id": su(1),
+                "approved_by": su(5),
+                "applied": true,
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::AGENT_PROPOSAL_DECLINED,
+        entity: "agent_proposal",
+        variant: "default",
+        shape: untyped_shape!(
+            ["proposal_id", "entity", "declined_by"],
+            serde_json::json!({
+                "proposal_id": su(34),
+                "entity": "ticket",
+                "declined_by": su(5),
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::AGENT_PROPOSAL_WITHDRAWN,
+        entity: "agent_proposal",
+        variant: "default",
+        shape: untyped_shape!(
+            ["proposal_id", "entity", "withdrawn_by"],
+            serde_json::json!({
+                "proposal_id": su(34),
+                "entity": "ticket",
+                "withdrawn_by": "api-key:00000000-0000-0000-0000-000000000035",
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::AGENT_SKILL_CREATED,
+        entity: "agent_skill",
+        variant: "default",
+        shape: untyped_shape!(
+            ["skill_id", "slug", "version", "created_by"],
+            serde_json::json!({
+                "skill_id": su(36),
+                "slug": "triage-drafter",
+                "version": 1,
+                "created_by": su(5),
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::AGENT_SKILL_UPDATED,
+        entity: "agent_skill",
+        variant: "default",
+        shape: untyped_shape!(
+            ["skill_id", "slug", "version", "created_by"],
+            serde_json::json!({
+                "skill_id": su(36),
+                "slug": "triage-drafter",
+                "version": 2,
+                "created_by": su(5),
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::MCP_CAPABILITY_UPDATED,
+        entity: "mcp_capability",
+        variant: "granted",
+        shape: untyped_shape!(
+            ["capability", "mode", "granted_by"],
+            serde_json::json!({
+                "capability": "tickets:read",
+                "mode": "proposed",
+                "granted_by": su(5),
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::MCP_CAPABILITY_UPDATED,
+        entity: "mcp_capability",
+        variant: "revoked",
+        shape: untyped_shape!(
+            ["capability", "granted_by"],
+            serde_json::json!({
+                "capability": "tickets:read",
+                "granted_by": su(5),
+            })
+        ),
+    },
     PublishedEvent {
         event_type: types::BOARD_UPDATED,
         entity: "board",

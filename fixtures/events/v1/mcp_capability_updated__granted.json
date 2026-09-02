@@ -1,0 +1,12 @@
+{
+  "event_type": "mcp_capability.updated",
+  "entity": "mcp_capability",
+  "variant": "granted",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "capability": "tickets:read",
+    "granted_by": "00000000-0000-0000-0000-000000000005",
+    "mode": "proposed"
+  }
+}

@@ -36,6 +36,7 @@
 //! parity holds because the legacy generation reconstructs the historical
 //! literal paths.
 
+pub mod agent_platform;
 pub mod alerts;
 pub mod api_keys;
 pub mod attachments;
@@ -808,6 +809,9 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // CRUD + cursor-paged listing with next-run preview; module owns
         // its own router.
         .merge(report_schedules::routes(gen))
+        // agent platform (TASKLIST Phase 3, IF8): capability registry +
+        // agent skills + proposal pipeline; module owns its own router.
+        .merge(agent_platform::routes(gen))
         // Stamps org_id onto the current request span (telemetry) once the
         // auth middleware below has resolved it.
         .layer(middleware::from_fn(crate::otel_http::record_org))

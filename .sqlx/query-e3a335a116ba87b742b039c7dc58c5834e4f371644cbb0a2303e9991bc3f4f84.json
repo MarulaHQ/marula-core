@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM mcp_capability_grants WHERE org_id = $1 AND capability = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e3a335a116ba87b742b039c7dc58c5834e4f371644cbb0a2303e9991bc3f4f84"
+}

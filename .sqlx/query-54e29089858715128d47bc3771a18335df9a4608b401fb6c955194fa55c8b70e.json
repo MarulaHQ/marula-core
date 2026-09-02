@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE agent_proposals SET status = 'applied', applied_at = now(), updated_at = now() WHERE org_id = $1 AND id = $2 AND status = 'approved'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "54e29089858715128d47bc3771a18335df9a4608b401fb6c955194fa55c8b70e"
+}

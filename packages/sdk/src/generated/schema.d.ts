@@ -1,4 +1,143 @@
 export interface paths {
+    "/api/v1/agent-proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/agent-proposals — cursor-paged listing, newest first. */
+        get: operations["agent_proposals_list"];
+        put?: never;
+        /**
+         * POST /api/agent-proposals — file a proposal (IF8). Accepts human-JWT
+         *     callers for administrative simulation, but the API-key/machine path is
+         *     the intended caller: the machine principal's key id becomes the
+         *     agent_ref when none is supplied. The dial position is captured from
+         *     the capability's grant row at creation time.
+         */
+        post: operations["agent_proposals_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent-proposals/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/agent-proposals/{id}. */
+        get: operations["agent_proposals_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent-proposals/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/agent-proposals/{id}/approve — decide FOR. Approved ticket
+         *     update proposals apply immediately through the IF1 instant-first path
+         *     in the SAME transaction (idempotency-keyed, version-gated, write-trail
+         *     row — stays undoable); other entity/op combinations stay approved-
+         *     pending until the write-execution lanes widen application.
+         */
+        post: operations["agent_proposals_approve"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent-proposals/{id}/decline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/agent-proposals/{id}/decline — decide AGAINST. A declined
+         *     proposal produces NO write at all; the row is the audit record.
+         */
+        post: operations["agent_proposals_decline"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent-proposals/{id}/withdraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/agent-proposals/{id}/withdraw — the proposing agent (or an
+         *     admin) cancels its own open proposal. No write ever happened.
+         */
+        post: operations["agent_proposals_withdraw"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent-skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/v1/agent-skills — latest version per slug (or one slug's history). */
+        get: operations["agent_skills_list"];
+        put?: never;
+        /** POST /api/v1/agent-skills — publish a NEW version of a skill. */
+        post: operations["agent_skills_publish"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent-skills/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/v1/agent-skills/{id} — one immutable version. */
+        get: operations["agent_skills_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/alert-sources": {
         parameters: {
             query?: never;
@@ -2060,6 +2199,41 @@ export interface paths {
         patch: operations["kb_update_category"];
         trace?: never;
     };
+    "/api/v1/mcp/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/v1/mcp/capabilities — every granted capability of the org. */
+        get: operations["mcp_capabilities_list"];
+        /** PUT /api/v1/mcp/capabilities — grant or re-dial one capability. */
+        put: operations["mcp_capability_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mcp/capabilities/{capability}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** DELETE /api/v1/mcp/capabilities/{capability} — revoke (deny again). */
+        delete: operations["mcp_capability_revoke"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me": {
         parameters: {
             query?: never;
@@ -3765,6 +3939,72 @@ export interface components {
             body: string;
             kind: components["schemas"]["NoteKind"];
         };
+        /** @description GET /api/agent-proposals envelope. */
+        AgentProposalPage: {
+            next_cursor?: string | null;
+            proposals: components["schemas"]["AgentProposalView"][];
+        };
+        /** @description One IF8 proposal with the full snapshot the approval decision needs. */
+        AgentProposalView: {
+            agent_kind: string;
+            agent_ref: string;
+            applied_at?: string | null;
+            /**
+             * Format: int64
+             * @description The entity write-seq the proposal was created against.
+             */
+            base_version: number;
+            /** @description The value the agent saw (`null` when the record did not exist). */
+            before_value: Record<string, never> | null;
+            capability?: string | null;
+            classification: components["schemas"]["ProposalClassification"];
+            created_at: string;
+            decided_at?: string | null;
+            /** Format: uuid */
+            decided_by?: string | null;
+            decision_note?: string | null;
+            /** @description Involvement-dial snapshot at proposal time. */
+            dial_mode: components["schemas"]["CapabilityMode"];
+            /**
+             * @description Record coordinates (v1 applies `ticket`/`update` only; the store is
+             *     generic).
+             */
+            entity: string;
+            /** Format: uuid */
+            entity_id?: string | null;
+            /** Format: uuid */
+            for_user?: string | null;
+            /** Format: uuid */
+            id: string;
+            op: string;
+            /** @description The proposed after value. */
+            proposed_value: Record<string, never>;
+            rationale?: string | null;
+            rule_set_hash?: string | null;
+            session_id?: string | null;
+            skill_slug?: string | null;
+            /** Format: int32 */
+            skill_version?: number | null;
+            status: components["schemas"]["ProposalStatus"];
+            tool?: string | null;
+            updated_at: string;
+        };
+        AgentSkillList: {
+            skills: components["schemas"]["AgentSkillView"][];
+        };
+        /** @description One immutable skill version. */
+        AgentSkillView: {
+            created_at: string;
+            /** Format: uuid */
+            created_by: string;
+            /** Format: uuid */
+            id: string;
+            /** @description `{capabilities, prompts, rules}` — declarative manifest (§4). */
+            manifest: Record<string, never>;
+            slug: string;
+            /** Format: int32 */
+            version: number;
+        };
         /**
          * @description Aggregation function of a measure. `Count` may omit the column
          *     (`COUNT(*)`); every other aggregate requires one, and the catalog
@@ -4438,6 +4678,23 @@ export interface components {
              */
             user_id?: string | null;
         };
+        CapabilityGrantList: {
+            grants: components["schemas"]["CapabilityGrantView"][];
+        };
+        /** @description One granted capability with its dial position. */
+        CapabilityGrantView: {
+            capability: string;
+            granted_at: string;
+            /** Format: uuid */
+            granted_by: string;
+            mode: components["schemas"]["CapabilityMode"];
+            updated_at: string;
+        };
+        /**
+         * @description Wire involvement-dial position of a capability grant.
+         * @enum {string}
+         */
+        CapabilityMode: "proposed" | "autonomous";
         /**
          * @description Instant-first mutation response (IF2): category fields at the top level
          *     plus the additive `mutation` metadata.
@@ -5060,6 +5317,45 @@ export interface components {
             /** Format: date */
             start_date?: string | null;
         };
+        /** @description POST /api/agent-proposals body. */
+        CreateProposalRequest: {
+            /**
+             * @description Agent provenance (§5). Optional: the machine identity defaults to
+             *     the caller's (`api-key:<id>` / `user:<id>`).
+             */
+            agent_ref?: string | null;
+            /**
+             * @description The value the agent saw when it drafted the change (the IF8
+             *     before-snapshot). `null` for creates. Application re-reads the
+             *     live entity, so this is decision context, not a blind write.
+             */
+            before_value?: Record<string, never> | null;
+            /** @description Write capability this change belongs to (must be granted). */
+            capability?: string | null;
+            classification?: components["schemas"]["ProposalClassification"];
+            entity: string;
+            /** Format: uuid */
+            entity_id?: string | null;
+            /**
+             * Format: uuid
+             * @description The user the agent acted on behalf of.
+             */
+            for_user?: string | null;
+            op: string;
+            proposed_value: Record<string, never>;
+            rationale?: string | null;
+            /** @description Hash of the evaluated rule set at proposal time. */
+            rule_set_hash?: string | null;
+            session_id?: string | null;
+            skill_slug?: string | null;
+            /** Format: int32 */
+            skill_version?: number | null;
+            tool?: string | null;
+        };
+        /** @description POST /api/agent-proposals response: the stored proposal. */
+        CreateProposalResponse: {
+            proposal: components["schemas"]["AgentProposalView"];
+        };
         /** @description POST /api/report-definitions body. */
         CreateReportDefinitionRequest: components["schemas"]["MutationParams"] & {
             description?: string | null;
@@ -5255,6 +5551,9 @@ export interface components {
              *     owner/admin.
              */
             user_id?: string | null;
+        };
+        DecideProposalRequest: {
+            note?: string | null;
         };
         /**
          * @description Wire shape of one declaration. Kinds/options are flattened so generated
@@ -7196,10 +7495,46 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        /**
+         * @description Proposal classification: who will see the change if it lands.
+         * @enum {string}
+         */
+        ProposalClassification: "internal" | "client_visible" | "external_commit";
+        /** @description GET /api/agent-proposals query. */
+        ProposalListQuery: {
+            /** @description Opaque keyset cursor from a previous page's `next_cursor`. */
+            cursor?: string | null;
+            /**
+             * Format: int64
+             * @description Page size, clamped to [1, 200].
+             */
+            limit?: number | null;
+            /** @description Filter by lifecycle state. */
+            status?: string | null;
+        };
+        /**
+         * @description Proposal lifecycle state.
+         * @enum {string}
+         */
+        ProposalStatus: "proposed" | "approved" | "declined" | "withdrawn" | "applied";
         PublicProvider: {
             display_name: string;
             /** @description URL path segment for /api/auth/oidc/{name}/login. */
             name: string;
+        };
+        PublishSkillRequest: {
+            /** @description `{capabilities: [...], prompts: [...], rules: [...]}`. */
+            manifest: Record<string, never>;
+            /**
+             * @description Slug; version is derived server-side (max + 1) — append-only
+             *     history, never an in-place edit.
+             */
+            slug: string;
+        };
+        PutCapabilityRequest: {
+            /** @description `<namespace>:read` | `<namespace>:write`. */
+            capability: string;
+            mode: components["schemas"]["CapabilityMode"];
         };
         PutChecklistTemplateRequest: {
             /** @description The complete required-step list; replaces any previous items. */
@@ -7632,6 +7967,13 @@ export interface components {
             postal_code?: string | null;
             region?: string | null;
             timezone?: string | null;
+        };
+        SkillListQuery: {
+            /**
+             * @description When present, every version of this slug (newest first) instead of
+             *     the latest version of each slug.
+             */
+            slug?: string | null;
         };
         /**
          * @description An org-level business-hours calendar row (`sla_calendars`). The math
@@ -8376,6 +8718,319 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    agent_proposals_list: {
+        parameters: {
+            query?: {
+                /** @description Filter by lifecycle state. */
+                status?: string | null;
+                /** @description Opaque keyset cursor from a previous page's `next_cursor`. */
+                cursor?: string | null;
+                /** @description Page size, clamped to [1, 200]. */
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentProposalPage"];
+                };
+            };
+        };
+    };
+    agent_proposals_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateProposalRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateProposalResponse"];
+                };
+            };
+            /** @description capability not granted (deny-by-default) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    agent_proposals_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentProposalView"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    agent_proposals_approve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecideProposalRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentProposalView"];
+                };
+            };
+            /** @description not a permitted approver */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description not in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description proposal already decided */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    agent_proposals_decline: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecideProposalRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentProposalView"];
+                };
+            };
+            /** @description not a permitted approver */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description not in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description proposal already decided */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    agent_proposals_withdraw: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentProposalView"];
+                };
+            };
+            /** @description only the proposing agent or an admin may withdraw */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description not in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description proposal already decided */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    agent_skills_list: {
+        parameters: {
+            query?: {
+                /**
+                 * @description When present, every version of this slug (newest first) instead of
+                 *     the latest version of each slug.
+                 */
+                slug?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSkillList"];
+                };
+            };
+        };
+    };
+    agent_skills_publish: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublishSkillRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSkillView"];
+                };
+            };
+            /** @description owner/admin surface */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid slug or manifest */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    agent_skills_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSkillView"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     alert_sources_list: {
         parameters: {
             query?: never;
@@ -12131,6 +12786,81 @@ export interface operations {
             };
             /** @description version conflict, slug reuse, or idempotency key reused */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    mcp_capabilities_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapabilityGrantList"];
+                };
+            };
+        };
+    };
+    mcp_capability_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutCapabilityRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapabilityGrantView"];
+                };
+            };
+            /** @description owner/admin surface */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid capability or dial position */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    mcp_capability_revoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                capability: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };

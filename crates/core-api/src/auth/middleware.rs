@@ -154,8 +154,17 @@ pub async fn require_auth(
 /// (mutations, admin surfaces, self-scoped endpoints) is JWT-only.
 /// `/api/imports` is the deliberate mutation exception (TASKLIST D2/D3):
 /// scoped migration pushes are a documented machine flow, gated in-handler
-/// by scope checks on top of this prefix allowance.
-const API_KEY_PATHS: &[&str] = &["/api/tickets", "/api/clients", "/api/imports"];
+/// by scope checks on top of this prefix allowance. `/api/agent-proposals`
+/// is the IF8 machine flow: agents file proposals (never direct writes)
+/// through keys, gated by the capability registry inside the handlers.
+const API_KEY_PATHS: &[&str] = &[
+    "/api/tickets",
+    "/api/clients",
+    "/api/imports",
+    // The IF8 machine flow accepts keys on BOTH mounts (legacy + v1).
+    "/api/agent-proposals",
+    "/api/v1/agent-proposals",
+];
 
 /// Maps capability scopes onto the permission matrix. Unknown scopes are
 /// ignored here (they cannot be created — validated at key creation).
