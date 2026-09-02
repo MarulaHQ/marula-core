@@ -103,6 +103,14 @@ pub mod types {
     pub const APPOINTMENT_CREATED: &str = "appointment.created";
     pub const APPOINTMENT_UPDATED: &str = "appointment.updated";
     pub const APPOINTMENT_CANCELLED: &str = "appointment.cancelled";
+    /// Portal v2 appointment requests (TASKLIST Phase 3): a client asked
+    /// for a slot, staff decided, or the client withdrew the request.
+    /// Approval additionally emits the standard `appointment.created` —
+    /// the booking enters the world through the normal creation path.
+    pub const APPOINTMENT_REQUEST_CREATED: &str = "appointment_request.created";
+    pub const APPOINTMENT_REQUEST_APPROVED: &str = "appointment_request.approved";
+    pub const APPOINTMENT_REQUEST_DECLINED: &str = "appointment_request.declined";
+    pub const APPOINTMENT_REQUEST_CANCELLED: &str = "appointment_request.cancelled";
     /// Alert ingestor (TASKLIST Phase 3): one normalized alert was
     /// accepted through the HMAC ingest surface and correlated. Emitted
     /// for `incident_created` and `collapsed` outcomes only — a replayed
@@ -854,6 +862,58 @@ pub struct InvoiceDunningChanged {
     pub to_state: String,
     pub note: Option<String>,
     pub changed_at: DateTime<Utc>,
+}
+
+/// appointment_request.created — a client portal user asked for a slot on
+/// a staff member's calendar (Portal v2). The request is an INTENT:
+/// nothing occupies the calendar until the approval event below fires.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AppointmentRequestCreated {
+    pub request: crate::entities::AppointmentRequest,
+}
+
+/// appointment_request.approved — staff turned a pending request into a
+/// real booking after re-validating availability and conflicts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AppointmentRequestApproved {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub request_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub appointment_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub client_id: uuid::Uuid,
+    pub decided_by: uuid::Uuid,
+    pub decided_at: DateTime<Utc>,
+}
+
+/// appointment_request.declined — staff refused a pending request; no
+/// calendar effect. `note` carries the optional reason.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AppointmentRequestDeclined {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub request_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub client_id: uuid::Uuid,
+    pub decided_by: uuid::Uuid,
+    pub note: Option<String>,
+    pub decided_at: DateTime<Utc>,
+}
+
+/// appointment_request.cancelled — the requesting portal user withdrew
+/// their own still-pending request; no calendar effect.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AppointmentRequestCancelled {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub request_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub client_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub cancelled_by_portal_user_id: uuid::Uuid,
+    pub cancelled_at: DateTime<Utc>,
 }
 
 #[cfg(test)]

@@ -464,6 +464,215 @@ where
     Ok(())
 }
 
+// --- portal v2 appointment requests ---------------------------------------------
+//
+// The intent row between a client portal user and a staff calendar (see
+// `entities::appointment_request` for the doctrine: requests are NOT
+// bookings; only staff approval creates the real appointment). Status
+// transitions are forward-only and enforced by the `AND status =
+// 'pending'` predicate on every decision UPDATE — the row count is the
+// concurrency gate, so a racing approve/decline/cancel resolves exactly
+// once.
+
+fn row_to_request(row: &sqlx::postgres::PgRow) -> core_domain::entities::AppointmentRequest {
+    use sqlx::Row;
+    core_domain::entities::AppointmentRequest {
+        id: row.get("id"),
+        org_id: row.get("org_id"),
+        client_id: row.get("client_id"),
+        portal_user_id: row.get("portal_user_id"),
+        user_id: row.get("user_id"),
+        title: row.get("title"),
+        starts_at: row.get("starts_at"),
+        ends_at: row.get("ends_at"),
+        kind: core_domain::entities::AppointmentKind::parse(&row.get::<String, _>("kind"))
+            .unwrap_or(core_domain::entities::AppointmentKind::Remote),
+        notes: row.get("notes"),
+        status: core_domain::entities::AppointmentRequestStatus::parse(
+            &row.get::<String, _>("status"),
+        )
+        .unwrap_or(core_domain::entities::AppointmentRequestStatus::Pending),
+        decision_note: row.get("decision_note"),
+        decided_by: row.get("decided_by"),
+        decided_at: row.get("decided_at"),
+        appointment_id: row.get("appointment_id"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+    }
+}
+
+const REQUEST_COLS: &str =
+    "id, org_id, client_id, portal_user_id, user_id, title, starts_at, ends_at, kind::text AS kind, notes, \
+     status, decision_note, decided_by, decided_at, appointment_id, created_at, updated_at";
+
+pub async fn create_appointment_request<'e, E>(
+    executor: E,
+    r: &core_domain::entities::AppointmentRequest,
+) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    sqlx::query!(
+        r#"INSERT INTO portal_appointment_requests
+             (id, org_id, client_id, portal_user_id, user_id, title, starts_at, ends_at,
+              kind, notes, status)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::appointment_kind, $10, 'pending')"#,
+        r.id,
+        r.org_id,
+        r.client_id,
+        r.portal_user_id,
+        r.user_id,
+        r.title,
+        r.starts_at,
+        r.ends_at,
+        r.kind.as_str(),
+        r.notes,
+    )
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
+/// One request by id within the org. Callers add their own client /
+/// portal-user scope on top for the portal surface.
+pub async fn get_appointment_request<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    id: Uuid,
+) -> DbResult<core_domain::entities::AppointmentRequest>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = format!(
+        "SELECT {REQUEST_COLS} FROM portal_appointment_requests WHERE org_id = $1 AND id = $2"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(id)
+        .fetch_all(executor)
+        .await?;
+    rows.first()
+        .map(row_to_request)
+        .ok_or(crate::DbError::NotFound)
+}
+
+/// The caller's OWN requests (client + portal-user scoped), newest first.
+pub async fn list_own_appointment_requests<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    client_id: Uuid,
+    portal_user_id: Uuid,
+    limit: i64,
+) -> DbResult<Vec<core_domain::entities::AppointmentRequest>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = format!(
+        "SELECT {REQUEST_COLS} FROM portal_appointment_requests \
+         WHERE org_id = $1 AND client_id = $2 AND portal_user_id = $3 \
+         ORDER BY created_at DESC LIMIT $4"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(client_id)
+        .bind(portal_user_id)
+        .bind(limit)
+        .fetch_all(executor)
+        .await?;
+    Ok(rows.iter().map(row_to_request).collect())
+}
+
+/// Staff view: every request of the org, optionally narrowed by status.
+pub async fn list_appointment_requests<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    status: Option<&str>,
+    limit: i64,
+    offset: i64,
+) -> DbResult<Vec<core_domain::entities::AppointmentRequest>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = format!(
+        "SELECT {REQUEST_COLS} FROM portal_appointment_requests \
+         WHERE org_id = $1 AND ($2::text IS NULL OR status = $2) \
+         ORDER BY created_at DESC LIMIT $3 OFFSET $4"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(status)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(executor)
+        .await?;
+    Ok(rows.iter().map(row_to_request).collect())
+}
+
+pub struct AppointmentRequestDecision<'a> {
+    pub status: &'a str,
+    pub decision_note: Option<&'a str>,
+    pub decided_by: Uuid,
+    pub appointment_id: Option<Uuid>,
+}
+
+/// Staff decision (approve/decline): moves a PENDING request to the
+/// target state, stamping decided_by/at. Returns None when the request
+/// is not pending anymore (already decided/cancelled) or missing — the
+/// caller maps that to a typed conflict.
+pub async fn decide_appointment_request<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    id: Uuid,
+    decision: AppointmentRequestDecision<'_>,
+) -> DbResult<Option<core_domain::entities::AppointmentRequest>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = format!(
+        "UPDATE portal_appointment_requests SET \
+           status = $3, decision_note = $4, decided_by = $5, decided_at = now(), \
+           appointment_id = $6, updated_at = now() \
+         WHERE org_id = $1 AND id = $2 AND status = 'pending' \
+         RETURNING {REQUEST_COLS}"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(id)
+        .bind(decision.status)
+        .bind(decision.decision_note)
+        .bind(decision.decided_by)
+        .bind(decision.appointment_id)
+        .fetch_all(executor)
+        .await?;
+    Ok(rows.first().map(row_to_request))
+}
+
+/// The requesting portal user withdraws their own still-pending request.
+pub async fn cancel_own_appointment_request<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    id: Uuid,
+    client_id: Uuid,
+    portal_user_id: Uuid,
+) -> DbResult<Option<core_domain::entities::AppointmentRequest>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = format!(
+        "UPDATE portal_appointment_requests SET status = 'cancelled', decided_at = now(), updated_at = now() \
+         WHERE org_id = $1 AND id = $2 AND client_id = $3 AND portal_user_id = $4 AND status = 'pending' \
+         RETURNING {REQUEST_COLS}"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(id)
+        .bind(client_id)
+        .bind(portal_user_id)
+        .fetch_all(executor)
+        .await?;
+    Ok(rows.first().map(row_to_request))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

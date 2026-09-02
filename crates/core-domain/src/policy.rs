@@ -445,6 +445,22 @@ pub enum PortalAction {
     /// (see `notes::visible_kinds` — this action widens by one kind, never
     /// two).
     ViewInHouseUpdates,
+    /// List/read the caller's client's invoices (Portal v2). Void and
+    /// draft documents stay staff-internal; the query layer hides them.
+    ViewInvoices,
+    /// Record a payment against the caller's client's invoice through the
+    /// `PaymentProvider` seam (Portal v2). With the built-in none-mode
+    /// provider this is LEDGER-ONLY: no card processor is charged, the
+    /// receipt records that the client settled the amount.
+    PayInvoice,
+    /// Browse/search client-facing KB articles and categories (Portal
+    /// v2). The effective gate is published AND article flag AND category
+    /// flag — the query layer owns it, this decides the tier may ask.
+    ViewKb,
+    /// Request an appointment slot against published availability and
+    /// cancel own pending requests (Portal v2). Staff approve/decline is
+    /// a STAFF action outside this matrix.
+    RequestAppointment,
 }
 
 /// The single portal authorization entry point. Denials carry the reason
@@ -455,7 +471,16 @@ pub enum PortalAction {
 pub fn check_portal(role: crate::entities::PortalRole, action: PortalAction) -> PolicyDecision {
     use crate::entities::PortalRole;
     match action {
-        PortalAction::ViewTickets | PortalAction::PostReply => PolicyDecision::Allowed,
+        PortalAction::ViewTickets
+        | PortalAction::PostReply
+        // Portal v2 surfaces: every tier sees its own client's invoices,
+        // the client-facing KB, and may request schedule slots. Tier
+        // differences remain a tickets-visibility concept (in-house
+        // updates); money and scheduling are client-wide abilities.
+        | PortalAction::ViewInvoices
+        | PortalAction::PayInvoice
+        | PortalAction::ViewKb
+        | PortalAction::RequestAppointment => PolicyDecision::Allowed,
         PortalAction::ViewInHouseUpdates => match role {
             PortalRole::ItManager => PolicyDecision::Allowed,
             PortalRole::Contact | PortalRole::Approver => PolicyDecision::Denied {
@@ -479,6 +504,13 @@ mod tests {
         ] {
             assert!(check_portal(role, PortalAction::ViewTickets).is_allowed());
             assert!(check_portal(role, PortalAction::PostReply).is_allowed());
+            // Portal v2: invoices (view + pay), KB self-service, and
+            // appointment requests are client-wide abilities — every
+            // tier holds them, query scoping does the rest.
+            assert!(check_portal(role, PortalAction::ViewInvoices).is_allowed());
+            assert!(check_portal(role, PortalAction::PayInvoice).is_allowed());
+            assert!(check_portal(role, PortalAction::ViewKb).is_allowed());
+            assert!(check_portal(role, PortalAction::RequestAppointment).is_allowed());
         }
     }
 

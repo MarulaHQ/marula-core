@@ -205,8 +205,25 @@ pub fn covered_minutes(
     from: DateTime<Utc>,
     to: DateTime<Utc>,
 ) -> i64 {
+    available_intervals(windows, exclusions, from, to)
+        .iter()
+        .map(|(s, e)| (*e - *s).num_seconds())
+        .sum::<i64>()
+        / 60
+}
+
+/// Merged availability coverage of `[from, to]`: union of all
+/// availability-window occurrences minus union of exclusions. Returns
+/// sorted, internally disjoint intervals (Portal v2 slot computation is
+/// the second consumer — the returned shape IS the bookable backdrop).
+pub fn available_intervals(
+    windows: &[AvailabilityWindow],
+    exclusions: &[CalendarExclusion],
+    from: DateTime<Utc>,
+    to: DateTime<Utc>,
+) -> Vec<(DateTime<Utc>, DateTime<Utc>)> {
     if to <= from {
-        return 0;
+        return Vec::new();
     }
     // Walk each window's own-local days around the span (±1 day absorbs
     // any timezone skew between windows and range bounds).
@@ -240,29 +257,61 @@ pub fn covered_minutes(
             })
             .collect(),
     );
-    // Subtract merged exclusions from merged coverage (both sorted and
-    // internally disjoint): one forward sweep with a never-backwards
-    // pointer into the exclusion list.
-    let mut total = 0_i64;
+    subtract_intervals(&covered, &blocked)
+}
+
+/// The bookable gaps for one staff member: availability coverage minus
+/// exclusions ([`available_intervals`]) minus already-occupied spans
+/// (live appointments, on-call blocks). All inputs are absolute UTC;
+/// output is sorted and internally disjoint, so each interval is a
+/// contiguous FREE stretch a client may request a slice of.
+pub fn free_intervals(
+    windows: &[AvailabilityWindow],
+    exclusions: &[CalendarExclusion],
+    busy: &[(DateTime<Utc>, DateTime<Utc>)],
+    from: DateTime<Utc>,
+    to: DateTime<Utc>,
+) -> Vec<(DateTime<Utc>, DateTime<Utc>)> {
+    let available = available_intervals(windows, exclusions, from, to);
+    let occupied = merge_intervals(
+        busy.iter()
+            .filter_map(|&(s, e)| {
+                let s = s.max(from);
+                let e = e.min(to);
+                (e > s).then_some((s, e))
+            })
+            .collect(),
+    );
+    subtract_intervals(&available, &occupied)
+}
+
+/// Subtracts merged, internally disjoint `remove` spans from merged,
+/// internally disjoint `base` spans in one forward sweep with a
+/// never-backwards pointer into `remove`.
+fn subtract_intervals(
+    base: &[(DateTime<Utc>, DateTime<Utc>)],
+    remove: &[(DateTime<Utc>, DateTime<Utc>)],
+) -> Vec<(DateTime<Utc>, DateTime<Utc>)> {
+    let mut out = Vec::new();
     let mut j = 0_usize;
-    for &(cs, ce) in &covered {
-        while j < blocked.len() && blocked[j].1 <= cs {
+    for &(bs, be) in base {
+        let mut cursor = bs;
+        while j < remove.len() && remove[j].1 <= cursor {
             j += 1;
         }
-        let mut cursor = cs;
         let mut k = j;
-        while k < blocked.len() && blocked[k].0 < ce {
-            if blocked[k].0 > cursor {
-                total += (blocked[k].0 - cursor).num_seconds();
+        while k < remove.len() && remove[k].0 < be {
+            if remove[k].0 > cursor {
+                out.push((cursor, remove[k].0));
             }
-            cursor = cursor.max(blocked[k].1);
+            cursor = cursor.max(remove[k].1);
             k += 1;
         }
-        if cursor < ce {
-            total += (ce - cursor).num_seconds();
+        if cursor < be {
+            out.push((cursor, be));
         }
     }
-    total / 60
+    out
 }
 
 /// Booked minutes for a dispatch day: the union of LIVE appointment spans

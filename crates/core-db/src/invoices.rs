@@ -388,6 +388,72 @@ where
     Ok(rows.into_iter().map(invoice_row).collect())
 }
 
+/// Portal v2 client-scoped invoice reads. Doctrine mirrors portal v1
+/// tickets: client scoping happens IN the query on top of org RLS, so a
+/// correctly-org-scoped caller still cannot see another client's
+/// documents. `void` and `draft` invoices stay staff-internal (a voided
+/// invoice was never valid billing; `draft` does not exist yet) — the
+/// portal sees exactly `issued` and `paid`.
+pub async fn list_client_invoices<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    client_id: Uuid,
+    limit: i64,
+) -> DbResult<Vec<Invoice>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let rows = sqlx::query_as!(
+        InvoiceRow,
+        r#"SELECT id, org_id, run_id, client_id, contract_id, number, status, currency,
+                  period_from, period_to, issued_at, due_on, total_minor, total_paid_minor,
+                  dunning_state, dunning_updated_at, dunning_note, notes, created_by,
+                  created_at, updated_at
+           FROM invoices
+           WHERE org_id = $1 AND client_id = $2 AND status IN ('issued', 'paid')
+           ORDER BY issued_at DESC, number DESC
+           LIMIT $3"#,
+        org_id,
+        client_id,
+        limit,
+    )
+    .fetch_all(executor)
+    .await?;
+    Ok(rows.into_iter().map(invoice_row).collect())
+}
+
+/// One invoice under the same client-scope contract as
+/// [`list_client_invoices`]; `DbError::NotFound` when the document
+/// belongs to another client or is void/draft — indistinguishable from
+/// missing by design (no existence leak).
+pub async fn get_client_invoice<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    client_id: Uuid,
+    invoice_id: Uuid,
+) -> DbResult<Invoice>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query_as!(
+        InvoiceRow,
+        r#"SELECT id, org_id, run_id, client_id, contract_id, number, status, currency,
+                  period_from, period_to, issued_at, due_on, total_minor, total_paid_minor,
+                  dunning_state, dunning_updated_at, dunning_note, notes, created_by,
+                  created_at, updated_at
+           FROM invoices
+           WHERE org_id = $1 AND id = $2 AND client_id = $3
+             AND status IN ('issued', 'paid')"#,
+        org_id,
+        invoice_id,
+        client_id
+    )
+    .fetch_optional(executor)
+    .await?
+    .ok_or(DbError::NotFound)?;
+    Ok(invoice_row(row))
+}
+
 pub async fn list_lines<'e, E>(
     executor: E,
     org_id: Uuid,

@@ -617,6 +617,142 @@
         ],
         "type": "string"
       },
+      "AppointmentRequest": {
+        "description": "A client's request for a slot on one staff member's calendar.",
+        "properties": {
+          "appointment_id": {
+            "description": "The real booking created by approval (null until then).",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "client_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "decided_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "decided_by": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "decision_note": {
+            "description": "Note attached on approve/decline.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ends_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AppointmentKind"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "org_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "portal_user_id": {
+            "description": "The requesting portal identity (NOT a staff row).",
+            "format": "uuid",
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AppointmentRequestStatus"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "user_id": {
+            "description": "The staff member whose calendar was requested.",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "org_id",
+          "client_id",
+          "portal_user_id",
+          "user_id",
+          "title",
+          "starts_at",
+          "ends_at",
+          "kind",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "AppointmentRequestListQuery": {
+        "properties": {
+          "limit": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "offset": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AppointmentRequestStatus",
+                "description": "Exact status: `pending | approved | declined | cancelled`."
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "AppointmentRequestStatus": {
+        "description": "Lifecycle of an appointment request. `approved`/`declined`/`cancelled`\nare terminal; approved requests carry the created appointment's id.",
+        "enum": [
+          "pending",
+          "approved",
+          "declined",
+          "cancelled"
+        ],
+        "type": "string"
+      },
       "AppointmentStatus": {
         "description": "Lifecycle of a booking. `cancelled` frees the slot (the DB exclusion\nconstraint's partial predicate); `done` still occupies it.",
         "enum": [
@@ -4202,6 +4338,52 @@
             ]
           }
         },
+        "type": "object"
+      },
+      "DecideAppointmentRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1): idempotency key + If-Match\n`version` on the request."
+          },
+          {
+            "properties": {
+              "decision_note": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "A staff decision body. `decision_note` is the (optional) reason shown\nto the client on decline and a confirmation note on approve."
+      },
+      "DecideResponse": {
+        "description": "Instant-first mutation response (IF2) for a decision. `appointment`\nis present ONLY on approve: the calendar booking this decision made.",
+        "properties": {
+          "appointment": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Appointment"
+              }
+            ]
+          },
+          "mutation": {
+            "$ref": "#/components/schemas/MutationMeta"
+          },
+          "request": {
+            "$ref": "#/components/schemas/AppointmentRequest"
+          }
+        },
+        "required": [
+          "request",
+          "mutation"
+        ],
         "type": "object"
       },
       "DeclarationView": {
@@ -8526,6 +8708,45 @@
         ],
         "type": "object"
       },
+      "PortalAppointmentRequestMutationResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/AppointmentRequest"
+          },
+          {
+            "properties": {
+              "mutation": {
+                "$ref": "#/components/schemas/MutationMeta"
+              }
+            },
+            "required": [
+              "mutation"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "Instant-first mutation response (IF2) for appointment-request writes.\nThe request fields sit at the TOP LEVEL (flattened) so the stored\nreplay payload (`request` serialized + merged mutation metadata)\nround-trips byte-identically."
+      },
+      "PortalArticleListQuery": {
+        "properties": {
+          "category_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "offset": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "PortalAttachmentView": {
         "description": "Portal attachment view: metadata only (bytes stream on download).",
         "properties": {
@@ -8558,6 +8779,201 @@
           "size_bytes",
           "sha256",
           "created_at"
+        ],
+        "type": "object"
+      },
+      "PortalCancelRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1)."
+          }
+        ],
+        "description": "Body for the portal cancel (idempotency parameters only)."
+      },
+      "PortalCreateAppointmentRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1): idempotency key."
+          },
+          {
+            "properties": {
+              "ends_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "kind": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/AppointmentKind",
+                    "description": "`on_site | remote` (internal/personal are staff-only kinds)."
+                  }
+                ]
+              },
+              "notes": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "starts_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "user_id": {
+                "description": "The staff member whose calendar the client asked for.",
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "user_id",
+              "title",
+              "starts_at",
+              "ends_at"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "PortalInvoice": {
+        "description": "The client-facing invoice document view. Deliberately NOT the staff\nentity: dunning internals and staff notes never reach the portal.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "due_on": {
+            "format": "date",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "issued_at": {
+            "format": "date",
+            "type": "string"
+          },
+          "number": {
+            "type": "string"
+          },
+          "outstanding_minor": {
+            "description": "`total_minor - total_paid_minor`, never negative.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "period_from": {
+            "format": "date",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "period_to": {
+            "format": "date",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "description": "`issued | paid` (void/draft documents are staff-internal).",
+            "type": "string"
+          },
+          "total_minor": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "total_paid_minor": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "status",
+          "currency",
+          "issued_at",
+          "due_on",
+          "total_minor",
+          "total_paid_minor",
+          "outstanding_minor",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "PortalInvoiceDetail": {
+        "description": "The client-facing invoice aggregate.",
+        "properties": {
+          "invoice": {
+            "$ref": "#/components/schemas/PortalInvoice"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/InvoiceLine"
+            },
+            "type": "array"
+          },
+          "payments": {
+            "items": {
+              "$ref": "#/components/schemas/PortalPaymentView"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "invoice",
+          "lines",
+          "payments"
+        ],
+        "type": "object"
+      },
+      "PortalKbSearchHit": {
+        "properties": {
+          "article": {
+            "$ref": "#/components/schemas/KbArticle"
+          },
+          "score": {
+            "description": "FTS rank blended with trigram similarity — ordering signal only.",
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "article",
+          "score"
+        ],
+        "type": "object"
+      },
+      "PortalKbSearchQuery": {
+        "properties": {
+          "limit": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "offset": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "q": {
+            "description": "Websearch query (plain words, quoted phrases, `OR`, `-`\nexclusions — Postgres websearch syntax).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "q"
         ],
         "type": "object"
       },
@@ -8602,6 +9018,85 @@
           "session_id",
           "expires_in",
           "portal_user"
+        ],
+        "type": "object"
+      },
+      "PortalPayRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1): idempotency key + If-Match\n`version` on the invoice."
+          },
+          {
+            "properties": {
+              "amount_minor": {
+                "description": "Amount to settle, minor units; must not exceed the outstanding\nbalance. Currency is always the invoice's own.",
+                "format": "int64",
+                "type": "integer"
+              },
+              "notes": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "amount_minor"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "PortalPayResponse": {
+        "description": "Instant-first mutation response (IF2) for a portal payment: the\nreceipt, the refreshed client-facing invoice, and the additive\n`mutation` metadata. Stored/replayed byte-identically under the key.",
+        "properties": {
+          "invoice": {
+            "$ref": "#/components/schemas/PortalInvoice"
+          },
+          "mutation": {
+            "$ref": "#/components/schemas/MutationMeta"
+          },
+          "payment": {
+            "$ref": "#/components/schemas/InvoicePayment"
+          }
+        },
+        "required": [
+          "payment",
+          "invoice",
+          "mutation"
+        ],
+        "type": "object"
+      },
+      "PortalPaymentView": {
+        "description": "A payment receipt as the portal sees it. `created_by` stays internal\n(portal identities are not staff rows; the field is always NULL on\nportal-recorded rows anyway).",
+        "properties": {
+          "amount_minor": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "provider": {
+            "description": "`'none'` while no external PSP is connected — the receipt is a\nledger entry, not a card charge.",
+            "type": "string"
+          },
+          "received_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "amount_minor",
+          "currency",
+          "provider",
+          "received_at"
         ],
         "type": "object"
       },
@@ -8675,6 +9170,76 @@
           "it_manager"
         ],
         "type": "string"
+      },
+      "PortalSlotInterval": {
+        "description": "Free intervals for one staff member over the query range.",
+        "properties": {
+          "ends_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "starts_at",
+          "ends_at"
+        ],
+        "type": "object"
+      },
+      "PortalSlotsQuery": {
+        "properties": {
+          "from": {
+            "description": "Range start (inclusive), ISO date.",
+            "format": "date",
+            "type": "string"
+          },
+          "to": {
+            "description": "Range end (inclusive), ISO date.",
+            "format": "date",
+            "type": "string"
+          },
+          "user_id": {
+            "description": "Optional: narrow to one staff member.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ],
+        "type": "object"
+      },
+      "PortalStaffSlots": {
+        "description": "One staff member's published free slots over the query range.",
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "slots": {
+            "description": "Sorted, internally disjoint, contiguous FREE stretches. A client\nrequests a slice of one; the server re-validates at request time\nand again at approval.",
+            "items": {
+              "$ref": "#/components/schemas/PortalSlotInterval"
+            },
+            "type": "array"
+          },
+          "user_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "display_name",
+          "slots"
+        ],
+        "type": "object"
       },
       "PortalTicketDetail": {
         "properties": {
@@ -12939,6 +13504,177 @@
         "summary": "DELETE /api/api-keys/{id} — immediate revocation (rotation story:\ncreate replacement → revoke old).",
         "tags": [
           "integrations"
+        ]
+      }
+    },
+    "/api/v1/appointment-requests": {
+      "get": {
+        "operationId": "appointment_requests_list",
+        "parameters": [
+          {
+            "description": "Exact status: `pending | approved | declined | cancelled`.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/AppointmentRequestStatus"
+                }
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AppointmentRequest"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/appointment-requests — the staff queue (optionally narrowed\nby status), newest first.",
+        "tags": [
+          "scheduling"
+        ]
+      }
+    },
+    "/api/v1/appointment-requests/{id}/approve": {
+      "post": {
+        "operationId": "appointment_requests_approve",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecideAppointmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecideResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "request not found in scope"
+          },
+          "409": {
+            "description": "not pending, slot no longer free, double-booking backstop, version conflict, or idempotency key reused"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/appointment-requests/{id}/approve — book the requested slot\non the staff member's calendar. Re-validates availability + conflicts\nat decision time (the client's listing may be stale); a slot that\nstopped being free is a typed 409, never a wedged booking. Emits BOTH\n`appointment.created` (the booking enters the world through the\nnormal creation event) and `appointment_request.approved`.",
+        "tags": [
+          "scheduling"
+        ]
+      }
+    },
+    "/api/v1/appointment-requests/{id}/decline": {
+      "post": {
+        "operationId": "appointment_requests_decline",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecideAppointmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecideResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "request not found in scope"
+          },
+          "409": {
+            "description": "not pending, version conflict, or idempotency key reused"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/appointment-requests/{id}/decline — refuse a pending\nrequest. No calendar effect; the note reaches the client.",
+        "tags": [
+          "scheduling"
         ]
       }
     },
@@ -19096,6 +19832,487 @@
         ]
       }
     },
+    "/api/v1/portal/appointment-requests": {
+      "get": {
+        "operationId": "portal_list_appointment_requests",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AppointmentRequest"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/portal/appointment-requests — the caller's OWN requests,\nnewest first.",
+        "tags": [
+          "portal"
+        ]
+      },
+      "post": {
+        "operationId": "portal_create_appointment_request",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PortalCreateAppointmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalAppointmentRequestMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "requested staff member not found"
+          },
+          "409": {
+            "description": "idempotency key reused"
+          },
+          "422": {
+            "description": "validation failure (span, lead time, or slot outside published availability)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/portal/appointment-requests — ask for a slot on a staff\nmember's calendar. The slot must be FULLY inside one free interval of\nthat staff member's PUBLISHED availability (windows minus time-off\nminus bookings) — requests are intents, so several clients may hold\noverlapping pending requests; the staff approval is the single point\nthat books the calendar (and re-validates everything).",
+        "tags": [
+          "portal"
+        ]
+      }
+    },
+    "/api/v1/portal/appointment-requests/{id}/cancel": {
+      "post": {
+        "operationId": "portal_cancel_appointment_request",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PortalCancelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalAppointmentRequestMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "request not owned by this portal identity"
+          },
+          "409": {
+            "description": "request is not pending, version conflict, or idempotency key reused"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/portal/appointment-requests/{id}/cancel — the requester\nwithdraws their own still-pending request. Terminal; decided requests\ncannot be cancelled here (staff owns the calendar once decided).",
+        "tags": [
+          "portal"
+        ]
+      }
+    },
+    "/api/v1/portal/invoices": {
+      "get": {
+        "operationId": "portal_list_invoices",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PortalInvoice"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/portal/invoices — the caller's client's invoices (issued and\npaid only), newest issued first.",
+        "tags": [
+          "portal"
+        ]
+      }
+    },
+    "/api/v1/portal/invoices/{id}": {
+      "get": {
+        "operationId": "portal_get_invoice",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalInvoiceDetail"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/portal/invoices/{id} — one of the caller's client's invoices\nwith lines and payment receipts. Another client's document (or a\nvoided one) is a 404, indistinguishable from absent.",
+        "tags": [
+          "portal"
+        ]
+      }
+    },
+    "/api/v1/portal/invoices/{id}/document": {
+      "get": {
+        "operationId": "portal_invoice_document",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/portal/invoices/{id}/document — the SAME print-ready HTML\ndocument staff print (shared renderer), client-scoped: another\nclient's (or a void) invoice is a plain 404.",
+        "tags": [
+          "portal"
+        ]
+      }
+    },
+    "/api/v1/portal/invoices/{id}/pay": {
+      "post": {
+        "operationId": "portal_pay_invoice",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PortalPayRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalPayResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "invoice not visible to this client"
+          },
+          "409": {
+            "description": "invoice not payable, overpayment, version conflict, or idempotency key reused"
+          },
+          "422": {
+            "description": "validation failure"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/portal/invoices/{id}/pay — record a payment through the\n`PaymentProvider` seam from the portal. v1 resolves the built-in\nnone-mode provider: NOTHING is charged externally; the receipt\n(\"ledger-only\") records that the client settled the amount — the UI\npresents it exactly that way. Provenance: the payment row keeps\n`created_by = NULL` (portal identities are not staff rows), the audit\nrow and the write trail carry the caller's portal actor kind.",
+        "tags": [
+          "portal"
+        ]
+      }
+    },
+    "/api/v1/portal/kb/articles": {
+      "get": {
+        "operationId": "portal_list_kb_articles",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "category_id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/KbArticle"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/portal/kb/articles — published client-facing articles\n(optionally narrowed to one visible category), gated by the effective\nclient-facing rule in the query.",
+        "tags": [
+          "portal"
+        ]
+      }
+    },
+    "/api/v1/portal/kb/articles/{id}": {
+      "get": {
+        "operationId": "portal_get_kb_article",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KbArticle"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/portal/kb/articles/{id} — one client-gated article; a draft,\narchived, unflagged, or foreign article is a plain 404.",
+        "tags": [
+          "portal"
+        ]
+      }
+    },
+    "/api/v1/portal/kb/categories": {
+      "get": {
+        "operationId": "portal_kb_categories",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/KbCategory"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/portal/kb/categories — the client-visible category tree.",
+        "tags": [
+          "portal"
+        ]
+      }
+    },
+    "/api/v1/portal/kb/search": {
+      "get": {
+        "operationId": "portal_kb_search",
+        "parameters": [
+          {
+            "description": "Websearch query (plain words, quoted phrases, `OR`, `-`\nexclusions — Postgres websearch syntax).",
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PortalKbSearchHit"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          },
+          "422": {
+            "description": "empty query"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/portal/kb/search — FTS over client-visible published\narticles only (websearch query + trigram fallback, ranked the same\nway the unified search ranks).",
+        "tags": [
+          "portal"
+        ]
+      }
+    },
     "/api/v1/portal/login": {
       "post": {
         "operationId": "portal_login",
@@ -19182,6 +20399,73 @@
           }
         },
         "summary": "POST /api/portal/refresh — rotation within the portal session family.\nA presented token resolves ONLY via its live session row; rotation\nrevokes that row, so replaying an old refresh token fails.",
+        "tags": [
+          "portal"
+        ]
+      }
+    },
+    "/api/v1/portal/schedule/slots": {
+      "get": {
+        "operationId": "portal_schedule_slots",
+        "parameters": [
+          {
+            "description": "Range start (inclusive), ISO date.",
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Range end (inclusive), ISO date.",
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional: narrow to one staff member.",
+            "in": "query",
+            "name": "user_id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PortalStaffSlots"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          },
+          "422": {
+            "description": "range exceeds 31 days"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/portal/schedule/slots — published availability as FREE\nintervals per staff member: weekly windows minus time-off minus\nalready-booked time (appointments + on-call). Slots that already\nstarted are dropped; anything shorter than 30 minutes is noise.",
         "tags": [
           "portal"
         ]

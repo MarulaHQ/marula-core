@@ -364,13 +364,30 @@ pub async fn entity_seq(ctx: &mut OrgTx<'_>, spec: SeqSpec<'_>) -> ApiResult<i64
 /// Appends the write-trail row and stores the exact response under the
 /// idempotency key, then returns the metadata the handler merges into its
 /// response. Runs last, inside the same transaction as the write.
+/// Staff-surface shorthand for [`record_as`] with the `human` actor kind.
 pub async fn record<T: Serialize>(
     ctx: &mut OrgTx<'_>,
     spec: RecordSpec<'_, T>,
 ) -> ApiResult<MutationMeta> {
+    record_as(ctx, spec, "human").await
+}
+
+/// [`record`] with an explicit `entity_writes.actor_kind` — the portal
+/// surfaces use this to land their write-trail rows under the caller's
+/// portal provenance (`portal_contact` / `portal_approver` /
+/// `portal_it_manager`, the exact audit vocabulary from migration 0021);
+/// the vocabulary is CHECK-constrained, so an unknown kind fails the
+/// write. `actor_id` remains `ctx.user_id` (the portal identity's id —
+/// the trail intentionally stores WHO KIND acted, and portal identities
+/// are not staff rows).
+pub async fn record_as<T: Serialize>(
+    ctx: &mut OrgTx<'_>,
+    spec: RecordSpec<'_, T>,
+    actor_kind: &str,
+) -> ApiResult<MutationMeta> {
     sqlx::query(
         "INSERT INTO entity_writes (id, org_id, entity, entity_id, seq, op, actor_id, actor_kind, idempotency_key, before, after) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'human', $8, $9, $10)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
     )
     .bind(Uuid::now_v7())
     .bind(ctx.org_id)
@@ -379,6 +396,7 @@ pub async fn record<T: Serialize>(
     .bind(spec.seq)
     .bind(spec.op)
     .bind(ctx.user_id)
+    .bind(actor_kind)
     .bind(spec.key)
     .bind(spec.before.clone())
     .bind(&spec.after)

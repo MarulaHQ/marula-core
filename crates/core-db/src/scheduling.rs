@@ -301,6 +301,50 @@ where
     Ok(rows.iter().map(row_to_window).collect())
 }
 
+/// Every user's windows in one read — the Portal v2 slot computation
+/// expands the whole org's published availability at once.
+pub async fn list_all_availability_windows<'e, E>(
+    executor: E,
+    org_id: Uuid,
+) -> DbResult<Vec<AvailabilityWindow>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = format!(
+        "SELECT {AVAILABILITY_COLS} FROM availability_windows \
+         WHERE org_id = $1 ORDER BY user_id, weekday, start_local"
+    );
+    let rows = sqlx::query(&sql).bind(org_id).fetch_all(executor).await?;
+    Ok(rows.iter().map(row_to_window).collect())
+}
+
+/// Time-off exclusions for MANY users over a range (Portal v2 slot
+/// computation subtracts these from the published availability).
+pub async fn list_calendar_exclusions_for_users_between<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    user_ids: &[Uuid],
+    from: chrono::DateTime<chrono::Utc>,
+    to: chrono::DateTime<chrono::Utc>,
+) -> DbResult<Vec<CalendarExclusion>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = format!(
+        r#"SELECT {EXCLUSION_COLS} FROM calendar_exclusions
+           WHERE org_id = $1 AND user_id = ANY($2) AND starts_at < $3 AND ends_at > $4
+           ORDER BY starts_at, user_id"#
+    );
+    let rows = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(user_ids)
+        .bind(to)
+        .bind(from)
+        .fetch_all(executor)
+        .await?;
+    Ok(rows.iter().map(row_to_exclusion).collect())
+}
+
 pub async fn delete_availability_window(
     conn: &mut PgConnection,
     org_id: Uuid,

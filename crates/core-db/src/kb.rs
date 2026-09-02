@@ -382,6 +382,195 @@ where
     )
 }
 
+// --- portal v2 client-facing reads --------------------------------------------
+//
+// The SAME client-facing gate the staff filter implements
+// (`core-kb::client_viewable`: published AND article flag AND category
+// flag — uncategorized articles are invisible to clients), enforced in
+// the query so portal handlers cannot drift from it. Hidden rows resolve
+// to NotFound / absent — no existence leak.
+
+/// Categories the portal may show: `client_visible` only, tree order.
+pub async fn list_client_categories<'e, E>(executor: E, org_id: Uuid) -> DbResult<Vec<KbCategory>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let rows = sqlx::query!(
+        r#"SELECT id, org_id, name, slug, description, position, client_visible, created_at, updated_at
+           FROM kb_categories
+           WHERE org_id = $1 AND client_visible
+           ORDER BY position, name"#,
+        org_id,
+    )
+    .fetch_all(executor)
+    .await?;
+    rows.into_iter()
+        .map(|r| {
+            Ok(row_category(
+                r.id,
+                r.org_id,
+                r.name,
+                r.slug,
+                r.description,
+                r.position,
+                r.client_visible,
+                r.created_at,
+                r.updated_at,
+            ))
+        })
+        .collect()
+}
+
+/// Client-gated article list (optionally narrowed to one category).
+pub async fn list_client_articles<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    category_id: Option<Uuid>,
+    limit: i64,
+    offset: i64,
+) -> DbResult<Vec<KbArticle>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let rows = sqlx::query!(
+        r#"SELECT a.id, a.org_id, a.category_id, a.title, a.slug, a.body, a.status,
+                  a.client_visible, a.created_by, a.updated_by, a.created_at, a.updated_at
+           FROM kb_articles a
+           LEFT JOIN kb_categories c ON c.id = a.category_id AND c.org_id = a.org_id
+           WHERE a.org_id = $1
+             AND a.status = 'published' AND a.client_visible
+             AND COALESCE(c.client_visible, false)
+             AND ($2::uuid IS NULL OR a.category_id = $2)
+           ORDER BY a.updated_at DESC, a.id
+           LIMIT $3 OFFSET $4"#,
+        org_id,
+        category_id,
+        limit,
+        offset,
+    )
+    .fetch_all(executor)
+    .await?;
+    rows.into_iter()
+        .map(|r| {
+            row_article(
+                r.id,
+                r.org_id,
+                r.category_id,
+                r.title,
+                r.slug,
+                r.body,
+                r.status,
+                r.client_visible,
+                r.created_by,
+                r.updated_by,
+                r.created_at,
+                r.updated_at,
+            )
+        })
+        .collect()
+}
+
+/// One client-gated article; `DbError::NotFound` when the gate fails —
+/// indistinguishable from missing.
+pub async fn get_client_article<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<KbArticle>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query!(
+        r#"SELECT a.id, a.org_id, a.category_id, a.title, a.slug, a.body, a.status,
+                  a.client_visible, a.created_by, a.updated_by, a.created_at, a.updated_at
+           FROM kb_articles a
+           LEFT JOIN kb_categories c ON c.id = a.category_id AND c.org_id = a.org_id
+           WHERE a.org_id = $1 AND a.id = $2
+             AND a.status = 'published' AND a.client_visible
+             AND COALESCE(c.client_visible, false)"#,
+        org_id,
+        id
+    )
+    .fetch_optional(executor)
+    .await?
+    .ok_or(DbError::NotFound)?;
+    row_article(
+        row.id,
+        row.org_id,
+        row.category_id,
+        row.title,
+        row.slug,
+        row.body,
+        row.status,
+        row.client_visible,
+        row.created_by,
+        row.updated_by,
+        row.created_at,
+        row.updated_at,
+    )
+}
+
+/// One ranked client-gated FTS hit: websearch query over title + body
+/// with a trigram/ILIKE fallback for partial tokens, ranked the same way
+/// the unified search ranks (`ts_rank` weighted, trigram similarity
+/// blended). The gate applies to every row before ranking.
+pub struct ClientArticleHit {
+    pub article: KbArticle,
+    pub score: f64,
+}
+
+pub async fn search_client_articles<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    q: &str,
+    limit: i64,
+    offset: i64,
+) -> DbResult<Vec<ClientArticleHit>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let rows = sqlx::query!(
+        r#"SELECT a.id, a.org_id, a.category_id, a.title, a.slug, a.body, a.status,
+                  a.client_visible, a.created_by, a.updated_by, a.created_at, a.updated_at,
+                  ts_rank(to_tsvector('english', a.title || ' ' || a.body),
+                          websearch_to_tsquery('english', $2)) * 8
+                    + similarity(a.title || ' ' || a.body, $2) AS score
+           FROM kb_articles a
+           LEFT JOIN kb_categories c ON c.id = a.category_id AND c.org_id = a.org_id
+           WHERE a.org_id = $1
+             AND a.status = 'published' AND a.client_visible
+             AND COALESCE(c.client_visible, false)
+             AND (to_tsvector('english', a.title || ' ' || a.body)
+                    @@ websearch_to_tsquery('english', $2)
+                  OR a.title || ' ' || a.body ILIKE '%' || $2 || '%')
+           ORDER BY score DESC, a.updated_at DESC, a.id
+           LIMIT $3 OFFSET $4"#,
+        org_id,
+        q,
+        limit,
+        offset,
+    )
+    .fetch_all(executor)
+    .await?;
+    rows.into_iter()
+        .map(|r| {
+            Ok(ClientArticleHit {
+                article: row_article(
+                    r.id,
+                    r.org_id,
+                    r.category_id,
+                    r.title,
+                    r.slug,
+                    r.body,
+                    r.status,
+                    r.client_visible,
+                    r.created_by,
+                    r.updated_by,
+                    r.created_at,
+                    r.updated_at,
+                )?,
+                score: r.score.unwrap_or(0.0),
+            })
+        })
+        .collect()
+}
+
 pub async fn update_article<'e, E>(
     executor: E,
     org_id: Uuid,

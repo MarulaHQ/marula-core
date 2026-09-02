@@ -185,7 +185,187 @@ export const portalApi = {
       body: JSON.stringify({ body }),
     });
   },
+
+  // --- portal v2: invoices, KB self-service, appointment requests ----------
+
+  listInvoices(): Promise<PortalInvoice[]> {
+    return portalFetch<PortalInvoice[]>("/api/v1/portal/invoices", {});
+  },
+
+  getInvoice(id: string): Promise<PortalInvoiceDetail> {
+    return portalFetch<PortalInvoiceDetail>(`/api/v1/portal/invoices/${id}`, {});
+  },
+
+  /** Ledger-only settlement through the PaymentProvider seam (none-mode:
+   * nothing is charged externally; the receipt records the settlement). */
+  payInvoice(id: string, amountMinor: number, notes?: string): Promise<PortalPayResponse> {
+    return portalFetch<PortalPayResponse>(`/api/v1/portal/invoices/${id}/pay`, {
+      method: "POST",
+      body: JSON.stringify({
+        amount_minor: amountMinor,
+        notes: notes ?? null,
+        idempotency_key: `portal-pay-${crypto.randomUUID()}`,
+      }),
+    });
+  },
+
+  kbCategories(): Promise<PortalKbCategory[]> {
+    return portalFetch<PortalKbCategory[]>("/api/v1/portal/kb/categories", {});
+  },
+
+  kbArticles(categoryId?: string): Promise<PortalKbArticle[]> {
+    const query = categoryId ? `?category_id=${encodeURIComponent(categoryId)}` : "";
+    return portalFetch<PortalKbArticle[]>(`/api/v1/portal/kb/articles${query}`, {});
+  },
+
+  kbArticle(id: string): Promise<PortalKbArticle> {
+    return portalFetch<PortalKbArticle>(`/api/v1/portal/kb/articles/${id}`, {});
+  },
+
+  kbSearch(q: string): Promise<PortalKbSearchHit[]> {
+    return portalFetch<PortalKbSearchHit[]>(
+      `/api/v1/portal/kb/search?q=${encodeURIComponent(q)}`,
+      {},
+    );
+  },
+
+  scheduleSlots(from: string, to: string): Promise<PortalStaffSlots[]> {
+    return portalFetch<PortalStaffSlots[]>(
+      `/api/v1/portal/schedule/slots?from=${from}&to=${to}`,
+      {},
+    );
+  },
+
+  listAppointmentRequests(): Promise<PortalAppointmentRequest[]> {
+    return portalFetch<PortalAppointmentRequest[]>(
+      "/api/v1/portal/appointment-requests",
+      {},
+    );
+  },
+
+  createAppointmentRequest(body: {
+    user_id: string;
+    title: string;
+    starts_at: string;
+    ends_at: string;
+    kind?: "on_site" | "remote";
+    notes?: string;
+  }): Promise<{ id: string; status: string }> {
+    return portalFetch<{ id: string; status: string }>(
+      "/api/v1/portal/appointment-requests",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...body,
+          idempotency_key: `portal-req-${crypto.randomUUID()}`,
+        }),
+      },
+    );
+  },
+
+  cancelAppointmentRequest(id: string): Promise<{ status: string }> {
+    return portalFetch<{ status: string }>(
+      `/api/v1/portal/appointment-requests/${id}/cancel`,
+      { method: "POST", body: JSON.stringify({}) },
+    );
+  },
+
+  /** The invoice's print-ready HTML document as a blob URL (bearer-fetched;
+   * the caller opens and later revokes it). */
+  async invoiceDocumentUrl(id: string): Promise<string> {
+    const response = await fetch(`${API_BASE}/api/v1/portal/invoices/${id}/document`, {
+      headers: { authorization: `Bearer ${loadTokens()?.access_token ?? ""}` },
+    });
+    if (!response.ok) throw new PortalError("document unavailable", response.status);
+    return URL.createObjectURL(await response.blob());
+  },
 };
+
+/** The client-facing invoice row (issued | paid; void/draft never leave
+ * the staff surface). */
+export interface PortalInvoice {
+  id: string;
+  number: string;
+  status: "issued" | "paid";
+  currency: string;
+  issued_at: string;
+  due_on: string;
+  total_minor: number;
+  total_paid_minor: number;
+  outstanding_minor: number;
+  created_at: string;
+}
+
+export interface PortalInvoiceLine {
+  id: string;
+  kind: string;
+  description: string;
+  quantity_minutes: number;
+  unit_amount_minor: number;
+  amount_minor: number;
+}
+
+export interface PortalPayment {
+  id: string;
+  amount_minor: number;
+  currency: string;
+  provider: string;
+  received_at: string;
+}
+
+export interface PortalInvoiceDetail {
+  invoice: PortalInvoice;
+  lines: PortalInvoiceLine[];
+  payments: PortalPayment[];
+}
+
+export interface PortalPayResponse {
+  payment: PortalPayment;
+  invoice: PortalInvoice;
+}
+
+export interface PortalKbCategory {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface PortalKbArticle {
+  id: string;
+  category_id: string | null;
+  title: string;
+  body: string;
+  updated_at: string;
+}
+
+export interface PortalKbSearchHit {
+  article: PortalKbArticle;
+  score: number;
+}
+
+export interface PortalSlotInterval {
+  starts_at: string;
+  ends_at: string;
+}
+
+export interface PortalStaffSlots {
+  user_id: string;
+  display_name: string;
+  slots: PortalSlotInterval[];
+}
+
+export interface PortalAppointmentRequest {
+  id: string;
+  user_id: string;
+  title: string;
+  starts_at: string;
+  ends_at: string;
+  kind: "on_site" | "remote" | "internal" | "personal";
+  notes: string | null;
+  status: "pending" | "approved" | "declined" | "cancelled";
+  decision_note: string | null;
+  created_at: string;
+}
 
 interface PortalAuthState {
   me: PortalProfile | null;

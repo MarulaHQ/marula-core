@@ -121,6 +121,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/appointment-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/appointment-requests — the staff queue (optionally narrowed
+         *     by status), newest first.
+         */
+        get: operations["appointment_requests_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/appointment-requests/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/appointment-requests/{id}/approve — book the requested slot
+         *     on the staff member's calendar. Re-validates availability + conflicts
+         *     at decision time (the client's listing may be stale); a slot that
+         *     stopped being free is a typed 409, never a wedged booking. Emits BOTH
+         *     `appointment.created` (the booking enters the world through the
+         *     normal creation event) and `appointment_request.approved`.
+         */
+        post: operations["appointment_requests_approve"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/appointment-requests/{id}/decline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/appointment-requests/{id}/decline — refuse a pending
+         *     request. No calendar effect; the note reaches the client.
+         */
+        post: operations["appointment_requests_decline"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/appointments": {
         parameters: {
             query?: never;
@@ -2342,6 +2406,221 @@ export interface paths {
         patch: operations["portal_users_patch"];
         trace?: never;
     };
+    "/api/v1/portal/appointment-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/portal/appointment-requests — the caller's OWN requests,
+         *     newest first.
+         */
+        get: operations["portal_list_appointment_requests"];
+        put?: never;
+        /**
+         * POST /api/portal/appointment-requests — ask for a slot on a staff
+         *     member's calendar. The slot must be FULLY inside one free interval of
+         *     that staff member's PUBLISHED availability (windows minus time-off
+         *     minus bookings) — requests are intents, so several clients may hold
+         *     overlapping pending requests; the staff approval is the single point
+         *     that books the calendar (and re-validates everything).
+         */
+        post: operations["portal_create_appointment_request"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/appointment-requests/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/portal/appointment-requests/{id}/cancel — the requester
+         *     withdraws their own still-pending request. Terminal; decided requests
+         *     cannot be cancelled here (staff owns the calendar once decided).
+         */
+        post: operations["portal_cancel_appointment_request"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/invoices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/portal/invoices — the caller's client's invoices (issued and
+         *     paid only), newest issued first.
+         */
+        get: operations["portal_list_invoices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/invoices/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/portal/invoices/{id} — one of the caller's client's invoices
+         *     with lines and payment receipts. Another client's document (or a
+         *     voided one) is a 404, indistinguishable from absent.
+         */
+        get: operations["portal_get_invoice"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/invoices/{id}/document": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/portal/invoices/{id}/document — the SAME print-ready HTML
+         *     document staff print (shared renderer), client-scoped: another
+         *     client's (or a void) invoice is a plain 404.
+         */
+        get: operations["portal_invoice_document"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/invoices/{id}/pay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/portal/invoices/{id}/pay — record a payment through the
+         *     `PaymentProvider` seam from the portal. v1 resolves the built-in
+         *     none-mode provider: NOTHING is charged externally; the receipt
+         *     ("ledger-only") records that the client settled the amount — the UI
+         *     presents it exactly that way. Provenance: the payment row keeps
+         *     `created_by = NULL` (portal identities are not staff rows), the audit
+         *     row and the write trail carry the caller's portal actor kind.
+         */
+        post: operations["portal_pay_invoice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/kb/articles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/portal/kb/articles — published client-facing articles
+         *     (optionally narrowed to one visible category), gated by the effective
+         *     client-facing rule in the query.
+         */
+        get: operations["portal_list_kb_articles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/kb/articles/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/portal/kb/articles/{id} — one client-gated article; a draft,
+         *     archived, unflagged, or foreign article is a plain 404.
+         */
+        get: operations["portal_get_kb_article"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/kb/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/portal/kb/categories — the client-visible category tree. */
+        get: operations["portal_kb_categories"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/kb/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/portal/kb/search — FTS over client-visible published
+         *     articles only (websearch query + trigram fallback, ranked the same
+         *     way the unified search ranks).
+         */
+        get: operations["portal_kb_search"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/portal/login": {
         parameters: {
             query?: never;
@@ -2395,6 +2674,28 @@ export interface paths {
          *     revokes that row, so replaying an old refresh token fails.
          */
         post: operations["portal_refresh"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/schedule/slots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/portal/schedule/slots — published availability as FREE
+         *     intervals per staff member: weekly windows minus time-off minus
+         *     already-booked time (appointments + on-call). Slots that already
+         *     started are dropped; anything shorter than 30 minutes is noise.
+         */
+        get: operations["portal_schedule_slots"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3911,6 +4212,61 @@ export interface components {
          * @enum {string}
          */
         AppointmentKind: "on_site" | "remote" | "internal" | "personal";
+        /** @description A client's request for a slot on one staff member's calendar. */
+        AppointmentRequest: {
+            /**
+             * Format: uuid
+             * @description The real booking created by approval (null until then).
+             */
+            appointment_id?: string | null;
+            /** Format: uuid */
+            client_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            decided_at?: string | null;
+            /** Format: uuid */
+            decided_by?: string | null;
+            /** @description Note attached on approve/decline. */
+            decision_note?: string | null;
+            /** Format: date-time */
+            ends_at: string;
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["AppointmentKind"];
+            notes?: string | null;
+            /** Format: uuid */
+            org_id: string;
+            /**
+             * Format: uuid
+             * @description The requesting portal identity (NOT a staff row).
+             */
+            portal_user_id: string;
+            /** Format: date-time */
+            starts_at: string;
+            status: components["schemas"]["AppointmentRequestStatus"];
+            title: string;
+            /** Format: date-time */
+            updated_at: string;
+            /**
+             * Format: uuid
+             * @description The staff member whose calendar was requested.
+             */
+            user_id: string;
+        };
+        AppointmentRequestListQuery: {
+            /** Format: int64 */
+            limit?: number;
+            /** Format: int64 */
+            offset?: number;
+            status?: null | components["schemas"]["AppointmentRequestStatus"];
+        };
+        /**
+         * @description Lifecycle of an appointment request. `approved`/`declined`/`cancelled`
+         *     are terminal; approved requests carry the created appointment's id.
+         * @enum {string}
+         */
+        AppointmentRequestStatus: "pending" | "approved" | "declined" | "cancelled";
         /**
          * @description Lifecycle of a booking. `cancelled` frees the slot (the DB exclusion
          *     constraint's partial predicate); `done` still occupies it.
@@ -5255,6 +5611,22 @@ export interface components {
              *     owner/admin.
              */
             user_id?: string | null;
+        };
+        /**
+         * @description A staff decision body. `decision_note` is the (optional) reason shown
+         *     to the client on decline and a confirmation note on approve.
+         */
+        DecideAppointmentRequest: components["schemas"]["MutationParams"] & {
+            decision_note?: string | null;
+        };
+        /**
+         * @description Instant-first mutation response (IF2) for a decision. `appointment`
+         *     is present ONLY on approve: the calendar booking this decision made.
+         */
+        DecideResponse: {
+            appointment?: null | components["schemas"]["Appointment"];
+            mutation: components["schemas"]["MutationMeta"];
+            request: components["schemas"]["AppointmentRequest"];
         };
         /**
          * @description Wire shape of one declaration. Kinds/options are flattened so generated
@@ -6903,6 +7275,23 @@ export interface components {
             /** @description True while the policy governs itself via its embedded calendar. */
             uses_embedded_calendar: boolean;
         };
+        /**
+         * @description Instant-first mutation response (IF2) for appointment-request writes.
+         *     The request fields sit at the TOP LEVEL (flattened) so the stored
+         *     replay payload (`request` serialized + merged mutation metadata)
+         *     round-trips byte-identically.
+         */
+        PortalAppointmentRequestMutationResponse: components["schemas"]["AppointmentRequest"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        PortalArticleListQuery: {
+            /** Format: uuid */
+            category_id?: string | null;
+            /** Format: int64 */
+            limit?: number;
+            /** Format: int64 */
+            offset?: number;
+        };
         /** @description Portal attachment view: metadata only (bytes stream on download). */
         PortalAttachmentView: {
             content_type: string;
@@ -6914,6 +7303,78 @@ export interface components {
             sha256: string;
             /** Format: int64 */
             size_bytes: number;
+        };
+        /** @description Body for the portal cancel (idempotency parameters only). */
+        PortalCancelRequest: components["schemas"]["MutationParams"];
+        PortalCreateAppointmentRequest: components["schemas"]["MutationParams"] & {
+            /** Format: date-time */
+            ends_at: string;
+            kind?: null | components["schemas"]["AppointmentKind"];
+            notes?: string | null;
+            /** Format: date-time */
+            starts_at: string;
+            title: string;
+            /**
+             * Format: uuid
+             * @description The staff member whose calendar the client asked for.
+             */
+            user_id: string;
+        };
+        /**
+         * @description The client-facing invoice document view. Deliberately NOT the staff
+         *     entity: dunning internals and staff notes never reach the portal.
+         */
+        PortalInvoice: {
+            /** Format: date-time */
+            created_at: string;
+            currency: string;
+            /** Format: date */
+            due_on: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: date */
+            issued_at: string;
+            number: string;
+            /**
+             * Format: int64
+             * @description `total_minor - total_paid_minor`, never negative.
+             */
+            outstanding_minor: number;
+            /** Format: date */
+            period_from?: string | null;
+            /** Format: date */
+            period_to?: string | null;
+            /** @description `issued | paid` (void/draft documents are staff-internal). */
+            status: string;
+            /** Format: int64 */
+            total_minor: number;
+            /** Format: int64 */
+            total_paid_minor: number;
+        };
+        /** @description The client-facing invoice aggregate. */
+        PortalInvoiceDetail: {
+            invoice: components["schemas"]["PortalInvoice"];
+            lines: components["schemas"]["InvoiceLine"][];
+            payments: components["schemas"]["PortalPaymentView"][];
+        };
+        PortalKbSearchHit: {
+            article: components["schemas"]["KbArticle"];
+            /**
+             * Format: double
+             * @description FTS rank blended with trigram similarity — ordering signal only.
+             */
+            score: number;
+        };
+        PortalKbSearchQuery: {
+            /** Format: int64 */
+            limit?: number;
+            /** Format: int64 */
+            offset?: number;
+            /**
+             * @description Websearch query (plain words, quoted phrases, `OR`, `-`
+             *     exclusions — Postgres websearch syntax).
+             */
+            q: string;
         };
         PortalLoginRequest: {
             email: string;
@@ -6927,6 +7388,44 @@ export interface components {
             refresh_token: string;
             /** Format: uuid */
             session_id: string;
+        };
+        PortalPayRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * Format: int64
+             * @description Amount to settle, minor units; must not exceed the outstanding
+             *     balance. Currency is always the invoice's own.
+             */
+            amount_minor: number;
+            notes?: string | null;
+        };
+        /**
+         * @description Instant-first mutation response (IF2) for a portal payment: the
+         *     receipt, the refreshed client-facing invoice, and the additive
+         *     `mutation` metadata. Stored/replayed byte-identically under the key.
+         */
+        PortalPayResponse: {
+            invoice: components["schemas"]["PortalInvoice"];
+            mutation: components["schemas"]["MutationMeta"];
+            payment: components["schemas"]["InvoicePayment"];
+        };
+        /**
+         * @description A payment receipt as the portal sees it. `created_by` stays internal
+         *     (portal identities are not staff rows; the field is always NULL on
+         *     portal-recorded rows anyway).
+         */
+        PortalPaymentView: {
+            /** Format: int64 */
+            amount_minor: number;
+            currency: string;
+            /** Format: uuid */
+            id: string;
+            /**
+             * @description `'none'` while no external PSP is connected — the receipt is a
+             *     ledger entry, not a card charge.
+             */
+            provider: string;
+            /** Format: date-time */
+            received_at: string;
         };
         /** @description The signed-in portal identity (also served by GET /api/portal/me). */
         PortalProfile: {
@@ -6959,6 +7458,42 @@ export interface components {
          * @enum {string}
          */
         PortalRole: "contact" | "approver" | "it_manager";
+        /** @description Free intervals for one staff member over the query range. */
+        PortalSlotInterval: {
+            /** Format: date-time */
+            ends_at: string;
+            /** Format: date-time */
+            starts_at: string;
+        };
+        PortalSlotsQuery: {
+            /**
+             * Format: date
+             * @description Range start (inclusive), ISO date.
+             */
+            from: string;
+            /**
+             * Format: date
+             * @description Range end (inclusive), ISO date.
+             */
+            to: string;
+            /**
+             * Format: uuid
+             * @description Optional: narrow to one staff member.
+             */
+            user_id?: string | null;
+        };
+        /** @description One staff member's published free slots over the query range. */
+        PortalStaffSlots: {
+            display_name: string;
+            /**
+             * @description Sorted, internally disjoint, contiguous FREE stretches. A client
+             *     requests a slice of one; the server re-validates at request time
+             *     and again at approval.
+             */
+            slots: components["schemas"]["PortalSlotInterval"][];
+            /** Format: uuid */
+            user_id: string;
+        };
         PortalTicketDetail: {
             can_view_in_house_updates: boolean;
             /** @description Only the kinds this tier may read, filtered by the domain policy. */
@@ -8610,6 +9145,108 @@ export interface operations {
         requestBody?: never;
         responses: {
             204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    appointment_requests_list: {
+        parameters: {
+            query?: {
+                /** @description Exact status: `pending | approved | declined | cancelled`. */
+                status?: null | components["schemas"]["AppointmentRequestStatus"];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppointmentRequest"][];
+                };
+            };
+        };
+    };
+    appointment_requests_approve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecideAppointmentRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecideResponse"];
+                };
+            };
+            /** @description request not found in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description not pending, slot no longer free, double-booking backstop, version conflict, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    appointment_requests_decline: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecideAppointmentRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecideResponse"];
+                };
+            };
+            /** @description request not found in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description not pending, version conflict, or idempotency key reused */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -12570,6 +13207,330 @@ export interface operations {
             };
         };
     };
+    portal_list_appointment_requests: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppointmentRequest"][];
+                };
+            };
+        };
+    };
+    portal_create_appointment_request: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PortalCreateAppointmentRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalAppointmentRequestMutationResponse"];
+                };
+            };
+            /** @description requested staff member not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure (span, lead time, or slot outside published availability) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    portal_cancel_appointment_request: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PortalCancelRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalAppointmentRequestMutationResponse"];
+                };
+            };
+            /** @description request not owned by this portal identity */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description request is not pending, version conflict, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    portal_list_invoices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalInvoice"][];
+                };
+            };
+        };
+    };
+    portal_get_invoice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalInvoiceDetail"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    portal_invoice_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    portal_pay_invoice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PortalPayRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalPayResponse"];
+                };
+            };
+            /** @description invoice not visible to this client */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invoice not payable, overpayment, version conflict, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    portal_list_kb_articles: {
+        parameters: {
+            query?: {
+                category_id?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KbArticle"][];
+                };
+            };
+        };
+    };
+    portal_get_kb_article: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KbArticle"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    portal_kb_categories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KbCategory"][];
+                };
+            };
+        };
+    };
+    portal_kb_search: {
+        parameters: {
+            query: {
+                /**
+                 * @description Websearch query (plain words, quoted phrases, `OR`, `-`
+                 *     exclusions — Postgres websearch syntax).
+                 */
+                q: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalKbSearchHit"][];
+                };
+            };
+            /** @description empty query */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     portal_login: {
         parameters: {
             query?: never;
@@ -12639,6 +13600,39 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PortalLoginResponse"];
                 };
+            };
+        };
+    };
+    portal_schedule_slots: {
+        parameters: {
+            query: {
+                /** @description Range start (inclusive), ISO date. */
+                from: string;
+                /** @description Range end (inclusive), ISO date. */
+                to: string;
+                /** @description Optional: narrow to one staff member. */
+                user_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalStaffSlots"][];
+                };
+            };
+            /** @description range exceeds 31 days */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
