@@ -231,6 +231,217 @@
         ],
         "type": "string"
       },
+      "AlertListQuery": {
+        "properties": {
+          "limit": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "offset": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "source_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "AlertListResponse": {
+        "properties": {
+          "alerts": {
+            "items": {
+              "$ref": "#/components/schemas/AlertView"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "alerts"
+        ],
+        "type": "object"
+      },
+      "AlertSeverity": {
+        "description": "Alert severity vocabulary. Maps onto ticket priorities when an alert\nanchors an incident ticket: critical→P1, warning→P2, info→P3.",
+        "enum": [
+          "info",
+          "warning",
+          "critical"
+        ],
+        "type": "string"
+      },
+      "AlertSourceList": {
+        "properties": {
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/AlertSourceView"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "sources"
+        ],
+        "type": "object"
+      },
+      "AlertSourceMutationResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/AlertSourceView"
+          },
+          {
+            "properties": {
+              "mutation": {
+                "$ref": "#/components/schemas/MutationMeta"
+              },
+              "secret": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "mutation"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "Instant-first mutation response for a source (IF2). `secret` is the\nraw HMAC signing secret — populated ONLY by the create response and\nnever again (same show-once contract as webhooks/api-keys)."
+      },
+      "AlertSourceView": {
+        "description": "An ingest source as the admin surface sees it. The HMAC secret is\nNEVER here — it is returned exactly once, in the create response.",
+        "properties": {
+          "board_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "client_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "correlation_window_secs": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "org_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "source_ref": {
+            "description": "Path segment of the ingest URL (public routing id).",
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "org_id",
+          "name",
+          "source_ref",
+          "board_id",
+          "correlation_window_secs",
+          "enabled",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "AlertView": {
+        "description": "One normalized alert (canonical ingest document + ledger row view).",
+        "properties": {
+          "attributes": {
+            "type": "object"
+          },
+          "correlation_key": {
+            "description": "Storm grouping key (defaults to the dedup key server-side).",
+            "type": "string"
+          },
+          "dedup_key": {
+            "description": "Provider's per-event identity; the replay gate per source.",
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "incident_ticket_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "occurred_at": {
+            "type": "string"
+          },
+          "org_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "received_at": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "source_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "org_id",
+          "source_id",
+          "dedup_key",
+          "correlation_key",
+          "title",
+          "severity",
+          "occurred_at",
+          "attributes",
+          "received_at"
+        ],
+        "type": "object"
+      },
       "ApiKeyCreatedResponse": {
         "description": "The ONLY response carrying raw key material. Lost keys are rotated by\ncreating a new key and revoking this one — never recovered.",
         "properties": {
@@ -2580,6 +2791,54 @@
           "fixed_fee"
         ],
         "type": "string"
+      },
+      "CreateAlertSourceRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1) — idempotency key."
+          },
+          {
+            "properties": {
+              "board_id": {
+                "description": "Board incident tickets land on.",
+                "format": "uuid",
+                "type": "string"
+              },
+              "client_id": {
+                "description": "Optional client context stamped onto created incident tickets.",
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "correlation_window_secs": {
+                "description": "Storm window in seconds (10..=86400; default 900).",
+                "format": "int32",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "source_ref": {
+                "description": "Optional custom routing id (3–64 chars of `[a-z0-9-]`); generated\nwhen absent. Globally unique — collisions are a typed 409.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "name",
+              "board_id"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "CreateApiKeyRequest": {
         "properties": {
@@ -5383,6 +5642,109 @@
         ],
         "type": "object"
       },
+      "IncidentView": {
+        "description": "The storm group behind an incident ticket.",
+        "properties": {
+          "alert_count": {
+            "description": "How many alerts have collapsed into this ticket so far.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "first_alert_at": {
+            "type": "string"
+          },
+          "last_alert_at": {
+            "type": "string"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ticket_number": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "ticket_number",
+          "alert_count",
+          "first_alert_at",
+          "last_alert_at"
+        ],
+        "type": "object"
+      },
+      "IngestAlertRequest": {
+        "properties": {
+          "attributes": {
+            "description": "Provider-specific structured context (must be a JSON object)."
+          },
+          "correlation_key": {
+            "description": "Storm grouping key; defaults to `dedup_key` when absent so\nuncorrelated alerts each anchor their own incident.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dedup_key": {
+            "description": "Provider's per-event identity. REQUIRED: this is the replay gate.",
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "occurred_at": {
+            "description": "When the condition started (defaults to receipt time).",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "severity": {
+            "$ref": "#/components/schemas/AlertSeverity"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "dedup_key",
+          "title",
+          "severity"
+        ],
+        "type": "object"
+      },
+      "IngestResponse": {
+        "description": "POST /api/alerts/ingest — outcome of one signed delivery.",
+        "properties": {
+          "alert": {
+            "$ref": "#/components/schemas/AlertView"
+          },
+          "incident": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/IncidentView",
+                "description": "Present for `incident_created` and `collapsed`; `None` when the\nanchor ticket vanished before a replay answered."
+              }
+            ]
+          },
+          "status": {
+            "description": "`incident_created` (this alert anchored a NEW incident ticket),\n`collapsed` (folded into the still-open storm incident), or\n`duplicate` (replayed dedup_key — the stored alert is returned,\nnothing was written).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "alert"
+        ],
+        "type": "object"
+      },
       "InstantiateTemplateRequest": {
         "allOf": [
           {
@@ -6807,6 +7169,53 @@
           "user_id"
         ],
         "type": "object"
+      },
+      "PatchAlertSourceRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1): idempotency key + entity\nversion. Absent in legacy clients — purely additive."
+          },
+          {
+            "properties": {
+              "board_id": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "client_id": {
+                "description": "`Some(None)` clears; `Some(Some(v))` sets; `None` = no change.",
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "correlation_window_secs": {
+                "format": "int32",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "enabled": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        ]
       },
       "PatchAppointmentRequest": {
         "properties": {
@@ -11275,6 +11684,253 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/alert-sources": {
+      "get": {
+        "operationId": "alert_sources_list",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertSourceList"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/alert-sources — newest-first config list (no secrets).",
+        "tags": [
+          "alerts"
+        ]
+      },
+      "post": {
+        "operationId": "alert_sources_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAlertSourceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertSourceMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "description": "source_ref collision or idempotency key reused"
+          },
+          "422": {
+            "description": "validation failed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/alert-sources — creates an ingest source, generates + seals\nits HMAC secret (returned ONCE), and writes the audit trail.\nInstant-first (IF1/IF2): idempotency-keyed, read-your-write response.",
+        "tags": [
+          "alerts"
+        ]
+      }
+    },
+    "/api/v1/alert-sources/{id}": {
+      "patch": {
+        "operationId": "alert_sources_update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchAlertSourceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertSourceMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "source not visible in scope (rls_sparse)"
+          },
+          "409": {
+            "description": "version conflict or idempotency key reused"
+          },
+          "422": {
+            "description": "validation failed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "PATCH /api/alert-sources/{id} — re-point the board, rename, resize the\nstorm window, or disable. Instant-first (IF1/IF2).",
+        "tags": [
+          "alerts"
+        ]
+      }
+    },
+    "/api/v1/alerts": {
+      "get": {
+        "operationId": "alerts_list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "source_id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "ticket_id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertListResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/alerts — newest-first ledger browse, filterable by source and\nincident ticket (staff, ticket-view scoped).",
+        "tags": [
+          "alerts"
+        ]
+      }
+    },
+    "/api/v1/alerts/ingest/{source_ref}": {
+      "post": {
+        "description": "Responses: 200 with a terminal `status` (incident_created / collapsed /\nduplicate); 401 missing/bad signature; 403 disabled source; 404 unknown\nsource_ref; 422 malformed payload.",
+        "operationId": "alerts_ingest",
+        "parameters": [
+          {
+            "description": "Public ingest routing id of an alert source",
+            "in": "path",
+            "name": "source_ref",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestAlertRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "description": "missing or invalid signature"
+          },
+          "403": {
+            "description": "alert source disabled"
+          },
+          "404": {
+            "description": "unknown source_ref"
+          },
+          "422": {
+            "description": "validation failed"
+          }
+        },
+        "summary": "POST /api/alerts/ingest/{source_ref} — HMAC-verified alert ingest.",
+        "tags": [
+          "alerts"
+        ]
+      }
+    },
     "/api/v1/api-keys": {
       "get": {
         "operationId": "api_keys_list",
@@ -21245,6 +21901,10 @@
     {
       "description": "Documents with immutable, append-only, diffable versions (restore-creates-new-version)",
       "name": "documents"
+    },
+    {
+      "description": "Alert ingestor: HMAC-signed webhook ingest, dedup/correlation, storm collapse into incident tickets",
+      "name": "alerts"
     }
   ]
 }

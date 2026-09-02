@@ -1,0 +1,21 @@
+{
+  "event_type": "alert.ingested",
+  "entity": "alert",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "alert_count": 7,
+    "alert_id": "00000000-0000-0000-0000-00000000001e",
+    "correlation_key": "srv-01/disk-c",
+    "dedup_key": "evt-9182",
+    "occurred_at": "2023-11-14T22:13:23Z",
+    "org_id": "00000000-0000-0000-0000-000000000002",
+    "outcome": "collapsed",
+    "severity": "critical",
+    "source_id": "00000000-0000-0000-0000-00000000001f",
+    "source_ref": "acme-rmm",
+    "ticket_id": "00000000-0000-0000-0000-000000000001",
+    "title": "Disk usage critical on SRV-01"
+  }
+}

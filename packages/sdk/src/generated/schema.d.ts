@@ -1,4 +1,88 @@
 export interface paths {
+    "/api/v1/alert-sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/alert-sources — newest-first config list (no secrets). */
+        get: operations["alert_sources_list"];
+        put?: never;
+        /**
+         * POST /api/alert-sources — creates an ingest source, generates + seals
+         *     its HMAC secret (returned ONCE), and writes the audit trail.
+         *     Instant-first (IF1/IF2): idempotency-keyed, read-your-write response.
+         */
+        post: operations["alert_sources_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/alert-sources/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/alert-sources/{id} — re-point the board, rename, resize the
+         *     storm window, or disable. Instant-first (IF1/IF2).
+         */
+        patch: operations["alert_sources_update"];
+        trace?: never;
+    };
+    "/api/v1/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/alerts — newest-first ledger browse, filterable by source and
+         *     incident ticket (staff, ticket-view scoped).
+         */
+        get: operations["alerts_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/alerts/ingest/{source_ref}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/alerts/ingest/{source_ref} — HMAC-verified alert ingest.
+         * @description Responses: 200 with a terminal `status` (incident_created / collapsed /
+         *     duplicate); 401 missing/bad signature; 403 disabled source; 404 unknown
+         *     source_ref; 422 malformed payload.
+         */
+        post: operations["alerts_ingest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/api-keys": {
         parameters: {
             query?: never;
@@ -3469,6 +3553,80 @@ export interface components {
          * @enum {string}
          */
         Aggregate: "count" | "sum" | "avg" | "min" | "max";
+        AlertListQuery: {
+            /** Format: int64 */
+            limit?: number;
+            /** Format: int64 */
+            offset?: number;
+            /** Format: uuid */
+            source_id?: string | null;
+            /** Format: uuid */
+            ticket_id?: string | null;
+        };
+        AlertListResponse: {
+            alerts: components["schemas"]["AlertView"][];
+        };
+        /**
+         * @description Alert severity vocabulary. Maps onto ticket priorities when an alert
+         *     anchors an incident ticket: critical→P1, warning→P2, info→P3.
+         * @enum {string}
+         */
+        AlertSeverity: "info" | "warning" | "critical";
+        AlertSourceList: {
+            sources: components["schemas"]["AlertSourceView"][];
+        };
+        /**
+         * @description Instant-first mutation response for a source (IF2). `secret` is the
+         *     raw HMAC signing secret — populated ONLY by the create response and
+         *     never again (same show-once contract as webhooks/api-keys).
+         */
+        AlertSourceMutationResponse: components["schemas"]["AlertSourceView"] & {
+            mutation: components["schemas"]["MutationMeta"];
+            secret?: string | null;
+        };
+        /**
+         * @description An ingest source as the admin surface sees it. The HMAC secret is
+         *     NEVER here — it is returned exactly once, in the create response.
+         */
+        AlertSourceView: {
+            /** Format: uuid */
+            board_id: string;
+            /** Format: uuid */
+            client_id?: string | null;
+            /** Format: int32 */
+            correlation_window_secs: number;
+            created_at: string;
+            enabled: boolean;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: uuid */
+            org_id: string;
+            /** @description Path segment of the ingest URL (public routing id). */
+            source_ref: string;
+            updated_at: string;
+        };
+        /** @description One normalized alert (canonical ingest document + ledger row view). */
+        AlertView: {
+            attributes: Record<string, never>;
+            /** @description Storm grouping key (defaults to the dedup key server-side). */
+            correlation_key: string;
+            /** @description Provider's per-event identity; the replay gate per source. */
+            dedup_key: string;
+            description?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            incident_ticket_id?: string | null;
+            occurred_at: string;
+            /** Format: uuid */
+            org_id: string;
+            received_at: string;
+            severity: string;
+            /** Format: uuid */
+            source_id: string;
+            title: string;
+        };
         /**
          * @description The ONLY response carrying raw key material. Lost keys are rotated by
          *     creating a new key and revoking this one — never recovered.
@@ -4407,6 +4565,29 @@ export interface components {
          * @enum {string}
          */
         ContractType: "recurring" | "time_and_materials" | "retainer" | "fixed_fee";
+        CreateAlertSourceRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * Format: uuid
+             * @description Board incident tickets land on.
+             */
+            board_id: string;
+            /**
+             * Format: uuid
+             * @description Optional client context stamped onto created incident tickets.
+             */
+            client_id?: string | null;
+            /**
+             * Format: int32
+             * @description Storm window in seconds (10..=86400; default 900).
+             */
+            correlation_window_secs?: number | null;
+            name: string;
+            /**
+             * @description Optional custom routing id (3–64 chars of `[a-z0-9-]`); generated
+             *     when absent. Globally unique — collisions are a typed 409.
+             */
+            source_ref?: string | null;
+        };
         CreateApiKeyRequest: {
             name: string;
             /** @description Capability scopes from [`KNOWN_SCOPES`]. */
@@ -5424,6 +5605,50 @@ export interface components {
         HealthResponse: {
             status: string;
         };
+        /** @description The storm group behind an incident ticket. */
+        IncidentView: {
+            /**
+             * Format: int32
+             * @description How many alerts have collapsed into this ticket so far.
+             */
+            alert_count: number;
+            first_alert_at: string;
+            last_alert_at: string;
+            /** Format: uuid */
+            ticket_id: string;
+            ticket_number: string;
+        };
+        IngestAlertRequest: {
+            /** @description Provider-specific structured context (must be a JSON object). */
+            attributes?: unknown;
+            /**
+             * @description Storm grouping key; defaults to `dedup_key` when absent so
+             *     uncorrelated alerts each anchor their own incident.
+             */
+            correlation_key?: string | null;
+            /** @description Provider's per-event identity. REQUIRED: this is the replay gate. */
+            dedup_key: string;
+            description?: string | null;
+            /**
+             * Format: date-time
+             * @description When the condition started (defaults to receipt time).
+             */
+            occurred_at?: string | null;
+            severity: components["schemas"]["AlertSeverity"];
+            title: string;
+        };
+        /** @description POST /api/alerts/ingest — outcome of one signed delivery. */
+        IngestResponse: {
+            alert: components["schemas"]["AlertView"];
+            incident?: null | components["schemas"]["IncidentView"];
+            /**
+             * @description `incident_created` (this alert anchored a NEW incident ticket),
+             *     `collapsed` (folded into the still-open storm incident), or
+             *     `duplicate` (replayed dedup_key — the stored alert is returned,
+             *     nothing was written).
+             */
+            status: string;
+        };
         InstantiateTemplateRequest: components["schemas"]["MutationParams"] & {
             /**
              * @description Resolves template `assignee_key`s to user ids at instantiation
@@ -6028,6 +6253,19 @@ export interface components {
              * @description Owner of the row being deleted (must match self-or-admin rule).
              */
             user_id: string;
+        };
+        PatchAlertSourceRequest: components["schemas"]["MutationParams"] & {
+            /** Format: uuid */
+            board_id?: string | null;
+            /**
+             * Format: uuid
+             * @description `Some(None)` clears; `Some(Some(v))` sets; `None` = no change.
+             */
+            client_id?: string | null;
+            /** Format: int32 */
+            correlation_window_secs?: number | null;
+            enabled?: boolean | null;
+            name?: string | null;
         };
         PatchAppointmentRequest: {
             kind?: null | components["schemas"]["AppointmentKind"];
@@ -7557,6 +7795,186 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    alert_sources_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertSourceList"];
+                };
+            };
+        };
+    };
+    alert_sources_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAlertSourceRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertSourceMutationResponse"];
+                };
+            };
+            /** @description source_ref collision or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    alert_sources_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchAlertSourceRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertSourceMutationResponse"];
+                };
+            };
+            /** @description source not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    alerts_list: {
+        parameters: {
+            query?: {
+                source_id?: string | null;
+                ticket_id?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertListResponse"];
+                };
+            };
+        };
+    };
+    alerts_ingest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Public ingest routing id of an alert source */
+                source_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IngestAlertRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngestResponse"];
+                };
+            };
+            /** @description missing or invalid signature */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description alert source disabled */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unknown source_ref */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     api_keys_list: {
         parameters: {
             query?: never;

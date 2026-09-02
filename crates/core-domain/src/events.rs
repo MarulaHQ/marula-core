@@ -97,6 +97,11 @@ pub mod types {
     pub const APPOINTMENT_CREATED: &str = "appointment.created";
     pub const APPOINTMENT_UPDATED: &str = "appointment.updated";
     pub const APPOINTMENT_CANCELLED: &str = "appointment.cancelled";
+    /// Alert ingestor (TASKLIST Phase 3): one normalized alert was
+    /// accepted through the HMAC ingest surface and correlated. Emitted
+    /// for `incident_created` and `collapsed` outcomes only — a replayed
+    /// `duplicate` dedup_key writes nothing and emits nothing.
+    pub const ALERT_INGESTED: &str = "alert.ingested";
     /// Lightweight change markers — consumers refetch the user's windows.
     pub const AVAILABILITY_UPDATED: &str = "availability.updated";
     pub const ON_CALL_UPDATED: &str = "on_call.updated";
@@ -651,6 +656,38 @@ pub struct ProjectTemplateUpdated {
 pub struct ProjectTemplateRemoved {
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub template_id: uuid::Uuid,
+}
+
+/// `alert.ingested` — one normalized alert passed HMAC verification and
+/// the dedup gate. `outcome` tells consumers what the correlation stage
+/// did: `incident_created` (this alert anchored a NEW incident ticket),
+/// or `collapsed` (folded into the still-open storm incident — no new
+/// ticket). `alert_count` is the collapsed group's size AFTER this alert,
+/// so consumers can track storm growth without re-reading the alert row.
+/// Severity and outcome ride as strings to avoid coupling consumers to
+/// enums across versions (additive policy §2).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AlertIngested {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub alert_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub org_id: OrgId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub source_id: uuid::Uuid,
+    /// Public ingest routing id of the source (stable across rotations).
+    pub source_ref: String,
+    pub dedup_key: String,
+    pub correlation_key: String,
+    pub title: String,
+    /// "info" | "warning" | "critical"
+    pub severity: String,
+    /// "incident_created" | "collapsed"
+    pub outcome: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub ticket_id: Option<TicketId>,
+    pub alert_count: i64,
+    pub occurred_at: DateTime<Utc>,
 }
 
 /// Extracts @mentions from a note body (`@alice`, `@alice@org` → user ids
