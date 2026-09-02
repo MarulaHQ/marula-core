@@ -353,8 +353,8 @@ use core_domain::events::{
     ProjectPhaseCompleted, ProjectPhaseCreated, ProjectPhaseUpdated, ProjectTaskCompleted,
     ProjectTaskCreated, ProjectTaskUpdated, ProjectTemplateRemoved, ProjectTemplateUpdated,
     ProjectUpdated, ProjectViewRemoved, ProjectViewUpdated, SiteCreated, SiteUpdated,
-    TicketAssigned, TicketChecklistUpdated, TicketCommentAdded, TicketCreated, TicketStatusChanged,
-    TimeEntryCreated, TimerPaused, TimerStarted, TimerStopped,
+    TicketAssigned, TicketChecklistUpdated, TicketCommentAdded, TicketCreated, TicketReverted,
+    TicketStatusChanged, TimeEntryCreated, TimerPaused, TimerStarted, TimerStopped,
 };
 use core_domain::money::{CurrencyCode, Money};
 use core_domain::policy::BoardRole;
@@ -429,6 +429,24 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
                 "assigned_by": serde_json::Value::Null,
                 "via_automation": true,
             })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::TICKET_REVERTED,
+        entity: "ticket",
+        variant: "default",
+        shape: typed_shape!(
+            TicketReverted,
+            TicketReverted {
+                ticket_id: su(1),
+                board_id: su(2),
+                assignee_id: Some(su(4)),
+                reverted_seq: 4,
+                fields: vec!["title".into()],
+                whole_record: false,
+                reverted_by: Some(su(5)),
+                occurred_at: st(4),
+            }
         ),
     },
     PublishedEvent {

@@ -574,7 +574,7 @@ pub async fn patch(
             id,
             core_db::tickets::TicketPatch {
                 title: req.title.as_deref(),
-                body: req.body.as_deref(),
+                body: req.body.as_deref().map(Some),
                 priority: req.priority,
                 assignee_id: req.assignee_id,
                 client_id: req.client_id,

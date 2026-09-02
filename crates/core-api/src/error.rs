@@ -15,7 +15,8 @@
 //! `validation_failed`, `conflict`, `version_conflict`,
 //! `idempotency_key_reused`, `pre_close_checklist_blocked`,
 //! `dispatch_move_conflict`, `import_chunk_rejected`,
-//! `task_dependencies_unsatisfied`, `service_unavailable`, `internal_error`.
+//! `task_dependencies_unsatisfied`, `undo_reverts_only`,
+//! `service_unavailable`, `internal_error`.
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -98,6 +99,12 @@ pub enum ApiError {
         /// Dependency ids still not completed.
         blocking: Vec<Uuid>,
     },
+    /// Typed 409 for an IF7 whole-record revert against a CLOSED record:
+    /// closing is the undo checkpoint, so only explicit, actioned
+    /// per-field reverts (a named `fields` list) are accepted — never a
+    /// silent rewrite of the whole record past the close.
+    #[error("record is closed: only explicit per-field reverts are permitted")]
+    UndoRevertsOnly,
     #[error("internal error")]
     Internal(#[from] anyhow::Error),
 }
@@ -199,6 +206,12 @@ impl IntoResponse for ApiError {
                 "task_dependencies_unsatisfied",
                 "task dependencies not satisfied".to_string(),
                 Some(json!({ "task_id": task_id, "blocking": blocking })),
+            ),
+            ApiError::UndoRevertsOnly => (
+                StatusCode::CONFLICT,
+                "undo_reverts_only",
+                "record is closed: only explicit per-field reverts are permitted".to_string(),
+                None,
             ),
             ApiError::Unavailable(m) => (
                 StatusCode::SERVICE_UNAVAILABLE,

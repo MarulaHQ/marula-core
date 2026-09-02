@@ -6784,3 +6784,234 @@ async fn idempotency_key_is_unique_per_org_and_seq_counter_is_isolated(db: &Test
     .await;
     assert!(duplicate_seq.is_err(), "seq must be unique per entity");
 }
+
+// ===========================================================================
+// Undo read model (TASKLIST IF7; migration 0041) — the per-field /
+// per-record views over the 0028 write trail: view math against
+// hand-computed expectations plus RLS-through-views isolation.
+//
+// Seed-slot discipline (lane contract): org anchors 260 and 261 (unused
+// fixed slots); child ids derive from slot 280's u128, clear of every
+// other lane's inserts.
+// ===========================================================================
+
+fn undo_uuid(k: u64) -> Uuid {
+    Uuid::from_u128(fixed_uuid(280).as_u128() + k as u128)
+}
+
+static UNDO_FIXTURES: tokio::sync::OnceCell<(Uuid, Uuid)> = tokio::sync::OnceCell::const_new();
+
+/// Two orgs holding IDENTICAL three-write trails for the SAME
+/// (entity, entity_id) pair — only RLS through the views can tell them
+/// apart. Writes: create (T1/p3) → update (title T1→T2) → update
+/// (priority p3→p1).
+async fn undo_fixtures(db: &TestDb) -> (Uuid, Uuid) {
+    *UNDO_FIXTURES
+        .get_or_init(|| async {
+            let org_a = seed_org(&db.app, 260).await.org;
+            let org_b = seed_org(&db.app, 261).await.org;
+            let entity_id = undo_uuid(0);
+            for (org, marker, id_base) in [(org_a, "a", 1u64), (org_b, "b", 11u64)] {
+                let marker_json = format!("\"{marker}\"");
+                let rows: [(i64, &str, Option<String>, String); 3] = [
+                    (
+                        1,
+                        "create",
+                        None,
+                        format!(
+                            "{{\"title\": \"T1\", \"priority\": \"p3\", \"marker\": {marker_json}}}"
+                        ),
+                    ),
+                    (
+                        2,
+                        "update",
+                        Some(format!(
+                            "{{\"title\": \"T1\", \"priority\": \"p3\", \"marker\": {marker_json}}}"
+                        )),
+                        format!(
+                            "{{\"title\": \"T2\", \"priority\": \"p3\", \"marker\": {marker_json}}}"
+                        ),
+                    ),
+                    (
+                        3,
+                        "update",
+                        Some(format!(
+                            "{{\"title\": \"T2\", \"priority\": \"p3\", \"marker\": {marker_json}}}"
+                        )),
+                        format!(
+                            "{{\"title\": \"T2\", \"priority\": \"p1\", \"marker\": {marker_json}}}"
+                        ),
+                    ),
+                ];
+                for (seq, op, before, after) in rows {
+                    sqlx::query(
+                        "INSERT INTO entity_writes (id, org_id, entity, entity_id, seq, op, actor_id, idempotency_key, before, after) \
+                         VALUES ($1, $2, 'ticket', $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb)",
+                    )
+                    .bind(undo_uuid(id_base + seq as u64))
+                    .bind(org)
+                    .bind(entity_id)
+                    .bind(seq)
+                    .bind(op)
+                    .bind(undo_uuid(0))
+                    .bind(format!("key-{marker}-{seq}"))
+                    .bind(before)
+                    .bind(after)
+                    .execute(&db.admin)
+                    .await
+                    .expect("seed undo trail row");
+                }
+            }
+            (org_a, org_b)
+        })
+        .await
+}
+
+#[tokio::test]
+async fn undo_views_expose_record_and_field_history_with_rls_isolation() {
+    let db = test_db().await;
+    let (org_a, org_b) = undo_fixtures(&db).await;
+    let entity_id = undo_uuid(0);
+
+    // Org A: newest-first record stack with honest restorable flags.
+    {
+        let mut tx = org_tx(&db.app, org_a).await;
+        let steps = core_db::undo::record_stack(&mut *tx, org_a, "ticket", entity_id, 50)
+            .await
+            .expect("org A record stack");
+        assert_eq!(steps.len(), 3);
+        assert_eq!(steps[0].seq, 3, "newest write first");
+        assert_eq!(steps[0].op, "update");
+        assert_eq!(steps[0].after["priority"], "p1");
+        assert_eq!(steps[0].before.as_ref().unwrap()["priority"], "p3");
+        assert!(steps[0].restorable);
+        assert_eq!(steps[1].seq, 2);
+        assert_eq!(steps[1].after["title"], "T2");
+        assert_eq!(steps[1].idempotency_key.as_deref(), Some("key-a-2"));
+        assert_eq!(steps[2].seq, 1);
+        assert_eq!(steps[2].op, "create");
+        assert!(steps[2].before.is_none());
+        assert!(!steps[2].restorable, "creates are not value-restorable");
+
+        // Field view: one row per (write, field), prior/new side by side.
+        let fields = core_db::undo::field_stack(&mut *tx, org_a, "ticket", entity_id, 200)
+            .await
+            .expect("org A field stack");
+        let title_seq2 = fields
+            .iter()
+            .find(|f| f.seq == 2 && f.field == "title")
+            .expect("seq 2 title row");
+        assert_eq!(title_seq2.prior.as_ref().unwrap(), "T1");
+        assert_eq!(title_seq2.new_value.as_ref().unwrap(), "T2");
+        assert!(title_seq2.changed);
+        let priority_seq2 = fields
+            .iter()
+            .find(|f| f.seq == 2 && f.field == "priority")
+            .expect("seq 2 priority row");
+        assert!(!priority_seq2.changed, "seq 2 did not move priority");
+        let priority_seq3 = fields
+            .iter()
+            .find(|f| f.seq == 3 && f.field == "priority")
+            .expect("seq 3 priority row");
+        assert_eq!(priority_seq3.prior.as_ref().unwrap(), "p3");
+        assert_eq!(priority_seq3.new_value.as_ref().unwrap(), "p1");
+        assert!(priority_seq3.changed);
+        let title_create = fields
+            .iter()
+            .find(|f| f.seq == 1 && f.field == "title")
+            .expect("create title row");
+        assert!(title_create.prior.is_none(), "creates have no prior value");
+        assert_eq!(title_create.new_value.as_ref().unwrap(), "T1");
+        assert!(title_create.changed);
+
+        // Single-step lookup (the revert target read).
+        let step = core_db::undo::trail_step(&mut *tx, org_a, "ticket", entity_id, 2)
+            .await
+            .expect("trail step query")
+            .expect("seq 2 exists");
+        assert_eq!(step.op, "update");
+        assert_eq!(step.before.as_ref().unwrap()["title"], "T1");
+        assert!(
+            core_db::undo::trail_step(&mut *tx, org_a, "ticket", entity_id, 99)
+                .await
+                .expect("missing seq query")
+                .is_none(),
+            "unknown seq is a clean miss"
+        );
+    }
+
+    // Org B: the mirror image — same ids, its own rows, nothing of A's.
+    {
+        let mut tx = org_tx(&db.app, org_b).await;
+        let steps = core_db::undo::record_stack(&mut *tx, org_b, "ticket", entity_id, 50)
+            .await
+            .expect("org B record stack");
+        assert_eq!(steps.len(), 3);
+        assert_eq!(steps[1].idempotency_key.as_deref(), Some("key-b-2"));
+        let marker: String = sqlx::query_scalar(
+            "SELECT after->>'marker' FROM ops.v1_record_undo_stack \
+             WHERE org_id = $1 AND entity = 'ticket' AND entity_id = $2 AND seq = 1",
+        )
+        .bind(org_b)
+        .bind(entity_id)
+        .fetch_one(&mut *tx)
+        .await
+        .expect("org B trail row through the view");
+        assert_eq!(marker, "b", "the visible rows are org B's own");
+    }
+
+    // Unscoped (no app.org_id binding): default-deny through both views.
+    {
+        let fresh = db.fresh_app_pool().await;
+        let mut tx = fresh.begin().await.expect("begin unscoped");
+        let record_rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM ops.v1_record_undo_stack")
+            .fetch_one(&mut *tx)
+            .await
+            .expect("unscoped record scan");
+        let field_rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM ops.v1_field_undo_stack")
+            .fetch_one(&mut *tx)
+            .await
+            .expect("unscoped field scan");
+        assert_eq!(
+            record_rows, 0,
+            "record view leaks rows without an org binding"
+        );
+        assert_eq!(
+            field_rows, 0,
+            "field view leaks rows without an org binding"
+        );
+    }
+
+    // Cross-org reads stay empty even when the target id collides.
+    {
+        let mut tx = org_tx(&db.app, org_a).await;
+        let foreign = core_db::undo::trail_step(&mut *tx, org_b, "ticket", entity_id, 2)
+            .await
+            .expect("cross-org step query");
+        assert!(foreign.is_none(), "org A cannot read org B's trail step");
+    }
+}
+
+#[tokio::test]
+async fn undo_views_limit_and_order_delegately() {
+    let db = test_db().await;
+    let (org_a, _) = undo_fixtures(&db).await;
+    let entity_id = undo_uuid(0);
+    let mut tx = org_tx(&db.app, org_a).await;
+
+    let limited = core_db::undo::record_stack(&mut *tx, org_a, "ticket", entity_id, 2)
+        .await
+        .expect("limited stack");
+    assert_eq!(
+        limited.iter().map(|s| s.seq).collect::<Vec<_>>(),
+        vec![3, 2],
+        "LIMIT keeps the NEWEST steps, not the oldest"
+    );
+
+    // A limit above the row count is a plain pass-through; the clamp keeps
+    // pathological callers bounded.
+    let clamped = core_db::undo::record_stack(&mut *tx, org_a, "ticket", entity_id, 100_000)
+        .await
+        .expect("clamped stack");
+    assert_eq!(clamped.len(), 3);
+}

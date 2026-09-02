@@ -1,0 +1,19 @@
+{
+  "event_type": "ticket.reverted",
+  "entity": "ticket",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "assignee_id": "00000000-0000-0000-0000-000000000004",
+    "board_id": "00000000-0000-0000-0000-000000000002",
+    "fields": [
+      "title"
+    ],
+    "occurred_at": "2023-11-14T22:13:24Z",
+    "reverted_by": "00000000-0000-0000-0000-000000000005",
+    "reverted_seq": 4,
+    "ticket_id": "00000000-0000-0000-0000-000000000001",
+    "whole_record": false
+  }
+}

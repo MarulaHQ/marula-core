@@ -369,7 +369,10 @@ where
 
 pub struct TicketPatch<'a> {
     pub title: Option<&'a str>,
-    pub body: Option<&'a str>,
+    /// `Some(Some(text))` sets; `Some(None)` clears; `None` = no change.
+    /// (IF7 reverts restore an absent body; JSON patches keep the legacy
+    /// null-means-unchanged surface via `.map(Some)`.)
+    pub body: Option<Option<&'a str>>,
     pub priority: Option<Priority>,
     pub assignee_id: Option<Option<Uuid>>,
     pub client_id: Option<Option<Uuid>>,
@@ -394,7 +397,9 @@ where
         q.push(", title = ").push_bind(v.to_string());
     }
     if let Some(v) = p.body {
-        q.push(", body = ").push_bind(v.to_string());
+        // Option<&str> encodes SQL NULL for None (clear), the text
+        // otherwise.
+        q.push(", body = ").push_bind(v);
     }
     if let Some(v) = p.priority {
         q.push(", priority = ").push_bind(v.as_str().to_string());
