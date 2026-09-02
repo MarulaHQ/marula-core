@@ -1,0 +1,14 @@
+{
+  "event_type": "report_schedule.updated",
+  "entity": "report_schedule",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "cadence": "monthly",
+    "definition_id": "00000000-0000-0000-0000-00000000001d",
+    "name": "Weekly ops digest",
+    "next_run_at": "2026-02-01T08:00:00Z",
+    "schedule_id": "00000000-0000-0000-0000-00000000001e"
+  }
+}

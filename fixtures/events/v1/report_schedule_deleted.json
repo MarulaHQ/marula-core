@@ -1,0 +1,11 @@
+{
+  "event_type": "report_schedule.deleted",
+  "entity": "report_schedule",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "name": "Weekly ops digest",
+    "schedule_id": "00000000-0000-0000-0000-00000000001e"
+  }
+}

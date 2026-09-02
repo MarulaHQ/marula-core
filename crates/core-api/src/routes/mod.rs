@@ -64,6 +64,7 @@ pub mod portal;
 pub mod portal_admin;
 pub mod projects;
 pub mod report_defs;
+pub mod report_schedules;
 pub mod reports;
 pub mod scheduling;
 pub mod search;
@@ -803,6 +804,10 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // alert ingestor (TASKLIST Phase 3): source admin + alert ledger;
         // module owns its own router (ingest mounts via public_routes).
         .merge(alerts::admin_routes(gen))
+        // scheduled report delivery (TASKLIST R4): admin-gated schedule
+        // CRUD + cursor-paged listing with next-run preview; module owns
+        // its own router.
+        .merge(report_schedules::routes(gen))
         // Stamps org_id onto the current request span (telemetry) once the
         // auth middleware below has resolved it.
         .layer(middleware::from_fn(crate::otel_http::record_org))

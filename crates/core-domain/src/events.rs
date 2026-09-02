@@ -69,6 +69,12 @@ pub mod types {
     pub const REPORT_DEFINITION_CREATED: &str = "report_definition.created";
     pub const REPORT_DEFINITION_UPDATED: &str = "report_definition.updated";
     pub const REPORT_DEFINITION_DELETED: &str = "report_definition.deleted";
+    /// Scheduled report delivery (TASKLIST R4): a delivery schedule was
+    /// created / changed / removed. The worker's run fan-out emits NO
+    /// events — the `report_deliveries` ledger is the run record.
+    pub const REPORT_SCHEDULE_CREATED: &str = "report_schedule.created";
+    pub const REPORT_SCHEDULE_UPDATED: &str = "report_schedule.updated";
+    pub const REPORT_SCHEDULE_DELETED: &str = "report_schedule.deleted";
     /// Emitted when an org- or user-scoped setting changes through the
     /// typed settings registry.
     pub const SETTING_UPDATED: &str = "setting.updated";

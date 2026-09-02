@@ -24,6 +24,7 @@
 
 pub mod automations;
 pub mod config;
+pub mod delivery;
 pub mod effects;
 pub mod email;
 pub mod notifier;
@@ -83,14 +84,41 @@ pub async fn run(
 
     // Outbound email send loop (disabled cleanly when unconfigured).
     let email_alive = Arc::new(AtomicBool::new(true));
+    let transport = core_mail::build_transport(&config.email.transport_kind);
     {
         let email_alive = Arc::clone(&email_alive);
-        let transport = core_mail::build_transport(&config.email.transport_kind);
         let email_config = config.email.clone();
+        let email_transport = Arc::clone(&transport);
         let email_shutdown = shutdown.clone();
         tokio::spawn(async move {
-            email::run_email_loop(email_config, transport, email_shutdown).await;
+            email::run_email_loop(email_config, email_transport, email_shutdown).await;
             email_alive.store(false, Ordering::Relaxed);
+        });
+    }
+
+    // Scheduled report delivery (TASKLIST R4): transport-unset deploys
+    // run the LEDGERED log-skip none mode — schedules still advance and
+    // every run stays visible, so this loop has no disable switch.
+    let delivery_alive = Arc::new(AtomicBool::new(true));
+    {
+        let delivery_alive = Arc::clone(&delivery_alive);
+        let delivery_pool = pool.clone();
+        let database_url = config.database_url.clone();
+        let delivery_transport = Arc::clone(&transport);
+        let transport_kind = config.email.transport_kind.clone();
+        let delivery_config = config.delivery.clone();
+        let delivery_shutdown = shutdown.clone();
+        tokio::spawn(async move {
+            delivery::run_delivery_loop(
+                delivery_pool,
+                database_url,
+                delivery_transport,
+                transport_kind,
+                delivery_config,
+                delivery_shutdown,
+            )
+            .await;
+            delivery_alive.store(false, Ordering::Relaxed);
         });
     }
 
@@ -211,6 +239,7 @@ pub async fn run(
         sla_alive,
         automations_alive: auto_alive,
         webhooks_alive,
+        delivery_alive,
     };
     // Unified-search indexing: consumes domain events and pushes index
     // writes through core-api's internal effect surface. Disabled cleanly
@@ -253,6 +282,7 @@ struct HealthFlags {
     sla_alive: Arc<AtomicBool>,
     automations_alive: Arc<AtomicBool>,
     webhooks_alive: Arc<AtomicBool>,
+    delivery_alive: Arc<AtomicBool>,
 }
 
 async fn healthz(State(flags): State<Arc<HealthFlags>>) -> Json<serde_json::Value> {
@@ -262,10 +292,11 @@ async fn healthz(State(flags): State<Arc<HealthFlags>>) -> Json<serde_json::Valu
         && flags.queue_alive.load(Ordering::Relaxed)
         && flags.sla_alive.load(Ordering::Relaxed)
         && flags.automations_alive.load(Ordering::Relaxed)
-        && flags.webhooks_alive.load(Ordering::Relaxed);
+        && flags.webhooks_alive.load(Ordering::Relaxed)
+        && flags.delivery_alive.load(Ordering::Relaxed);
     if ok {
         Json(
-            json!({ "status": "ok", "relay": "alive", "email": "alive", "queue": "alive", "sla": "alive", "automations": "alive", "webhooks": "alive" }),
+            json!({ "status": "ok", "relay": "alive", "email": "alive", "queue": "alive", "sla": "alive", "automations": "alive", "webhooks": "alive", "delivery": "alive" }),
         )
     } else {
         Json(json!({ "status": "unhealthy" }))
@@ -295,11 +326,13 @@ mod tests {
             sla_alive: Arc::new(AtomicBool::new(true)),
             automations_alive: Arc::new(AtomicBool::new(true)),
             webhooks_alive: Arc::new(AtomicBool::new(true)),
+            delivery_alive: Arc::new(AtomicBool::new(true)),
         };
         let healthy = healthz(State(Arc::new(flags.clone()))).await;
         assert_eq!(healthy.0["relay"], "alive");
         assert_eq!(healthy.0["email"], "alive");
         assert_eq!(healthy.0["webhooks"], "alive");
+        assert_eq!(healthy.0["delivery"], "alive");
         assert_eq!(healthy.0["status"], "ok");
 
         flags.queue_alive.store(false, Ordering::Relaxed);

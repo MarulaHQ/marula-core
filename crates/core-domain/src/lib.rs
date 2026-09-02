@@ -8,6 +8,7 @@
 
 pub mod attachments;
 pub mod automations;
+pub mod cadence;
 pub mod custom_fields;
 pub mod deprecation;
 pub mod entities;

@@ -82,6 +82,23 @@ pub struct TimeLoopConfig {
     pub poll_secs: u64,
 }
 
+/// Settings for the scheduled report delivery loop (TASKLIST R4). Unlike
+/// the other loops there is NO disable switch: a transport-unset deploy
+/// runs in the ledgered log-skip none mode, so schedules still advance
+/// and their runs stay visible.
+#[derive(Debug, Clone)]
+pub struct DeliveryLoopConfig {
+    /// From address on every delivery email (`EMAIL_FROM_ADDRESS` — the
+    /// same env core-api enqueues with; defaults to `support@meridian.local`).
+    pub from_address: String,
+    /// Optional From display name (`EMAIL_FROM_NAME`).
+    pub from_name: Option<String>,
+    /// Schedules claimed per sweep (`DELIVERY_CLAIM_BATCH`).
+    pub claim_batch: i64,
+    /// Seconds between due-schedule sweeps (`DELIVERY_POLL_SECS`).
+    pub poll_secs: u64,
+}
+
 /// Runtime settings for the worker process.
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
@@ -98,6 +115,8 @@ pub struct WorkerConfig {
     pub email: EmailLoopConfig,
     /// Missing-time EOD nudge scheduler (Stage 2).
     pub time: TimeLoopConfig,
+    /// Scheduled report delivery loop (TASKLIST R4).
+    pub delivery: DeliveryLoopConfig,
     /// Base URL of core-api for machine effect calls (`INTERNAL_API_URL`).
     pub internal_api_url: String,
     /// Bearer token for `/api/internal/*` (`MERIDIAN_INTERNAL_TOKEN`).
@@ -180,6 +199,17 @@ impl WorkerConfig {
                     .unwrap_or_else(|| "http://localhost:8080".to_string()),
                 internal_token: env("EMAIL_INTERNAL_TOKEN"),
                 poll_secs: env("TIME_AUDIT_POLL_SECS")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(60),
+            },
+            delivery: DeliveryLoopConfig {
+                from_address: env("EMAIL_FROM_ADDRESS")
+                    .unwrap_or_else(|| "support@meridian.local".into()),
+                from_name: env("EMAIL_FROM_NAME"),
+                claim_batch: env("DELIVERY_CLAIM_BATCH")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(20),
+                poll_secs: env("DELIVERY_POLL_SECS")
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(60),
             },

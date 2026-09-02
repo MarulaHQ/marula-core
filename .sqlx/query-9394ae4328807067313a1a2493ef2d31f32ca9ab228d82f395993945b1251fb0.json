@@ -1,0 +1,136 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE report_schedules\n           SET report_definition_id = $3, name = $4, recipients = $5, cadence = $6,\n               time_of_day = $7, day_of_week = $8, day_of_month = $9, timezone = $10,\n               window_days = $11, enabled = $12, next_run_at = $13, updated_at = now()\n           WHERE org_id = $1 AND id = $2\n           RETURNING id, org_id, report_definition_id, name, recipients, cadence,\n             time_of_day, day_of_week, day_of_month, timezone, window_days, enabled,\n             next_run_at, last_run_at, last_error, created_by, created_at, updated_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "report_definition_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "recipients",
+        "type_info": "UuidArray"
+      },
+      {
+        "ordinal": 5,
+        "name": "cadence",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "time_of_day",
+        "type_info": "Time"
+      },
+      {
+        "ordinal": 7,
+        "name": "day_of_week",
+        "type_info": "Int2"
+      },
+      {
+        "ordinal": 8,
+        "name": "day_of_month",
+        "type_info": "Int2"
+      },
+      {
+        "ordinal": 9,
+        "name": "timezone",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "window_days",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 11,
+        "name": "enabled",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 12,
+        "name": "next_run_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 13,
+        "name": "last_run_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 14,
+        "name": "last_error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 15,
+        "name": "created_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 16,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 17,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "UuidArray",
+        "Text",
+        "Time",
+        "Int2",
+        "Int2",
+        "Text",
+        "Int4",
+        "Bool",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "9394ae4328807067313a1a2493ef2d31f32ca9ab228d82f395993945b1251fb0"
+}

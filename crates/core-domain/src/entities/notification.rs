@@ -16,11 +16,15 @@ pub enum NotificationKind {
     Escalation,
     MissingTime,
     TicketUpdate,
+    /// The email leg of scheduled report delivery (TASKLIST R4): a
+    /// recipient's preference chain — including quiet hours — governs
+    /// whether their copy of a scheduled report CSV actually sends.
+    ReportDelivery,
 }
 
 impl NotificationKind {
     /// Every kind, stable order — drives preference screens and defaults.
-    pub const ALL: [NotificationKind; 7] = [
+    pub const ALL: [NotificationKind; 8] = [
         NotificationKind::Mention,
         NotificationKind::Assignment,
         NotificationKind::SlaRisk,
@@ -28,6 +32,7 @@ impl NotificationKind {
         NotificationKind::Escalation,
         NotificationKind::MissingTime,
         NotificationKind::TicketUpdate,
+        NotificationKind::ReportDelivery,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -39,6 +44,7 @@ impl NotificationKind {
             NotificationKind::Escalation => "escalation",
             NotificationKind::MissingTime => "missing_time",
             NotificationKind::TicketUpdate => "ticket_update",
+            NotificationKind::ReportDelivery => "report_delivery",
         }
     }
 }
@@ -54,6 +60,7 @@ impl std::str::FromStr for NotificationKind {
             "escalation" => Ok(NotificationKind::Escalation),
             "missing_time" => Ok(NotificationKind::MissingTime),
             "ticket_update" => Ok(NotificationKind::TicketUpdate),
+            "report_delivery" => Ok(NotificationKind::ReportDelivery),
             other => Err(crate::DomainError::Validation(format!(
                 "invalid notification kind: {other}"
             ))),

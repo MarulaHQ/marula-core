@@ -1,0 +1,125 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, org_id, report_definition_id, name, recipients, cadence,\n                  time_of_day, day_of_week, day_of_month, timezone, window_days, enabled,\n                  next_run_at, last_run_at, last_error, created_by, created_at, updated_at\n           FROM report_schedules\n           WHERE enabled AND next_run_at <= $1\n           ORDER BY next_run_at, id\n           LIMIT $2\n           FOR UPDATE SKIP LOCKED",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "report_definition_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "recipients",
+        "type_info": "UuidArray"
+      },
+      {
+        "ordinal": 5,
+        "name": "cadence",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "time_of_day",
+        "type_info": "Time"
+      },
+      {
+        "ordinal": 7,
+        "name": "day_of_week",
+        "type_info": "Int2"
+      },
+      {
+        "ordinal": 8,
+        "name": "day_of_month",
+        "type_info": "Int2"
+      },
+      {
+        "ordinal": 9,
+        "name": "timezone",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "window_days",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 11,
+        "name": "enabled",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 12,
+        "name": "next_run_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 13,
+        "name": "last_run_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 14,
+        "name": "last_error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 15,
+        "name": "created_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 16,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 17,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "bba838bcc5e5ed5bbf3cd0e4532949fc6a26c2e4baab8219b3cc78919f9250fe"
+}
