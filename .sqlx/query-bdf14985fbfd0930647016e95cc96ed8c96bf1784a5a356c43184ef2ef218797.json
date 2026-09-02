@@ -1,0 +1,143 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE invoices SET status = 'void', updated_at = now()\n           WHERE org_id = $1 AND id = $2 AND status = 'issued'\n           RETURNING id, org_id, run_id, client_id, contract_id, number, status, currency,\n                     period_from, period_to, issued_at, due_on, total_minor, total_paid_minor,\n                     dunning_state, dunning_updated_at, dunning_note, notes, created_by,\n                     created_at, updated_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "run_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "client_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "contract_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "number",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "period_from",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 9,
+        "name": "period_to",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 10,
+        "name": "issued_at",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 11,
+        "name": "due_on",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 12,
+        "name": "total_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 13,
+        "name": "total_paid_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 14,
+        "name": "dunning_state",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 15,
+        "name": "dunning_updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 16,
+        "name": "dunning_note",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 17,
+        "name": "notes",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 18,
+        "name": "created_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 19,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 20,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "bdf14985fbfd0930647016e95cc96ed8c96bf1784a5a356c43184ef2ef218797"
+}

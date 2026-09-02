@@ -1,0 +1,22 @@
+{
+  "event_type": "invoice.payment_recorded",
+  "entity": "invoice_payment",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "invoice_status": "paid",
+    "payment": {
+      "amount_minor": 150000,
+      "created_by": "00000000-0000-0000-0000-000000000004",
+      "currency": "USD",
+      "id": "00000000-0000-0000-0000-000000000021",
+      "invoice_id": "00000000-0000-0000-0000-000000000020",
+      "notes": null,
+      "org_id": "00000000-0000-0000-0000-000000000002",
+      "provider": "none",
+      "provider_ref": "local-approval",
+      "received_at": "2023-11-14T22:13:23Z"
+    }
+  }
+}

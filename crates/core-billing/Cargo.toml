@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 core-domain = { path = "../core-domain" }
+async-trait = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }

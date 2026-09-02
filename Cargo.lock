@@ -668,6 +668,7 @@ dependencies = [
 name = "core-billing"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "axum 0.8.9",
  "chrono",
  "core-api",

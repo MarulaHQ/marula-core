@@ -187,6 +187,66 @@ fn sample_contract() -> Contract {
     }
 }
 
+/// Representative invoice-run roll-up for invoicing samples.
+fn sample_invoice_run() -> InvoiceRun {
+    InvoiceRun {
+        id: su(31),
+        org_id: su(2),
+        number: "RUN-000007".into(),
+        period_from: sd(1),
+        period_to: sd(28),
+        invoice_count: 1,
+        total_minor: 150_000,
+        currency: Some("USD".into()),
+        due_in_days: 30,
+        created_by: Some(su(4)),
+        created_at: st(2),
+    }
+}
+
+/// Representative issued invoice for invoicing samples.
+fn sample_invoice() -> Invoice {
+    Invoice {
+        id: su(32),
+        org_id: su(2),
+        run_id: Some(su(31)),
+        client_id: su(3),
+        contract_id: su(23),
+        number: "INV-000042".into(),
+        status: InvoiceStatus::Issued,
+        currency: "USD".into(),
+        period_from: Some(sd(1)),
+        period_to: Some(sd(28)),
+        issued_at: sd(28),
+        due_on: sd(28),
+        total_minor: 150_000,
+        total_paid_minor: 0,
+        dunning_state: DunningState::None,
+        dunning_updated_at: None,
+        dunning_note: None,
+        notes: None,
+        created_by: Some(su(4)),
+        created_at: st(2),
+        updated_at: st(2),
+    }
+}
+
+/// Representative payment receipt for invoicing samples.
+fn sample_invoice_payment() -> InvoicePayment {
+    InvoicePayment {
+        id: su(33),
+        org_id: su(2),
+        invoice_id: su(32),
+        amount_minor: 150_000,
+        currency: "USD".into(),
+        provider: "none".into(),
+        provider_ref: Some("local-approval".into()),
+        notes: None,
+        received_at: st(3),
+        created_by: Some(su(4)),
+    }
+}
+
 /// Representative milestone phase of the sample project.
 fn sample_phase() -> ProjectPhase {
     ProjectPhase {
@@ -275,9 +335,10 @@ macro_rules! untyped_shape {
 
 use core_domain::entities::{
     Appointment, AppointmentKind, AppointmentStatus, BillingFrequency, BillingMethod, BoardGroup,
-    BoardStatus, ChecklistItem, Contract, ContractStatus, ContractType, NotificationKind,
-    NotificationPreference, PhaseStatus, Project, ProjectPhase, ProjectStatus, ProjectTask,
-    TaskStatus, TicketComment, TimeEntry,
+    BoardStatus, ChecklistItem, Contract, ContractStatus, ContractType, DunningState, Invoice,
+    InvoicePayment, InvoiceRun, InvoiceStatus, NotificationKind, NotificationPreference,
+    PhaseStatus, Project, ProjectPhase, ProjectStatus, ProjectTask, TaskStatus, TicketComment,
+    TimeEntry,
 };
 use core_domain::events::{
     types, AppointmentCancelled, AppointmentCreated, AppointmentUpdated, AttachmentAdded,
@@ -286,12 +347,14 @@ use core_domain::events::{
     BoardMembershipUpdated, BoardStatusAdded, BoardStatusRemoved, BoardStatusUpdated,
     BoardTransitionsUpdated, CalendarExclusionChanged, ClientCreated, ClientUpdated,
     ContactCreated, ContactUpdated, ContractCreated, ContractRemoved, ContractUpdated,
-    ImportBatchFinished, ImportBatchStarted, NotificationCreated, OnCallChanged, ProjectCreated,
-    ProjectMilestoneCompleted, ProjectPhaseCompleted, ProjectPhaseCreated, ProjectPhaseUpdated,
-    ProjectTaskCompleted, ProjectTaskCreated, ProjectTaskUpdated, ProjectTemplateRemoved,
-    ProjectTemplateUpdated, ProjectUpdated, ProjectViewRemoved, ProjectViewUpdated, SiteCreated,
-    SiteUpdated, TicketAssigned, TicketChecklistUpdated, TicketCommentAdded, TicketCreated,
-    TicketStatusChanged, TimeEntryCreated, TimerPaused, TimerStarted, TimerStopped,
+    ImportBatchFinished, ImportBatchStarted, InvoiceCreated, InvoiceDunningChanged,
+    InvoicePaymentRecorded, InvoiceRunCompleted, InvoiceVoided, NotificationCreated, OnCallChanged,
+    ProjectCreated, ProjectMilestoneCompleted, ProjectPhaseCompleted, ProjectPhaseCreated,
+    ProjectPhaseUpdated, ProjectTaskCompleted, ProjectTaskCreated, ProjectTaskUpdated,
+    ProjectTemplateRemoved, ProjectTemplateUpdated, ProjectUpdated, ProjectViewRemoved,
+    ProjectViewUpdated, SiteCreated, SiteUpdated, TicketAssigned, TicketChecklistUpdated,
+    TicketCommentAdded, TicketCreated, TicketStatusChanged, TimeEntryCreated, TimerPaused,
+    TimerStarted, TimerStopped,
 };
 use core_domain::money::{CurrencyCode, Money};
 use core_domain::policy::BoardRole;
@@ -1401,6 +1464,69 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             ContractRemoved {
                 contract_id: su(23),
                 number: "C-2026-001".into(),
+            }
+        ),
+    },
+    // -- invoicing (native invoicing v1, Wave 9) ---------------------------
+    PublishedEvent {
+        event_type: types::INVOICE_RUN_COMPLETED,
+        entity: "invoice_run",
+        variant: "default",
+        shape: typed_shape!(
+            InvoiceRunCompleted,
+            InvoiceRunCompleted {
+                run: sample_invoice_run(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::INVOICE_CREATED,
+        entity: "invoice",
+        variant: "default",
+        shape: typed_shape!(
+            InvoiceCreated,
+            InvoiceCreated {
+                invoice: sample_invoice(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::INVOICE_VOIDED,
+        entity: "invoice",
+        variant: "default",
+        shape: typed_shape!(
+            InvoiceVoided,
+            InvoiceVoided {
+                invoice_id: su(32),
+                number: "INV-000042".into(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::INVOICE_PAYMENT_RECORDED,
+        entity: "invoice_payment",
+        variant: "default",
+        shape: typed_shape!(
+            InvoicePaymentRecorded,
+            InvoicePaymentRecorded {
+                payment: sample_invoice_payment(),
+                invoice_status: "paid".into(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::INVOICE_DUNNING_CHANGED,
+        entity: "invoice",
+        variant: "default",
+        shape: typed_shape!(
+            InvoiceDunningChanged,
+            InvoiceDunningChanged {
+                invoice_id: su(32),
+                number: "INV-000042".into(),
+                from_state: "none".into(),
+                to_state: "overdue".into(),
+                note: Some("Balance past due 30 days".into()),
+                changed_at: st(4),
             }
         ),
     },

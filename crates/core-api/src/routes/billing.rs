@@ -621,12 +621,13 @@ pub async fn patch(
 
 /// DELETE /api/contracts/{id} — removes the contract aggregate. A typed
 /// 404 (`rls_sparse`) means the target was never visible in scope.
-/// Wave 9's invoice run adds the billing-lock guard once invoice
-/// references can exist.
+/// The Wave 9 invoicing lane's billing-lock guard refuses the delete
+/// once invoices reference the contract (typed 409).
 #[utoipa::path(operation_id = "contracts_delete", delete, path = "/api/contracts/{id}", tag = "billing", security(("bearer" = [])),
     params(("id" = Uuid, Path)),
     responses((status = 200, body = ContractDetail),
-              (status = 404, description = "contract not visible in scope")))]
+              (status = 404, description = "contract not visible in scope"),
+              (status = 409, description = "contract has invoices")))]
 pub async fn remove(
     State(state): State<AppState>,
     extensions: Extensions,
@@ -639,6 +640,11 @@ pub async fn remove(
 
     let detail = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         let detail = load_detail_from_tx(&mut ctx.tx, org_id, id).await?;
+        if core_db::invoices::contract_has_invoices(&mut *ctx.tx, org_id, id).await? {
+            return Err(ApiError::Conflict(
+                "contract has invoices; void the invoices or keep the contract".into(),
+            ));
+        }
         core_db::contracts::delete_contract(&mut *ctx.tx, org_id, id).await?;
         ctx.emit(
             types::CONTRACT_REMOVED,

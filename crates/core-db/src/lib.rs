@@ -20,6 +20,7 @@ pub mod documents;
 pub mod emails;
 pub mod export;
 pub mod imports;
+pub mod invoices;
 pub mod kb;
 pub mod manifest;
 pub mod mfa;

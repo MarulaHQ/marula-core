@@ -1,0 +1,22 @@
+{
+  "event_type": "invoice_run.completed",
+  "entity": "invoice_run",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "run": {
+      "created_at": "2023-11-14T22:13:22Z",
+      "created_by": "00000000-0000-0000-0000-000000000004",
+      "currency": "USD",
+      "due_in_days": 30,
+      "id": "00000000-0000-0000-0000-00000000001f",
+      "invoice_count": 1,
+      "number": "RUN-000007",
+      "org_id": "00000000-0000-0000-0000-000000000002",
+      "period_from": "2024-01-01",
+      "period_to": "2024-01-28",
+      "total_minor": 150000
+    }
+  }
+}
