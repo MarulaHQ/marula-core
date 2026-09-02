@@ -733,3 +733,287 @@ async fn chunk_row_limit_is_enforced_at_the_boundary() {
     let message = body["error"]["message"].as_str().expect("message");
     assert!(message.contains("row limit exceeded"), "{message}");
 }
+
+// --- T7: KB families (D5) ----------------------------------------------------------
+
+#[tokio::test]
+async fn kb_categories_and_articles_flow_through_the_import_engine() {
+    let (state, app) = test_state().await;
+    let org = register_org(&app, "imports-kb").await;
+
+    // Categories first: the parent family rides its own batch, exactly
+    // like the client → site chain.
+    let category_batch = open_batch(&app, &org, "kb_category", "update").await;
+    let (status, report) = push_chunk(
+        &app,
+        &org,
+        category_batch,
+        json_rows(json!([
+            {
+                "external_key": "getting-started",
+                "name": "Getting started",
+                "slug": "getting-started",
+                "description": "First steps",
+                "position": "1",
+                "client_visible": "true",
+            },
+        ])),
+        None,
+    )
+    .await;
+    assert!(status.is_success(), "{report:?}");
+    assert_eq!(report["summary"]["ok"], json!(1));
+
+    // Articles: one parented + published, one top-level draft.
+    let article_batch = open_batch(&app, &org, "kb_article", "update").await;
+    let (status, report) = push_chunk(
+        &app,
+        &org,
+        article_batch,
+        json_rows(json!([
+            {
+                "external_key": "article:reset-password",
+                "category_slug": "getting-started",
+                "title": "Reset a password",
+                "slug": "reset-password",
+                "body": "Step one.",
+                "status": "published",
+                "client_visible": "true",
+            },
+            {
+                "external_key": "article:internal-runbook",
+                "title": "Internal runbook",
+                "slug": "internal-runbook",
+            },
+        ])),
+        None,
+    )
+    .await;
+    assert!(status.is_success(), "{report:?}");
+    assert_eq!(report["summary"]["ok"], json!(2), "rows: {report:?}");
+    assert_eq!(
+        event_count(&state.pool, org.org_id, "kb_article.created").await,
+        2,
+        "articles emit the same lifecycle events as the authoring surface"
+    );
+    assert_eq!(
+        event_count(&state.pool, org.org_id, "kb_category.created").await,
+        0,
+        "categories are non-evented, matching the authoring surface"
+    );
+
+    // Live through the ordinary read surface, with the parent resolved.
+    let response = send(
+        &app,
+        axum::http::Method::GET,
+        "/api/kb/articles",
+        Some(&org.token),
+        None,
+        None,
+    )
+    .await;
+    let articles = body_json(response).await;
+    let by_slug: std::collections::BTreeMap<String, Value> = articles
+        .as_array()
+        .expect("articles list")
+        .iter()
+        .map(|a| (a["slug"].as_str().expect("slug").to_string(), a.clone()))
+        .collect();
+    assert_eq!(by_slug.len(), 2);
+    assert_eq!(by_slug["reset-password"]["status"], json!("published"));
+    assert_eq!(by_slug["reset-password"]["client_visible"], json!(true));
+    assert!(by_slug["reset-password"]["category_id"].is_string());
+    assert_eq!(by_slug["internal-runbook"]["status"], json!("draft"));
+    assert_eq!(by_slug["internal-runbook"]["category_id"], json!(null));
+
+    // Identical re-push skips both and emits nothing.
+    let (status, report) = push_chunk(
+        &app,
+        &org,
+        article_batch,
+        json_rows(json!([
+            {
+                "external_key": "article:reset-password",
+                "category_slug": "getting-started",
+                "title": "Reset a password",
+                "slug": "reset-password",
+                "body": "Step one.",
+                "status": "published",
+                "client_visible": "true",
+            },
+            {
+                "external_key": "article:internal-runbook",
+                "title": "Internal runbook",
+                "slug": "internal-runbook",
+            },
+        ])),
+        None,
+    )
+    .await;
+    assert!(status.is_success(), "{report:?}");
+    assert_eq!(report["summary"]["would_skip"], json!(2));
+    assert_eq!(
+        event_count(&state.pool, org.org_id, "kb_article.updated").await,
+        0,
+        "identical re-push must be eventless"
+    );
+
+    // A drift re-push flows through the regular update path.
+    let (status, report) = push_chunk(
+        &app,
+        &org,
+        article_batch,
+        json_rows(json!([{
+            "external_key": "article:reset-password",
+            "category_slug": "getting-started",
+            "title": "Reset a password",
+            "slug": "reset-password",
+            "body": "Step one. Step two.",
+            "status": "published",
+            "client_visible": "true",
+        }])),
+        None,
+    )
+    .await;
+    assert!(status.is_success(), "{report:?}");
+    assert_eq!(report["summary"]["would_update"], json!(1));
+    assert_eq!(
+        event_count(&state.pool, org.org_id, "kb_article.updated").await,
+        1,
+        "exactly one update event"
+    );
+
+    // Unknown category slug fails the row in the report — never invented.
+    let (status, report) = push_chunk(
+        &app,
+        &org,
+        article_batch,
+        json_rows(json!([{
+            "external_key": "article:orphan",
+            "category_slug": "no-such-category",
+            "title": "Orphan",
+            "slug": "orphan",
+        }])),
+        None,
+    )
+    .await;
+    assert!(status.is_success(), "{report:?}");
+    assert_eq!(report["summary"]["failed"], json!(1));
+    assert_eq!(
+        report["rows"][0]["outcome"]["errors"][0],
+        json!("category_slug \"no-such-category\": no imported kb category with this slug")
+    );
+
+    // Duplicate slug across distinct external keys aborts the chunk with
+    // the same typed 409 the authoring POST returns.
+    let (status, body) = push_chunk(
+        &app,
+        &org,
+        article_batch,
+        json_rows(json!([
+            {
+                "external_key": "article:slug-a",
+                "title": "Slug A",
+                "slug": "collide",
+            },
+            {
+                "external_key": "article:slug-b",
+                "title": "Slug B",
+                "slug": "collide",
+            },
+        ])),
+        None,
+    )
+    .await;
+    assert_eq!(status, axum::http::StatusCode::CONFLICT, "{body:?}");
+    assert_eq!(
+        body["error"]["message"],
+        json!("slug already in use (kb article)")
+    );
+    assert_eq!(
+        event_count(&state.pool, org.org_id, "kb_article.created").await,
+        2,
+        "the aborted chunk must not have published either row"
+    );
+
+    // The archived content lock holds on the bulk path too: archive the
+    // runbook, then refuse a body-only drift through import.
+    let (status, report) = push_chunk(
+        &app,
+        &org,
+        article_batch,
+        json_rows(json!([{
+            "external_key": "article:internal-runbook",
+            "title": "Internal runbook",
+            "slug": "internal-runbook",
+            "status": "archived",
+        }])),
+        None,
+    )
+    .await;
+    assert!(status.is_success(), "{report:?}");
+    assert_eq!(report["summary"]["would_update"], json!(1));
+    let (status, body) = push_chunk(
+        &app,
+        &org,
+        article_batch,
+        json_rows(json!([{
+            "external_key": "article:internal-runbook",
+            "title": "Internal runbook",
+            "slug": "internal-runbook",
+            "status": "archived",
+            "body": "new content under lock",
+        }])),
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+        "{body:?}"
+    );
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("archived"),
+        "{body:?}"
+    );
+
+    // Status flips stay legal — unarchiving through import works.
+    let (status, report) = push_chunk(
+        &app,
+        &org,
+        article_batch,
+        json_rows(json!([{
+            "external_key": "article:internal-runbook",
+            "title": "Internal runbook",
+            "slug": "internal-runbook",
+            "status": "published",
+        }])),
+        None,
+    )
+    .await;
+    assert!(status.is_success(), "{report:?}");
+    assert_eq!(report["summary"]["would_update"], json!(1));
+
+    // The unarchive landed through the ordinary read surface.
+    let response = send(
+        &app,
+        axum::http::Method::GET,
+        "/api/kb/articles",
+        Some(&org.token),
+        None,
+        None,
+    )
+    .await;
+    let articles = body_json(response).await;
+    let runbook = articles
+        .as_array()
+        .expect("articles list")
+        .iter()
+        .find(|a| a["slug"] == json!("internal-runbook"))
+        .expect("runbook article");
+    assert_eq!(runbook["status"], json!("published"));
+    drop(state);
+}

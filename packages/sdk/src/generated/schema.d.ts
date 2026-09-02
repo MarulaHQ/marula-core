@@ -2951,6 +2951,8 @@ export interface paths {
         /**
          * POST /api/tickets/{id}/checklist — appends an ad-hoc checklist item.
          *     Ad-hoc items never block closure; emits `ticket.checklist_updated`.
+         *     Instant-first (IF1/IF2): idempotency-keyed and returns the
+         *     read-your-write mutation metadata for the created item.
          */
         post: operations["tickets_add_checklist_item"];
         delete?: never;
@@ -2970,7 +2972,9 @@ export interface paths {
         put?: never;
         /**
          * POST /api/tickets/{id}/checklist/{item_id} — toggles one checklist item;
-         *     emits `ticket.checklist_updated` in the same transaction.
+         *     emits `ticket.checklist_updated` in the same transaction. Instant-first
+         *     (IF1/IF2): idempotency-keyed and returns the read-your-write mutation
+         *     metadata for the toggled item.
          */
         post: operations["tickets_set_checklist_item"];
         delete?: never;
@@ -3445,7 +3449,7 @@ export interface components {
             /** @enum {string} */
             kind: "import";
         };
-        AddChecklistItemRequest: {
+        AddChecklistItemRequest: components["schemas"]["MutationParams"] & {
             text: string;
         };
         AddCommentRequest: components["schemas"]["MutationParams"] & {
@@ -5049,7 +5053,7 @@ export interface components {
          *     entries: [`Self::import_order`] is the documented run-script order.
          * @enum {string}
          */
-        EntityKind: "client" | "site" | "contact" | "board" | "ticket" | "time_entry";
+        EntityKind: "client" | "site" | "contact" | "board" | "ticket" | "time_entry" | "kb_category" | "kb_article";
         /** @description One escalation ladder step as stored (`sla_escalation_steps`). */
         EscalationStep: {
             /** Format: int64 */
@@ -5853,7 +5857,11 @@ export interface components {
         MutationMeta: {
             /** @description Applied entity snapshot. */
             after: Record<string, never>;
-            /** @description Prior entity snapshot (the undo substrate). `null` on creates. */
+            /**
+             * @description Prior entity snapshot (the undo substrate). `null` on creates. The
+             *     OpenAPI schema stays a plain object; generated clients get the
+             *     runtime-typed view through the SDK's `snapshotOf` accessor.
+             */
             before: Record<string, never> | null;
             /**
              * @description The idempotency key that claimed this result, when the caller
@@ -6748,7 +6756,7 @@ export interface components {
             id: string;
             user_agent?: string | null;
         };
-        SetChecklistItemRequest: {
+        SetChecklistItemRequest: components["schemas"]["MutationParams"] & {
             checked: boolean;
         };
         SetDependenciesRequest: {
@@ -7047,6 +7055,14 @@ export interface components {
             title: string;
             /** Format: date-time */
             updated_at: string;
+        };
+        /**
+         * @description Same additive envelope for checklist writes: the full checklist view at
+         *     the top level (unchanged shape) plus the read-your-write metadata for
+         *     the affected item.
+         */
+        TicketChecklistMutationResponse: components["schemas"]["TicketChecklistView"] & {
+            mutation: components["schemas"]["MutationMeta"];
         };
         /**
          * @description GET response for a ticket's checklist: instances, derived progress,
@@ -13069,8 +13085,22 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TicketChecklistView"];
+                    "application/json": components["schemas"]["TicketChecklistMutationResponse"];
                 };
+            };
+            /** @description ticket not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -13095,8 +13125,22 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TicketChecklistView"];
+                    "application/json": components["schemas"]["TicketChecklistMutationResponse"];
                 };
+            };
+            /** @description ticket or item not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

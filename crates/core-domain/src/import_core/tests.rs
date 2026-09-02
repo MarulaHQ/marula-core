@@ -493,7 +493,7 @@ proptest! {
         let specs = build_specs(EntityKind::Site, &rows);
         let spec = specs[0].spec.as_ref().expect("generated row validates");
         match spec {
-            ImportSpec::Client(_) | ImportSpec::Contact(_) | ImportSpec::Board(_) | ImportSpec::Ticket(_) | ImportSpec::TimeEntry(_) => panic!("wrong family"),
+            ImportSpec::Client(_) | ImportSpec::Contact(_) | ImportSpec::Board(_) | ImportSpec::Ticket(_) | ImportSpec::TimeEntry(_) | ImportSpec::KbCategory(_) | ImportSpec::KbArticle(_) => panic!("wrong family"),
             ImportSpec::Site(s) => {
                 // Validation trims scalar text by design; compare against
                 // the same canonical form.
@@ -823,6 +823,147 @@ fn ticket_and_time_entry_parent_keys_resolve_through_the_lookup() {
 }
 
 #[test]
+fn kb_rows_validate_statuses_defaults_and_unknown_columns() {
+    let rows = parse_json_chunk(&serde_json::json!([
+        {
+            "external_key": "getting-started",
+            "name": "Getting started",
+            "slug": "getting-started",
+            "description": "First steps",
+            "position": "2",
+            "client_visible": "true"
+        },
+        {
+            "external_key": "article:reset-password",
+            "category_slug": "getting-started",
+            "title": "Reset a password",
+            "slug": "reset-password",
+            "body": "Step one.",
+            "status": "published",
+            "client_visible": "true"
+        },
+        {
+            "external_key": "article:draft-note",
+            "title": "Internal note",
+            "slug": "internal-note"
+        },
+        {
+            "external_key": "article:bad",
+            "title": "Bad",
+            "slug": "bad",
+            "status": "live"
+        },
+        {
+            "external_key": "article:noslug",
+            "title": "No slug"
+        }
+    ]))
+    .expect("parses");
+    let specs = build_specs(EntityKind::KbCategory, &rows[..1]);
+    let category = match &specs[0].spec {
+        Ok(ImportSpec::KbCategory(c)) => c,
+        other => panic!("expected category spec, got {other:?}"),
+    };
+    assert_eq!(category.slug, "getting-started");
+    assert_eq!(category.position, 2);
+    assert!(category.client_visible);
+
+    let specs = build_specs(EntityKind::KbArticle, &rows[1..]);
+    let published = match &specs[0].spec {
+        Ok(ImportSpec::KbArticle(a)) => a,
+        other => panic!("expected article spec, got {other:?}"),
+    };
+    assert_eq!(published.status, Some(KbArticleStatus::Published));
+    assert_eq!(published.category_slug.as_deref(), Some("getting-started"));
+
+    // Absent status stays None (storage default draft at commit), absent
+    // category_slug is a legal top-level article.
+    let draft = match &specs[1].spec {
+        Ok(ImportSpec::KbArticle(a)) => a,
+        other => panic!("expected article spec, got {other:?}"),
+    };
+    assert_eq!(draft.status, None);
+    assert!(draft.category_slug.is_none());
+    assert!(!draft.client_visible, "absent flag defaults to false");
+
+    let Err(bad_status) = &specs[2].spec else {
+        panic!("unknown status must fail");
+    };
+    assert!(bad_status.iter().any(|e| e.contains("status")));
+
+    let Err(no_slug) = &specs[3].spec else {
+        panic!("missing slug must fail");
+    };
+    assert!(no_slug.iter().any(|e| e.contains("slug")));
+
+    // Unknown columns are rejected per family, and projection carries
+    // operator content only — never slugs (identity).
+    let rows = parse_csv_chunk("external_key,title,slug,color\nK,Bad,Bad,red\n").expect("parses");
+    let specs = build_specs(EntityKind::KbArticle, &rows);
+    let Err(errors) = &specs[0].spec else {
+        panic!("unknown column must fail");
+    };
+    assert!(errors.iter().any(|e| e.contains("color")));
+    let projection = build_specs(
+        EntityKind::KbCategory,
+        &parse_json_chunk(&serde_json::json!([
+            { "external_key": "c", "name": "C", "slug": "c" }
+        ]))
+        .expect("parses"),
+    )[0]
+    .spec
+    .as_ref()
+    .unwrap()
+    .projection();
+    assert!(!projection.contains_key("slug"));
+    assert_eq!(projection["name"], "C");
+    assert_eq!(projection["position"], "0", "absent position defaults to 0");
+}
+
+#[test]
+fn kb_article_parent_keys_resolve_through_the_lookup() {
+    let category_id = Uuid::now_v7();
+    let parents: HashMap<(EntityKind, String), Uuid> = [(
+        (EntityKind::KbCategory, "getting-started".to_string()),
+        category_id,
+    )]
+    .into_iter()
+    .collect();
+    let lookup: ParentLookup<'_> = &|kind, key| parents.get(&(kind, key.to_string())).copied();
+
+    let category = ImportSpec::KbCategory(KbCategorySpec {
+        external_key: "getting-started".into(),
+        name: "Getting started".into(),
+        slug: "getting-started".into(),
+        description: None,
+        position: 0,
+        client_visible: false,
+    });
+    // Categories are roots: nothing to resolve.
+    assert!(check_parents(&category, lookup).is_ok());
+
+    let article = ImportSpec::KbArticle(KbArticleSpec {
+        external_key: "article:reset-password".into(),
+        category_slug: Some("getting-started".into()),
+        title: "Reset a password".into(),
+        slug: "reset-password".into(),
+        body: Some("Step one.".into()),
+        status: Some(KbArticleStatus::Published),
+        client_visible: true,
+    });
+    assert!(check_parents(&article, lookup).is_ok());
+    let ImportSpec::KbArticle(article_spec) = article else {
+        panic!("constructed article");
+    };
+    let orphan = ImportSpec::KbArticle(KbArticleSpec {
+        category_slug: Some("missing".into()),
+        ..article_spec
+    });
+    let errors = check_parents(&orphan, lookup).unwrap_err();
+    assert!(errors[0].contains("category_slug"));
+}
+
+#[test]
 fn new_family_projections_agree_between_incoming_and_stored() {
     use crate::entities::{Board, Ticket, TimeEntry};
     use crate::ids::TicketNumber;
@@ -905,6 +1046,55 @@ fn new_family_projections_agree_between_incoming_and_stored() {
         created_at: now,
     };
     assert_eq!(entry_spec.projection(), time_entry_projection(&entry));
+
+    let category_spec = ImportSpec::KbCategory(KbCategorySpec {
+        external_key: "category:c".into(),
+        name: "Cat".into(),
+        slug: "c".into(),
+        description: Some("About".into()),
+        position: 3,
+        client_visible: true,
+    });
+    let category = crate::entities::KbCategory {
+        id: Uuid::now_v7(),
+        org_id: Uuid::now_v7(),
+        name: "Cat".into(),
+        slug: "c".into(),
+        description: "About".into(),
+        position: 3,
+        client_visible: true,
+        created_at: now,
+        updated_at: now,
+    };
+    assert_eq!(
+        category_spec.projection(),
+        kb_category_projection(&category)
+    );
+
+    let article_spec = ImportSpec::KbArticle(KbArticleSpec {
+        external_key: "article:a".into(),
+        category_slug: Some("c".into()),
+        title: "Same title".into(),
+        slug: "a".into(),
+        body: Some("body".into()),
+        status: Some(KbArticleStatus::Published),
+        client_visible: true,
+    });
+    let article = crate::entities::KbArticle {
+        id: Uuid::now_v7(),
+        org_id: Uuid::now_v7(),
+        category_id: Some(Uuid::now_v7()),
+        title: "Same title".into(),
+        slug: "a".into(),
+        body: "body".into(),
+        status: KbArticleStatus::Published,
+        client_visible: true,
+        created_by: None,
+        updated_by: None,
+        created_at: now,
+        updated_at: now,
+    };
+    assert_eq!(article_spec.projection(), kb_article_projection(&article));
 }
 
 // --- D2 remainder: saved field-mapping templates -------------------------------
@@ -963,17 +1153,28 @@ fn apply_field_mapping_renames_and_flags_collisions() {
 #[test]
 fn import_order_is_a_total_runbook() {
     let mut kinds = [
+        EntityKind::KbArticle,
         EntityKind::TimeEntry,
         EntityKind::Ticket,
         EntityKind::Contact,
         EntityKind::Board,
         EntityKind::Site,
         EntityKind::Client,
+        EntityKind::KbCategory,
     ];
     kinds.sort_by_key(|k| k.import_order());
     let names: Vec<&str> = kinds.iter().map(|k| k.as_str()).collect();
     assert_eq!(
         names,
-        vec!["board", "client", "site", "contact", "ticket", "time_entry"]
+        vec![
+            "board",
+            "client",
+            "site",
+            "contact",
+            "ticket",
+            "time_entry",
+            "kb_category",
+            "kb_article"
+        ]
     );
 }
