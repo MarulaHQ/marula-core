@@ -36,6 +36,7 @@
 //! parity holds because the legacy generation reconstructs the historical
 //! literal paths.
 
+pub mod alerts;
 pub mod api_keys;
 pub mod attachments;
 pub mod audit;
@@ -257,7 +258,10 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/org/exports/{org_id}/{export_id}/download"),
             get(export::download),
-        );
+        )
+        // Alert ingestor (Wave 9): HMAC-signed machine surface; the source
+        // ref resolves org + secret inside the handler (no JWT middleware).
+        .merge(alerts::public_routes(gen));
 
     let protected = Router::new()
         .route(&rp("/me"), get(auth_handlers::me))
@@ -774,6 +778,9 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // report definitions (TASKLIST R3): stored specs as data, RBAC-
         // scoped, instant-first write path; module owns its own router.
         .merge(report_defs::routes(gen))
+        // alert ingestor (TASKLIST Phase 3): source admin + alert ledger;
+        // module owns its own router (ingest mounts via public_routes).
+        .merge(alerts::admin_routes(gen))
         // Stamps org_id onto the current request span (telemetry) once the
         // auth middleware below has resolved it.
         .layer(middleware::from_fn(crate::otel_http::record_org))

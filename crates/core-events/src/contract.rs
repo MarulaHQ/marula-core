@@ -280,18 +280,19 @@ use core_domain::entities::{
     TaskStatus, TicketComment, TimeEntry,
 };
 use core_domain::events::{
-    types, AppointmentCancelled, AppointmentCreated, AppointmentUpdated, AttachmentAdded,
-    AttachmentDeleted, AttachmentLinked, AvailabilityChanged, BoardFavoriteToggled,
-    BoardGroupCreated, BoardGroupRemoved, BoardGroupUpdated, BoardMembershipRemoved,
-    BoardMembershipUpdated, BoardStatusAdded, BoardStatusRemoved, BoardStatusUpdated,
-    BoardTransitionsUpdated, CalendarExclusionChanged, ClientCreated, ClientUpdated,
-    ContactCreated, ContactUpdated, ContractCreated, ContractRemoved, ContractUpdated,
-    ImportBatchFinished, ImportBatchStarted, NotificationCreated, OnCallChanged, ProjectCreated,
-    ProjectMilestoneCompleted, ProjectPhaseCompleted, ProjectPhaseCreated, ProjectPhaseUpdated,
-    ProjectTaskCompleted, ProjectTaskCreated, ProjectTaskUpdated, ProjectTemplateRemoved,
-    ProjectTemplateUpdated, ProjectUpdated, ProjectViewRemoved, ProjectViewUpdated, SiteCreated,
-    SiteUpdated, TicketAssigned, TicketChecklistUpdated, TicketCommentAdded, TicketCreated,
-    TicketStatusChanged, TimeEntryCreated, TimerPaused, TimerStarted, TimerStopped,
+    types, AlertIngested, AppointmentCancelled, AppointmentCreated, AppointmentUpdated,
+    AttachmentAdded, AttachmentDeleted, AttachmentLinked, AvailabilityChanged,
+    BoardFavoriteToggled, BoardGroupCreated, BoardGroupRemoved, BoardGroupUpdated,
+    BoardMembershipRemoved, BoardMembershipUpdated, BoardStatusAdded, BoardStatusRemoved,
+    BoardStatusUpdated, BoardTransitionsUpdated, CalendarExclusionChanged, ClientCreated,
+    ClientUpdated, ContactCreated, ContactUpdated, ContractCreated, ContractRemoved,
+    ContractUpdated, ImportBatchFinished, ImportBatchStarted, NotificationCreated, OnCallChanged,
+    ProjectCreated, ProjectMilestoneCompleted, ProjectPhaseCompleted, ProjectPhaseCreated,
+    ProjectPhaseUpdated, ProjectTaskCompleted, ProjectTaskCreated, ProjectTaskUpdated,
+    ProjectTemplateRemoved, ProjectTemplateUpdated, ProjectUpdated, ProjectViewRemoved,
+    ProjectViewUpdated, SiteCreated, SiteUpdated, TicketAssigned, TicketChecklistUpdated,
+    TicketCommentAdded, TicketCreated, TicketStatusChanged, TimeEntryCreated, TimerPaused,
+    TimerStarted, TimerStopped,
 };
 use core_domain::money::{CurrencyCode, Money};
 use core_domain::policy::BoardRole;
@@ -1602,6 +1603,29 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
                 "board_id": su(2),
                 "name": "Field Services",
             })
+        ),
+    },
+    // -- alert ingestor ------------------------------------------------------
+    PublishedEvent {
+        event_type: types::ALERT_INGESTED,
+        entity: "alert",
+        variant: "default",
+        shape: typed_shape!(
+            AlertIngested,
+            AlertIngested {
+                alert_id: su(30),
+                org_id: su(2),
+                source_id: su(31),
+                source_ref: "acme-rmm".into(),
+                dedup_key: "evt-9182".into(),
+                correlation_key: "srv-01/disk-c".into(),
+                title: "Disk usage critical on SRV-01".into(),
+                severity: "critical".into(),
+                outcome: "collapsed".into(),
+                ticket_id: Some(su(1)),
+                alert_count: 7,
+                occurred_at: st(3),
+            }
         ),
     },
 ];

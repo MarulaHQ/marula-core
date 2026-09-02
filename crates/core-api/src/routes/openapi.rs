@@ -267,6 +267,13 @@ use utoipa::OpenApi;
         crate::routes::projects::patch_template,
         crate::routes::projects::delete_template,
         crate::routes::projects::instantiate,
+        // alert ingestor (TASKLIST Phase 3): HMAC webhook ingest →
+        // dedup/correlation → incident tickets
+        crate::routes::alerts::ingest,
+        crate::routes::alerts::sources_list,
+        crate::routes::alerts::sources_create,
+        crate::routes::alerts::sources_patch,
+        crate::routes::alerts::list,
     ),
     components(schemas(
         // import framework (TASKLIST D2)
@@ -608,6 +615,19 @@ use utoipa::OpenApi;
         crate::routes::projects::TemplateMutationResponse,
         crate::routes::projects::InstantiateTemplateRequest,
         crate::routes::projects::ProjectInstantiateResponse,
+        // alert ingestor (TASKLIST Phase 3)
+        crate::routes::alerts::AlertSeverity,
+        crate::routes::alerts::AlertView,
+        crate::routes::alerts::IncidentView,
+        crate::routes::alerts::IngestResponse,
+        crate::routes::alerts::IngestAlertRequest,
+        crate::routes::alerts::AlertSourceView,
+        crate::routes::alerts::AlertSourceMutationResponse,
+        crate::routes::alerts::AlertSourceList,
+        crate::routes::alerts::CreateAlertSourceRequest,
+        crate::routes::alerts::PatchAlertSourceRequest,
+        crate::routes::alerts::AlertListQuery,
+        crate::routes::alerts::AlertListResponse,
     ),
     ),
     tags(
@@ -633,6 +653,7 @@ use utoipa::OpenApi;
         (name = "attachments", description = "File attachments on tickets/comments (ObjectStore-backed)"),
         (name = "kb", description = "Native knowledge base: categories, articles, client-facing flags"),
         (name = "documents", description = "Documents with immutable, append-only, diffable versions (restore-creates-new-version)"),
+        (name = "alerts", description = "Alert ingestor: HMAC-signed webhook ingest, dedup/correlation, storm collapse into incident tickets"),
     )
 )]
 pub struct ApiDoc;
