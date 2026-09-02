@@ -239,6 +239,7 @@ pub async fn create(
                 updated_at: document.created_at,
                 key: key.as_deref(),
                 payload: &document,
+                provenance: Default::default(),
             },
         )
         .await?;
@@ -350,6 +351,7 @@ pub async fn update(
                 updated_at: after.updated_at,
                 key: key.as_deref(),
                 payload: &after,
+                provenance: Default::default(),
             },
         )
         .await?;
@@ -504,6 +506,7 @@ pub async fn restore(
                 updated_at: after.updated_at,
                 key: key.as_deref(),
                 payload: &after,
+                provenance: Default::default(),
             },
         )
         .await?;

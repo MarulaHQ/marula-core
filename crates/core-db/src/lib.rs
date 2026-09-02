@@ -31,6 +31,7 @@ pub mod orgs;
 pub mod outbox;
 pub mod portal;
 pub mod projects;
+pub mod provenance;
 pub mod queue;
 pub mod report_defs;
 pub mod report_schedules;

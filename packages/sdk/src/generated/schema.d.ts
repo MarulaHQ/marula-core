@@ -2810,6 +2810,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/provenance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/provenance — the provenance read model: who / record+field /
+         *     before-after / actor kind / agent session+skill+rule-set hash / when,
+         *     newest first, filterable, cursor-paged. Extends the 2.3 audit-log
+         *     query API with provenance-grade filters backed by the materialized
+         *     projection (no raw-row scans).
+         */
+        get: operations["provenance_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/report-definitions": {
         parameters: {
             query?: never;
@@ -7195,6 +7218,57 @@ export interface components {
             spec: Record<string, never>;
             /** Format: date-time */
             updated_at: string;
+        };
+        /** @description One provenance entry: a single field change within one applied write. */
+        ProvenanceEvent: {
+            /**
+             * Format: uuid
+             * @description The acting user (or machine actor) id, when attributed.
+             */
+            actor_id: string | null;
+            /** @description Actor kind from the write-trail vocabulary (human, agent, ...). */
+            actor_kind: string;
+            /** @description Applied value; null when the field was removed in this write. */
+            after: Record<string, never> | null;
+            /** @description Prior value; null when the field is new. */
+            before: Record<string, never> | null;
+            /** @description Entity family, e.g. "ticket". */
+            entity: string;
+            /** Format: uuid */
+            entity_id: string;
+            /** @description The changed field. */
+            field: string;
+            /**
+             * @description The idempotency key that claimed the write, when the caller
+             *     supplied one.
+             */
+            idempotency_key?: string | null;
+            occurred_at: string;
+            /** @description Machine-readable operation ("create", "update", "status_change", ...). */
+            op: string;
+            /** @description Rule-set hash that governed the write, when present. */
+            ruleset_hash?: string | null;
+            /**
+             * Format: int64
+             * @description The write's per-entity sequence (mirrors `mutation.version`).
+             */
+            seq: number;
+            /**
+             * Format: uuid
+             * @description Agent session, when present (IF8-approved writes).
+             */
+            session_id?: string | null;
+            /** @description Skill that authored the write, when present. */
+            skill?: string | null;
+            /** @description True for undo reverts (IF7) riding the normal write path. */
+            undo: boolean;
+            /** Format: uuid */
+            write_id: string;
+        };
+        ProvenancePage: {
+            events: components["schemas"]["ProvenanceEvent"][];
+            /** @description Opaque cursor for the next page; absent when exhausted. */
+            next_cursor?: string | null;
         };
         PublicProvider: {
             display_name: string;
@@ -13593,6 +13667,57 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    provenance_list: {
+        parameters: {
+            query?: {
+                /** @description Keyset cursor from a previous page's `next_cursor`. */
+                cursor?: string | null;
+                /**
+                 * @description Actor-kind filter (the write-trail vocabulary: human, agent,
+                 *     import, ...).
+                 */
+                actor_kind?: string | null;
+                /**
+                 * @description The "who" filter: a user uuid. Ignored (forced to the caller) for
+                 *     callers without the audit permission.
+                 */
+                actor?: string | null;
+                /** @description Entity family, e.g. "ticket". Required by `entity_id` and `field`. */
+                entity?: string | null;
+                /** @description Record id; requires `entity`. */
+                entity_id?: string | null;
+                /** @description Single-field provenance; requires `entity`. */
+                field?: string | null;
+                /** @description Agent session filter (rows carry it when present). */
+                session_id?: string | null;
+                /** @description Agent skill filter (rows carry it when present). */
+                skill?: string | null;
+                /** @description Rule-set hash filter (rows carry it when present). */
+                ruleset_hash?: string | null;
+                /** @description Restrict to undo reverts (`true`) or exclude them (`false`). */
+                undo?: boolean | null;
+                /** @description Inclusive lower bound on occurred_at. */
+                from?: string | null;
+                /** @description Inclusive upper bound on occurred_at. */
+                to?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProvenancePage"];
+                };
             };
         };
     };

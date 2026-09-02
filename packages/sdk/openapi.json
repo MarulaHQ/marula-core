@@ -9292,6 +9292,134 @@
         ],
         "type": "object"
       },
+      "ProvenanceEvent": {
+        "description": "One provenance entry: a single field change within one applied write.",
+        "properties": {
+          "actor_id": {
+            "description": "The acting user (or machine actor) id, when attributed.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "actor_kind": {
+            "description": "Actor kind from the write-trail vocabulary (human, agent, ...).",
+            "type": "string"
+          },
+          "after": {
+            "description": "Applied value; null when the field was removed in this write.",
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "before": {
+            "description": "Prior value; null when the field is new.",
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "entity": {
+            "description": "Entity family, e.g. \"ticket\".",
+            "type": "string"
+          },
+          "entity_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "field": {
+            "description": "The changed field.",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "description": "The idempotency key that claimed the write, when the caller\nsupplied one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "occurred_at": {
+            "type": "string"
+          },
+          "op": {
+            "description": "Machine-readable operation (\"create\", \"update\", \"status_change\", ...).",
+            "type": "string"
+          },
+          "ruleset_hash": {
+            "description": "Rule-set hash that governed the write, when present.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "seq": {
+            "description": "The write's per-entity sequence (mirrors `mutation.version`).",
+            "format": "int64",
+            "type": "integer"
+          },
+          "session_id": {
+            "description": "Agent session, when present (IF8-approved writes).",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "skill": {
+            "description": "Skill that authored the write, when present.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "undo": {
+            "description": "True for undo reverts (IF7) riding the normal write path.",
+            "type": "boolean"
+          },
+          "write_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "write_id",
+          "entity",
+          "entity_id",
+          "seq",
+          "op",
+          "actor_kind",
+          "actor_id",
+          "field",
+          "before",
+          "after",
+          "undo",
+          "occurred_at"
+        ],
+        "type": "object"
+      },
+      "ProvenancePage": {
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/ProvenanceEvent"
+            },
+            "type": "array"
+          },
+          "next_cursor": {
+            "description": "Opaque cursor for the next page; absent when exhausted.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "events"
+        ],
+        "type": "object"
+      },
       "PublicProvider": {
         "properties": {
           "display_name": {
@@ -20654,6 +20782,192 @@
         "summary": "PUT /api/projects/{id}/tasks/{task_id}/dependencies — replaces the\nwhole dependency set, cycle-checked over the project graph BEFORE any\nwrite; emits `project.task_updated`.",
         "tags": [
           "projects"
+        ]
+      }
+    },
+    "/api/v1/provenance": {
+      "get": {
+        "operationId": "provenance_list",
+        "parameters": [
+          {
+            "description": "Keyset cursor from a previous page's `next_cursor`.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Actor-kind filter (the write-trail vocabulary: human, agent,\nimport, ...).",
+            "in": "query",
+            "name": "actor_kind",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "The \"who\" filter: a user uuid. Ignored (forced to the caller) for\ncallers without the audit permission.",
+            "in": "query",
+            "name": "actor",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Entity family, e.g. \"ticket\". Required by `entity_id` and `field`.",
+            "in": "query",
+            "name": "entity",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Record id; requires `entity`.",
+            "in": "query",
+            "name": "entity_id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Single-field provenance; requires `entity`.",
+            "in": "query",
+            "name": "field",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Agent session filter (rows carry it when present).",
+            "in": "query",
+            "name": "session_id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Agent skill filter (rows carry it when present).",
+            "in": "query",
+            "name": "skill",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Rule-set hash filter (rows carry it when present).",
+            "in": "query",
+            "name": "ruleset_hash",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Restrict to undo reverts (`true`) or exclude them (`false`).",
+            "in": "query",
+            "name": "undo",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Inclusive lower bound on occurred_at.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Inclusive upper bound on occurred_at.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProvenancePage"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/provenance — the provenance read model: who / record+field /\nbefore-after / actor kind / agent session+skill+rule-set hash / when,\nnewest first, filterable, cursor-paged. Extends the 2.3 audit-log\nquery API with provenance-grade filters backed by the materialized\nprojection (no raw-row scans).",
+        "tags": [
+          "audit"
         ]
       }
     },

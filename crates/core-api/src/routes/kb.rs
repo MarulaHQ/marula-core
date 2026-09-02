@@ -191,6 +191,7 @@ pub async fn create_category(
                 updated_at: category.created_at,
                 key: key.as_deref(),
                 payload: &category,
+                provenance: Default::default(),
             },
         )
         .await?;
@@ -279,6 +280,7 @@ pub async fn update_category(
                 updated_at: after.updated_at,
                 key: key.as_deref(),
                 payload: &after,
+                provenance: Default::default(),
             },
         )
         .await?;
@@ -507,6 +509,7 @@ pub async fn create_article(
                 updated_at: article.created_at,
                 key: key.as_deref(),
                 payload: &article,
+                provenance: Default::default(),
             },
         )
         .await?;
@@ -616,6 +619,7 @@ pub async fn update_article(
                 updated_at: after.updated_at,
                 key: key.as_deref(),
                 payload: &after,
+                provenance: Default::default(),
             },
         )
         .await?;

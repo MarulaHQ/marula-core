@@ -428,6 +428,7 @@ pub async fn create(
                 updated_at: contract.created_at,
                 key: key.as_deref(),
                 payload: &detail,
+                provenance: Default::default(),
             },
         )
         .await?;
@@ -606,6 +607,7 @@ pub async fn patch(
                 updated_at: detail.contract.updated_at,
                 key: key.as_deref(),
                 payload: &detail,
+                provenance: Default::default(),
             },
         )
         .await?;

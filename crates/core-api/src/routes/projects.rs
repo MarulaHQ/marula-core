@@ -340,6 +340,7 @@ pub async fn create(
                 updated_at: project.updated_at,
                 key: key.as_deref(),
                 payload: &project,
+                provenance: Default::default(),
             },
         )
         .await?;
@@ -480,6 +481,7 @@ pub async fn patch(
                 updated_at: after.updated_at,
                 key: key.as_deref(),
                 payload: &after,
+                provenance: Default::default(),
             },
         )
         .await?;
@@ -639,6 +641,7 @@ pub async fn create_phase(
                 updated_at: phase.updated_at,
                 key: key.as_deref(),
                 payload: &phase,
+                provenance: Default::default(),
             },
         )
         .await?;
@@ -765,6 +768,7 @@ pub async fn patch_phase(
                 updated_at: after.updated_at,
                 key: key.as_deref(),
                 payload: &after,
+                provenance: Default::default(),
             },
         )
         .await?;
@@ -880,6 +884,7 @@ pub async fn complete_phase(
                 updated_at: after.updated_at,
                 key: key.as_deref(),
                 payload: &after,
+                provenance: Default::default(),
             },
         )
         .await?;
@@ -1124,6 +1129,7 @@ pub async fn create_task(
                 updated_at: task.updated_at,
                 key: key.as_deref(),
                 payload: &task,
+                provenance: Default::default(),
             },
         )
         .await?;
@@ -1271,6 +1277,7 @@ pub async fn patch_task(
                 updated_at: after.updated_at,
                 key: key.as_deref(),
                 payload: &after,
+                provenance: Default::default(),
             },
         )
         .await?;
@@ -1396,6 +1403,7 @@ pub async fn complete_task(
                 updated_at: after.updated_at,
                 key: key.as_deref(),
                 payload: &after,
+                provenance: Default::default(),
             },
         )
         .await?;
@@ -2159,6 +2167,7 @@ pub async fn instantiate(
                 updated_at: project.updated_at,
                 key: key.as_deref(),
                 payload: &project,
+                provenance: Default::default(),
             },
         )
         .await?;

@@ -126,6 +126,44 @@ pub struct SeqSpec<'a> {
     pub version: Option<i64>,
 }
 
+/// Provenance context the envelope write path carries onto the trail
+/// (IF9). The default actor is "human"; agent flows (IF8-approved
+/// proposals landing as normal writes) override the kind and supply the
+/// session / skill / rule-set hash that governed the write, and undo
+/// reverts (IF7) flag themselves. Everything is optional — absent
+/// context records a plain human write, exactly as before.
+#[derive(Debug, Clone, Default)]
+pub struct ProvenanceContext {
+    /// Actor-kind override from the audit vocabulary
+    /// (`entity_writes.actor_kind` CHECK, migration 0028). `None` = human.
+    pub actor_kind: Option<&'static str>,
+    /// Agent session the write belongs to, when the actor is an agent.
+    pub session_id: Option<Uuid>,
+    /// Skill that authored the write, when present.
+    pub skill: Option<String>,
+    /// Hash of the rule-set that governed the write, when present.
+    pub ruleset_hash: Option<String>,
+    /// True for undo reverts riding the normal idempotent write path
+    /// (IF7): provenance keeps the trail append-only and never rewrites
+    /// the reverted row — the revert is its own write.
+    pub is_undo: bool,
+}
+
+/// The complete `entity_writes.actor_kind` vocabulary (migration 0028
+/// CHECK). Validated at the envelope so a bad override is a typed 422
+/// instead of a raw constraint error.
+pub(crate) const ACTOR_KINDS: &[&str] = &[
+    "human",
+    "agent",
+    "plugin",
+    "connector",
+    "system",
+    "portal_contact",
+    "portal_approver",
+    "portal_it_manager",
+    "import",
+];
+
 /// Input to [`record`].
 #[derive(Debug)]
 pub struct RecordSpec<'a, T: Serialize> {
@@ -149,6 +187,9 @@ pub struct RecordSpec<'a, T: Serialize> {
     /// under the key with the mutation metadata merged in so replays are
     /// byte-identical.
     pub payload: &'a T,
+    /// Provenance context (IF9): actor kind, agent session/skill/rule-set
+    /// hash, undo flag. Defaults to a plain human write.
+    pub provenance: ProvenanceContext,
 }
 
 /// Read-your-write metadata every mutation response carries (IF2), merged
@@ -368,9 +409,14 @@ pub async fn record<T: Serialize>(
     ctx: &mut OrgTx<'_>,
     spec: RecordSpec<'_, T>,
 ) -> ApiResult<MutationMeta> {
+    if let Some(kind) = spec.provenance.actor_kind {
+        if !ACTOR_KINDS.contains(&kind) {
+            return Err(ApiError::Validation(format!("unknown actor kind {kind:?}")));
+        }
+    }
     sqlx::query(
-        "INSERT INTO entity_writes (id, org_id, entity, entity_id, seq, op, actor_id, actor_kind, idempotency_key, before, after) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'human', $8, $9, $10)",
+        "INSERT INTO entity_writes (id, org_id, entity, entity_id, seq, op, actor_id, actor_kind, idempotency_key, before, after, session_id, skill, ruleset_hash, is_undo) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
     )
     .bind(Uuid::now_v7())
     .bind(ctx.org_id)
@@ -379,9 +425,14 @@ pub async fn record<T: Serialize>(
     .bind(spec.seq)
     .bind(spec.op)
     .bind(ctx.user_id)
+    .bind(spec.provenance.actor_kind.unwrap_or("human"))
     .bind(spec.key)
     .bind(spec.before.clone())
     .bind(&spec.after)
+    .bind(spec.provenance.session_id)
+    .bind(&spec.provenance.skill)
+    .bind(&spec.provenance.ruleset_hash)
+    .bind(spec.provenance.is_undo)
     .execute(&mut *ctx.tx)
     .await?;
 

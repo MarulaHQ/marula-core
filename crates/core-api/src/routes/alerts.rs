@@ -909,6 +909,7 @@ pub async fn sources_create(
                     row.updated_at,
                     key.as_deref(),
                 ),
+                provenance: Default::default(),
             },
         )
         .await?;
@@ -1045,6 +1046,7 @@ pub async fn sources_patch(
                     row.updated_at,
                     key.as_deref(),
                 ),
+                provenance: Default::default(),
             },
         )
         .await?;

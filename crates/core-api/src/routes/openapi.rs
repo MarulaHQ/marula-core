@@ -100,6 +100,9 @@ use utoipa::OpenApi;
         crate::routes::notifications::prefs_get,
         crate::routes::notifications::prefs_update,
         crate::routes::audit::list,
+        // provenance read model (TASKLIST IF9): audit query API extended
+        // with per-field write-trail provenance over migration 0043
+        crate::routes::provenance::list,
         crate::routes::reports::report,
         crate::routes::report_defs::list,
         crate::routes::report_defs::create,
@@ -442,6 +445,8 @@ use utoipa::OpenApi;
         crate::routes::oidc::SsoExchangeRequest,
         crate::routes::oidc::SsoExchangeResponse,
         crate::routes::audit::AuditPage,
+        crate::routes::provenance::ProvenancePage,
+        crate::routes::provenance::ProvenanceEvent,
         core_domain::automations::AutomationCondition,
         core_domain::automations::AutomationAction,
         crate::routes::tickets::TicketSlaStatus,
