@@ -13,6 +13,7 @@ coverage/
 .env.*
 !.env.example
 *.local
+RUNBOOK-DEV.local.md
 
 # OS
 .DS_Store
