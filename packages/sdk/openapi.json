@@ -3401,6 +3401,85 @@
         ],
         "description": "POST /api/report-definitions body."
       },
+      "CreateReportScheduleRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams"
+          },
+          {
+            "properties": {
+              "cadence": {
+                "$ref": "#/components/schemas/ScheduleCadence"
+              },
+              "day_of_month": {
+                "description": "Monthly only: 1..=28.",
+                "format": "int32",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "day_of_week": {
+                "description": "Weekly only: 0 = Monday .. 6 = Sunday.",
+                "format": "int32",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "enabled": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "name": {
+                "description": "Org-unique display name (1–200 chars after trimming).",
+                "type": "string"
+              },
+              "recipients": {
+                "description": "Recipient staff users of this org (1–50).",
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "report_definition_id": {
+                "description": "The stored R3 definition this schedule delivers.",
+                "format": "uuid",
+                "type": "string"
+              },
+              "time_of_day": {
+                "description": "`HH:MM` or `HH:MM:SS`, read in `timezone`.",
+                "type": "string"
+              },
+              "timezone": {
+                "description": "IANA zone the wall clock reads in.",
+                "type": "string"
+              },
+              "window_days": {
+                "description": "Trailing-day window per run (1..=366); default 30.",
+                "format": "int32",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "name",
+              "report_definition_id",
+              "recipients",
+              "cadence",
+              "time_of_day",
+              "timezone"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "POST /api/report-schedules body."
+      },
       "CreateRuleRequest": {
         "properties": {
           "actions": {
@@ -6624,7 +6703,8 @@
           "sla_breach",
           "escalation",
           "missing_time",
-          "ticket_update"
+          "ticket_update",
+          "report_delivery"
         ],
         "type": "string"
       },
@@ -8593,6 +8673,157 @@
         ],
         "type": "object"
       },
+      "ReportScheduleMutationResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ReportScheduleView"
+          },
+          {
+            "properties": {
+              "mutation": {
+                "$ref": "#/components/schemas/MutationMeta"
+              }
+            },
+            "required": [
+              "mutation"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "Mutation envelope: applied schedule + read-your-write metadata (IF2)."
+      },
+      "ReportSchedulePage": {
+        "description": "GET /api/report-schedules envelope.",
+        "properties": {
+          "next_cursor": {
+            "description": "Pass back as `cursor`; absent when exhausted.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "schedules": {
+            "description": "Deterministically ordered `(name, id)`.",
+            "items": {
+              "$ref": "#/components/schemas/ReportScheduleView"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "schedules"
+        ],
+        "type": "object"
+      },
+      "ReportScheduleView": {
+        "description": "One delivery schedule with its next-run preview (the materialized\n`next_run_at` the worker claims against) and definition coordinates.",
+        "properties": {
+          "cadence": {
+            "$ref": "#/components/schemas/ScheduleCadence"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "created_by": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "day_of_month": {
+            "description": "1..=28 (monthly only).",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "day_of_week": {
+            "description": "0 = Monday .. 6 = Sunday (weekly only).",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "definition_kind": {
+            "type": "string"
+          },
+          "definition_name": {
+            "description": "Denormalized for the listing UI (`definition_name`, `definition_kind`).",
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_run_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "next_run_at": {
+            "description": "Next-run preview — the instant the worker will next claim.",
+            "type": "string"
+          },
+          "recipients": {
+            "description": "Recipient staff user ids.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "report_definition_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "time_of_day": {
+            "description": "Local wall-clock fire time, `HH:MM`.",
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "window_days": {
+            "description": "Trailing-day window each run covers.",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "report_definition_id",
+          "definition_name",
+          "definition_kind",
+          "recipients",
+          "cadence",
+          "time_of_day",
+          "timezone",
+          "window_days",
+          "enabled",
+          "next_run_at",
+          "created_by",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
       "ReportSpec": {
         "description": "A stored report spec (TASKLIST R3). Every member is registry-validated;\nsee [`ReportSpec::validate`].",
         "properties": {
@@ -8846,6 +9077,36 @@
           "summary",
           "rows"
         ],
+        "type": "object"
+      },
+      "ScheduleCadence": {
+        "description": "Wire cadence of a schedule (snake_case slugs matching the stored\ncolumn and the worker's parser).",
+        "enum": [
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "type": "string"
+      },
+      "ScheduleListQuery": {
+        "description": "GET /api/report-schedules query.",
+        "properties": {
+          "cursor": {
+            "description": "Opaque keyset cursor from a previous page's `next_cursor`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "description": "Page size, clamped to [1, 200].",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
         "type": "object"
       },
       "SearchQuery": {
@@ -10812,6 +11073,77 @@
           }
         ],
         "description": "PUT /api/report-definitions/{id} body — full-replace semantics: every\nmember is applied; `description: null` clears it."
+      },
+      "UpdateReportScheduleRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams"
+          },
+          {
+            "properties": {
+              "cadence": {
+                "$ref": "#/components/schemas/ScheduleCadence"
+              },
+              "day_of_month": {
+                "format": "int32",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "day_of_week": {
+                "format": "int32",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "enabled": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "recipients": {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "report_definition_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "time_of_day": {
+                "type": "string"
+              },
+              "timezone": {
+                "type": "string"
+              },
+              "window_days": {
+                "format": "int32",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "name",
+              "report_definition_id",
+              "recipients",
+              "cadence",
+              "time_of_day",
+              "timezone"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "PUT /api/report-schedules/{id} body — full-replace semantics; every\nmember is applied and the next-run preview recomputes."
       },
       "UpdateRuleRequest": {
         "properties": {
@@ -18808,6 +19140,243 @@
           }
         ],
         "summary": "PUT /api/report-definitions/{id} — full-replace update through the\ninstant-first write path (version gate enforced; a miss inside a\nmutation is the typed `rls_sparse` reason, not `not_found`).",
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/api/v1/report-schedules": {
+      "get": {
+        "operationId": "report_schedules_list",
+        "parameters": [
+          {
+            "description": "Opaque keyset cursor from a previous page's `next_cursor`.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Page size, clamped to [1, 200].",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportSchedulePage"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/report-schedules — cursor-paged listing (admin), ordered\n`(name, id)`, each row carrying its next-run preview.",
+        "tags": [
+          "reports"
+        ]
+      },
+      "post": {
+        "operationId": "report_schedules_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReportScheduleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportScheduleMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "description": "admin-only surface"
+          },
+          "409": {
+            "description": "name conflict or idempotency key reused"
+          },
+          "422": {
+            "description": "validation failed (shape, recipients, definition)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/report-schedules — create a schedule through the\ninstant-first write path; the next-run preview computes from now.",
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/api/v1/report-schedules/{id}": {
+      "delete": {
+        "operationId": "report_schedules_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportScheduleMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "description": "admin-only surface"
+          },
+          "404": {
+            "description": "rls_sparse: target not visible"
+          },
+          "409": {
+            "description": "version conflict"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "DELETE /api/report-schedules/{id} — removal through the same gated\npath; ledger rows cascade and the write trail keeps the snapshot.",
+        "tags": [
+          "reports"
+        ]
+      },
+      "get": {
+        "operationId": "report_schedules_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportScheduleView"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "not in scope"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/report-schedules/{id} — one schedule; anything not in this\norg is a bare 404.",
+        "tags": [
+          "reports"
+        ]
+      },
+      "put": {
+        "operationId": "report_schedules_update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateReportScheduleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportScheduleMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "description": "admin-only surface"
+          },
+          "404": {
+            "description": "rls_sparse: target not visible"
+          },
+          "409": {
+            "description": "name conflict or version conflict"
+          },
+          "422": {
+            "description": "validation failed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "PUT /api/report-schedules/{id} — full-replace update; the next-run\npreview recomputes from now (cadence changes cannot strand a slot in\nthe past; the worker's claim sweep catches up enabled schedules\nanyway, so this only affects the preview's freshness).",
         "tags": [
           "reports"
         ]

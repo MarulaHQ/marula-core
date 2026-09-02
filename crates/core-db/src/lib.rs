@@ -31,6 +31,7 @@ pub mod portal;
 pub mod projects;
 pub mod queue;
 pub mod report_defs;
+pub mod report_schedules;
 pub mod scheduling;
 pub mod search;
 pub mod settings;

@@ -196,6 +196,18 @@ impl MeasureSpec {
     }
 }
 
+/// A validated half-open UTC instant window `[start, end)` an execution
+/// lane (R4 delivery / R6 builder runs) applies to a spec at compile
+/// time via [`ReportSpec::compile_windowed`]. Specs are windowless
+/// templates in storage; this is the run-time window applied on the
+/// view's typed time anchor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RunWindow {
+    pub start: DateTime<Utc>,
+    /// Exclusive upper bound.
+    pub end: DateTime<Utc>,
+}
+
 /// A stored report spec (TASKLIST R3). Every member is registry-validated;
 /// see [`ReportSpec::validate`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -450,11 +462,45 @@ impl ReportSpec {
     /// from validation; [`ReportsError::InvalidLimit`] for non-positive
     /// limits.
     pub fn compile(&self, scope: Scope, limit: i64) -> Result<CompiledReport, ReportsError> {
+        self.compile_inner(scope, limit, None)
+    }
+
+    /// Execution-lane compile (R4/R6): identical to [`Self::compile`]
+    /// plus the run-time window applied on the view's
+    /// [`ViewId::time_anchor`] — the seam the windowless-template design
+    /// reserves for delivery/builder runs. The window narrows BOTH the
+    /// main query and the summary (totals always cover the same span as
+    /// the rows) and binds as typed parameters (Timestamp vs Date per
+    /// the anchor), never literals.
+    ///
+    /// Spec filters are unchanged: the window ANDs with them; a stored
+    /// spec that already filters its anchor keeps working (duplicate
+    /// `(column, op)` checks apply only within the spec's own filters).
+    ///
+    /// # Errors
+    /// Exactly [`Self::compile`]'s error surface.
+    pub fn compile_windowed(
+        &self,
+        scope: Scope,
+        limit: i64,
+        window: RunWindow,
+    ) -> Result<CompiledReport, ReportsError> {
+        self.compile_inner(scope, limit, Some(window))
+    }
+
+    /// One compile path shared by both entry points; `window` rides the
+    /// binder so placeholder numbering stays contiguous.
+    fn compile_inner(
+        &self,
+        scope: Scope,
+        limit: i64,
+        window: Option<RunWindow>,
+    ) -> Result<CompiledReport, ReportsError> {
         self.validate()?;
         crate::params::validate_limit_raw(limit)?;
 
         let mut b = Binder::new();
-        let conds = self.conditions(scope, &mut b);
+        let conds = self.conditions(scope, window, &mut b);
         let where_main = if conds.is_empty() {
             String::new()
         } else {
@@ -495,7 +541,7 @@ impl ReportSpec {
         // Summary: whole-set totals under the same conditions — one fresh
         // binder, identical predicate assembly (parity by construction).
         let mut sb = Binder::new();
-        let s_conds = self.conditions(scope, &mut sb);
+        let s_conds = self.conditions(scope, window, &mut sb);
         let s_where = if s_conds.is_empty() {
             String::new()
         } else {
@@ -556,8 +602,9 @@ impl ReportSpec {
 
     /// One predicate assembly shared by main query and summary. Bind order
     /// is minted in push order per binder, so each statement's
-    /// placeholders stay contiguous and drift-free.
-    fn conditions(&self, scope: Scope, b: &mut Binder) -> Vec<String> {
+    /// placeholders stay contiguous and drift-free. The run-time window
+    /// (execution lanes only) lands LAST, on the view's time anchor.
+    fn conditions(&self, scope: Scope, window: Option<RunWindow>, b: &mut Binder) -> Vec<String> {
         let mut conds: Vec<String> = Vec::new();
 
         // RBAC narrowing FIRST — mirrors the prebuilt-kind precedence.
@@ -579,6 +626,28 @@ impl ReportSpec {
             let value = f.value.clone().expect("validated filter value");
             let n = b.ph(value.into_bind());
             conds.push(format!("{col_expr} {} {n}", f.op.fragment()));
+        }
+
+        if let Some(w) = window {
+            // Every v1 view declares exactly one typed anchor; the window
+            // is `[start, end)` on it, bound (never literal) per the
+            // anchor's value class.
+            let (anchor, ty) = self
+                .view
+                .time_anchor()
+                .expect("every v1 view declares a time anchor");
+            let col = dim_expr(anchor);
+            let (start_bind, end_bind) = match ty {
+                ValueType::Date => (
+                    Bind::Date(w.start.date_naive()),
+                    Bind::Date(w.end.date_naive()),
+                ),
+                _ => (Bind::Timestamp(w.start), Bind::Timestamp(w.end)),
+            };
+            let lo = b.ph(start_bind);
+            let hi = b.ph(end_bind);
+            conds.push(format!("{col} >= {lo}"));
+            conds.push(format!("{col} < {hi}"));
         }
         conds
     }
@@ -972,6 +1041,92 @@ mod tests {
             ReportSpec::from_parts(kind, &serde_json::json!({"measures": []}), viz).is_err(),
             "an empty-measures body must not revalidate"
         );
+    }
+
+    // --- execution-lane window (R4 delivery / R6 builder runs) ---------------
+
+    fn window(anchor: chrono::DateTime<Utc>) -> crate::spec::RunWindow {
+        crate::spec::RunWindow {
+            start: anchor - chrono::Duration::days(7),
+            end: anchor,
+        }
+    }
+
+    #[test]
+    fn windowed_compile_narrows_main_and_summary_on_every_view() {
+        let at = chrono::DateTime::from_timestamp(1_780_000_000, 0).unwrap();
+        for view in ViewId::ALL {
+            let (anchor_name, anchor_ty) = view.time_anchor().unwrap();
+            let c = spec(view)
+                .compile_windowed(Scope::OrgWide, 100, window(at))
+                .unwrap_or_else(|e| panic!("{view:?}: {e}"));
+            // Main: window predicates on the alias-qualified anchor.
+            assert!(
+                c.sql.contains(&format!("r.{anchor_name} >= $")),
+                "{view:?}: start bound missing: {}",
+                c.sql
+            );
+            assert!(c.sql.contains(&format!("r.{anchor_name} < $")));
+            // Summary mirrors the same window.
+            assert!(c.summary_sql.contains(&format!("r.{anchor_name} >= $")));
+            // Binds: window start/end first (conditions assemble before
+            // the LIMIT bind), then the limit — grand-total spec has no
+            // other filters; summary carries the window only.
+            assert_eq!(c.binds.len(), 3);
+            assert_eq!(c.summary_binds.len(), 2);
+            // Typed binds: Date anchors bind dates, everything else stamps.
+            let expect = match anchor_ty {
+                ValueType::Date => "Bind(Date)",
+                _ => "Bind(Timestamp)",
+            };
+            let got = |b: &Bind| match b {
+                Bind::Date(_) => "Bind(Date)",
+                Bind::Timestamp(_) => "Bind(Timestamp)",
+                _ => "other",
+            };
+            assert_eq!(got(&c.binds[0]), expect, "{view:?} start bind typing");
+            assert_eq!(got(&c.binds[1]), expect, "{view:?} end bind typing");
+        }
+    }
+
+    #[test]
+    fn windowed_binds_append_after_scope_and_filters() {
+        let at = chrono::DateTime::from_timestamp(1_780_000_000, 0).unwrap();
+        let mut s = spec(ViewId::TimeEntries);
+        s.filters = vec![filter(
+            "billable",
+            FilterOp::Eq,
+            Some(FilterValue::Bool(true)),
+        )];
+        let c = s
+            .compile_windowed(Scope::Self_(Uuid::nil()), 50, window(at))
+            .unwrap();
+        // Placeholders ascend in text order: scope ($1), filter ($2),
+        // window ($3, $4), LIMIT ($5).
+        assert!(c.sql.contains("r.user_id = $1"));
+        assert!(c.sql.contains("r.billable = $2"));
+        assert!(c.sql.contains("r.started_at >= $3"));
+        assert!(c.sql.contains("r.started_at < $4"));
+        assert!(c.sql.contains("LIMIT $5"));
+        assert_eq!(c.binds.len(), 5);
+        // Order of the bind VECTOR matches: scope, filter, window, limit.
+        assert!(matches!(c.binds[0], Bind::Uuid(_)));
+        assert!(matches!(c.binds[1], Bind::Bool(true)));
+        assert!(matches!(c.binds[2], Bind::Timestamp(_)));
+        assert!(matches!(c.binds[3], Bind::Timestamp(_)));
+        assert!(matches!(c.binds[4], Bind::Int(50)));
+    }
+
+    #[test]
+    fn windowed_sql_keeps_the_structural_statement_shape() {
+        let at = chrono::DateTime::from_timestamp(1_780_000_000, 0).unwrap();
+        let mut s = spec(ViewId::GapDays);
+        s.group_by = vec!["user_id".to_string()];
+        let c = s.compile_windowed(Scope::OrgWide, 100, window(at)).unwrap();
+        assert_statement_shape(&c.sql);
+        assert_statement_shape(&c.summary_sql);
+        assert_placeholders_contiguous(&c.sql, c.binds.len());
+        assert_placeholders_contiguous(&c.summary_sql, c.summary_binds.len());
     }
 
     #[test]

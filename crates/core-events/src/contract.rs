@@ -1592,6 +1592,61 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             })
         ),
     },
+    // -- scheduled report delivery ------------------------------------------
+    PublishedEvent {
+        event_type: types::REPORT_SCHEDULE_CREATED,
+        entity: "report_schedule",
+        variant: "default",
+        shape: untyped_shape!(
+            [
+                "schedule_id",
+                "definition_id",
+                "name",
+                "cadence",
+                "next_run_at"
+            ],
+            serde_json::json!({
+                "schedule_id": su(30),
+                "definition_id": su(29),
+                "name": "Weekly ops digest",
+                "cadence": "weekly",
+                "next_run_at": "2026-01-05T08:00:00Z",
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::REPORT_SCHEDULE_UPDATED,
+        entity: "report_schedule",
+        variant: "default",
+        shape: untyped_shape!(
+            [
+                "schedule_id",
+                "definition_id",
+                "name",
+                "cadence",
+                "next_run_at"
+            ],
+            serde_json::json!({
+                "schedule_id": su(30),
+                "definition_id": su(29),
+                "name": "Weekly ops digest",
+                "cadence": "monthly",
+                "next_run_at": "2026-02-01T08:00:00Z",
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::REPORT_SCHEDULE_DELETED,
+        entity: "report_schedule",
+        variant: "default",
+        shape: untyped_shape!(
+            ["schedule_id", "name"],
+            serde_json::json!({
+                "schedule_id": su(30),
+                "name": "Weekly ops digest",
+            })
+        ),
+    },
     PublishedEvent {
         event_type: types::BOARD_UPDATED,
         entity: "board",

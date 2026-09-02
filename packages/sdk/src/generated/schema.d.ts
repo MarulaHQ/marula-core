@@ -2615,6 +2615,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/report-schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/report-schedules — cursor-paged listing (admin), ordered
+         *     `(name, id)`, each row carrying its next-run preview.
+         */
+        get: operations["report_schedules_list"];
+        put?: never;
+        /**
+         * POST /api/report-schedules — create a schedule through the
+         *     instant-first write path; the next-run preview computes from now.
+         */
+        post: operations["report_schedules_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/report-schedules/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/report-schedules/{id} — one schedule; anything not in this
+         *     org is a bare 404.
+         */
+        get: operations["report_schedules_get"];
+        /**
+         * PUT /api/report-schedules/{id} — full-replace update; the next-run
+         *     preview recomputes from now (cadence changes cannot strand a slot in
+         *     the past; the worker's claim sweep catches up enabled schedules
+         *     anyway, so this only affects the preview's freshness).
+         */
+        put: operations["report_schedules_update"];
+        post?: never;
+        /**
+         * DELETE /api/report-schedules/{id} — removal through the same gated
+         *     path; ledger rows cascade and the write trail keeps the snapshot.
+         */
+        delete: operations["report_schedules_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/{kind}": {
         parameters: {
             query?: never;
@@ -4647,6 +4701,39 @@ export interface components {
             /** @description The registry-validated report spec. */
             spec: components["schemas"]["ReportSpec"];
         };
+        /** @description POST /api/report-schedules body. */
+        CreateReportScheduleRequest: components["schemas"]["MutationParams"] & {
+            cadence: components["schemas"]["ScheduleCadence"];
+            /**
+             * Format: int32
+             * @description Monthly only: 1..=28.
+             */
+            day_of_month?: number | null;
+            /**
+             * Format: int32
+             * @description Weekly only: 0 = Monday .. 6 = Sunday.
+             */
+            day_of_week?: number | null;
+            enabled?: boolean | null;
+            /** @description Org-unique display name (1–200 chars after trimming). */
+            name: string;
+            /** @description Recipient staff users of this org (1–50). */
+            recipients: string[];
+            /**
+             * Format: uuid
+             * @description The stored R3 definition this schedule delivers.
+             */
+            report_definition_id: string;
+            /** @description `HH:MM` or `HH:MM:SS`, read in `timezone`. */
+            time_of_day: string;
+            /** @description IANA zone the wall clock reads in. */
+            timezone: string;
+            /**
+             * Format: int32
+             * @description Trailing-day window per run (1..=366); default 30.
+             */
+            window_days?: number | null;
+        };
         CreateRuleRequest: {
             /** @description Action documents (see AutomationAction schema). */
             actions: unknown;
@@ -5962,7 +6049,7 @@ export interface components {
             user_id: string;
         };
         /** @enum {string} */
-        NotificationKind: "mention" | "assignment" | "sla_risk" | "sla_breach" | "escalation" | "missing_time" | "ticket_update";
+        NotificationKind: "mention" | "assignment" | "sla_risk" | "sla_breach" | "escalation" | "missing_time" | "ticket_update" | "report_delivery";
         /** @description One page of the inbox plus the cursor to continue with. */
         NotificationPage: {
             items: components["schemas"]["Notification"][];
@@ -6592,6 +6679,61 @@ export interface components {
             /** @description Versioned read-model view backing this kind (documentation parity). */
             view: string;
         };
+        /** @description Mutation envelope: applied schedule + read-your-write metadata (IF2). */
+        ReportScheduleMutationResponse: components["schemas"]["ReportScheduleView"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        /** @description GET /api/report-schedules envelope. */
+        ReportSchedulePage: {
+            /** @description Pass back as `cursor`; absent when exhausted. */
+            next_cursor?: string | null;
+            /** @description Deterministically ordered `(name, id)`. */
+            schedules: components["schemas"]["ReportScheduleView"][];
+        };
+        /**
+         * @description One delivery schedule with its next-run preview (the materialized
+         *     `next_run_at` the worker claims against) and definition coordinates.
+         */
+        ReportScheduleView: {
+            cadence: components["schemas"]["ScheduleCadence"];
+            created_at: string;
+            /** Format: uuid */
+            created_by: string;
+            /**
+             * Format: int32
+             * @description 1..=28 (monthly only).
+             */
+            day_of_month?: number | null;
+            /**
+             * Format: int32
+             * @description 0 = Monday .. 6 = Sunday (weekly only).
+             */
+            day_of_week?: number | null;
+            definition_kind: string;
+            /** @description Denormalized for the listing UI (`definition_name`, `definition_kind`). */
+            definition_name: string;
+            enabled: boolean;
+            /** Format: uuid */
+            id: string;
+            last_error?: string | null;
+            last_run_at?: string | null;
+            name: string;
+            /** @description Next-run preview — the instant the worker will next claim. */
+            next_run_at: string;
+            /** @description Recipient staff user ids. */
+            recipients: string[];
+            /** Format: uuid */
+            report_definition_id: string;
+            /** @description Local wall-clock fire time, `HH:MM`. */
+            time_of_day: string;
+            timezone: string;
+            updated_at: string;
+            /**
+             * Format: int32
+             * @description Trailing-day window each run covers.
+             */
+            window_days: number;
+        };
         /**
          * @description A stored report spec (TASKLIST R3). Every member is registry-validated;
          *     see [`ReportSpec::validate`].
@@ -6690,6 +6832,22 @@ export interface components {
             entity_kind: components["schemas"]["EntityKind"];
             rows: components["schemas"]["RowReport"][];
             summary: components["schemas"]["ChunkSummaryWire"];
+        };
+        /**
+         * @description Wire cadence of a schedule (snake_case slugs matching the stored
+         *     column and the worker's parser).
+         * @enum {string}
+         */
+        ScheduleCadence: "daily" | "weekly" | "monthly";
+        /** @description GET /api/report-schedules query. */
+        ScheduleListQuery: {
+            /** @description Opaque keyset cursor from a previous page's `next_cursor`. */
+            cursor?: string | null;
+            /**
+             * Format: int64
+             * @description Page size, clamped to [1, 200].
+             */
+            limit?: number | null;
         };
         SearchQuery: {
             /** Format: int64 */
@@ -7396,6 +7554,26 @@ export interface components {
             name: string;
             scope?: null | components["schemas"]["DefinitionScope"];
             spec: components["schemas"]["ReportSpec"];
+        };
+        /**
+         * @description PUT /api/report-schedules/{id} body — full-replace semantics; every
+         *     member is applied and the next-run preview recomputes.
+         */
+        UpdateReportScheduleRequest: components["schemas"]["MutationParams"] & {
+            cadence: components["schemas"]["ScheduleCadence"];
+            /** Format: int32 */
+            day_of_month?: number | null;
+            /** Format: int32 */
+            day_of_week?: number | null;
+            enabled?: boolean | null;
+            name: string;
+            recipients: string[];
+            /** Format: uuid */
+            report_definition_id: string;
+            time_of_day: string;
+            timezone: string;
+            /** Format: int32 */
+            window_days?: number | null;
         };
         UpdateRuleRequest: {
             actions?: unknown;
@@ -12426,6 +12604,197 @@ export interface operations {
                 };
             };
             /** @description definition outside the caller's writable scope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description rls_sparse: target not visible */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    report_schedules_list: {
+        parameters: {
+            query?: {
+                /** @description Opaque keyset cursor from a previous page's `next_cursor`. */
+                cursor?: string | null;
+                /** @description Page size, clamped to [1, 200]. */
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportSchedulePage"];
+                };
+            };
+        };
+    };
+    report_schedules_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateReportScheduleRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportScheduleMutationResponse"];
+                };
+            };
+            /** @description admin-only surface */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description name conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed (shape, recipients, definition) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    report_schedules_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportScheduleView"];
+                };
+            };
+            /** @description not in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    report_schedules_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateReportScheduleRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportScheduleMutationResponse"];
+                };
+            };
+            /** @description admin-only surface */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description rls_sparse: target not visible */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description name conflict or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    report_schedules_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportScheduleMutationResponse"];
+                };
+            };
+            /** @description admin-only surface */
             403: {
                 headers: {
                     [name: string]: unknown;

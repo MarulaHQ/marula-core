@@ -39,8 +39,8 @@ pub use params::{
     PAGE_LIMIT_MAX, WINDOW_MAX_DAYS,
 };
 pub use spec::{
-    Aggregate, FilterValue, MeasureSpec, ReportSpec, SpecBody, SpecFilter, VizHint, MAX_FILTERS,
-    MAX_GROUP_BY, MAX_MEASURES,
+    Aggregate, FilterValue, MeasureSpec, ReportSpec, RunWindow, SpecBody, SpecFilter, VizHint,
+    MAX_FILTERS, MAX_GROUP_BY, MAX_MEASURES,
 };
 
 #[cfg(test)]
