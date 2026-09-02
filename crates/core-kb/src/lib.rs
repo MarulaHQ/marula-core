@@ -16,6 +16,8 @@
 //! Non-purpose: no SQL (core-db), no HTTP (core-api), no FTS execution —
 //! the crate owns rules, not storage or transport.
 
+pub mod import;
+
 use core_domain::entities::{KbArticle, KbArticleStatus, KbCategory};
 
 /// Upper bound for article titles; long enough for real how-tos, short

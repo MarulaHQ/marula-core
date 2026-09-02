@@ -19,7 +19,9 @@
 //! device assets and further entity families ride in later waves and extend
 //! the catalogs additively.
 
-use crate::entities::{Board, Client, Contact, Site, Ticket, TimeEntry};
+use crate::entities::{
+    Board, Client, Contact, KbArticle, KbArticleStatus, KbCategory, Site, Ticket, TimeEntry,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use uuid::Uuid;
@@ -59,6 +61,11 @@ pub enum EntityKind {
     Board,
     Ticket,
     TimeEntry,
+    /// TASKLIST D5: KB category import family (parent of kb articles).
+    KbCategory,
+    /// TASKLIST D5: KB article import family; Markdown/HTML ingestion
+    /// lands as these rows (crates/core-kb ingest helpers produce them).
+    KbArticle,
 }
 
 impl std::str::FromStr for EntityKind {
@@ -71,6 +78,8 @@ impl std::str::FromStr for EntityKind {
             "board" => Ok(EntityKind::Board),
             "ticket" => Ok(EntityKind::Ticket),
             "time_entry" => Ok(EntityKind::TimeEntry),
+            "kb_category" => Ok(EntityKind::KbCategory),
+            "kb_article" => Ok(EntityKind::KbArticle),
             other => Err(format!("unknown entity_kind {other:?}")),
         }
     }
@@ -85,13 +94,16 @@ impl EntityKind {
             EntityKind::Board => "board",
             EntityKind::Ticket => "ticket",
             EntityKind::TimeEntry => "time_entry",
+            EntityKind::KbCategory => "kb_category",
+            EntityKind::KbArticle => "kb_article",
         }
     }
 
     /// Position in the parent-before-child run order
-    /// (boards → clients → sites → contacts → tickets → time entries).
-    /// A migration run script pushes batches in ascending order so every
-    /// foreign external key resolves to a row imported earlier.
+    /// (boards → clients → sites → contacts → tickets → time entries →
+    /// kb categories → kb articles). A migration run script pushes batches
+    /// in ascending order so every foreign external key resolves to a row
+    /// imported earlier.
     pub const fn import_order(self) -> u8 {
         match self {
             EntityKind::Board => 0,
@@ -100,6 +112,8 @@ impl EntityKind {
             EntityKind::Contact => 3,
             EntityKind::Ticket => 4,
             EntityKind::TimeEntry => 5,
+            EntityKind::KbCategory => 6,
+            EntityKind::KbArticle => 7,
         }
     }
 }
@@ -343,6 +357,8 @@ pub fn validate_mapping(
         EntityKind::Board => BOARD_COLUMNS,
         EntityKind::Ticket => TICKET_COLUMNS,
         EntityKind::TimeEntry => TIME_ENTRY_COLUMNS,
+        EntityKind::KbCategory => KB_CATEGORY_COLUMNS,
+        EntityKind::KbArticle => KB_ARTICLE_COLUMNS,
     };
     let mut errors = Vec::new();
     if mapping.is_empty() {
@@ -485,6 +501,38 @@ pub struct TimeEntrySpec {
     pub work_type: Option<String>,
 }
 
+/// A validated KB category row (TASKLIST D5) — the parent family for
+/// kb articles. `slug` is the stable per-org handle parent articles
+/// reference via `category_slug`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct KbCategorySpec {
+    pub external_key: String,
+    pub name: String,
+    pub slug: String,
+    pub description: Option<String>,
+    pub position: i32,
+    pub client_visible: bool,
+}
+
+/// A validated KB article row (TASKLIST D5). `category_slug` names the
+/// parent category by its EXTERNAL key (the converter emits the category
+/// slug as its external key, so the two agree); the category family must
+/// be imported earlier in the run order or shipped in the same run
+/// script. `status` stays optional: absent/empty means the storage
+/// default (`draft`), never an invented state, and `published` imports
+/// flow through the regular lifecycle so the FTS indexer picks them up
+/// like any authoring-path create.
+#[derive(Debug, Clone, PartialEq)]
+pub struct KbArticleSpec {
+    pub external_key: String,
+    pub category_slug: Option<String>,
+    pub title: String,
+    pub slug: String,
+    pub body: Option<String>,
+    pub status: Option<KbArticleStatus>,
+    pub client_visible: bool,
+}
+
 /// A validated row of whichever kind the batch targets.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ImportSpec {
@@ -494,6 +542,8 @@ pub enum ImportSpec {
     Board(BoardSpec),
     Ticket(TicketSpec),
     TimeEntry(TimeEntrySpec),
+    KbCategory(KbCategorySpec),
+    KbArticle(KbArticleSpec),
 }
 
 impl ImportSpec {
@@ -505,6 +555,8 @@ impl ImportSpec {
             ImportSpec::Board(s) => &s.external_key,
             ImportSpec::Ticket(s) => &s.external_key,
             ImportSpec::TimeEntry(s) => &s.external_key,
+            ImportSpec::KbCategory(s) => &s.external_key,
+            ImportSpec::KbArticle(s) => &s.external_key,
         }
     }
 
@@ -580,6 +632,27 @@ impl ImportSpec {
                 m.insert("billable".into(), s.billable.to_string());
                 m.insert("notes".into(), s.notes.clone().unwrap_or_default());
                 m.insert("work_type".into(), s.work_type.clone().unwrap_or_default());
+            }
+            ImportSpec::KbCategory(s) => {
+                m.insert("name".into(), s.name.clone());
+                m.insert(
+                    "description".into(),
+                    s.description.clone().unwrap_or_default(),
+                );
+                m.insert("position".into(), s.position.to_string());
+                m.insert("client_visible".into(), s.client_visible.to_string());
+            }
+            ImportSpec::KbArticle(s) => {
+                m.insert("title".into(), s.title.clone());
+                m.insert("body".into(), s.body.clone().unwrap_or_default());
+                m.insert(
+                    "status".into(),
+                    s.status
+                        .unwrap_or(KbArticleStatus::Draft)
+                        .as_str()
+                        .to_string(),
+                );
+                m.insert("client_visible".into(), s.client_visible.to_string());
             }
         }
         m
@@ -668,6 +741,32 @@ pub fn time_entry_projection(e: &TimeEntry) -> BTreeMap<String, String> {
     m
 }
 
+/// Canonical projection of a STORED kb category (TASKLIST D5). Keys mirror
+/// [`ImportSpec::projection`] for the category family exactly — operator
+/// content only; slugs stay out so sibling re-pushes never churn over URL
+/// drift.
+pub fn kb_category_projection(c: &KbCategory) -> BTreeMap<String, String> {
+    let mut m = BTreeMap::new();
+    m.insert("name".into(), c.name.clone());
+    m.insert("description".into(), c.description.clone());
+    m.insert("position".into(), c.position.to_string());
+    m.insert("client_visible".into(), c.client_visible.to_string());
+    m
+}
+
+/// Canonical projection of a STORED kb article (TASKLIST D5). Keys mirror
+/// [`ImportSpec::projection`] for the article family exactly; `slug` and
+/// parent `category_slug` are identity and stay out, matching the
+/// ticket/board family precedent (identity is immutable after creation).
+pub fn kb_article_projection(a: &KbArticle) -> BTreeMap<String, String> {
+    let mut m = BTreeMap::new();
+    m.insert("title".into(), a.title.clone());
+    m.insert("body".into(), a.body.clone());
+    m.insert("status".into(), a.status.as_str().to_string());
+    m.insert("client_visible".into(), a.client_visible.to_string());
+    m
+}
+
 // --- validation ---------------------------------------------------------------
 
 const CLIENT_COLUMNS: &[&str] = &["external_key", "name", "notes"];
@@ -717,6 +816,23 @@ const TIME_ENTRY_COLUMNS: &[&str] = &[
     "notes",
     "work_type",
 ];
+const KB_CATEGORY_COLUMNS: &[&str] = &[
+    "external_key",
+    "name",
+    "slug",
+    "description",
+    "position",
+    "client_visible",
+];
+const KB_ARTICLE_COLUMNS: &[&str] = &[
+    "external_key",
+    "category_slug",
+    "title",
+    "slug",
+    "body",
+    "status",
+    "client_visible",
+];
 
 /// One validated-or-rejected row, pre-conflict-resolution.
 #[derive(Debug, Clone, PartialEq)]
@@ -751,6 +867,8 @@ fn validate_row(kind: EntityKind, raw: &RawRow) -> Result<ImportSpec, Vec<String
         EntityKind::Board => BOARD_COLUMNS,
         EntityKind::Ticket => TICKET_COLUMNS,
         EntityKind::TimeEntry => TIME_ENTRY_COLUMNS,
+        EntityKind::KbCategory => KB_CATEGORY_COLUMNS,
+        EntityKind::KbArticle => KB_ARTICLE_COLUMNS,
     };
     let mut errors: Vec<String> = Vec::new();
     for col in raw.fields.keys() {
@@ -1050,6 +1168,53 @@ fn validate_row(kind: EntityKind, raw: &RawRow) -> Result<ImportSpec, Vec<String
                 work_type: opt_text!("work_type", 64),
             })
         }
+        EntityKind::KbCategory => {
+            let slug = match get("slug") {
+                Some(s) => s.to_string(),
+                None => {
+                    errors.push("slug: required".into());
+                    String::new()
+                }
+            };
+            ImportSpec::KbCategory(KbCategorySpec {
+                external_key,
+                name,
+                slug,
+                description: opt_text!("description", 2_000),
+                position: parse_i32_field(raw, "position", &mut errors),
+                client_visible: parse_bool_field(raw, "client_visible", &mut errors),
+            })
+        }
+        EntityKind::KbArticle => {
+            let slug = match get("slug") {
+                Some(s) => s.to_string(),
+                None => {
+                    errors.push("slug: required".into());
+                    String::new()
+                }
+            };
+            let status = match get("status") {
+                Some(v) => match KbArticleStatus::parse(v) {
+                    Some(s) => Some(s),
+                    None => {
+                        errors.push(format!(
+                            "status: {v:?} is not one of draft, published, archived"
+                        ));
+                        None
+                    }
+                },
+                None => None,
+            };
+            ImportSpec::KbArticle(KbArticleSpec {
+                external_key,
+                category_slug: opt_text!("category_slug", 200),
+                title: name,
+                slug,
+                body: opt_text!("body", core_kb_limits::MAX_BODY_BYTES),
+                status,
+                client_visible: parse_bool_field(raw, "client_visible", &mut errors),
+            })
+        }
     };
     if errors.is_empty() {
         Ok(spec)
@@ -1076,6 +1241,33 @@ fn validate_name(name: &str) -> Result<(), String> {
         return Err("longer than 200 characters".into());
     }
     Ok(())
+}
+
+/// Optional integer scalar (`position`): absent/empty is the storage
+/// default 0; malformed integers collect a row error and fall back to the
+/// default so the spec stays well-formed (mirrors parse_bool_field).
+fn parse_i32_field(raw: &RawRow, column: &str, errors: &mut Vec<String>) -> i32 {
+    match raw.fields.get(column).map(|v| v.trim()) {
+        None | Some("") => 0,
+        Some(v) => match v.parse::<i32>() {
+            Ok(n) => n,
+            Err(_) => {
+                errors.push(format!("{column}: {v:?} is not an integer"));
+                0
+            }
+        },
+    }
+}
+
+/// Shared portability limits for kb content in the import engine. Kept in
+/// lockstep with crates/core-kb (`MAX_TITLE_CHARS` / `MAX_BODY_BYTES`) —
+/// the engine cannot depend on core-kb (core-domain sits below it), so the
+/// constants are mirrored and cross-checked by a core-domain unit test.
+pub mod core_kb_limits {
+    /// Mirrors `core_kb::MAX_TITLE_CHARS`.
+    pub const MAX_TITLE_CHARS: usize = 300;
+    /// Mirrors `core_kb::MAX_BODY_BYTES` (512 KiB).
+    pub const MAX_BODY_BYTES: usize = 512 * 1024;
 }
 
 fn validate_timezone(tz: &str) -> Result<(), String> {
@@ -1443,6 +1635,16 @@ fn check_parents(spec: &ImportSpec, lookup: ParentLookup<'_>) -> Result<(), Vec<
                     "ticket_key {:?}: no imported ticket with this external key",
                     e.ticket_key
                 ));
+            }
+        }
+        ImportSpec::KbCategory(_) => {}
+        ImportSpec::KbArticle(a) => {
+            if let Some(slug) = &a.category_slug {
+                if lookup(EntityKind::KbCategory, slug).is_none() {
+                    missing.push(format!(
+                        "category_slug {slug:?}: no imported kb category with this slug"
+                    ));
+                }
             }
         }
     }

@@ -29,17 +29,17 @@ use axum::{
     http::Extensions,
     Json,
 };
-use core_domain::entities::{Actor, AuditEvent, Principal};
+use core_domain::entities::{Actor, AuditEvent, KbArticleStatus, Principal};
 use core_domain::events::{
     types, ClientCreated, ClientUpdated, ContactCreated, ContactUpdated, ImportBatchFinished,
     ImportBatchStarted, SiteCreated, SiteUpdated, TicketCreated, TimeEntryCreated,
 };
 use core_domain::import_core::{
     apply_field_mapping, board_projection, build_specs, chunk_is_executable, enforce_limits,
-    parse_csv_chunk, parse_json_chunk, plan_chunk, ticket_projection, time_entry_projection,
-    validate_mapping, ChunkPlan, ChunkSummary, CommitAction, ConflictPolicy, EntityKind,
-    ImportSpec, KeyMappingLookup, ParentLookup, ProjectionLookup, RawRow, RowFormat, RowReport,
-    SpecResult,
+    kb_article_projection, kb_category_projection, parse_csv_chunk, parse_json_chunk, plan_chunk,
+    ticket_projection, time_entry_projection, validate_mapping, ChunkPlan, ChunkSummary,
+    CommitAction, ConflictPolicy, EntityKind, ImportSpec, KeyMappingLookup, ParentLookup,
+    ProjectionLookup, RawRow, RowFormat, RowReport, SpecResult,
 };
 use core_domain::policy::{Action, Module, Permission};
 use core_domain::status::TicketStatusCategory;
@@ -403,6 +403,20 @@ fn audit_event(
     }
 }
 
+/// Maps the per-org unique slug constraint to the same typed 409 the KB
+/// authoring surface returns — a bulk push must not degrade a slug
+/// collision into an opaque storage error.
+fn slug_conflict(e: core_db::DbError, what: &str) -> ApiError {
+    match &e {
+        core_db::DbError::Sql(sqlx::Error::Database(db))
+            if db.constraint().unwrap_or("").contains("slug") =>
+        {
+            ApiError::Conflict(format!("slug already in use ({what})"))
+        }
+        _ => e.into(),
+    }
+}
+
 // --- planning snapshot -------------------------------------------------------------
 
 /// Pre-fetched, chunk-local resolution state handed to the pure engine as
@@ -475,6 +489,23 @@ async fn load_parents(
                         .await
                         .is_ok(),
                     _ => core_db::timers::get_time_entry(&mut **tx, org_id, *id)
+                        .await
+                        .is_ok(),
+                };
+                if found {
+                    alive.push(*id);
+                }
+            }
+            alive
+        }
+        EntityKind::KbCategory | EntityKind::KbArticle => {
+            let mut alive = Vec::with_capacity(ids.len());
+            for id in &ids {
+                let found = match kind {
+                    EntityKind::KbCategory => core_db::kb::get_category(&mut **tx, org_id, *id)
+                        .await
+                        .is_ok(),
+                    _ => core_db::kb::get_article(&mut **tx, org_id, *id)
                         .await
                         .is_ok(),
                 };
@@ -606,6 +637,21 @@ async fn build_snapshot(
             )
             .await?;
         }
+        EntityKind::KbCategory => {}
+        EntityKind::KbArticle => {
+            let category_slugs = collect_keys(specs, |spec| match spec {
+                ImportSpec::KbArticle(a) => a.category_slug.clone(),
+                _ => None,
+            });
+            load_parents(
+                tx,
+                org_id,
+                EntityKind::KbCategory,
+                &dedupe(category_slugs),
+                &mut snap,
+            )
+            .await?;
+        }
     }
 
     let self_keys = collect_keys(specs, |spec| Some(spec.external_key().to_string()));
@@ -653,6 +699,22 @@ async fn build_snapshot(
             for id in &ids {
                 let entry = core_db::timers::get_time_entry(&mut **tx, org_id, *id).await?;
                 out.push((entry.id, time_entry_projection(&entry)));
+            }
+            out
+        }
+        EntityKind::KbCategory => {
+            let mut out = Vec::with_capacity(ids.len());
+            for id in &ids {
+                let category = core_db::kb::get_category(&mut **tx, org_id, *id).await?;
+                out.push((category.id, kb_category_projection(&category)));
+            }
+            out
+        }
+        EntityKind::KbArticle => {
+            let mut out = Vec::with_capacity(ids.len());
+            for id in &ids {
+                let article = core_db::kb::get_article(&mut **tx, org_id, *id).await?;
+                out.push((article.id, kb_article_projection(&article)));
             }
             out
         }
@@ -1906,6 +1968,74 @@ async fn commit_insert(
             )
             .await?;
         }
+        ImportSpec::KbCategory(category) => {
+            let id = Uuid::now_v7();
+            core_db::kb::create_category(
+                &mut *ctx.tx,
+                org_id,
+                id,
+                &category.name,
+                &category.slug,
+                category.description.as_deref().unwrap_or_default(),
+                category.position,
+                category.client_visible,
+            )
+            .await
+            .map_err(|e| slug_conflict(e, "kb category"))?;
+            core_db::imports::upsert_mapping(
+                &mut *ctx.tx,
+                key_row_id,
+                org_id,
+                "kb_category",
+                &category.external_key,
+                id,
+                batch_id,
+            )
+            .await?;
+            // Categories are non-evented on the authoring surface too —
+            // only articles carry lifecycle events (FTS rides those).
+        }
+        ImportSpec::KbArticle(article) => {
+            let id = Uuid::now_v7();
+            let category_id = match &article.category_slug {
+                Some(key) => Some(resolve_parent(parents, EntityKind::KbCategory, key)?),
+                None => None,
+            };
+            let row = core_db::kb::create_article(
+                &mut *ctx.tx,
+                org_id,
+                id,
+                category_id,
+                &article.title,
+                &article.slug,
+                article.body.as_deref().unwrap_or_default(),
+                article.status.unwrap_or(KbArticleStatus::Draft),
+                article.client_visible,
+                ctx.user_id,
+            )
+            .await
+            .map_err(|e| slug_conflict(e, "kb article"))?;
+            core_db::imports::upsert_mapping(
+                &mut *ctx.tx,
+                key_row_id,
+                org_id,
+                "kb_article",
+                &article.external_key,
+                id,
+                batch_id,
+            )
+            .await?;
+            // Same event + payload the authoring POST emits, so the
+            // unified-search indexer treats an imported `published`
+            // article exactly like one created by hand.
+            ctx.emit(
+                types::KB_ARTICLE_CREATED,
+                "kb_article",
+                Some(row.id.to_string().as_str()),
+                &serde_json::json!({ "article_id": row.id, "status": row.status.as_str() }),
+            )
+            .await?;
+        }
     }
     Ok(())
 }
@@ -2130,6 +2260,80 @@ async fn commit_update(
                 "time_entry",
                 Some(internal_id.to_string().as_str()),
                 &serde_json::json!({ "entry_id": internal_id }),
+            )
+            .await?;
+        }
+        ImportSpec::KbCategory(category) => {
+            core_db::kb::update_category(
+                &mut *ctx.tx,
+                org_id,
+                *internal_id,
+                &category.name,
+                category.description.as_deref().unwrap_or_default(),
+                category.position,
+                category.client_visible,
+            )
+            .await?;
+            touch_last_seen(
+                &mut *ctx.tx,
+                org_id,
+                "kb_category",
+                &category.external_key,
+                *internal_id,
+                batch_id,
+            )
+            .await?;
+        }
+        ImportSpec::KbArticle(article) => {
+            // The archived content lock is a core-kb rule, not a route
+            // rule: a bulk overwrite must not become a side channel around
+            // it. Status flips stay legal (that is how an import
+            // unarchives), and content-identical repushes never trip the
+            // guard — the planner only routes true drift here.
+            let stored = core_db::kb::get_article(&mut *ctx.tx, org_id, *internal_id).await?;
+            if stored.status == KbArticleStatus::Archived {
+                let content_drift = stored.title != article.title
+                    || stored.body != article.body.clone().unwrap_or_default();
+                if content_drift {
+                    return Err(ApiError::Validation(format!(
+                        "article {} is archived and refuses title/body edits; \
+                         re-publish it first",
+                        internal_id
+                    )));
+                }
+            }
+            core_db::kb::update_article(
+                &mut *ctx.tx,
+                org_id,
+                *internal_id,
+                &core_db::kb::ArticlePatch {
+                    title: Some(article.title.clone()),
+                    body: Some(article.body.clone().unwrap_or_default()),
+                    // Parent links are identity, never content drift.
+                    category_id: None,
+                    status: Some(article.status.unwrap_or(KbArticleStatus::Draft)),
+                    client_visible: Some(article.client_visible),
+                    updated_by: Some(ctx.user_id),
+                },
+            )
+            .await?;
+            touch_last_seen(
+                &mut *ctx.tx,
+                org_id,
+                "kb_article",
+                &article.external_key,
+                *internal_id,
+                batch_id,
+            )
+            .await?;
+            ctx.emit(
+                types::KB_ARTICLE_UPDATED,
+                "kb_article",
+                Some(internal_id.to_string().as_str()),
+                &serde_json::json!({
+                    "article_id": internal_id,
+                    "status": article.status.unwrap_or(KbArticleStatus::Draft).as_str()
+                }),
             )
             .await?;
         }
