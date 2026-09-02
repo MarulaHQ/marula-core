@@ -71,9 +71,17 @@ pub async fn require_auth(
         .filter(|v| !v.is_empty())
     {
         let path = request.uri().path();
+        // Both mounts promise identical auth behavior (routes/mod.rs): the
+        // canonical /api/v1 generation matches the allowlist through its
+        // legacy-form twin so a scoped key is accepted identically on
+        // either mount. Legacy paths match as-is.
+        let candidate = path
+            .strip_prefix("/api/v1")
+            .map(|rest| format!("/api{rest}"))
+            .unwrap_or_else(|| path.to_string());
         let allowed = API_KEY_PATHS.iter().any(|p| {
-            path == *p
-                || path
+            candidate == *p
+                || candidate
                     .strip_prefix(p)
                     .is_some_and(|rest| rest.starts_with('/'))
         });
@@ -154,8 +162,15 @@ pub async fn require_auth(
 /// (mutations, admin surfaces, self-scoped endpoints) is JWT-only.
 /// `/api/imports` is the deliberate mutation exception (TASKLIST D2/D3):
 /// scoped migration pushes are a documented machine flow, gated in-handler
-/// by scope checks on top of this prefix allowance.
-const API_KEY_PATHS: &[&str] = &["/api/tickets", "/api/clients", "/api/imports"];
+/// by scope checks on top of this prefix allowance. `/api/migration` is the
+/// D3 connector surface (push + pull), scoped by `migration:*` keys.
+/// Canonical `/api/v1/...` requests match through their legacy-form twin.
+const API_KEY_PATHS: &[&str] = &[
+    "/api/tickets",
+    "/api/clients",
+    "/api/imports",
+    "/api/migration",
+];
 
 /// Maps capability scopes onto the permission matrix. Unknown scopes are
 /// ignored here (they cannot be created — validated at key creation).
@@ -184,6 +199,16 @@ fn permissions_from_scopes(scopes: &[String]) -> Vec<core_domain::policy::Permis
             ),
             "timers:read" => push(Module::Time, &[Action::View]),
             "timers:write" => push(Module::Time, &[Action::View, Action::Create, Action::Edit]),
+            // Migration connector (TASKLIST D3): deliberately broad data
+            // grants — a migration tool writes whole entity families
+            // through the D2 engine. The engine's gate checks the Clients
+            // matrix (the import framework's machine contract), so the
+            // scope resolves onto exactly that.
+            "migration:read" => push(Module::Clients, &[Action::View]),
+            "migration:write" => push(
+                Module::Clients,
+                &[Action::View, Action::Create, Action::Edit],
+            ),
             _ => {}
         }
     }

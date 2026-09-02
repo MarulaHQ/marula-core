@@ -227,6 +227,7 @@ mod tests {
             email_transport: core_mail::TransportKind::None,
             email_scan_clamd_addr: None,
             email_from_address: "support@meridian.local".into(),
+            migration_rate_limit_per_min: 600,
             email_from_name: None,
             internal_token: None,
             object_store: core_store::StoreChoice::Local("./data/objects-test".into()),

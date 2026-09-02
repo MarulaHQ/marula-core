@@ -60,6 +60,10 @@ pub struct Config {
     pub object_store: core_store::StoreChoice,
     /// Per-file upload cap in bytes (default 25 MB; env can lower it).
     pub max_upload_bytes: i64,
+    /// Migration connector (TASKLIST D3): per-principal request budget per
+    /// minute on the /api/migration surface. Env
+    /// `MERIDIAN_MIGRATION_RATE_LIMIT_PER_MIN` (default 600).
+    pub migration_rate_limit_per_min: u32,
 }
 
 /// Parses OBJECT_STORE plus its companion vars. Unknown values degrade to
@@ -172,6 +176,10 @@ impl Config {
                 .and_then(|v| v.parse::<i64>().ok())
                 .map(|mb| mb * 1024 * 1024)
                 .unwrap_or(core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES),
+            migration_rate_limit_per_min: std::env::var("MERIDIAN_MIGRATION_RATE_LIMIT_PER_MIN")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(600),
         }
     }
 }
@@ -225,6 +233,7 @@ impl Config {
                 .and_then(|v| v.parse::<i64>().ok())
                 .map(|mb| mb * 1024 * 1024)
                 .unwrap_or(core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES),
+            migration_rate_limit_per_min: 600,
         }
     }
 }

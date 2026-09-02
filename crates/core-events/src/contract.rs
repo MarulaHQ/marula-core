@@ -349,12 +349,13 @@ use core_domain::events::{
     ClientUpdated, ContactCreated, ContactUpdated, ContractCreated, ContractRemoved,
     ContractUpdated, ImportBatchFinished, ImportBatchStarted, InvoiceCreated,
     InvoiceDunningChanged, InvoicePaymentRecorded, InvoiceRunCompleted, InvoiceVoided,
-    NotificationCreated, OnCallChanged, ProjectCreated, ProjectMilestoneCompleted,
-    ProjectPhaseCompleted, ProjectPhaseCreated, ProjectPhaseUpdated, ProjectTaskCompleted,
-    ProjectTaskCreated, ProjectTaskUpdated, ProjectTemplateRemoved, ProjectTemplateUpdated,
-    ProjectUpdated, ProjectViewRemoved, ProjectViewUpdated, SiteCreated, SiteUpdated,
-    TicketAssigned, TicketChecklistUpdated, TicketCommentAdded, TicketCreated, TicketStatusChanged,
-    TimeEntryCreated, TimerPaused, TimerStarted, TimerStopped,
+    MigrationPushSessionFinished, MigrationPushSessionStarted, NotificationCreated, OnCallChanged,
+    ProjectCreated, ProjectMilestoneCompleted, ProjectPhaseCompleted, ProjectPhaseCreated,
+    ProjectPhaseUpdated, ProjectTaskCompleted, ProjectTaskCreated, ProjectTaskUpdated,
+    ProjectTemplateRemoved, ProjectTemplateUpdated, ProjectUpdated, ProjectViewRemoved,
+    ProjectViewUpdated, SiteCreated, SiteUpdated, TicketAssigned, TicketChecklistUpdated,
+    TicketCommentAdded, TicketCreated, TicketStatusChanged, TimeEntryCreated, TimerPaused,
+    TimerStarted, TimerStopped,
 };
 use core_domain::money::{CurrencyCode, Money};
 use core_domain::policy::BoardRole;
@@ -694,6 +695,41 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             ImportBatchFinished {
                 batch_id: su(12),
                 entity_kind: "clients".into(),
+                rows_total: 120,
+                rows_created: 90,
+                rows_updated: 18,
+                rows_skipped: 7,
+                rows_failed: 5,
+            }
+        ),
+    },
+    // -- migration connector (TASKLIST D3) ---------------------------------
+    PublishedEvent {
+        event_type: types::MIGRATION_PUSH_SESSION_STARTED,
+        entity: "migration_push_session",
+        variant: "default",
+        shape: typed_shape!(
+            MigrationPushSessionStarted,
+            MigrationPushSessionStarted {
+                session_id: su(34),
+                batch_id: su(12),
+                entity_kind: "client".into(),
+                conflict_policy: "update".into(),
+                label: "connectwise-clients-2026".into(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::MIGRATION_PUSH_SESSION_FINISHED,
+        entity: "migration_push_session",
+        variant: "default",
+        shape: typed_shape!(
+            MigrationPushSessionFinished,
+            MigrationPushSessionFinished {
+                session_id: su(34),
+                batch_id: su(12),
+                entity_kind: "client".into(),
+                chunks_committed: 6,
                 rows_total: 120,
                 rows_created: 90,
                 rows_updated: 18,

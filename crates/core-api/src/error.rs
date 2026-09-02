@@ -15,6 +15,7 @@
 //! `validation_failed`, `conflict`, `version_conflict`,
 //! `idempotency_key_reused`, `pre_close_checklist_blocked`,
 //! `dispatch_move_conflict`, `import_chunk_rejected`,
+//! `migration_cursor_mismatch`, `migration_chunk_reused`, `rate_limited`,
 //! `task_dependencies_unsatisfied`, `service_unavailable`, `internal_error`.
 
 use axum::http::StatusCode;
@@ -97,6 +98,34 @@ pub enum ApiError {
         task_id: Uuid,
         /// Dependency ids still not completed.
         blocking: Vec<Uuid>,
+    },
+    /// Typed 409 for a migration connector chunk pushed out of position
+    /// (TASKLIST D3): the checkpoint cursor expects a different index. The
+    /// tool resumes from `expected` (GET the session view) — nothing was
+    /// written.
+    #[error("migration chunk cursor mismatch: expected chunk {expected}, got {provided}")]
+    MigrationCursorMismatch {
+        /// The chunk index the checkpoint actually expects next.
+        expected: i64,
+        /// The index the caller presented.
+        provided: i64,
+    },
+    /// Typed 409 when an already-committed migration chunk is re-sent with
+    /// a DIFFERENT payload (TASKLIST D3). Same index + same payload is a
+    /// free replay of the stored report; drifting content under one index
+    /// is a client bug we refuse to guess at.
+    #[error("migration chunk already committed with different content")]
+    MigrationChunkReused {
+        /// The offending chunk index.
+        chunk_index: i64,
+    },
+    /// Typed 429: the per-key rate limit for the migration connector
+    /// surface is exhausted for this window. Carries the seconds until the
+    /// window resets (also emitted as the Retry-After header).
+    #[error("rate limit exceeded; retry after {retry_after_secs}s")]
+    RateLimited {
+        /// Seconds until the current fixed window resets.
+        retry_after_secs: i64,
     },
     #[error("internal error")]
     Internal(#[from] anyhow::Error),
@@ -200,6 +229,26 @@ impl IntoResponse for ApiError {
                 "task dependencies not satisfied".to_string(),
                 Some(json!({ "task_id": task_id, "blocking": blocking })),
             ),
+            ApiError::MigrationCursorMismatch { expected, provided } => (
+                StatusCode::CONFLICT,
+                "migration_cursor_mismatch",
+                format!(
+                    "migration chunk cursor mismatch: expected chunk {expected}, got {provided}"
+                ),
+                Some(json!({ "expected": expected, "provided": provided })),
+            ),
+            ApiError::MigrationChunkReused { chunk_index } => (
+                StatusCode::CONFLICT,
+                "migration_chunk_reused",
+                "migration chunk already committed with different content".to_string(),
+                Some(json!({ "chunk_index": chunk_index })),
+            ),
+            ApiError::RateLimited { retry_after_secs } => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "rate_limited",
+                format!("rate limit exceeded; retry after {retry_after_secs}s"),
+                Some(json!({ "retry_after_secs": retry_after_secs })),
+            ),
             ApiError::Unavailable(m) => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "service_unavailable",
@@ -221,7 +270,15 @@ impl IntoResponse for ApiError {
                 }
             }
         }
-        (status, Json(json!({ "error": error }))).into_response()
+        let mut response = (status, Json(json!({ "error": error }))).into_response();
+        if let ApiError::RateLimited { retry_after_secs } = &self {
+            if let Ok(value) = retry_after_secs.to_string().parse() {
+                response
+                    .headers_mut()
+                    .insert(axum::http::header::RETRY_AFTER, value);
+            }
+        }
+        response
     }
 }
 
