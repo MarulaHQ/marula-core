@@ -42,6 +42,25 @@ for f in "$migrations_dir"/*.sql; do
     "$f" | grep -ivE 'where' || true)
   hits="${hits}${unfiltered}"
 
+  # Deliberate whole-table backfills in ALREADY-SHIPPED migrations. Shipped
+  # migration files are checksummed by sqlx — editing them (to add --breaking
+  # or annotations) would break `sqlx migrate run` on every environment that
+  # already applied them — so each intentional unfiltered statement is
+  # whitelisted here with its rationale. Everything not listed stays strict.
+  typeset -a migration_backfill_allowlist
+  migration_backfill_allowlist=(
+    # 0013: seeds refresh-token rotation chains — each existing session
+    # becomes its own chain root (see the comment above the statement);
+    # no data is lost.
+    '0013_auth_hardening.sql:UPDATE auth_sessions SET chain_id = id;'
+  )
+  filtered="$hits"
+  for entry in $migration_backfill_allowlist; do
+    stmt="${entry#*:}"
+    filtered="$(printf '%s\n' "$filtered" | grep -vF -- "$stmt" || true)"
+  done
+  hits="$filtered"
+
   if [[ -n "$hits" ]]; then
     echo "::error file=$base::destructive statement(s) without --breaking flag:"
     echo "$hits"
