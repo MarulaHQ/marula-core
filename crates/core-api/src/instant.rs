@@ -405,6 +405,7 @@ pub async fn entity_seq(ctx: &mut OrgTx<'_>, spec: SeqSpec<'_>) -> ApiResult<i64
 /// Appends the write-trail row and stores the exact response under the
 /// idempotency key, then returns the metadata the handler merges into its
 /// response. Runs last, inside the same transaction as the write.
+/// Staff-surface shorthand for [`record_as`] with the `human` actor kind.
 pub async fn record<T: Serialize>(
     ctx: &mut OrgTx<'_>,
     spec: RecordSpec<'_, T>,

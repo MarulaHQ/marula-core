@@ -1,0 +1,28 @@
+{
+  "event_type": "appointment_request.created",
+  "entity": "appointment_request",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "request": {
+      "appointment_id": null,
+      "client_id": "00000000-0000-0000-0000-000000000003",
+      "created_at": "2023-11-14T22:13:29Z",
+      "decided_at": null,
+      "decided_by": null,
+      "decision_note": null,
+      "ends_at": "2023-11-14T22:13:34Z",
+      "id": "00000000-0000-0000-0000-00000000002d",
+      "kind": "remote",
+      "notes": "Please walk us through the new backup reports.",
+      "org_id": "00000000-0000-0000-0000-000000000000",
+      "portal_user_id": "00000000-0000-0000-0000-00000000002e",
+      "starts_at": "2023-11-14T22:13:32Z",
+      "status": "pending",
+      "title": "Request: quarterly security review",
+      "updated_at": "2023-11-14T22:13:29Z",
+      "user_id": "00000000-0000-0000-0000-000000000004"
+    }
+  }
+}

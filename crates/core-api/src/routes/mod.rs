@@ -39,6 +39,7 @@
 pub mod agent_platform;
 pub mod alerts;
 pub mod api_keys;
+pub mod appointment_requests;
 pub mod attachments;
 pub mod audit;
 pub mod availability;
@@ -63,6 +64,7 @@ pub mod oidc;
 pub mod openapi;
 pub mod portal;
 pub mod portal_admin;
+pub mod portal_v2;
 pub mod projects;
 pub mod provenance;
 pub mod report_defs;
@@ -245,6 +247,35 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/portal/tickets/{id}/attachments/{attachment_id}/download"),
             get(portal::download_attachment),
+        )
+        // Portal v2 (TASKLIST Phase 3): invoice view + pay, KB
+        // self-service, appointment requests. Same middleware stack, same
+        // client-scoping doctrine; mutations instant-first.
+        .route(&rp("/portal/invoices"), get(portal_v2::list_invoices))
+        .route(&rp("/portal/invoices/{id}"), get(portal_v2::get_invoice))
+        .route(
+            &rp("/portal/invoices/{id}/document"),
+            get(portal_v2::invoice_document),
+        )
+        .route(
+            &rp("/portal/invoices/{id}/pay"),
+            post(portal_v2::pay_invoice),
+        )
+        .route(&rp("/portal/kb/categories"), get(portal_v2::kb_categories))
+        .route(&rp("/portal/kb/articles"), get(portal_v2::kb_articles))
+        .route(&rp("/portal/kb/articles/{id}"), get(portal_v2::kb_article))
+        .route(&rp("/portal/kb/search"), get(portal_v2::kb_search))
+        .route(
+            &rp("/portal/schedule/slots"),
+            get(portal_v2::schedule_slots),
+        )
+        .route(
+            &rp("/portal/appointment-requests"),
+            get(portal_v2::list_appointment_requests).post(portal_v2::create_appointment_request),
+        )
+        .route(
+            &rp("/portal/appointment-requests/{id}/cancel"),
+            post(portal_v2::cancel_appointment_request),
         )
         // Stamps org_id onto the current request span (telemetry) once the
         // portal auth middleware below has resolved it.
@@ -705,6 +736,20 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             get(portal_admin::list_board_exposures).put(portal_admin::put_board_exposure),
         )
         // scheduling/calendars/availability (TASKLIST 2.12)
+        // Portal v2 staff half: the client's appointment requests are
+        // decided here (approve books the calendar, decline refuses).
+        .route(
+            &rp("/appointment-requests"),
+            get(appointment_requests::list),
+        )
+        .route(
+            &rp("/appointment-requests/{id}/approve"),
+            post(appointment_requests::approve),
+        )
+        .route(
+            &rp("/appointment-requests/{id}/decline"),
+            post(appointment_requests::decline),
+        )
         .route(&rp("/appointments"), post(scheduling::create_appointment))
         .route(
             &rp("/appointments/{id}"),

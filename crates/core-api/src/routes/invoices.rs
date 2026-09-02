@@ -691,6 +691,22 @@ pub async fn get_document(
     let client = core_db::clients::get_client(&state.pool, org_id, invoice.client_id)
         .await
         .map_err(ApiError::from)?;
+    let html = render_invoice_html(&state.pool, org_id, &invoice, &lines, &client.name).await;
+    Ok(axum::response::Html(html))
+}
+
+/// The print-ready HTML document for one loaded invoice aggregate —
+/// shared verbatim by the staff endpoint above and the Portal v2
+/// client-scoped view (`routes::portal_v2`), so a client sees exactly
+/// what staff print. `payments` reads ride org RLS; call only after the
+/// caller's scope gate has passed.
+pub(crate) async fn render_invoice_html(
+    pool: &sqlx::PgPool,
+    org_id: Uuid,
+    invoice: &Invoice,
+    lines: &[InvoiceLine],
+    client_name: &str,
+) -> String {
     let status = match invoice.status {
         InvoiceStatus::Paid => "PAID".to_string(),
         InvoiceStatus::Void => "VOID".to_string(),
@@ -722,8 +738,8 @@ pub async fn get_document(
             )
         })
         .collect();
-    let payments: String = invoice_payments_html(&state.pool, org_id, id).await;
-    let html = format!(
+    let payments: String = invoice_payments_html(pool, org_id, invoice.id).await;
+    format!(
         "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>{number}</title><style>\
          body{{font-family:-apple-system,'Segoe UI',sans-serif;margin:48px auto;max-width:720px;color:#111}}\
          h1{{font-size:20px;margin:0}} .muted{{color:#666}}\
@@ -750,14 +766,13 @@ pub async fn get_document(
         issued = invoice.issued_at,
         due = invoice.due_on,
         status = esc(&status),
-        client = esc(&client.name),
+        client = esc(client_name),
         rows = rows,
         currency = esc(&invoice.currency),
         total = format_minor(invoice.total_minor),
         payments = payments,
         now = chrono::Utc::now().date_naive(),
-    );
-    Ok(axum::response::Html(html))
+    )
 }
 
 async fn invoice_payments_html(pool: &sqlx::PgPool, org_id: Uuid, invoice_id: Uuid) -> String {

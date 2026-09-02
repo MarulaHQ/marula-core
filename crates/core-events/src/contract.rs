@@ -341,8 +341,9 @@ use core_domain::entities::{
     TimeEntry,
 };
 use core_domain::events::{
-    types, AlertIngested, AppointmentCancelled, AppointmentCreated, AppointmentUpdated,
-    AttachmentAdded, AttachmentDeleted, AttachmentLinked, AvailabilityChanged,
+    types, AlertIngested, AppointmentCancelled, AppointmentCreated, AppointmentRequestApproved,
+    AppointmentRequestCancelled, AppointmentRequestCreated, AppointmentRequestDeclined,
+    AppointmentUpdated, AttachmentAdded, AttachmentDeleted, AttachmentLinked, AvailabilityChanged,
     BoardFavoriteToggled, BoardGroupCreated, BoardGroupRemoved, BoardGroupUpdated,
     BoardMembershipRemoved, BoardMembershipUpdated, BoardStatusAdded, BoardStatusRemoved,
     BoardStatusUpdated, BoardTransitionsUpdated, CalendarExclusionChanged, ClientCreated,
@@ -1309,6 +1310,66 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             }
         ),
     },
+    // -- portal v2 appointment requests ---------------------------------------
+    // (Portal v2 lane: the request is an intent; approval additionally
+    // emits the standard `appointment.created` above.)
+    PublishedEvent {
+        event_type: types::APPOINTMENT_REQUEST_CREATED,
+        entity: "appointment_request",
+        variant: "default",
+        shape: typed_shape!(
+            AppointmentRequestCreated,
+            AppointmentRequestCreated {
+                request: sample_appointment_request(
+                    core_domain::entities::AppointmentRequestStatus::Pending
+                ),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::APPOINTMENT_REQUEST_APPROVED,
+        entity: "appointment_request",
+        variant: "default",
+        shape: typed_shape!(
+            AppointmentRequestApproved,
+            AppointmentRequestApproved {
+                request_id: su(45),
+                appointment_id: su(19),
+                client_id: su(3),
+                decided_by: su(5),
+                decided_at: st(11),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::APPOINTMENT_REQUEST_DECLINED,
+        entity: "appointment_request",
+        variant: "default",
+        shape: typed_shape!(
+            AppointmentRequestDeclined,
+            AppointmentRequestDeclined {
+                request_id: su(45),
+                client_id: su(3),
+                decided_by: su(5),
+                note: Some("That week is fully committed; please pick another day.".into()),
+                decided_at: st(11),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::APPOINTMENT_REQUEST_CANCELLED,
+        entity: "appointment_request",
+        variant: "default",
+        shape: typed_shape!(
+            AppointmentRequestCancelled,
+            AppointmentRequestCancelled {
+                request_id: su(45),
+                client_id: su(3),
+                cancelled_by_portal_user_id: su(46),
+                cancelled_at: st(11),
+            }
+        ),
+    },
     PublishedEvent {
         event_type: types::AVAILABILITY_UPDATED,
         entity: "availability",
@@ -1988,6 +2049,31 @@ fn sample_appointment(status: AppointmentStatus) -> Appointment {
         notes: None,
         created_at: st(7),
         updated_at: st(7),
+    }
+}
+
+/// Representative portal appointment request (Portal v2 samples).
+fn sample_appointment_request(
+    status: core_domain::entities::AppointmentRequestStatus,
+) -> core_domain::entities::AppointmentRequest {
+    core_domain::entities::AppointmentRequest {
+        id: su(45),
+        org_id: su(0),
+        client_id: su(3),
+        portal_user_id: su(46),
+        user_id: su(4),
+        title: "Request: quarterly security review".into(),
+        starts_at: st(12),
+        ends_at: st(14),
+        kind: AppointmentKind::Remote,
+        notes: Some("Please walk us through the new backup reports.".into()),
+        status,
+        decision_note: None,
+        decided_by: None,
+        decided_at: None,
+        appointment_id: None,
+        created_at: st(9),
+        updated_at: st(9),
     }
 }
 

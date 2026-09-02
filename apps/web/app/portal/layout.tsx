@@ -11,8 +11,27 @@
 import { Button } from "@meridian/ui";
 import { useTheme } from "@meridian/ui";
 import type { Theme } from "@meridian/ui";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
 import { PortalAuthProvider, usePortalAuth } from "../../lib/portal-api";
+
+/** The quiet section nav: active section picks up the accent color, and
+ * hover feedback rides the 100ms transition (site motion law). */
+function PortalNavLink({ href, label }: { href: string; label: string }) {
+  const pathname = usePathname();
+  const active = pathname === href || pathname.startsWith(`${href}/`);
+  return (
+    <Link
+      href={href}
+      aria-current={active ? "page" : undefined}
+      className="transition-colors duration-100 hover:underline"
+      style={{ color: active ? "var(--m-accent)" : "var(--m-text-secondary)" }}
+    >
+      {label}
+    </Link>
+  );
+}
 
 function PortalThemeToggle() {
   const { theme, setTheme } = useTheme();
@@ -44,6 +63,12 @@ function PortalHeader() {
         >
           Client Portal
         </span>
+        <nav className="ml-4 flex gap-3 text-xs" aria-label="Portal sections">
+          <PortalNavLink href="/portal/tickets" label="Requests" />
+          <PortalNavLink href="/portal/invoices" label="Invoices" />
+          <PortalNavLink href="/portal/kb" label="Knowledge" />
+          <PortalNavLink href="/portal/schedule" label="Schedule" />
+        </nav>
       </div>
       <div className="flex items-center gap-2">
         {me !== null && (
