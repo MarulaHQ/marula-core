@@ -136,13 +136,28 @@ pub async fn require_auth(
 
     // Load user + roles fresh per request. Two cheap indexed queries; the
     // correctness win (instant revocation) outweighs the cost at v1 scale.
-    let user = core_db::users::get_user(&state.pool, claims.org, claims.sub)
+    // The reads run inside an org-bound transaction: `users`/`user_roles`
+    // are RLS-scoped by `app.org_id`, and the pool connection carries no
+    // scope of its own — an unscoped read hides every row (fresh
+    // connection) or dies casting "" to uuid (post-scoped connection).
+    let mut tx = state
+        .pool
+        .begin()
+        .await
+        .map_err(|_| ApiError::Unauthorized("user not found or inactive".into()))?;
+    core_db::set_org_and_user(&mut tx, claims.org, claims.sub)
+        .await
+        .map_err(|_| ApiError::Unauthorized("user not found or inactive".into()))?;
+    let user = core_db::users::get_user(&mut *tx, claims.org, claims.sub)
         .await
         .map_err(|_| ApiError::Unauthorized("user not found or inactive".into()))?;
     if !user.is_active {
         return Err(ApiError::Unauthorized("account disabled".into()));
     }
-    let roles = core_db::users::roles_for_user(&state.pool, claims.sub, claims.org).await?;
+    let roles = core_db::users::roles_for_user(&mut *tx, claims.sub, claims.org).await?;
+    tx.commit()
+        .await
+        .map_err(|_| ApiError::Unauthorized("user not found or inactive".into()))?;
     let permissions = resolve_permissions(&roles);
 
     request.extensions_mut().insert(AuthedUser {
