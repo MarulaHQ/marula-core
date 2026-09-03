@@ -23,24 +23,29 @@
 
 use crate::auth::middleware::{authed, require_permission};
 use crate::error::{ApiError, ApiResult};
+use crate::instant::{self, InstantClaim, MutationOutcome, MutationParams};
 use crate::org_tx;
 use crate::routes::board_access::authorize_board_op;
 use crate::routes::scheduling::{sched, validate_span};
 use crate::routes::tickets::MyWorkItem;
 use crate::state::AppState;
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::Extensions,
     Json,
 };
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use core_domain::entities::{Appointment, AppointmentKind, AppointmentStatus};
-use core_domain::events::{types, AppointmentCreated, AppointmentUpdated};
+use core_domain::events::{
+    types, AppointmentCreated, AppointmentUpdated, DispatchQueueUpdated, TimeEntryCreated,
+    TravelDraftSubmitted,
+};
 use core_domain::policy::{Action, BoardOp, Module, Permission};
 use core_domain::scheduling::{
-    booked_minutes, capacity_percent, conflict_indices, covered_minutes,
+    booked_minutes, capacity_percent, conflict_indices, covered_minutes, free_intervals,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -48,6 +53,15 @@ use uuid::Uuid;
 fn tickets_op(action: Action) -> Permission {
     Permission::Matrix {
         module: Module::Tickets,
+        action,
+    }
+}
+
+/// Time-module permission shorthand for the travel-draft surfaces (they
+/// convert through the time-entry path, so the grant matches it).
+fn time_perm(action: Action) -> Permission {
+    Permission::Matrix {
+        module: Module::Time,
         action,
     }
 }
@@ -88,6 +102,23 @@ pub struct DispatchAppointment {
     pub kind: AppointmentKind,
     pub status: AppointmentStatus,
     pub travel_minutes: i32,
+    /// Latest field-service status push against this booking (dispatch v2,
+    /// additive): `None` when nothing was pushed yet.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dispatch_status: Option<DispatchStatusShade>,
+}
+
+/// The latest connector/staff status push for one booking, shaded onto
+/// the board block face.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct DispatchStatusShade {
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    /// `connector` | `staff`.
+    pub source: String,
+    #[schema(value_type = String, format = "date-time")]
+    pub occurred_at: DateTime<Utc>,
 }
 
 /// One technician column: capacity stats plus everything the board draws
@@ -208,6 +239,7 @@ pub async fn dispatch_day(
                 kind,
                 status,
                 travel_minutes: a.travel_minutes,
+                dispatch_status: None,
             });
         }
         let booked = booked_minutes(
@@ -235,11 +267,49 @@ pub async fn dispatch_day(
         });
     }
 
+    // Dispatch v2: the day view's queue honors dispatcher rank overrides
+    // with the same merge rule as GET /dispatch/queue — overridden rows
+    // first by explicit rank, then the computed order.
     let unassigned = core_db::tickets::unassigned_queue_annotated(&state.pool, org_id, QUEUE_LIMIT)
         .await?
         .into_iter()
         .map(MyWorkItem::from_row)
+        .collect::<Vec<_>>();
+    let overrides = core_db::dispatch::list_queue_entries(&state.pool, org_id)
+        .await?
+        .into_iter()
+        .map(|row| (row.ticket_id, row.rank))
+        .collect::<std::collections::HashMap<Uuid, i32>>();
+    let mut indexed: Vec<(usize, Option<i32>, MyWorkItem)> = unassigned
+        .into_iter()
+        .enumerate()
+        .map(|(i, t)| (i, overrides.get(&t.id).copied(), t))
         .collect();
+    indexed.sort_by_key(|(i, rank, _)| (rank.is_none(), *rank, *i));
+    let unassigned: Vec<MyWorkItem> = indexed.into_iter().map(|(_, _, t)| t).collect();
+
+    // Dispatch v2: shade the day's blocks with the LATEST field-service
+    // status push (connector or staff) when one exists. One query for the
+    // whole day; appointments without pushes carry no shade.
+    let day_ids: Vec<Uuid> = views
+        .iter()
+        .flat_map(|t| t.appointments.iter().map(|a| a.id))
+        .collect();
+    let latest = core_db::dispatch::latest_status_by_appointment(&state.pool, org_id, &day_ids)
+        .await?
+        .into_iter()
+        .map(|row| (row.appointment_id, row))
+        .collect::<std::collections::HashMap<Uuid, _>>();
+    for view in views.iter_mut() {
+        for appt in view.appointments.iter_mut() {
+            appt.dispatch_status = latest.get(&appt.id).map(|row| DispatchStatusShade {
+                status: row.status.clone(),
+                note: row.note.clone(),
+                source: row.source.clone(),
+                occurred_at: row.occurred_at,
+            });
+        }
+    }
 
     Ok(Json(DispatchDayView {
         date,
@@ -410,6 +480,7 @@ pub async fn bulk_move(
                 kind: appt.kind,
                 status: appt.status,
                 travel_minutes: appt.travel_minutes,
+                dispatch_status: None,
             });
         }
         Ok((tx, BulkMoveResponse { moved: moved_views }))
@@ -560,6 +631,7 @@ pub async fn assign(
             kind: appointment.kind,
             status: appointment.status,
             travel_minutes: appointment.travel_minutes,
+            dispatch_status: None,
         };
         Ok((tx, view))
     })
@@ -579,4 +651,1706 @@ pub struct AssignRequest {
     pub ends_at: DateTime<Utc>,
     #[serde(default)]
     pub travel_minutes: i32,
+}
+
+// ===========================================================================
+// Dispatch v2 — resource planning (TASKLIST Phase 3, Wave 9 lane 9)
+//
+// Three planning surfaces over the same Scheduling-module grant the day
+// view uses, plus the travel/mileage drafts that convert through the
+// existing time-entry path. Every mutation rides the IF1–IF3 envelope
+// (idempotency claim → version gate → write-trail record) so autosave
+// clients and the undo substrate work here exactly like everywhere else.
+// ===========================================================================
+
+/// Default day count for the capacity horizon (one planning week).
+const CAPACITY_MAX_DAYS: u32 = 31;
+const SKILL_MAX_LEN: usize = 80;
+const REQUIRED_SKILLS_MAX: usize = 20;
+const TRAVEL_NOTE_MAX: usize = 2000;
+const QUEUE_NOTE_MAX: usize = 500;
+const TRAVEL_DRAFT_LIMIT: i64 = 200;
+
+// --- capacity horizon ------------------------------------------------------
+
+/// GET /api/dispatch/capacity query: `from` date (defaults to today UTC)
+/// and the horizon length in days (1..=31, default 7).
+#[derive(Debug, Deserialize, utoipa::IntoParams, ToSchema)]
+pub struct CapacityQuery {
+    #[schema(value_type = Option<String>, format = "date")]
+    pub from: Option<NaiveDate>,
+    /// Horizon length in days (1..=31).
+    pub days: Option<u32>,
+}
+
+/// One technician's capacity for one day of the horizon.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct DayCapacity {
+    pub date: NaiveDate,
+    /// Availability coverage minus exclusions for the UTC day.
+    pub available_minutes: i64,
+    /// Live booking minutes clipped to the day.
+    pub booked_minutes: i64,
+    /// What a NEW booking can still consume: availability minus
+    /// exclusions minus existing bookings.
+    pub free_minutes: i64,
+    /// 0–100+, where >100 is over-capacity.
+    pub utilization_percent: i64,
+}
+
+/// One technician across the whole horizon.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct TechnicianCapacity {
+    #[schema(value_type = uuid::Uuid)]
+    pub user_id: Uuid,
+    pub display_name: String,
+    pub days: Vec<DayCapacity>,
+}
+
+/// The assembled horizon payload. `unassigned_count` is the current open
+/// unassigned queue depth so planners see demand next to capacity.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CapacityHorizonView {
+    pub from: NaiveDate,
+    pub days: u32,
+    pub technicians: Vec<TechnicianCapacity>,
+    pub unassigned_count: i64,
+}
+
+/// GET /api/dispatch/capacity — multi-day capacity horizon: the day view's
+/// capacity math repeated per UTC day over the window, one org-wide
+/// availability read + one exclusion read + one appointment read.
+#[utoipa::path(operation_id = "dispatch_capacity", get, path = "/api/dispatch/capacity", tag = "scheduling", security(("bearer" = [])),
+    params(CapacityQuery),
+    responses((status = 200, body = CapacityHorizonView)))]
+pub async fn capacity(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Query(q): Query<CapacityQuery>,
+) -> ApiResult<Json<CapacityHorizonView>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, sched(Action::View))?;
+    let org_id = authed.principal.user.org_id;
+
+    let days = q.days.unwrap_or(7).clamp(1, CAPACITY_MAX_DAYS);
+    let first = q.from.unwrap_or_else(|| Utc::now().date_naive());
+    let window_from = first
+        .and_hms_opt(0, 0, 0)
+        .expect("midnight is a valid local time")
+        .and_utc();
+    let window_to = window_from + Duration::days(i64::from(days));
+
+    let members = core_db::users::list_users(&state.pool, org_id).await?;
+    let technicians: Vec<Uuid> = members
+        .iter()
+        .filter(|u| u.is_active)
+        .map(|u| u.id)
+        .collect();
+
+    let (appointments, windows, exclusions, unassigned) = tokio::try_join!(
+        core_db::scheduling::list_appointments_between(
+            &state.pool,
+            org_id,
+            &technicians,
+            window_from,
+            window_to,
+        ),
+        core_db::scheduling::list_all_availability_windows(&state.pool, org_id),
+        core_db::scheduling::list_calendar_exclusions_for_users_between(
+            &state.pool,
+            org_id,
+            &technicians,
+            window_from,
+            window_to,
+        ),
+        core_db::tickets::unassigned_queue_annotated(&state.pool, org_id, i64::MAX),
+    )?;
+
+    let mut views = Vec::with_capacity(technicians.len());
+    for user in members.iter().filter(|u| u.is_active) {
+        let user_windows: Vec<_> = windows
+            .iter()
+            .filter(|w| w.user_id == user.id)
+            .cloned()
+            .collect();
+        let mut day_views = Vec::with_capacity(days as usize);
+        for day_offset in 0..days {
+            let date = first + Duration::days(i64::from(day_offset));
+            let day_from = date
+                .and_hms_opt(0, 0, 0)
+                .expect("midnight is a valid local time")
+                .and_utc();
+            let day_to = day_from + Duration::days(1);
+            let user_exclusions: Vec<_> = exclusions
+                .iter()
+                .filter(|x| x.user_id == user.id)
+                .cloned()
+                .collect();
+            let user_bookings: Vec<_> = appointments
+                .iter()
+                .filter(|a| a.user_id == user.id && a.status != AppointmentStatus::Cancelled)
+                .map(|a| (a.starts_at, a.ends_at))
+                .collect();
+            let available = covered_minutes(&user_windows, &user_exclusions, day_from, day_to);
+            let booked = booked_minutes(user_bookings.iter().copied(), day_from, day_to);
+            let free = free_intervals(
+                &user_windows,
+                &user_exclusions,
+                &user_bookings,
+                day_from,
+                day_to,
+            )
+            .iter()
+            .map(|(s, e)| (*e - *s).num_seconds() / 60)
+            .sum::<i64>();
+            day_views.push(DayCapacity {
+                date,
+                available_minutes: available,
+                booked_minutes: booked,
+                free_minutes: free,
+                utilization_percent: capacity_percent(booked, available),
+            });
+        }
+        views.push(TechnicianCapacity {
+            user_id: user.id,
+            display_name: user.display_name.clone(),
+            days: day_views,
+        });
+    }
+
+    Ok(Json(CapacityHorizonView {
+        from: first,
+        days,
+        technicians: views,
+        unassigned_count: unassigned.len() as i64,
+    }))
+}
+
+// --- unassigned-queue prioritization ----------------------------------------
+
+/// The queue endpoint's page size clamp.
+const QUEUE_PAGE_LIMIT: i64 = 500;
+
+/// One queued ticket: the day-view's queue row shape plus the explicit
+/// override when one exists.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct QueuedTicket {
+    #[serde(flatten)]
+    pub ticket: MyWorkItem,
+    /// The dispatcher-set rank pinning this ticket's position (overrides
+    /// sort ahead of the computed order); absent = computed order only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rank_override: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub override_note: Option<String>,
+}
+
+/// GET /api/dispatch/queue envelope.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct DispatchQueueView {
+    pub queue: Vec<QueuedTicket>,
+}
+
+#[derive(Debug, Deserialize, utoipa::IntoParams, ToSchema)]
+pub struct DispatchQueueQuery {
+    /// Page size, clamped to [1, 500].
+    pub limit: Option<i64>,
+}
+
+/// GET /api/dispatch/queue — the full unassigned queue with dispatcher
+/// overrides applied: overridden tickets sort by explicit rank first
+/// (ties fall back to the computed order), then everything else in the
+/// computed order (priority rank, then effective SLA/due deadline).
+#[utoipa::path(operation_id = "dispatch_queue_list", get, path = "/api/dispatch/queue", tag = "scheduling", security(("bearer" = [])),
+    params(DispatchQueueQuery),
+    responses((status = 200, body = DispatchQueueView)))]
+pub async fn queue_list(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Query(q): Query<DispatchQueueQuery>,
+) -> ApiResult<Json<DispatchQueueView>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, sched(Action::View))?;
+    let org_id = authed.principal.user.org_id;
+    let limit = q.limit.unwrap_or(QUEUE_LIMIT).clamp(1, QUEUE_PAGE_LIMIT);
+    let base = core_db::tickets::unassigned_queue_annotated(&state.pool, org_id, limit)
+        .await?
+        .into_iter()
+        .map(MyWorkItem::from_row)
+        .collect::<Vec<_>>();
+    let overrides = core_db::dispatch::list_queue_entries(&state.pool, org_id)
+        .await?
+        .into_iter()
+        .map(|row| (row.ticket_id, (row.rank, row.note)))
+        .collect::<std::collections::HashMap<Uuid, (i32, Option<String>)>>();
+
+    // Stable partition: overridden rows first by (rank, base position),
+    // then the remaining rows in base order. `sort_by` is stable, so the
+    // base position carried in the tuple is the tiebreaker.
+    let mut indexed: Vec<(usize, QueuedTicket)> = base
+        .into_iter()
+        .enumerate()
+        .map(|(i, t)| {
+            let (rank_override, override_note) = overrides
+                .get(&t.id)
+                .map(|(r, n)| (Some(*r), n.clone()))
+                .unwrap_or((None, None));
+            (
+                i,
+                QueuedTicket {
+                    ticket: t,
+                    rank_override,
+                    override_note,
+                },
+            )
+        })
+        .collect();
+    indexed.sort_by_key(|(i, qt)| (qt.rank_override.is_none(), qt.rank_override, *i));
+
+    Ok(Json(DispatchQueueView {
+        queue: indexed.into_iter().map(|(_, qt)| qt).collect(),
+    }))
+}
+
+/// PUT /api/dispatch/queue/{ticket_id} body.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct SetQueueRankRequest {
+    /// Explicit queue position: 0 sorts first among overrides.
+    pub rank: i32,
+    #[serde(default)]
+    pub note: Option<String>,
+    #[serde(flatten)]
+    pub instant: MutationParams,
+}
+
+/// Queue mutation envelope (set + clear share the shape; clears carry
+/// `cleared: true` and null note).
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct QueueMutationResponse {
+    #[schema(value_type = uuid::Uuid)]
+    pub ticket_id: Uuid,
+    pub rank: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    pub cleared: bool,
+    pub mutation: instant::MutationMeta,
+}
+
+/// PUT /api/dispatch/queue/{ticket_id} — pin a ticket's queue position.
+/// The ticket must exist and still be open+unassigned (an override for a
+/// placed ticket is meaningless); idempotent via the instant envelope.
+#[utoipa::path(operation_id = "dispatch_queue_set", put, path = "/api/dispatch/queue/{ticket_id}", tag = "scheduling", security(("bearer" = [])),
+    params(("ticket_id" = Uuid, Path)),
+    request_body = SetQueueRankRequest,
+    responses((status = 200, body = QueueMutationResponse),
+              (status = 404, description = "ticket not visible or not open/unassigned"),
+              (status = 409, description = "version conflict or idempotency key reused")))]
+pub async fn queue_set(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(ticket_id): Path<Uuid>,
+    Json(req): Json<SetQueueRankRequest>,
+) -> ApiResult<Json<QueueMutationResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, sched(Action::Edit))?;
+    if req.rank < 0 {
+        return Err(ApiError::Validation("rank must be >= 0".into()));
+    }
+    let note = validate_queue_note(req.note.as_deref())?;
+    let org_id = authed.principal.user.org_id;
+    let actor = authed.principal.user.id;
+    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    let key = req.instant.idempotency_key.clone();
+
+    let outcome = org_tx::with_org_tx(&state, org_id, actor, |mut ctx| async move {
+        if let InstantClaim::Replay(stored) = instant::claim(
+            &mut ctx,
+            instant::ClaimSpec {
+                entity: "dispatch_queue_entry",
+                entity_id: Some(ticket_id),
+                key: key.as_deref(),
+                fingerprint: &fingerprint,
+            },
+        )
+        .await?
+        {
+            return Ok((ctx, MutationOutcome::Replayed(stored)));
+        }
+        // Open + unassigned gate: the queue is a planning surface for
+        // work that is not placed yet.
+        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, ctx.org_id, ticket_id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        if ticket.assignee_id.is_some()
+            || ticket.category == core_domain::status::TicketStatusCategory::Closed
+        {
+            return Err(ApiError::Validation(
+                "only unassigned, open tickets can hold a queue override".into(),
+            ));
+        }
+        let before = core_db::dispatch::get_queue_entry(&mut *ctx.tx, ctx.org_id, ticket_id)
+            .await
+            .ok();
+        let seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: "dispatch_queue_entry",
+                entity_id: ticket_id,
+                version: req.instant.version,
+            },
+        )
+        .await?;
+        let row = core_db::dispatch::upsert_queue_entry(
+            &mut ctx.tx,
+            Uuid::now_v7(),
+            ctx.org_id,
+            ticket_id,
+            req.rank,
+            note.as_deref(),
+            actor,
+        )
+        .await?;
+        ctx.emit(
+            types::DISPATCH_QUEUE_UPDATED,
+            "ticket",
+            Some(ticket_id.to_string().as_str()),
+            &serde_json::to_value(DispatchQueueUpdated {
+                ticket_id,
+                rank: row.rank,
+                cleared: false,
+            })
+            .map_err(|e| ApiError::Internal(e.into()))?,
+        )
+        .await?;
+        let response = QueueMutationResponse {
+            ticket_id,
+            rank: row.rank,
+            note: row.note.clone(),
+            cleared: false,
+            mutation: instant::MutationMeta {
+                seq,
+                version: seq,
+                updated_at: row.updated_at,
+                before: before
+                    .as_ref()
+                    .map(|b| serde_json::to_value(b).unwrap_or(Value::Null)),
+                after: serde_json::to_value(&row).unwrap_or(Value::Null),
+                idempotency_key: key.clone(),
+            },
+        };
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: "dispatch_queue_entry",
+                entity_id: ticket_id,
+                op: "queue_rank_set",
+                seq,
+                before: response.mutation.before.clone(),
+                after: serde_json::to_value(&row).unwrap_or(Value::Null),
+                updated_at: row.updated_at,
+                key: key.as_deref(),
+                payload: &serde_json::to_value(&response).unwrap_or(Value::Null),
+                provenance: instant::ProvenanceContext::default(),
+            },
+        )
+        .await?;
+        let response = QueueMutationResponse {
+            mutation,
+            ..response
+        };
+        Ok((ctx, MutationOutcome::Applied(response)))
+    })
+    .await?;
+
+    Ok(Json(outcome.into_response()?))
+}
+
+/// DELETE /api/dispatch/queue/{ticket_id} — clear a rank override.
+/// Idempotent: clearing an unset override still returns 200 with
+/// `cleared: false` (the dispatcher's intent is already satisfied).
+#[utoipa::path(operation_id = "dispatch_queue_clear", delete, path = "/api/dispatch/queue/{ticket_id}", tag = "scheduling", security(("bearer" = [])),
+    params(("ticket_id" = Uuid, Path)),
+    responses((status = 200, body = QueueMutationResponse),
+              (status = 404, description = "ticket not visible")))]
+pub async fn queue_clear(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(ticket_id): Path<Uuid>,
+) -> ApiResult<Json<QueueMutationResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, sched(Action::Edit))?;
+    let org_id = authed.principal.user.org_id;
+    let actor = authed.principal.user.id;
+
+    let outcome = org_tx::with_org_tx(&state, org_id, actor, |mut ctx| async move {
+        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, ctx.org_id, ticket_id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        let before = core_db::dispatch::get_queue_entry(&mut *ctx.tx, ctx.org_id, ticket_id)
+            .await
+            .ok();
+        let seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: "dispatch_queue_entry",
+                entity_id: ticket_id,
+                version: None,
+            },
+        )
+        .await?;
+        core_db::dispatch::clear_queue_entry(&mut ctx.tx, ctx.org_id, ticket_id).await?;
+        ctx.emit(
+            types::DISPATCH_QUEUE_UPDATED,
+            "ticket",
+            Some(ticket_id.to_string().as_str()),
+            &serde_json::to_value(DispatchQueueUpdated {
+                ticket_id,
+                rank: 0,
+                cleared: true,
+            })
+            .map_err(|e| ApiError::Internal(e.into()))?,
+        )
+        .await?;
+        let (rank, note, updated_at) = before
+            .as_ref()
+            .map(|b| (b.rank, b.note.clone(), b.updated_at))
+            .unwrap_or((0, None, Utc::now()));
+        let response = QueueMutationResponse {
+            ticket_id: ticket.id,
+            rank,
+            note,
+            cleared: true,
+            mutation: instant::MutationMeta {
+                seq,
+                version: seq,
+                updated_at,
+                before: before
+                    .as_ref()
+                    .map(|b| serde_json::to_value(b).unwrap_or(Value::Null)),
+                after: Value::Null,
+                idempotency_key: None,
+            },
+        };
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: "dispatch_queue_entry",
+                entity_id: ticket_id,
+                op: "queue_rank_clear",
+                seq,
+                before: response.mutation.before.clone(),
+                // The provenance projection diffs top-level keys of
+                // OBJECT snapshots only — a jsonb scalar/null cannot be
+                // key-diffed, so deletes record a tombstone object.
+                after: serde_json::json!({ "deleted": true }),
+                updated_at: response.mutation.updated_at,
+                key: None,
+                payload: &serde_json::to_value(&response).unwrap_or(Value::Null),
+                provenance: instant::ProvenanceContext::default(),
+            },
+        )
+        .await?;
+        let response = QueueMutationResponse {
+            mutation,
+            ..response
+        };
+        Ok((ctx, MutationOutcome::Applied(response)))
+    })
+    .await?;
+
+    Ok(Json(outcome.into_response()?))
+}
+
+// --- skills / certifications ---------------------------------------------------
+
+/// One skill on one technician.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SkillView {
+    pub skill: String,
+    /// Certification expiry; absent = does not expire.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>, format = "date-time")]
+    pub expires_at: Option<DateTime<Utc>>,
+}
+
+/// GET /api/dispatch/skills envelope entry: the org skill catalog with
+/// holder counts (`active` = non-expired as of now).
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SkillCatalogEntry {
+    pub skill: String,
+    pub holders: i64,
+    pub active_holders: i64,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SkillsCatalogView {
+    pub skills: Vec<SkillCatalogEntry>,
+}
+
+/// GET /api/dispatch/skills — the org's skill/certification catalog.
+#[utoipa::path(operation_id = "dispatch_skills_catalog", get, path = "/api/dispatch/skills", tag = "scheduling", security(("bearer" = [])),
+    responses((status = 200, body = SkillsCatalogView)))]
+pub async fn skills_catalog(
+    State(state): State<AppState>,
+    extensions: Extensions,
+) -> ApiResult<Json<SkillsCatalogView>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, sched(Action::View))?;
+    let org_id = authed.principal.user.org_id;
+    let rows = core_db::dispatch::list_org_skills(&state.pool, org_id).await?;
+    let now = Utc::now();
+    let mut map: std::collections::BTreeMap<String, (i64, i64)> = Default::default();
+    for row in rows {
+        let e = map.entry(row.skill).or_insert((0, 0));
+        e.0 += 1;
+        if row.expires_at.is_none_or(|t| t > now) {
+            e.1 += 1;
+        }
+    }
+    Ok(Json(SkillsCatalogView {
+        skills: map
+            .into_iter()
+            .map(|(skill, (holders, active_holders))| SkillCatalogEntry {
+                skill,
+                holders,
+                active_holders,
+            })
+            .collect(),
+    }))
+}
+
+/// One entry of a skill replacement set.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SkillInput {
+    /// Org skill vocabulary, 1..=80 chars after trimming.
+    pub skill: String,
+    /// Certification expiry; must be in the future when present.
+    #[serde(default)]
+    #[schema(value_type = Option<String>, format = "date-time")]
+    pub expires_at: Option<DateTime<Utc>>,
+}
+
+/// PUT /api/dispatch/users/{user_id}/skills body.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ReplaceUserSkillsRequest {
+    /// Full replacement set (an empty set clears every skill).
+    pub skills: Vec<SkillInput>,
+    #[serde(flatten)]
+    pub instant: MutationParams,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct UserSkillsView {
+    #[schema(value_type = uuid::Uuid)]
+    pub user_id: Uuid,
+    pub skills: Vec<SkillView>,
+}
+
+/// The full-replace mutation envelope (IF2).
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct UserSkillsMutationResponse {
+    #[serde(flatten)]
+    pub skills: UserSkillsView,
+    pub mutation: instant::MutationMeta,
+}
+
+/// PUT /api/dispatch/users/{user_id}/skills — full-replace the
+/// technician's skill set. The technician must be an active member of
+/// this org.
+#[utoipa::path(operation_id = "dispatch_user_skills_replace", put, path = "/api/dispatch/users/{user_id}/skills", tag = "scheduling", security(("bearer" = [])),
+    params(("user_id" = Uuid, Path)),
+    request_body = ReplaceUserSkillsRequest,
+    responses((status = 200, body = UserSkillsMutationResponse),
+              (status = 404, description = "user not visible in scope"),
+              (status = 409, description = "version conflict or idempotency key reused"),
+              (status = 422, description = "validation failed (labels, expiry, duplicates)")))]
+pub async fn user_skills_replace(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(user_id): Path<Uuid>,
+    Json(req): Json<ReplaceUserSkillsRequest>,
+) -> ApiResult<Json<UserSkillsMutationResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, sched(Action::Edit))?;
+    let skills = validate_skill_set(&req.skills)?;
+    let org_id = authed.principal.user.org_id;
+    let actor = authed.principal.user.id;
+    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    let key = req.instant.idempotency_key.clone();
+
+    let outcome = org_tx::with_org_tx(&state, org_id, actor, |mut ctx| async move {
+        if let InstantClaim::Replay(stored) = instant::claim(
+            &mut ctx,
+            instant::ClaimSpec {
+                entity: "user_skills",
+                entity_id: Some(user_id),
+                key: key.as_deref(),
+                fingerprint: &fingerprint,
+            },
+        )
+        .await?
+        {
+            return Ok((ctx, MutationOutcome::Replayed(stored)));
+        }
+        let technician = core_db::users::get_user(&mut *ctx.tx, ctx.org_id, user_id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        if !technician.is_active {
+            return Err(ApiError::Validation(
+                "skills belong on active members".into(),
+            ));
+        }
+        let before = core_db::dispatch::list_user_skills(&mut *ctx.tx, ctx.org_id, user_id).await?;
+        let seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: "user_skills",
+                entity_id: user_id,
+                version: req.instant.version,
+            },
+        )
+        .await?;
+        let rows =
+            core_db::dispatch::replace_user_skills(&mut ctx.tx, ctx.org_id, user_id, &skills)
+                .await?;
+        let view = UserSkillsView {
+            user_id,
+            skills: rows
+                .iter()
+                .map(|r| SkillView {
+                    skill: r.skill.clone(),
+                    expires_at: r.expires_at,
+                })
+                .collect(),
+        };
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: "user_skills",
+                entity_id: user_id,
+                op: "skills_replace",
+                seq,
+                // Object snapshots (the provenance projection diffs
+                // top-level keys; arrays cannot be diffed).
+                before: Some(serde_json::json!({
+                    "user_id": user_id,
+                    "skills": before.iter().map(|r| serde_json::json!({
+                        "skill": r.skill, "expires_at": r.expires_at,
+                    })).collect::<Vec<_>>()
+                })),
+                after: serde_json::json!({
+                    "user_id": user_id,
+                    "skills": rows.iter().map(|r| serde_json::json!({
+                        "skill": r.skill, "expires_at": r.expires_at,
+                    })).collect::<Vec<_>>()
+                }),
+                updated_at: Utc::now(),
+                key: key.as_deref(),
+                payload: &serde_json::to_value(&view).unwrap_or(Value::Null),
+                provenance: instant::ProvenanceContext::default(),
+            },
+        )
+        .await?;
+        Ok((
+            ctx,
+            MutationOutcome::Applied(UserSkillsMutationResponse {
+                skills: view,
+                mutation,
+            }),
+        ))
+    })
+    .await?;
+
+    Ok(Json(outcome.into_response()?))
+}
+
+// --- matching --------------------------------------------------------------------
+
+/// GET /api/dispatch/match query: how many unassigned tickets to match.
+#[derive(Debug, Deserialize, utoipa::IntoParams, ToSchema)]
+pub struct MatchQuery {
+    pub limit: Option<i64>,
+}
+
+/// One technician candidate for one ticket: the skills this candidate is
+/// missing (an empty list = fully qualified right now).
+#[derive(Debug, Serialize, ToSchema)]
+pub struct MatchCandidate {
+    #[schema(value_type = uuid::Uuid)]
+    pub user_id: Uuid,
+    pub display_name: String,
+    pub missing: Vec<String>,
+}
+
+/// Skills-matched staffing for one unassigned ticket. Tickets with no
+/// required skills are not listed (the plain queue ordering covers them).
+#[derive(Debug, Serialize, ToSchema)]
+pub struct TicketMatch {
+    #[serde(flatten)]
+    pub ticket: MyWorkItem,
+    pub required_skills: Vec<String>,
+    /// Active technicians sorted best-first (fewest missing, then name).
+    pub candidates: Vec<MatchCandidate>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct MatchView {
+    pub matches: Vec<TicketMatch>,
+}
+
+/// GET /api/dispatch/match — for every unassigned open ticket carrying
+/// required skills, the active technicians sorted best-first by how many
+/// required skills they are missing (0 = fully qualified). Expired
+/// certifications never count as held.
+#[utoipa::path(operation_id = "dispatch_match", get, path = "/api/dispatch/match", tag = "scheduling", security(("bearer" = [])),
+    params(MatchQuery),
+    responses((status = 200, body = MatchView)))]
+pub async fn match_queue(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Query(q): Query<MatchQuery>,
+) -> ApiResult<Json<MatchView>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, sched(Action::View))?;
+    let org_id = authed.principal.user.org_id;
+    let limit = q.limit.unwrap_or(50).clamp(1, 200);
+
+    let queue = core_db::tickets::unassigned_queue_annotated(&state.pool, org_id, limit).await?;
+    let ticket_ids: Vec<Uuid> = queue.iter().map(|r| r.ticket.id).collect();
+    let (required, all_skills, members) = tokio::try_join!(
+        core_db::dispatch::list_ticket_required_skills(&state.pool, org_id, &ticket_ids),
+        core_db::dispatch::list_org_skills(&state.pool, org_id),
+        core_db::users::list_users(&state.pool, org_id),
+    )?;
+
+    let now = Utc::now();
+    let mut held_by_user: std::collections::HashMap<Uuid, Vec<&str>> = Default::default();
+    for row in &all_skills {
+        if row.expires_at.is_none_or(|t| t > now) {
+            held_by_user
+                .entry(row.user_id)
+                .or_default()
+                .push(row.skill.as_str());
+        }
+    }
+    let mut required_by_ticket: std::collections::HashMap<Uuid, Vec<&str>> = Default::default();
+    for (ticket_id, skill) in &required {
+        required_by_ticket
+            .entry(*ticket_id)
+            .or_default()
+            .push(skill.as_str());
+    }
+
+    let mut matches = Vec::new();
+    for row in queue {
+        let Some(req_skills) = required_by_ticket.get(&row.ticket.id) else {
+            continue;
+        };
+        let required: Vec<String> = req_skills.iter().map(|s| (*s).to_string()).collect();
+        let mut candidates: Vec<MatchCandidate> = Vec::new();
+        for user in members.iter().filter(|u| u.is_active) {
+            let held = held_by_user
+                .get(&user.id)
+                .map(|v| v.as_slice())
+                .unwrap_or(&[]);
+            let missing: Vec<String> = required
+                .iter()
+                .filter(|r| !held.iter().any(|h| h == *r))
+                .cloned()
+                .collect();
+            candidates.push(MatchCandidate {
+                user_id: user.id,
+                display_name: user.display_name.clone(),
+                missing,
+            });
+        }
+        candidates.sort_by(|a, b| {
+            a.missing
+                .len()
+                .cmp(&b.missing.len())
+                .then_with(|| a.display_name.cmp(&b.display_name))
+        });
+        matches.push(TicketMatch {
+            ticket: MyWorkItem::from_row(row),
+            required_skills: required,
+            candidates,
+        });
+    }
+
+    Ok(Json(MatchView { matches }))
+}
+
+/// PUT /api/dispatch/tickets/{ticket_id}/required-skills body.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ReplaceTicketSkillsRequest {
+    /// Full replacement set (an empty set clears every requirement).
+    pub skills: Vec<String>,
+    #[serde(flatten)]
+    pub instant: MutationParams,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TicketSkillsView {
+    #[schema(value_type = uuid::Uuid)]
+    pub ticket_id: Uuid,
+    pub skills: Vec<String>,
+}
+
+/// The full-replace mutation envelope (IF2).
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TicketSkillsMutationResponse {
+    #[serde(flatten)]
+    pub required: TicketSkillsView,
+    pub mutation: instant::MutationMeta,
+}
+
+/// PUT /api/dispatch/tickets/{ticket_id}/required-skills — full-replace
+/// the job's required-skill set. The ticket must exist and be open +
+/// unassigned (requirements on placed work are history, not planning).
+#[utoipa::path(operation_id = "dispatch_ticket_skills_replace", put, path = "/api/dispatch/tickets/{ticket_id}/required-skills", tag = "scheduling", security(("bearer" = [])),
+    params(("ticket_id" = Uuid, Path)),
+    request_body = ReplaceTicketSkillsRequest,
+    responses((status = 200, body = TicketSkillsMutationResponse),
+              (status = 404, description = "ticket not visible in scope (rls_sparse)"),
+              (status = 409, description = "version conflict or idempotency key reused"),
+              (status = 422, description = "validation failed (labels, duplicates, count)")))]
+pub async fn ticket_skills_replace(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(ticket_id): Path<Uuid>,
+    Json(req): Json<ReplaceTicketSkillsRequest>,
+) -> ApiResult<Json<TicketSkillsMutationResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, sched(Action::Edit))?;
+    let mut seen = std::collections::HashSet::new();
+    let mut skills = Vec::with_capacity(req.skills.len());
+    for raw in &req.skills {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() || trimmed.len() > SKILL_MAX_LEN {
+            return Err(ApiError::Validation(format!(
+                "skill labels must be 1..={SKILL_MAX_LEN} characters"
+            )));
+        }
+        if !seen.insert(trimmed.to_string()) {
+            return Err(ApiError::Validation(format!("duplicate skill {trimmed:?}")));
+        }
+        skills.push(trimmed.to_string());
+    }
+    if skills.len() > REQUIRED_SKILLS_MAX {
+        return Err(ApiError::Validation(format!(
+            "at most {REQUIRED_SKILLS_MAX} required skills per ticket"
+        )));
+    }
+    let org_id = authed.principal.user.org_id;
+    let actor = authed.principal.user.id;
+    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    let key = req.instant.idempotency_key.clone();
+
+    let outcome = org_tx::with_org_tx(&state, org_id, actor, |mut ctx| async move {
+        if let InstantClaim::Replay(stored) = instant::claim(
+            &mut ctx,
+            instant::ClaimSpec {
+                entity: "ticket_required_skills",
+                entity_id: Some(ticket_id),
+                key: key.as_deref(),
+                fingerprint: &fingerprint,
+            },
+        )
+        .await?
+        {
+            return Ok((ctx, MutationOutcome::Replayed(stored)));
+        }
+        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, ctx.org_id, ticket_id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        if ticket.assignee_id.is_some()
+            || ticket.category == core_domain::status::TicketStatusCategory::Closed
+        {
+            return Err(ApiError::Validation(
+                "required skills are planning data: only unassigned, open tickets carry them"
+                    .into(),
+            ));
+        }
+        let before =
+            core_db::dispatch::list_ticket_required_skills(&mut *ctx.tx, ctx.org_id, &[ticket_id])
+                .await?
+                .into_iter()
+                .map(|(_, skill)| skill)
+                .collect::<Vec<_>>();
+        let seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: "ticket_required_skills",
+                entity_id: ticket_id,
+                version: req.instant.version,
+            },
+        )
+        .await?;
+        let rows = core_db::dispatch::replace_ticket_required_skills(
+            &mut ctx.tx,
+            ctx.org_id,
+            ticket_id,
+            &skills,
+        )
+        .await?;
+        let view = TicketSkillsView {
+            ticket_id,
+            skills: rows.into_iter().map(|(_, skill)| skill).collect(),
+        };
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: "ticket_required_skills",
+                entity_id: ticket_id,
+                op: "required_skills_replace",
+                seq,
+                before: Some(serde_json::json!({ "skills": before })),
+                after: serde_json::json!({ "skills": view.skills }),
+                updated_at: Utc::now(),
+                key: key.as_deref(),
+                payload: &view,
+                provenance: instant::ProvenanceContext::default(),
+            },
+        )
+        .await?;
+        Ok((
+            ctx,
+            MutationOutcome::Applied(TicketSkillsMutationResponse {
+                required: view,
+                mutation,
+            }),
+        ))
+    })
+    .await?;
+
+    Ok(Json(outcome.into_response()?))
+}
+
+// --- travel / mileage drafts ------------------------------------------------------
+
+const TRAVEL_DISTANCE_MAX: f64 = 10_000.0;
+
+fn validate_travel_distance(raw: f64) -> ApiResult<f64> {
+    if !raw.is_finite() || raw <= 0.0 {
+        return Err(ApiError::Validation("distance must be > 0".into()));
+    }
+    if raw > TRAVEL_DISTANCE_MAX {
+        return Err(ApiError::Validation(
+            "distance exceeds the 10,000-unit sanity cap".into(),
+        ));
+    }
+    Ok(raw)
+}
+
+fn validate_travel_unit(raw: &str) -> ApiResult<String> {
+    match raw {
+        "km" | "mi" => Ok(raw.to_string()),
+        other => Err(ApiError::Validation(format!(
+            "distance_unit must be \"km\" or \"mi\", got {other:?}"
+        ))),
+    }
+}
+
+fn validate_travel_vehicle(raw: &str) -> ApiResult<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.len() > 40 {
+        return Err(ApiError::Validation(
+            "vehicle must be 1..=40 characters".into(),
+        ));
+    }
+    Ok(trimmed.to_string())
+}
+
+fn validate_queue_note(raw: Option<&str>) -> ApiResult<Option<String>> {
+    match raw {
+        None => Ok(None),
+        Some(n) => {
+            let trimmed = n.trim();
+            if trimmed.len() > QUEUE_NOTE_MAX {
+                return Err(ApiError::Validation(format!(
+                    "note must be at most {QUEUE_NOTE_MAX} characters"
+                )));
+            }
+            Ok((!trimmed.is_empty()).then(|| trimmed.to_string()))
+        }
+    }
+}
+
+fn validate_skill_set(raw: &[SkillInput]) -> ApiResult<Vec<(String, Option<DateTime<Utc>>)>> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::with_capacity(raw.len());
+    for input in raw {
+        let trimmed = input.skill.trim();
+        if trimmed.is_empty() || trimmed.len() > SKILL_MAX_LEN {
+            return Err(ApiError::Validation(format!(
+                "skill must be 1..={SKILL_MAX_LEN} characters"
+            )));
+        }
+        if !seen.insert(trimmed.to_lowercase()) {
+            return Err(ApiError::Validation(format!("duplicate skill {trimmed:?}")));
+        }
+        if let Some(t) = input.expires_at {
+            if t <= Utc::now() {
+                return Err(ApiError::Validation(
+                    "expires_at must be in the future (delete the skill instead)".into(),
+                ));
+            }
+        }
+        out.push((trimmed.to_string(), input.expires_at));
+    }
+    Ok(out)
+}
+
+/// One travel/mileage draft.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TravelDraftView {
+    #[schema(value_type = uuid::Uuid)]
+    pub id: Uuid,
+    #[schema(value_type = uuid::Uuid)]
+    pub user_id: Uuid,
+    #[schema(value_type = uuid::Uuid)]
+    pub ticket_id: Uuid,
+    #[schema(value_type = String, format = "date-time")]
+    pub started_at: DateTime<Utc>,
+    #[schema(value_type = String, format = "date-time")]
+    pub ended_at: DateTime<Utc>,
+    pub distance: f64,
+    /// `km` | `mi`.
+    pub distance_unit: String,
+    pub vehicle: String,
+    pub billable: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+    /// `draft` | `submitted`.
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub submitted_time_entry_id: Option<Uuid>,
+    #[schema(value_type = String, format = "date-time")]
+    pub created_at: DateTime<Utc>,
+    #[schema(value_type = String, format = "date-time")]
+    pub updated_at: DateTime<Utc>,
+}
+
+fn draft_view(row: core_db::dispatch::TravelDraftRow) -> TravelDraftView {
+    TravelDraftView {
+        id: row.id,
+        user_id: row.user_id,
+        ticket_id: row.ticket_id,
+        started_at: row.started_at,
+        ended_at: row.ended_at,
+        distance: row.distance,
+        distance_unit: row.distance_unit,
+        vehicle: row.vehicle,
+        billable: row.billable,
+        notes: row.notes,
+        status: row.status,
+        submitted_time_entry_id: row.submitted_time_entry_id,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+    }
+}
+
+/// Mutation envelope: draft fields at the top level plus the additive
+/// `mutation` metadata (IF2).
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TravelDraftMutationResponse {
+    #[serde(flatten)]
+    pub draft: TravelDraftView,
+    pub mutation: instant::MutationMeta,
+}
+
+/// POST /api/dispatch/travel-drafts body.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CreateTravelDraftRequest {
+    #[schema(value_type = uuid::Uuid)]
+    pub ticket_id: Uuid,
+    /// Whose work this is; defaults to the caller. Only owner/admin may
+    /// file on someone else's behalf.
+    #[serde(default)]
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub user_id: Option<Uuid>,
+    #[schema(value_type = String, format = "date-time")]
+    pub started_at: DateTime<Utc>,
+    #[schema(value_type = String, format = "date-time")]
+    pub ended_at: DateTime<Utc>,
+    pub distance: f64,
+    /// `km` | `mi`.
+    pub distance_unit: String,
+    pub vehicle: String,
+    #[serde(default)]
+    pub billable: bool,
+    #[serde(default)]
+    pub notes: Option<String>,
+    #[serde(flatten)]
+    pub instant: MutationParams,
+}
+
+/// PATCH /api/dispatch/travel-drafts/{id} body — every member optional;
+/// absent members are left untouched.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct PatchTravelDraftRequest {
+    #[serde(default)]
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub user_id: Option<Uuid>,
+    #[serde(default)]
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub ticket_id: Option<Uuid>,
+    #[serde(default)]
+    #[schema(value_type = Option<String>, format = "date-time")]
+    pub started_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    #[schema(value_type = Option<String>, format = "date-time")]
+    pub ended_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub distance: Option<f64>,
+    #[serde(default)]
+    pub distance_unit: Option<String>,
+    #[serde(default)]
+    pub vehicle: Option<String>,
+    #[serde(default)]
+    pub billable: Option<bool>,
+    #[serde(default, deserialize_with = "deserialize_optional_string")]
+    pub notes: Option<Option<String>>,
+    #[serde(flatten)]
+    pub instant: MutationParams,
+}
+
+/// Distinguishes `"notes": null` (clear) from an absent member.
+fn deserialize_optional_string<'de, D>(deserializer: D) -> Result<Option<Option<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Some(Option::<String>::deserialize(deserializer)?))
+}
+
+#[derive(Debug, Deserialize, utoipa::IntoParams, ToSchema)]
+pub struct ListTravelDraftsQuery {
+    #[serde(default)]
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub user_id: Option<Uuid>,
+    /// `draft` | `submitted`.
+    pub status: Option<String>,
+    /// Page size, clamped to [1, 200].
+    pub limit: Option<i64>,
+}
+
+/// POST /api/dispatch/travel-drafts — a draft mileage row against a
+/// ticket. Instant-first (IF1/IF2): idempotency-keyed, version-gated,
+/// write-trailed.
+#[utoipa::path(operation_id = "dispatch_travel_draft_create", post, path = "/api/dispatch/travel-drafts", tag = "scheduling", security(("bearer" = [])),
+    request_body = CreateTravelDraftRequest,
+    responses((status = 200, body = TravelDraftMutationResponse),
+              (status = 404, description = "ticket not visible in scope (rls_sparse)"),
+              (status = 409, description = "version conflict or idempotency key reused"),
+              (status = 422, description = "validation failed")))]
+pub async fn travel_draft_create(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Json(req): Json<CreateTravelDraftRequest>,
+) -> ApiResult<Json<TravelDraftMutationResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, time_perm(Action::Create))?;
+    let distance = validate_travel_distance(req.distance)?;
+    let distance_unit = validate_travel_unit(&req.distance_unit)?;
+    let vehicle = validate_travel_vehicle(&req.vehicle)?;
+    let notes = validate_travel_notes(req.notes.as_deref())?;
+    if req.ended_at <= req.started_at {
+        return Err(ApiError::Validation(
+            "ended_at must be after started_at".into(),
+        ));
+    }
+    let org_id = authed.principal.user.org_id;
+    let actor = authed.principal.user.id;
+    let owner = match req.user_id {
+        None => actor,
+        Some(uid) if uid == actor => actor,
+        Some(uid) => {
+            if !authed.principal.is_owner_or_admin() {
+                return Err(ApiError::Forbidden(
+                    "only owner/admin may file a draft for another user".into(),
+                ));
+            }
+            uid
+        }
+    };
+    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    let key = req.instant.idempotency_key.clone();
+
+    let outcome = org_tx::with_org_tx(&state, org_id, actor, |mut ctx| async move {
+        if let InstantClaim::Replay(stored) = instant::claim(
+            &mut ctx,
+            instant::ClaimSpec {
+                entity: "travel_draft",
+                entity_id: None,
+                key: key.as_deref(),
+                fingerprint: &fingerprint,
+            },
+        )
+        .await?
+        {
+            return Ok((ctx, MutationOutcome::Replayed(stored)));
+        }
+        // The ticket anchors the eventual time entry; a foreign id is a
+        // typed rls_sparse, not a silent orphan draft.
+        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, ctx.org_id, req.ticket_id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        core_db::users::get_user(&mut *ctx.tx, ctx.org_id, owner)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        let id = Uuid::now_v7();
+        let now = Utc::now();
+        let row = core_db::dispatch::insert_travel_draft(
+            &mut ctx.tx,
+            &core_db::dispatch::TravelDraftRow {
+                id,
+                org_id: ctx.org_id,
+                user_id: owner,
+                ticket_id: ticket.id,
+                started_at: req.started_at,
+                ended_at: req.ended_at,
+                distance,
+                distance_unit: distance_unit.clone(),
+                vehicle: vehicle.clone(),
+                billable: req.billable,
+                notes: notes.clone(),
+                status: "draft".into(),
+                submitted_time_entry_id: None,
+                created_by: actor,
+                created_at: now,
+                updated_at: now,
+            },
+        )
+        .await?;
+        let seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: "travel_draft",
+                entity_id: id,
+                version: req.instant.version,
+            },
+        )
+        .await?;
+        let view = draft_view(row.clone());
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: "travel_draft",
+                entity_id: id,
+                op: "create",
+                seq,
+                before: None,
+                after: serde_json::to_value(&row).unwrap_or(Value::Null),
+                updated_at: view.updated_at,
+                key: key.as_deref(),
+                payload: &view,
+                provenance: instant::ProvenanceContext::default(),
+            },
+        )
+        .await?;
+        Ok((
+            ctx,
+            MutationOutcome::Applied(TravelDraftMutationResponse {
+                draft: view,
+                mutation,
+            }),
+        ))
+    })
+    .await?;
+
+    Ok(Json(outcome.into_response()?))
+}
+
+/// GET /api/dispatch/travel-drafts — the caller's drafts (all users for
+/// owner/admin via `user_id`), newest first.
+#[utoipa::path(operation_id = "dispatch_travel_draft_list", get, path = "/api/dispatch/travel-drafts", tag = "scheduling", security(("bearer" = [])),
+    params(ListTravelDraftsQuery),
+    responses((status = 200, body = [TravelDraftView])))]
+pub async fn travel_draft_list(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Query(q): Query<ListTravelDraftsQuery>,
+) -> ApiResult<Json<Vec<TravelDraftView>>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, time_perm(Action::View))?;
+    // Non-admins only see their own drafts (same posture as time entries).
+    let user_id = if authed.principal.is_owner_or_admin() {
+        q.user_id
+    } else {
+        Some(authed.principal.user.id)
+    };
+    let status = q.status.as_deref().filter(|s| !s.is_empty());
+    if let Some(s) = status {
+        if s != "draft" && s != "submitted" {
+            return Err(ApiError::Validation(
+                "status must be draft or submitted".into(),
+            ));
+        }
+    }
+    let rows = core_db::dispatch::list_travel_drafts(
+        &state.pool,
+        authed.principal.user.org_id,
+        user_id,
+        status,
+        q.limit.unwrap_or(100).clamp(1, TRAVEL_DRAFT_LIMIT),
+    )
+    .await?;
+    Ok(Json(rows.into_iter().map(draft_view).collect()))
+}
+
+/// PATCH /api/dispatch/travel-drafts/{id} — edit a draft. Submitted
+/// drafts are frozen (the time entry already exists).
+#[utoipa::path(operation_id = "dispatch_travel_draft_patch", patch, path = "/api/dispatch/travel-drafts/{id}", tag = "scheduling", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    request_body = PatchTravelDraftRequest,
+    responses((status = 200, body = TravelDraftMutationResponse),
+              (status = 404, description = "not visible, or already submitted"),
+              (status = 409, description = "version conflict or idempotency key reused"),
+              (status = 422, description = "validation failed")))]
+pub async fn travel_draft_patch(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    Json(req): Json<PatchTravelDraftRequest>,
+) -> ApiResult<Json<TravelDraftMutationResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, time_perm(Action::Create))?;
+    let distance = match req.distance {
+        None => None,
+        Some(d) => Some(validate_travel_distance(d)?),
+    };
+    let distance_unit = match &req.distance_unit {
+        None => None,
+        Some(u) => Some(validate_travel_unit(u)?),
+    };
+    let vehicle = match &req.vehicle {
+        None => None,
+        Some(v) => Some(validate_travel_vehicle(v)?),
+    };
+    let notes = match &req.notes {
+        None => None,
+        Some(n) => Some(validate_travel_notes(n.as_deref())?),
+    };
+    if let (Some(s), Some(e)) = (req.started_at, req.ended_at) {
+        if e <= s {
+            return Err(ApiError::Validation(
+                "ended_at must be after started_at".into(),
+            ));
+        }
+    }
+    let org_id = authed.principal.user.org_id;
+    let actor = authed.principal.user.id;
+    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    let key = req.instant.idempotency_key.clone();
+
+    let outcome = org_tx::with_org_tx(&state, org_id, actor, |mut ctx| async move {
+        if let InstantClaim::Replay(stored) = instant::claim(
+            &mut ctx,
+            instant::ClaimSpec {
+                entity: "travel_draft",
+                entity_id: Some(id),
+                key: key.as_deref(),
+                fingerprint: &fingerprint,
+            },
+        )
+        .await?
+        {
+            return Ok((ctx, MutationOutcome::Replayed(stored)));
+        }
+        let before = core_db::dispatch::get_travel_draft(&mut *ctx.tx, ctx.org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        let seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: "travel_draft",
+                entity_id: id,
+                version: req.instant.version,
+            },
+        )
+        .await?;
+        let row = core_db::dispatch::patch_travel_draft(
+            &mut ctx.tx,
+            ctx.org_id,
+            id,
+            &core_db::dispatch::TravelDraftPatch {
+                user_id: req.user_id,
+                ticket_id: req.ticket_id,
+                started_at: req.started_at,
+                ended_at: req.ended_at,
+                distance,
+                distance_unit,
+                vehicle,
+                billable: req.billable,
+                notes,
+            },
+        )
+        .await
+        .map_err(|e| match e {
+            core_db::DbError::NotFound => ApiError::RlsSparse,
+            other => other.into(),
+        })?;
+        let view = draft_view(row.clone());
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: "travel_draft",
+                entity_id: id,
+                op: "update",
+                seq,
+                before: Some(serde_json::to_value(&before).unwrap_or(Value::Null)),
+                after: serde_json::to_value(&row).unwrap_or(Value::Null),
+                updated_at: view.updated_at,
+                key: key.as_deref(),
+                payload: &view,
+                provenance: instant::ProvenanceContext::default(),
+            },
+        )
+        .await?;
+        Ok((
+            ctx,
+            MutationOutcome::Applied(TravelDraftMutationResponse {
+                draft: view,
+                mutation,
+            }),
+        ))
+    })
+    .await?;
+
+    Ok(Json(outcome.into_response()?))
+}
+
+/// DELETE /api/dispatch/travel-drafts/{id} — discard a draft. Submitted
+/// drafts are immutable history (delete the TIME ENTRY through invoicing
+/// corrections, never the draft's backlink).
+#[utoipa::path(operation_id = "dispatch_travel_draft_delete", delete, path = "/api/dispatch/travel-drafts/{id}", tag = "scheduling", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    responses((status = 200, body = TravelDraftMutationResponse),
+              (status = 404, description = "not visible, or already submitted")))]
+pub async fn travel_draft_delete(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<TravelDraftMutationResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, time_perm(Action::Create))?;
+    let org_id = authed.principal.user.org_id;
+    let actor = authed.principal.user.id;
+
+    let outcome = org_tx::with_org_tx(&state, org_id, actor, |mut ctx| async move {
+        let before = core_db::dispatch::get_travel_draft(&mut *ctx.tx, ctx.org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        let seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: "travel_draft",
+                entity_id: id,
+                version: None,
+            },
+        )
+        .await?;
+        core_db::dispatch::delete_travel_draft(&mut ctx.tx, ctx.org_id, id)
+            .await
+            .map_err(|e| match e {
+                core_db::DbError::NotFound => ApiError::RlsSparse,
+                other => other.into(),
+            })?;
+        let view = draft_view(before.clone());
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: "travel_draft",
+                entity_id: id,
+                op: "delete",
+                seq,
+                before: Some(serde_json::to_value(&before).unwrap_or(Value::Null)),
+                after: serde_json::json!({ "deleted": true }),
+                updated_at: view.updated_at,
+                key: None,
+                payload: &view,
+                provenance: instant::ProvenanceContext::default(),
+            },
+        )
+        .await?;
+        Ok((
+            ctx,
+            MutationOutcome::Applied(TravelDraftMutationResponse {
+                draft: view,
+                mutation,
+            }),
+        ))
+    })
+    .await?;
+
+    Ok(Json(outcome.into_response()?))
+}
+
+/// POST /api/dispatch/travel-drafts/{id}/submit body.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct SubmitTravelDraftRequest {
+    #[serde(flatten)]
+    pub instant: MutationParams,
+}
+
+/// POST /api/dispatch/travel-drafts/{id}/submit — convert a draft into a
+/// real time entry through the EXISTING time-entry path
+/// (`insert_time_entry` + the `time_entry.created` event), then freeze
+/// the draft with the entry backlink. The entry's notes carry the
+/// machine-readable provenance marker (`travel_draft:<id>`); the write
+/// trail records the full before/after so "who did this" and undo stay
+/// queryable. Idempotent: the same submit replays the SAME entry.
+#[utoipa::path(operation_id = "dispatch_travel_draft_submit", post, path = "/api/dispatch/travel-drafts/{id}/submit", tag = "scheduling", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    request_body = SubmitTravelDraftRequest,
+    responses((status = 200, body = crate::routes::timers::TimeEntryMutationResponse),
+              (status = 404, description = "draft not visible in scope (rls_sparse)"),
+              (status = 409, description = "already submitted, version conflict, or idempotency key reused")))]
+pub async fn travel_draft_submit(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    Json(req): Json<SubmitTravelDraftRequest>,
+) -> ApiResult<Json<crate::routes::timers::TimeEntryMutationResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, time_perm(Action::Create))?;
+    let org_id = authed.principal.user.org_id;
+    let actor = authed.principal.user.id;
+    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    let key = req.instant.idempotency_key.clone();
+
+    let outcome = org_tx::with_org_tx(&state, org_id, actor, |mut ctx| async move {
+        if let InstantClaim::Replay(stored) = instant::claim(
+            &mut ctx,
+            instant::ClaimSpec {
+                entity: "travel_draft",
+                entity_id: Some(id),
+                key: key.as_deref(),
+                fingerprint: &fingerprint,
+            },
+        )
+        .await?
+        {
+            return Ok((ctx, MutationOutcome::Replayed(stored)));
+        }
+        let draft = core_db::dispatch::get_travel_draft(&mut *ctx.tx, ctx.org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        if draft.status != "draft" {
+            return Err(ApiError::Conflict(
+                "draft has already been submitted".into(),
+            ));
+        }
+        let seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: "travel_draft",
+                entity_id: id,
+                version: req.instant.version,
+            },
+        )
+        .await?;
+
+        // The conversion: a REAL time entry through the existing path.
+        // work_type "travel" keeps mileage entries filterable; notes
+        // carry the draft backlink so the entry explains itself without
+        // joining anything.
+        let minutes = (draft.ended_at - draft.started_at).num_minutes().max(0);
+        let travel_note = format!(
+            "Travel: {:.1} {} — {} (travel_draft:{id})",
+            draft.distance, draft.distance_unit, draft.vehicle
+        );
+        let entry = core_domain::entities::TimeEntry {
+            id: Uuid::now_v7(),
+            org_id: ctx.org_id,
+            ticket_id: draft.ticket_id,
+            user_id: draft.user_id,
+            started_at: draft.started_at,
+            ended_at: draft.ended_at,
+            minutes,
+            billable: draft.billable,
+            notes: Some(match &draft.notes {
+                Some(n) => format!("{n} · {travel_note}"),
+                None => travel_note,
+            }),
+            work_type: Some("travel".into()),
+            timer_session_id: None,
+            created_at: Utc::now(),
+        };
+        core_db::timers::insert_time_entry(&mut *ctx.tx, &entry).await?;
+        let submitted =
+            core_db::dispatch::mark_travel_draft_submitted(&mut ctx.tx, ctx.org_id, id, entry.id)
+                .await
+                .map_err(|e| match e {
+                    core_db::DbError::NotFound => ApiError::RlsSparse,
+                    other => other.into(),
+                })?;
+
+        ctx.emit(
+            types::TIME_ENTRY_CREATED,
+            "time_entry",
+            Some(entry.id.to_string().as_str()),
+            &serde_json::to_value(TimeEntryCreated {
+                entry: entry.clone(),
+            })
+            .map_err(|e| ApiError::Internal(e.into()))?,
+        )
+        .await?;
+        ctx.emit(
+            types::TRAVEL_DRAFT_SUBMITTED,
+            "travel_draft",
+            Some(id.to_string().as_str()),
+            &serde_json::to_value(TravelDraftSubmitted {
+                draft_id: id,
+                ticket_id: draft.ticket_id,
+                user_id: draft.user_id,
+                time_entry_id: entry.id,
+                distance: draft.distance,
+                distance_unit: draft.distance_unit.clone(),
+                vehicle: draft.vehicle.clone(),
+            })
+            .map_err(|e| ApiError::Internal(e.into()))?,
+        )
+        .await?;
+
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: "travel_draft",
+                entity_id: id,
+                op: "travel_draft_submit",
+                seq,
+                before: Some(serde_json::to_value(&draft).unwrap_or(Value::Null)),
+                after: serde_json::to_value(&submitted).unwrap_or(Value::Null),
+                updated_at: entry.ended_at,
+                key: key.as_deref(),
+                payload: &entry,
+                provenance: instant::ProvenanceContext::default(),
+            },
+        )
+        .await?;
+        Ok((
+            ctx,
+            MutationOutcome::Applied(crate::routes::timers::TimeEntryMutationResponse {
+                entry,
+                mutation,
+            }),
+        ))
+    })
+    .await?;
+
+    Ok(Json(outcome.into_response()?))
+}
+
+// --- shared helpers ----------------------------------------------------------------
+
+fn validate_travel_notes(raw: Option<&str>) -> ApiResult<Option<String>> {
+    match raw {
+        None => Ok(None),
+        Some(n) if n.len() > TRAVEL_NOTE_MAX => Err(ApiError::Validation(format!(
+            "notes must be at most {TRAVEL_NOTE_MAX} characters"
+        ))),
+        Some(n) => Ok(Some(n.to_string())),
+    }
 }

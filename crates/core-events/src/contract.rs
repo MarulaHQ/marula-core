@@ -348,15 +348,16 @@ use core_domain::events::{
     BoardMembershipRemoved, BoardMembershipUpdated, BoardStatusAdded, BoardStatusRemoved,
     BoardStatusUpdated, BoardTransitionsUpdated, CalendarExclusionChanged, ClientCreated,
     ClientUpdated, ContactCreated, ContactUpdated, ContractCreated, ContractRemoved,
-    ContractUpdated, ImportBatchFinished, ImportBatchStarted, InvoiceCreated,
-    InvoiceDunningChanged, InvoicePaymentRecorded, InvoiceRunCompleted, InvoiceVoided,
-    MigrationPushSessionFinished, MigrationPushSessionStarted, NotificationCreated, OnCallChanged,
-    ProjectCreated, ProjectMilestoneCompleted, ProjectPhaseCompleted, ProjectPhaseCreated,
-    ProjectPhaseUpdated, ProjectTaskCompleted, ProjectTaskCreated, ProjectTaskUpdated,
-    ProjectTemplateRemoved, ProjectTemplateUpdated, ProjectUpdated, ProjectViewRemoved,
-    ProjectViewUpdated, SiteCreated, SiteUpdated, TicketAssigned, TicketChecklistUpdated,
-    TicketCommentAdded, TicketCreated, TicketReverted, TicketStatusChanged, TimeEntryCreated,
-    TimerPaused, TimerStarted, TimerStopped,
+    ContractUpdated, DispatchQueueUpdated, DispatchStatusUpdated, ImportBatchFinished,
+    ImportBatchStarted, InvoiceCreated, InvoiceDunningChanged, InvoicePaymentRecorded,
+    InvoiceRunCompleted, InvoiceVoided, MigrationPushSessionFinished, MigrationPushSessionStarted,
+    NotificationCreated, OnCallChanged, ProjectCreated, ProjectMilestoneCompleted,
+    ProjectPhaseCompleted, ProjectPhaseCreated, ProjectPhaseUpdated, ProjectTaskCompleted,
+    ProjectTaskCreated, ProjectTaskUpdated, ProjectTemplateRemoved, ProjectTemplateUpdated,
+    ProjectUpdated, ProjectViewRemoved, ProjectViewUpdated, SiteCreated, SiteUpdated,
+    TicketAssigned, TicketChecklistUpdated, TicketCommentAdded, TicketCreated, TicketReverted,
+    TicketStatusChanged, TimeEntryCreated, TimerPaused, TimerStarted, TimerStopped,
+    TravelDraftSubmitted,
 };
 use core_domain::money::{CurrencyCode, Money};
 use core_domain::policy::BoardRole;
@@ -754,6 +755,53 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
                 rows_updated: 18,
                 rows_skipped: 7,
                 rows_failed: 5,
+            }
+        ),
+    },
+    // -- dispatch v2 (TASKLIST Phase 3, Wave 9 lane 9) ----------------------
+    PublishedEvent {
+        event_type: types::DISPATCH_STATUS_UPDATED,
+        entity: "appointment",
+        variant: "default",
+        shape: typed_shape!(
+            DispatchStatusUpdated,
+            DispatchStatusUpdated {
+                appointment_id: su(40),
+                status: "en_route".into(),
+                note: Some("Left the depot".into()),
+                source: "connector".into(),
+                actor_id: su(41),
+                occurred_at: st(4),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::DISPATCH_QUEUE_UPDATED,
+        entity: "ticket",
+        variant: "default",
+        shape: typed_shape!(
+            DispatchQueueUpdated,
+            DispatchQueueUpdated {
+                ticket_id: su(12),
+                rank: 3,
+                cleared: false,
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::TRAVEL_DRAFT_SUBMITTED,
+        entity: "travel_draft",
+        variant: "default",
+        shape: typed_shape!(
+            TravelDraftSubmitted,
+            TravelDraftSubmitted {
+                draft_id: su(42),
+                ticket_id: su(13),
+                user_id: su(4),
+                time_entry_id: su(43),
+                distance: 42.5,
+                distance_unit: "km".into(),
+                vehicle: "van".into(),
             }
         ),
     },

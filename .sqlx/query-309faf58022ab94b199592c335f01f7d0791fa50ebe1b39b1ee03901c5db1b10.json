@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM travel_entry_drafts WHERE org_id = $1 AND id = $2 AND status = 'draft'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "309faf58022ab94b199592c335f01f7d0791fa50ebe1b39b1ee03901c5db1b10"
+}

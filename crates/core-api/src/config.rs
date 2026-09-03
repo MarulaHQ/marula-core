@@ -64,6 +64,10 @@ pub struct Config {
     /// minute on the /api/migration surface. Env
     /// `MERIDIAN_MIGRATION_RATE_LIMIT_PER_MIN` (default 600).
     pub migration_rate_limit_per_min: u32,
+    /// Dispatch connector (TASKLIST Phase 3, Wave 9 lane 9): per-principal
+    /// request budget per minute on the /api/dispatch-connector surface.
+    /// Env `MERIDIAN_DISPATCH_RATE_LIMIT_PER_MIN` (default 600).
+    pub dispatch_rate_limit_per_min: u32,
 }
 
 /// Parses OBJECT_STORE plus its companion vars. Unknown values degrade to
@@ -180,6 +184,10 @@ impl Config {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(600),
+            dispatch_rate_limit_per_min: std::env::var("MERIDIAN_DISPATCH_RATE_LIMIT_PER_MIN")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(600),
         }
     }
 }
@@ -234,6 +242,7 @@ impl Config {
                 .map(|mb| mb * 1024 * 1024)
                 .unwrap_or(core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES),
             migration_rate_limit_per_min: 600,
+            dispatch_rate_limit_per_min: 600,
         }
     }
 }

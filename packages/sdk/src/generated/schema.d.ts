@@ -1668,6 +1668,69 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/dispatch-connector/appointments/{id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/dispatch-connector/appointments/{id}/status — push one
+         *     field-service status update. Idempotent via the instant envelope: the
+         *     same key + payload replays the same stored row (never double-pushes);
+         *     a foreign-org appointment id is a bare 404.
+         */
+        post: operations["dispatch_connector_push_status"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dispatch-connector/schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/dispatch-connector/schedule — bookings in a bounded window
+         *     with technician/ticket/client coordinates and the latest pushed
+         *     field-service status per booking.
+         */
+        get: operations["dispatch_connector_schedule"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dispatch-connector/technicians": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/dispatch-connector/technicians — active technicians with
+         *     their current (non-expired) skills.
+         */
+        get: operations["dispatch_connector_technicians"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/dispatch/assign": {
         parameters: {
             query?: never;
@@ -1712,6 +1775,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/dispatch/capacity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/dispatch/capacity — multi-day capacity horizon: the day view's
+         *     capacity math repeated per UTC day over the window, one org-wide
+         *     availability read + one exclusion read + one appointment read.
+         */
+        get: operations["dispatch_capacity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/dispatch/day": {
         parameters: {
             query?: never;
@@ -1722,6 +1806,210 @@ export interface paths {
         /** GET /api/dispatch/day — the whole board for one day. */
         get: operations["dispatch_day"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dispatch/match": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/dispatch/match — for every unassigned open ticket carrying
+         *     required skills, the active technicians sorted best-first by how many
+         *     required skills they are missing (0 = fully qualified). Expired
+         *     certifications never count as held.
+         */
+        get: operations["dispatch_match"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dispatch/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/dispatch/queue — the full unassigned queue with dispatcher
+         *     overrides applied: overridden tickets sort by explicit rank first
+         *     (ties fall back to the computed order), then everything else in the
+         *     computed order (priority rank, then effective SLA/due deadline).
+         */
+        get: operations["dispatch_queue_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dispatch/queue/{ticket_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * PUT /api/dispatch/queue/{ticket_id} — pin a ticket's queue position.
+         *     The ticket must exist and still be open+unassigned (an override for a
+         *     placed ticket is meaningless); idempotent via the instant envelope.
+         */
+        put: operations["dispatch_queue_set"];
+        post?: never;
+        /**
+         * DELETE /api/dispatch/queue/{ticket_id} — clear a rank override.
+         *     Idempotent: clearing an unset override still returns 200 with
+         *     `cleared: false` (the dispatcher's intent is already satisfied).
+         */
+        delete: operations["dispatch_queue_clear"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dispatch/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/dispatch/skills — the org's skill/certification catalog. */
+        get: operations["dispatch_skills_catalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dispatch/tickets/{ticket_id}/required-skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * PUT /api/dispatch/tickets/{ticket_id}/required-skills — full-replace
+         *     the job's required-skill set. The ticket must exist and be open +
+         *     unassigned (requirements on placed work are history, not planning).
+         */
+        put: operations["dispatch_ticket_skills_replace"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dispatch/travel-drafts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/dispatch/travel-drafts — the caller's drafts (all users for
+         *     owner/admin via `user_id`), newest first.
+         */
+        get: operations["dispatch_travel_draft_list"];
+        put?: never;
+        /**
+         * POST /api/dispatch/travel-drafts — a draft mileage row against a
+         *     ticket. Instant-first (IF1/IF2): idempotency-keyed, version-gated,
+         *     write-trailed.
+         */
+        post: operations["dispatch_travel_draft_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dispatch/travel-drafts/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/dispatch/travel-drafts/{id} — discard a draft. Submitted
+         *     drafts are immutable history (delete the TIME ENTRY through invoicing
+         *     corrections, never the draft's backlink).
+         */
+        delete: operations["dispatch_travel_draft_delete"];
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/dispatch/travel-drafts/{id} — edit a draft. Submitted
+         *     drafts are frozen (the time entry already exists).
+         */
+        patch: operations["dispatch_travel_draft_patch"];
+        trace?: never;
+    };
+    "/api/v1/dispatch/travel-drafts/{id}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/dispatch/travel-drafts/{id}/submit — convert a draft into a
+         *     real time entry through the EXISTING time-entry path
+         *     (`insert_time_entry` + the `time_entry.created` event), then freeze
+         *     the draft with the entry backlink. The entry's notes carry the
+         *     machine-readable provenance marker (`travel_draft:<id>`); the write
+         *     trail records the full before/after so "who did this" and undo stay
+         *     queryable. Idempotent: the same submit replays the SAME entry.
+         */
+        post: operations["dispatch_travel_draft_submit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dispatch/users/{user_id}/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * PUT /api/dispatch/users/{user_id}/skills — full-replace the
+         *     technician's skill set. The technician must be an active member of
+         *     this org.
+         */
+        put: operations["dispatch_user_skills_replace"];
         post?: never;
         delete?: never;
         options?: never;
@@ -5228,6 +5516,32 @@ export interface components {
          */
         CapabilityMode: "proposed" | "autonomous";
         /**
+         * @description The assembled horizon payload. `unassigned_count` is the current open
+         *     unassigned queue depth so planners see demand next to capacity.
+         */
+        CapacityHorizonView: {
+            /** Format: int32 */
+            days: number;
+            /** Format: date */
+            from: string;
+            technicians: components["schemas"]["TechnicianCapacity"][];
+            /** Format: int64 */
+            unassigned_count: number;
+        };
+        /**
+         * @description GET /api/dispatch/capacity query: `from` date (defaults to today UTC)
+         *     and the horizon length in days (1..=31, default 7).
+         */
+        CapacityQuery: {
+            /**
+             * Format: int32
+             * @description Horizon length in days (1..=31).
+             */
+            days?: number | null;
+            /** Format: date */
+            from?: string | null;
+        };
+        /**
          * @description Instant-first mutation response (IF2): category fields at the top level
          *     plus the additive `mutation` metadata.
          */
@@ -5420,6 +5734,73 @@ export interface components {
             /** Format: date-time */
             starts_at: string;
             title: string;
+        };
+        /** @description One booking as the connector sees it. */
+        ConnectorAppointment: {
+            /** Format: uuid */
+            client_id?: string | null;
+            client_name?: string | null;
+            dispatch_status?: null | components["schemas"]["ConnectorStatusView"];
+            /** Format: date-time */
+            ends_at: string;
+            /** Format: uuid */
+            id: string;
+            kind: string;
+            /** Format: date-time */
+            starts_at: string;
+            status: string;
+            technician_name: string;
+            /** Format: uuid */
+            technician_user_id: string;
+            /** Format: uuid */
+            ticket_id?: string | null;
+            ticket_number?: string | null;
+            title: string;
+            /** Format: int32 */
+            travel_minutes: number;
+        };
+        /**
+         * @description GET /api/dispatch-connector/schedule query. The window is bounded at
+         *     62 days so one pull cannot scan the whole calendar.
+         */
+        ConnectorScheduleQuery: {
+            /**
+             * Format: int32
+             * @description Window length in days (1..=62, default 7).
+             */
+            days?: number | null;
+            /** Format: date */
+            from?: string | null;
+        };
+        ConnectorScheduleView: {
+            appointments: components["schemas"]["ConnectorAppointment"][];
+            /** Format: int32 */
+            days: number;
+            /** Format: date */
+            from: string;
+        };
+        /** @description The latest status push for one booking. */
+        ConnectorStatusView: {
+            note?: string | null;
+            /** Format: date-time */
+            occurred_at: string;
+            /** @description `connector` | `staff`. */
+            source: string;
+            status: string;
+        };
+        /** @description GET /api/dispatch-connector/technicians entry. */
+        ConnectorTechnician: {
+            display_name: string;
+            /**
+             * @description Current (non-expired) skills — lets the external planner respect
+             *     certifications before proposing a dispatch.
+             */
+            skills: string[];
+            /** Format: uuid */
+            user_id: string;
+        };
+        ConnectorTechniciansView: {
+            technicians: components["schemas"]["ConnectorTechnician"][];
         };
         Contact: {
             /** Format: uuid */
@@ -6045,6 +6426,28 @@ export interface components {
             ticket_id: string;
             work_type?: string | null;
         };
+        /** @description POST /api/dispatch/travel-drafts body. */
+        CreateTravelDraftRequest: components["schemas"]["MutationParams"] & {
+            billable?: boolean;
+            /** Format: double */
+            distance: number;
+            /** @description `km` | `mi`. */
+            distance_unit: string;
+            /** Format: date-time */
+            ended_at: string;
+            notes?: string | null;
+            /** Format: date-time */
+            started_at: string;
+            /** Format: uuid */
+            ticket_id: string;
+            /**
+             * Format: uuid
+             * @description Whose work this is; defaults to the caller. Only owner/admin may
+             *     file on someone else's behalf.
+             */
+            user_id?: string | null;
+            vehicle: string;
+        };
         CreateViewRequest: {
             is_default?: boolean;
             name: string;
@@ -6084,6 +6487,32 @@ export interface components {
             org_id: string;
             /** @description The customization sections. Always fully serialized. */
             sections: components["schemas"]["ManifestSections"];
+        };
+        /** @description One technician's capacity for one day of the horizon. */
+        DayCapacity: {
+            /**
+             * Format: int64
+             * @description Availability coverage minus exclusions for the UTC day.
+             */
+            available_minutes: number;
+            /**
+             * Format: int64
+             * @description Live booking minutes clipped to the day.
+             */
+            booked_minutes: number;
+            /** Format: date */
+            date: string;
+            /**
+             * Format: int64
+             * @description What a NEW booking can still consume: availability minus
+             *     exclusions minus existing bookings.
+             */
+            free_minutes: number;
+            /**
+             * Format: int64
+             * @description 0–100+, where >100 is over-capacity.
+             */
+            utilization_percent: number;
         };
         DayWeekQuery: {
             /**
@@ -6212,6 +6641,7 @@ export interface components {
             /** Format: uuid */
             client_id?: string | null;
             client_name?: string | null;
+            dispatch_status?: null | components["schemas"]["DispatchStatusShade"];
             /** Format: date-time */
             ends_at: string;
             /** Format: uuid */
@@ -6254,6 +6684,29 @@ export interface components {
              *     then effective SLA/due deadline).
              */
             unassigned: components["schemas"]["MyWorkItem"][];
+        };
+        DispatchQueueQuery: {
+            /**
+             * Format: int64
+             * @description Page size, clamped to [1, 500].
+             */
+            limit?: number | null;
+        };
+        /** @description GET /api/dispatch/queue envelope. */
+        DispatchQueueView: {
+            queue: components["schemas"]["QueuedTicket"][];
+        };
+        /**
+         * @description The latest connector/staff status push for one booking, shaded onto
+         *     the board block face.
+         */
+        DispatchStatusShade: {
+            note?: string | null;
+            /** Format: date-time */
+            occurred_at: string;
+            /** @description `connector` | `staff`. */
+            source: string;
+            status: string;
         };
         /**
          * @description A document's living handle. No content lives here — content is only
@@ -7084,6 +7537,17 @@ export interface components {
             /** Format: uuid */
             user_id?: string | null;
         };
+        ListTravelDraftsQuery: {
+            /**
+             * Format: int64
+             * @description Page size, clamped to [1, 200].
+             */
+            limit?: number | null;
+            /** @description `draft` | `submitted`. */
+            status?: string | null;
+            /** Format: uuid */
+            user_id?: string | null;
+        };
         LoginRequest: {
             email: string;
             password: string;
@@ -7364,6 +7828,24 @@ export interface components {
              * @description Rows flipped from unread to read (idempotent under retry).
              */
             marked: number;
+        };
+        /**
+         * @description One technician candidate for one ticket: the skills this candidate is
+         *     missing (an empty list = fully qualified right now).
+         */
+        MatchCandidate: {
+            display_name: string;
+            missing: string[];
+            /** Format: uuid */
+            user_id: string;
+        };
+        /** @description GET /api/dispatch/match query: how many unassigned tickets to match. */
+        MatchQuery: {
+            /** Format: int64 */
+            limit?: number | null;
+        };
+        MatchView: {
+            matches: components["schemas"]["TicketMatch"][];
         };
         MeResponse: {
             display_name: string;
@@ -7720,6 +8202,26 @@ export interface components {
             /** Format: uuid */
             site_id?: string | null;
             title?: string | null;
+        };
+        /**
+         * @description PATCH /api/dispatch/travel-drafts/{id} body — every member optional;
+         *     absent members are left untouched.
+         */
+        PatchTravelDraftRequest: components["schemas"]["MutationParams"] & {
+            billable?: boolean | null;
+            /** Format: double */
+            distance?: number | null;
+            distance_unit?: string | null;
+            /** Format: date-time */
+            ended_at?: string | null;
+            notes?: string | null;
+            /** Format: date-time */
+            started_at?: string | null;
+            /** Format: uuid */
+            ticket_id?: string | null;
+            /** Format: uuid */
+            user_id?: string | null;
+            vehicle?: string | null;
         };
         PatchViewRequest: {
             is_default?: boolean | null;
@@ -8478,6 +8980,36 @@ export interface components {
             session_id: string;
             source_note?: string | null;
         };
+        /** @description 201 body: the pushed row plus the read-your-write metadata (IF2). */
+        PushStatusMutationResponse: components["schemas"]["PushStatusResponse"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        /** @description POST /api/dispatch-connector/appointments/{id}/status body. */
+        PushStatusRequest: components["schemas"]["MutationParams"] & {
+            note?: string | null;
+            /**
+             * Format: date-time
+             * @description When the status was observed; defaults to now (server clock).
+             */
+            occurred_at?: string | null;
+            /**
+             * @description Field-service status: en_route | arrived | in_progress | completed
+             *     | blocked | delayed.
+             */
+            status: string;
+        };
+        /** @description The pushed row (entity fields; the mutation envelope flattens it). */
+        PushStatusResponse: {
+            /** Format: uuid */
+            appointment_id: string;
+            /** Format: uuid */
+            id: string;
+            note?: string | null;
+            /** Format: date-time */
+            occurred_at: string;
+            source: string;
+            status: string;
+        };
         PutCapabilityRequest: {
             /** @description `<namespace>:read` | `<namespace>:write`. */
             capability: string;
@@ -8499,6 +9031,32 @@ export interface components {
              *     statuses OF THAT BOARD — unknown ids are rejected, not silently kept.
              */
             visible_status_ids: string[];
+        };
+        /**
+         * @description Queue mutation envelope (set + clear share the shape; clears carry
+         *     `cleared: true` and null note).
+         */
+        QueueMutationResponse: {
+            cleared: boolean;
+            mutation: components["schemas"]["MutationMeta"];
+            note?: string | null;
+            /** Format: int32 */
+            rank: number;
+            /** Format: uuid */
+            ticket_id: string;
+        };
+        /**
+         * @description One queued ticket: the day-view's queue row shape plus the explicit
+         *     override when one exists.
+         */
+        QueuedTicket: components["schemas"]["MyWorkItem"] & {
+            override_note?: string | null;
+            /**
+             * Format: int32
+             * @description The dispatcher-set rank pinning this ticket's position (overrides
+             *     sort ahead of the computed order); absent = computed order only.
+             */
+            rank_override?: number | null;
         };
         RangeParams: {
             /** Format: date-time */
@@ -8557,6 +9115,16 @@ export interface components {
         };
         ReplaceLadderRequest: {
             steps: components["schemas"]["LadderStepSpec"][];
+        };
+        /** @description PUT /api/dispatch/tickets/{ticket_id}/required-skills body. */
+        ReplaceTicketSkillsRequest: components["schemas"]["MutationParams"] & {
+            /** @description Full replacement set (an empty set clears every requirement). */
+            skills: string[];
+        };
+        /** @description PUT /api/dispatch/users/{user_id}/skills body. */
+        ReplaceUserSkillsRequest: components["schemas"]["MutationParams"] & {
+            /** @description Full replacement set (an empty set clears every skill). */
+            skills: components["schemas"]["SkillInput"][];
         };
         /** @description GET /api/report-definitions envelope. */
         ReportDefinitionList: {
@@ -8873,6 +9441,15 @@ export interface components {
              */
             depends_on: string[];
         };
+        /** @description PUT /api/dispatch/queue/{ticket_id} body. */
+        SetQueueRankRequest: components["schemas"]["MutationParams"] & {
+            note?: string | null;
+            /**
+             * Format: int32
+             * @description Explicit queue position: 0 sorts first among overrides.
+             */
+            rank: number;
+        };
         SetTicketFieldValueRequest: {
             value: unknown;
         };
@@ -8941,12 +9518,45 @@ export interface components {
             region?: string | null;
             timezone?: string | null;
         };
+        /**
+         * @description GET /api/dispatch/skills envelope entry: the org skill catalog with
+         *     holder counts (`active` = non-expired as of now).
+         */
+        SkillCatalogEntry: {
+            /** Format: int64 */
+            active_holders: number;
+            /** Format: int64 */
+            holders: number;
+            skill: string;
+        };
+        /** @description One entry of a skill replacement set. */
+        SkillInput: {
+            /**
+             * Format: date-time
+             * @description Certification expiry; must be in the future when present.
+             */
+            expires_at?: string | null;
+            /** @description Org skill vocabulary, 1..=80 chars after trimming. */
+            skill: string;
+        };
         SkillListQuery: {
             /**
              * @description When present, every version of this slug (newest first) instead of
              *     the latest version of each slug.
              */
             slug?: string | null;
+        };
+        /** @description One skill on one technician. */
+        SkillView: {
+            /**
+             * Format: date-time
+             * @description Certification expiry; absent = does not expire.
+             */
+            expires_at?: string | null;
+            skill: string;
+        };
+        SkillsCatalogView: {
+            skills: components["schemas"]["SkillCatalogEntry"][];
         };
         /**
          * @description An org-level business-hours calendar row (`sla_calendars`). The math
@@ -9044,6 +9654,8 @@ export interface components {
              */
             session_id?: string | null;
         };
+        /** @description POST /api/dispatch/travel-drafts/{id}/submit body. */
+        SubmitTravelDraftRequest: components["schemas"]["MutationParams"];
         TaskListQuery: {
             /** Format: uuid */
             assignee_id?: string | null;
@@ -9077,6 +9689,13 @@ export interface components {
              * @description Exclusive window end (default: `from` + 8 days).
              */
             to?: string | null;
+        };
+        /** @description One technician across the whole horizon. */
+        TechnicianCapacity: {
+            days: components["schemas"]["DayCapacity"][];
+            display_name: string;
+            /** Format: uuid */
+            user_id: string;
         };
         /**
          * @description One technician column: capacity stats plus everything the board draws
@@ -9247,6 +9866,15 @@ export interface components {
             priority?: null | components["schemas"]["Priority"];
         };
         /**
+         * @description Skills-matched staffing for one unassigned ticket. Tickets with no
+         *     required skills are not listed (the plain queue ordering covers them).
+         */
+        TicketMatch: components["schemas"]["MyWorkItem"] & {
+            /** @description Active technicians sorted best-first (fewest missing, then name). */
+            candidates: components["schemas"]["MatchCandidate"][];
+            required_skills: string[];
+        };
+        /**
          * @description Instant-first mutation response (IF2): the enriched ticket fields at the
          *     top level (unchanged shape) plus the additive `mutation` metadata — the
          *     applied snapshot, monotonic per-entity `seq`/`version`, and the prior
@@ -9268,6 +9896,15 @@ export interface components {
         TicketRevertResponse: components["schemas"]["TicketWithFields"] & {
             mutation: components["schemas"]["MutationMeta"];
             revert: components["schemas"]["RevertDetail"];
+        };
+        /** @description The full-replace mutation envelope (IF2). */
+        TicketSkillsMutationResponse: components["schemas"]["TicketSkillsView"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        TicketSkillsView: {
+            skills: string[];
+            /** Format: uuid */
+            ticket_id: string;
         };
         /**
          * @description Per-ticket SLA clock state. Accumulates paused business seconds so a
@@ -9451,6 +10088,41 @@ export interface components {
             from_status_id: string;
             /** Format: uuid */
             to_status_id: string;
+        };
+        /**
+         * @description Mutation envelope: draft fields at the top level plus the additive
+         *     `mutation` metadata (IF2).
+         */
+        TravelDraftMutationResponse: components["schemas"]["TravelDraftView"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        /** @description One travel/mileage draft. */
+        TravelDraftView: {
+            billable: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: double */
+            distance: number;
+            /** @description `km` | `mi`. */
+            distance_unit: string;
+            /** Format: date-time */
+            ended_at: string;
+            /** Format: uuid */
+            id: string;
+            notes?: string | null;
+            /** Format: date-time */
+            started_at: string;
+            /** @description `draft` | `submitted`. */
+            status: string;
+            /** Format: uuid */
+            submitted_time_entry_id?: string | null;
+            /** Format: uuid */
+            ticket_id: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: uuid */
+            user_id: string;
+            vehicle: string;
         };
         /** @description One field of one applied write — per-field undo granularity. */
         UndoFieldStep: {
@@ -9675,6 +10347,15 @@ export interface components {
             enabled?: boolean;
             issuer: string;
             jit_provisioning?: boolean;
+        };
+        /** @description The full-replace mutation envelope (IF2). */
+        UserSkillsMutationResponse: components["schemas"]["UserSkillsView"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        UserSkillsView: {
+            skills: components["schemas"]["SkillView"][];
+            /** Format: uuid */
+            user_id: string;
         };
         /** @description One effective value: registry default overlaid by any stored override. */
         ValueView: {
@@ -12776,6 +13457,115 @@ export interface operations {
             };
         };
     };
+    dispatch_connector_push_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PushStatusRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushStatusResponse"];
+                };
+            };
+            /** @description appointment not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description idempotency key reused with a different payload */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unknown status vocabulary */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description rate limit exceeded (Retry-After header) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    dispatch_connector_schedule: {
+        parameters: {
+            query?: {
+                from?: string | null;
+                /** @description Window length in days (1..=62, default 7). */
+                days?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorScheduleView"];
+                };
+            };
+            /** @description missing dispatch:read scope (keys) or not an org admin (humans) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    dispatch_connector_technicians: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorTechniciansView"];
+                };
+            };
+            /** @description missing dispatch:read scope (keys) or not an org admin (humans) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     dispatch_assign: {
         parameters: {
             query?: never;
@@ -12836,6 +13626,29 @@ export interface operations {
             };
         };
     };
+    dispatch_capacity: {
+        parameters: {
+            query?: {
+                from?: string | null;
+                /** @description Horizon length in days (1..=31). */
+                days?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapacityHorizonView"];
+                };
+            };
+        };
+    };
     dispatch_day: {
         parameters: {
             query?: {
@@ -12855,6 +13668,409 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DispatchDayView"];
                 };
+            };
+        };
+    };
+    dispatch_match: {
+        parameters: {
+            query?: {
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MatchView"];
+                };
+            };
+        };
+    };
+    dispatch_queue_list: {
+        parameters: {
+            query?: {
+                /** @description Page size, clamped to [1, 500]. */
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DispatchQueueView"];
+                };
+            };
+        };
+    };
+    dispatch_queue_set: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetQueueRankRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueueMutationResponse"];
+                };
+            };
+            /** @description ticket not visible or not open/unassigned */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    dispatch_queue_clear: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueueMutationResponse"];
+                };
+            };
+            /** @description ticket not visible */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    dispatch_skills_catalog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillsCatalogView"];
+                };
+            };
+        };
+    };
+    dispatch_ticket_skills_replace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplaceTicketSkillsRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketSkillsMutationResponse"];
+                };
+            };
+            /** @description ticket not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed (labels, duplicates, count) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    dispatch_travel_draft_list: {
+        parameters: {
+            query?: {
+                user_id?: string | null;
+                /** @description `draft` | `submitted`. */
+                status?: string | null;
+                /** @description Page size, clamped to [1, 200]. */
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TravelDraftView"][];
+                };
+            };
+        };
+    };
+    dispatch_travel_draft_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTravelDraftRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TravelDraftMutationResponse"];
+                };
+            };
+            /** @description ticket not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    dispatch_travel_draft_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TravelDraftMutationResponse"];
+                };
+            };
+            /** @description not visible, or already submitted */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    dispatch_travel_draft_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchTravelDraftRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TravelDraftMutationResponse"];
+                };
+            };
+            /** @description not visible, or already submitted */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    dispatch_travel_draft_submit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitTravelDraftRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimeEntryMutationResponse"];
+                };
+            };
+            /** @description draft not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description already submitted, version conflict, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    dispatch_user_skills_replace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplaceUserSkillsRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserSkillsMutationResponse"];
+                };
+            };
+            /** @description user not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed (labels, expiry, duplicates) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

@@ -2389,6 +2389,59 @@
         ],
         "type": "string"
       },
+      "CapacityHorizonView": {
+        "description": "The assembled horizon payload. `unassigned_count` is the current open\nunassigned queue depth so planners see demand next to capacity.",
+        "properties": {
+          "days": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "from": {
+            "format": "date",
+            "type": "string"
+          },
+          "technicians": {
+            "items": {
+              "$ref": "#/components/schemas/TechnicianCapacity"
+            },
+            "type": "array"
+          },
+          "unassigned_count": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "from",
+          "days",
+          "technicians",
+          "unassigned_count"
+        ],
+        "type": "object"
+      },
+      "CapacityQuery": {
+        "description": "GET /api/dispatch/capacity query: `from` date (defaults to today UTC)\nand the horizon length in days (1..=31, default 7).",
+        "properties": {
+          "days": {
+            "description": "Horizon length in days (1..=31).",
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "from": {
+            "format": "date",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "CategoryMutationResponse": {
         "allOf": [
           {
@@ -2849,6 +2902,206 @@
           "title",
           "starts_at",
           "ends_at"
+        ],
+        "type": "object"
+      },
+      "ConnectorAppointment": {
+        "description": "One booking as the connector sees it.",
+        "properties": {
+          "client_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "client_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dispatch_status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ConnectorStatusView",
+                "description": "Latest pushed field-service status, when any."
+              }
+            ]
+          },
+          "ends_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "technician_name": {
+            "type": "string"
+          },
+          "technician_user_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ticket_number": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "travel_minutes": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "technician_user_id",
+          "technician_name",
+          "title",
+          "starts_at",
+          "ends_at",
+          "kind",
+          "status",
+          "travel_minutes"
+        ],
+        "type": "object"
+      },
+      "ConnectorScheduleQuery": {
+        "description": "GET /api/dispatch-connector/schedule query. The window is bounded at\n62 days so one pull cannot scan the whole calendar.",
+        "properties": {
+          "days": {
+            "description": "Window length in days (1..=62, default 7).",
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "from": {
+            "format": "date",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "ConnectorScheduleView": {
+        "properties": {
+          "appointments": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectorAppointment"
+            },
+            "type": "array"
+          },
+          "days": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "from": {
+            "format": "date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "days",
+          "appointments"
+        ],
+        "type": "object"
+      },
+      "ConnectorStatusView": {
+        "description": "The latest status push for one booking.",
+        "properties": {
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "source": {
+            "description": "`connector` | `staff`.",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "source",
+          "occurred_at"
+        ],
+        "type": "object"
+      },
+      "ConnectorTechnician": {
+        "description": "GET /api/dispatch-connector/technicians entry.",
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "skills": {
+            "description": "Current (non-expired) skills — lets the external planner respect\ncertifications before proposing a dispatch.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "user_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "display_name",
+          "skills"
+        ],
+        "type": "object"
+      },
+      "ConnectorTechniciansView": {
+        "properties": {
+          "technicians": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectorTechnician"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "technicians"
         ],
         "type": "object"
       },
@@ -4674,6 +4927,67 @@
         ],
         "type": "object"
       },
+      "CreateTravelDraftRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams"
+          },
+          {
+            "properties": {
+              "billable": {
+                "type": "boolean"
+              },
+              "distance": {
+                "format": "double",
+                "type": "number"
+              },
+              "distance_unit": {
+                "description": "`km` | `mi`.",
+                "type": "string"
+              },
+              "ended_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "notes": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "started_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "ticket_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "user_id": {
+                "description": "Whose work this is; defaults to the caller. Only owner/admin may\nfile on someone else's behalf.",
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "vehicle": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "ticket_id",
+              "started_at",
+              "ended_at",
+              "distance",
+              "distance_unit",
+              "vehicle"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "POST /api/dispatch/travel-drafts body."
+      },
       "CreateViewRequest": {
         "properties": {
           "is_default": {
@@ -4747,6 +5061,43 @@
           "org_id",
           "generated_at",
           "sections"
+        ],
+        "type": "object"
+      },
+      "DayCapacity": {
+        "description": "One technician's capacity for one day of the horizon.",
+        "properties": {
+          "available_minutes": {
+            "description": "Availability coverage minus exclusions for the UTC day.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "booked_minutes": {
+            "description": "Live booking minutes clipped to the day.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "date": {
+            "format": "date",
+            "type": "string"
+          },
+          "free_minutes": {
+            "description": "What a NEW booking can still consume: availability minus\nexclusions minus existing bookings.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "utilization_percent": {
+            "description": "0–100+, where >100 is over-capacity.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "date",
+          "available_minutes",
+          "booked_minutes",
+          "free_minutes",
+          "utilization_percent"
         ],
         "type": "object"
       },
@@ -5078,6 +5429,17 @@
               "null"
             ]
           },
+          "dispatch_status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DispatchStatusShade",
+                "description": "Latest field-service status push against this booking (dispatch v2,\nadditive): `None` when nothing was pushed yet."
+              }
+            ]
+          },
           "ends_at": {
             "format": "date-time",
             "type": "string"
@@ -5182,6 +5544,62 @@
           "to",
           "technicians",
           "unassigned"
+        ],
+        "type": "object"
+      },
+      "DispatchQueueQuery": {
+        "properties": {
+          "limit": {
+            "description": "Page size, clamped to [1, 500].",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "DispatchQueueView": {
+        "description": "GET /api/dispatch/queue envelope.",
+        "properties": {
+          "queue": {
+            "items": {
+              "$ref": "#/components/schemas/QueuedTicket"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "queue"
+        ],
+        "type": "object"
+      },
+      "DispatchStatusShade": {
+        "description": "The latest connector/staff status push for one booking, shaded onto\nthe board block face.",
+        "properties": {
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "source": {
+            "description": "`connector` | `staff`.",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "source",
+          "occurred_at"
         ],
         "type": "object"
       },
@@ -7237,6 +7655,33 @@
         },
         "type": "object"
       },
+      "ListTravelDraftsQuery": {
+        "properties": {
+          "limit": {
+            "description": "Page size, clamped to [1, 200].",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "status": {
+            "description": "`draft` | `submitted`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "user_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "LoginRequest": {
         "properties": {
           "email": {
@@ -7882,6 +8327,57 @@
         },
         "required": [
           "marked"
+        ],
+        "type": "object"
+      },
+      "MatchCandidate": {
+        "description": "One technician candidate for one ticket: the skills this candidate is\nmissing (an empty list = fully qualified right now).",
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "user_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "display_name",
+          "missing"
+        ],
+        "type": "object"
+      },
+      "MatchQuery": {
+        "description": "GET /api/dispatch/match query: how many unassigned tickets to match.",
+        "properties": {
+          "limit": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "MatchView": {
+        "properties": {
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/TicketMatch"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "matches"
         ],
         "type": "object"
       },
@@ -9026,6 +9522,78 @@
             "type": "object"
           }
         ]
+      },
+      "PatchTravelDraftRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams"
+          },
+          {
+            "properties": {
+              "billable": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "distance": {
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "distance_unit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "ended_at": {
+                "format": "date-time",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "notes": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "started_at": {
+                "format": "date-time",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "ticket_id": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "user_id": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "vehicle": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "PATCH /api/dispatch/travel-drafts/{id} body — every member optional;\nabsent members are left untouched."
       },
       "PatchViewRequest": {
         "properties": {
@@ -10899,6 +11467,96 @@
         ],
         "type": "object"
       },
+      "PushStatusMutationResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PushStatusResponse"
+          },
+          {
+            "properties": {
+              "mutation": {
+                "$ref": "#/components/schemas/MutationMeta"
+              }
+            },
+            "required": [
+              "mutation"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "201 body: the pushed row plus the read-your-write metadata (IF2)."
+      },
+      "PushStatusRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams"
+          },
+          {
+            "properties": {
+              "note": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "occurred_at": {
+                "description": "When the status was observed; defaults to now (server clock).",
+                "format": "date-time",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "description": "Field-service status: en_route | arrived | in_progress | completed\n| blocked | delayed.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "POST /api/dispatch-connector/appointments/{id}/status body."
+      },
+      "PushStatusResponse": {
+        "description": "The pushed row (entity fields; the mutation envelope flattens it).",
+        "properties": {
+          "appointment_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "appointment_id",
+          "status",
+          "source",
+          "occurred_at"
+        ],
+        "type": "object"
+      },
       "PutCapabilityRequest": {
         "properties": {
           "capability": {
@@ -10962,6 +11620,65 @@
           "visible_status_ids"
         ],
         "type": "object"
+      },
+      "QueueMutationResponse": {
+        "description": "Queue mutation envelope (set + clear share the shape; clears carry\n`cleared: true` and null note).",
+        "properties": {
+          "cleared": {
+            "type": "boolean"
+          },
+          "mutation": {
+            "$ref": "#/components/schemas/MutationMeta"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rank": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "rank",
+          "cleared",
+          "mutation"
+        ],
+        "type": "object"
+      },
+      "QueuedTicket": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MyWorkItem"
+          },
+          {
+            "properties": {
+              "override_note": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "rank_override": {
+                "description": "The dispatcher-set rank pinning this ticket's position (overrides\nsort ahead of the computed order); absent = computed order only.",
+                "format": "int32",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "One queued ticket: the day-view's queue row shape plus the explicit\noverride when one exists."
       },
       "RangeParams": {
         "properties": {
@@ -11150,6 +11867,52 @@
           "steps"
         ],
         "type": "object"
+      },
+      "ReplaceTicketSkillsRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams"
+          },
+          {
+            "properties": {
+              "skills": {
+                "description": "Full replacement set (an empty set clears every requirement).",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "skills"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "PUT /api/dispatch/tickets/{ticket_id}/required-skills body."
+      },
+      "ReplaceUserSkillsRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams"
+          },
+          {
+            "properties": {
+              "skills": {
+                "description": "Full replacement set (an empty set clears every skill).",
+                "items": {
+                  "$ref": "#/components/schemas/SkillInput"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "skills"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "PUT /api/dispatch/users/{user_id}/skills body."
       },
       "ReportDefinitionList": {
         "description": "GET /api/report-definitions envelope.",
@@ -11949,6 +12712,33 @@
         ],
         "type": "object"
       },
+      "SetQueueRankRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams"
+          },
+          {
+            "properties": {
+              "note": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "rank": {
+                "description": "Explicit queue position: 0 sorts first among overrides.",
+                "format": "int32",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "rank"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "PUT /api/dispatch/queue/{ticket_id} body."
+      },
       "SetTicketFieldValueRequest": {
         "properties": {
           "value": {}
@@ -12167,6 +12957,49 @@
         ],
         "type": "object"
       },
+      "SkillCatalogEntry": {
+        "description": "GET /api/dispatch/skills envelope entry: the org skill catalog with\nholder counts (`active` = non-expired as of now).",
+        "properties": {
+          "active_holders": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "holders": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "skill": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "skill",
+          "holders",
+          "active_holders"
+        ],
+        "type": "object"
+      },
+      "SkillInput": {
+        "description": "One entry of a skill replacement set.",
+        "properties": {
+          "expires_at": {
+            "description": "Certification expiry; must be in the future when present.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "skill": {
+            "description": "Org skill vocabulary, 1..=80 chars after trimming.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "skill"
+        ],
+        "type": "object"
+      },
       "SkillListQuery": {
         "properties": {
           "slug": {
@@ -12177,6 +13010,40 @@
             ]
           }
         },
+        "type": "object"
+      },
+      "SkillView": {
+        "description": "One skill on one technician.",
+        "properties": {
+          "expires_at": {
+            "description": "Certification expiry; absent = does not expire.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "skill": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "skill"
+        ],
+        "type": "object"
+      },
+      "SkillsCatalogView": {
+        "properties": {
+          "skills": {
+            "items": {
+              "$ref": "#/components/schemas/SkillCatalogEntry"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "skills"
+        ],
         "type": "object"
       },
       "SlaCalendar": {
@@ -12421,6 +13288,14 @@
           }
         ]
       },
+      "SubmitTravelDraftRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams"
+          }
+        ],
+        "description": "POST /api/dispatch/travel-drafts/{id}/submit body."
+      },
       "TaskListQuery": {
         "properties": {
           "assignee_id": {
@@ -12512,6 +13387,30 @@
             ]
           }
         },
+        "type": "object"
+      },
+      "TechnicianCapacity": {
+        "description": "One technician across the whole horizon.",
+        "properties": {
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/DayCapacity"
+            },
+            "type": "array"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "display_name",
+          "days"
+        ],
         "type": "object"
       },
       "TechnicianView": {
@@ -12988,6 +13887,36 @@
         },
         "type": "object"
       },
+      "TicketMatch": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MyWorkItem"
+          },
+          {
+            "properties": {
+              "candidates": {
+                "description": "Active technicians sorted best-first (fewest missing, then name).",
+                "items": {
+                  "$ref": "#/components/schemas/MatchCandidate"
+                },
+                "type": "array"
+              },
+              "required_skills": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "required_skills",
+              "candidates"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "Skills-matched staffing for one unassigned ticket. Tickets with no\nrequired skills are not listed (the plain queue ordering covers them)."
+      },
       "TicketMutationResponse": {
         "allOf": [
           {
@@ -13033,6 +13962,44 @@
           }
         ],
         "description": "The reverted ticket with the mutation envelope, plus what was reverted.\nDeserializable so an IF1 idempotent replay can reconstruct the exact\nstored response."
+      },
+      "TicketSkillsMutationResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/TicketSkillsView"
+          },
+          {
+            "properties": {
+              "mutation": {
+                "$ref": "#/components/schemas/MutationMeta"
+              }
+            },
+            "required": [
+              "mutation"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "The full-replace mutation envelope (IF2)."
+      },
+      "TicketSkillsView": {
+        "properties": {
+          "skills": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "skills"
+        ],
+        "type": "object"
       },
       "TicketSlaState": {
         "description": "Per-ticket SLA clock state. Accumulates paused business seconds so a\nWaiting stretch does not consume the resolution budget.",
@@ -13481,6 +14448,104 @@
         "required": [
           "from_status_id",
           "to_status_id"
+        ],
+        "type": "object"
+      },
+      "TravelDraftMutationResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/TravelDraftView"
+          },
+          {
+            "properties": {
+              "mutation": {
+                "$ref": "#/components/schemas/MutationMeta"
+              }
+            },
+            "required": [
+              "mutation"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "Mutation envelope: draft fields at the top level plus the additive\n`mutation` metadata (IF2)."
+      },
+      "TravelDraftView": {
+        "description": "One travel/mileage draft.",
+        "properties": {
+          "billable": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "distance": {
+            "format": "double",
+            "type": "number"
+          },
+          "distance_unit": {
+            "description": "`km` | `mi`.",
+            "type": "string"
+          },
+          "ended_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "description": "`draft` | `submitted`.",
+            "type": "string"
+          },
+          "submitted_time_entry_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "vehicle": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "ticket_id",
+          "started_at",
+          "ended_at",
+          "distance",
+          "distance_unit",
+          "vehicle",
+          "billable",
+          "status",
+          "created_at",
+          "updated_at"
         ],
         "type": "object"
       },
@@ -14228,6 +15293,44 @@
           "discovery_url",
           "client_id",
           "client_secret"
+        ],
+        "type": "object"
+      },
+      "UserSkillsMutationResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/UserSkillsView"
+          },
+          {
+            "properties": {
+              "mutation": {
+                "$ref": "#/components/schemas/MutationMeta"
+              }
+            },
+            "required": [
+              "mutation"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "The full-replace mutation envelope (IF2)."
+      },
+      "UserSkillsView": {
+        "properties": {
+          "skills": {
+            "items": {
+              "$ref": "#/components/schemas/SkillView"
+            },
+            "type": "array"
+          },
+          "user_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "skills"
         ],
         "type": "object"
       },
@@ -19161,6 +20264,160 @@
         ]
       }
     },
+    "/api/v1/dispatch-connector/appointments/{id}/status": {
+      "post": {
+        "operationId": "dispatch_connector_push_status",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushStatusRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushStatusResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "appointment not visible in scope"
+          },
+          "409": {
+            "description": "idempotency key reused with a different payload"
+          },
+          "422": {
+            "description": "unknown status vocabulary"
+          },
+          "429": {
+            "description": "rate limit exceeded (Retry-After header)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "summary": "POST /api/dispatch-connector/appointments/{id}/status — push one\nfield-service status update. Idempotent via the instant envelope: the\nsame key + payload replays the same stored row (never double-pushes);\na foreign-org appointment id is a bare 404.",
+        "tags": [
+          "dispatch-connector"
+        ]
+      }
+    },
+    "/api/v1/dispatch-connector/schedule": {
+      "get": {
+        "operationId": "dispatch_connector_schedule",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "format": "date",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Window length in days (1..=62, default 7).",
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorScheduleView"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "description": "missing dispatch:read scope (keys) or not an org admin (humans)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "summary": "GET /api/dispatch-connector/schedule — bookings in a bounded window\nwith technician/ticket/client coordinates and the latest pushed\nfield-service status per booking.",
+        "tags": [
+          "dispatch-connector"
+        ]
+      }
+    },
+    "/api/v1/dispatch-connector/technicians": {
+      "get": {
+        "operationId": "dispatch_connector_technicians",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorTechniciansView"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "description": "missing dispatch:read scope (keys) or not an org admin (humans)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "summary": "GET /api/dispatch-connector/technicians — active technicians with\ntheir current (non-expired) skills.",
+        "tags": [
+          "dispatch-connector"
+        ]
+      }
+    },
     "/api/v1/dispatch/assign": {
       "post": {
         "operationId": "dispatch_assign",
@@ -19240,6 +20497,60 @@
         ]
       }
     },
+    "/api/v1/dispatch/capacity": {
+      "get": {
+        "operationId": "dispatch_capacity",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "format": "date",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Horizon length in days (1..=31).",
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapacityHorizonView"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/dispatch/capacity — multi-day capacity horizon: the day view's\ncapacity math repeated per UTC day over the window, one org-wide\navailability read + one exclusion read + one appointment read.",
+        "tags": [
+          "scheduling"
+        ]
+      }
+    },
     "/api/v1/dispatch/day": {
       "get": {
         "operationId": "dispatch_day",
@@ -19276,6 +20587,574 @@
           }
         ],
         "summary": "GET /api/dispatch/day — the whole board for one day.",
+        "tags": [
+          "scheduling"
+        ]
+      }
+    },
+    "/api/v1/dispatch/match": {
+      "get": {
+        "operationId": "dispatch_match",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchView"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/dispatch/match — for every unassigned open ticket carrying\nrequired skills, the active technicians sorted best-first by how many\nrequired skills they are missing (0 = fully qualified). Expired\ncertifications never count as held.",
+        "tags": [
+          "scheduling"
+        ]
+      }
+    },
+    "/api/v1/dispatch/queue": {
+      "get": {
+        "operationId": "dispatch_queue_list",
+        "parameters": [
+          {
+            "description": "Page size, clamped to [1, 500].",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DispatchQueueView"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/dispatch/queue — the full unassigned queue with dispatcher\noverrides applied: overridden tickets sort by explicit rank first\n(ties fall back to the computed order), then everything else in the\ncomputed order (priority rank, then effective SLA/due deadline).",
+        "tags": [
+          "scheduling"
+        ]
+      }
+    },
+    "/api/v1/dispatch/queue/{ticket_id}": {
+      "delete": {
+        "operationId": "dispatch_queue_clear",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueueMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "ticket not visible"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "DELETE /api/dispatch/queue/{ticket_id} — clear a rank override.\nIdempotent: clearing an unset override still returns 200 with\n`cleared: false` (the dispatcher's intent is already satisfied).",
+        "tags": [
+          "scheduling"
+        ]
+      },
+      "put": {
+        "operationId": "dispatch_queue_set",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetQueueRankRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueueMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "ticket not visible or not open/unassigned"
+          },
+          "409": {
+            "description": "version conflict or idempotency key reused"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "PUT /api/dispatch/queue/{ticket_id} — pin a ticket's queue position.\nThe ticket must exist and still be open+unassigned (an override for a\nplaced ticket is meaningless); idempotent via the instant envelope.",
+        "tags": [
+          "scheduling"
+        ]
+      }
+    },
+    "/api/v1/dispatch/skills": {
+      "get": {
+        "operationId": "dispatch_skills_catalog",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillsCatalogView"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/dispatch/skills — the org's skill/certification catalog.",
+        "tags": [
+          "scheduling"
+        ]
+      }
+    },
+    "/api/v1/dispatch/tickets/{ticket_id}/required-skills": {
+      "put": {
+        "operationId": "dispatch_ticket_skills_replace",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplaceTicketSkillsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketSkillsMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "ticket not visible in scope (rls_sparse)"
+          },
+          "409": {
+            "description": "version conflict or idempotency key reused"
+          },
+          "422": {
+            "description": "validation failed (labels, duplicates, count)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "PUT /api/dispatch/tickets/{ticket_id}/required-skills — full-replace\nthe job's required-skill set. The ticket must exist and be open +\nunassigned (requirements on placed work are history, not planning).",
+        "tags": [
+          "scheduling"
+        ]
+      }
+    },
+    "/api/v1/dispatch/travel-drafts": {
+      "get": {
+        "operationId": "dispatch_travel_draft_list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "user_id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "`draft` | `submitted`.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Page size, clamped to [1, 200].",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TravelDraftView"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/dispatch/travel-drafts — the caller's drafts (all users for\nowner/admin via `user_id`), newest first.",
+        "tags": [
+          "scheduling"
+        ]
+      },
+      "post": {
+        "operationId": "dispatch_travel_draft_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTravelDraftRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TravelDraftMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "ticket not visible in scope (rls_sparse)"
+          },
+          "409": {
+            "description": "version conflict or idempotency key reused"
+          },
+          "422": {
+            "description": "validation failed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/dispatch/travel-drafts — a draft mileage row against a\nticket. Instant-first (IF1/IF2): idempotency-keyed, version-gated,\nwrite-trailed.",
+        "tags": [
+          "scheduling"
+        ]
+      }
+    },
+    "/api/v1/dispatch/travel-drafts/{id}": {
+      "delete": {
+        "operationId": "dispatch_travel_draft_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TravelDraftMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "not visible, or already submitted"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "DELETE /api/dispatch/travel-drafts/{id} — discard a draft. Submitted\ndrafts are immutable history (delete the TIME ENTRY through invoicing\ncorrections, never the draft's backlink).",
+        "tags": [
+          "scheduling"
+        ]
+      },
+      "patch": {
+        "operationId": "dispatch_travel_draft_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchTravelDraftRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TravelDraftMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "not visible, or already submitted"
+          },
+          "409": {
+            "description": "version conflict or idempotency key reused"
+          },
+          "422": {
+            "description": "validation failed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "PATCH /api/dispatch/travel-drafts/{id} — edit a draft. Submitted\ndrafts are frozen (the time entry already exists).",
+        "tags": [
+          "scheduling"
+        ]
+      }
+    },
+    "/api/v1/dispatch/travel-drafts/{id}/submit": {
+      "post": {
+        "operationId": "dispatch_travel_draft_submit",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitTravelDraftRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimeEntryMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "draft not visible in scope (rls_sparse)"
+          },
+          "409": {
+            "description": "already submitted, version conflict, or idempotency key reused"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/dispatch/travel-drafts/{id}/submit — convert a draft into a\nreal time entry through the EXISTING time-entry path\n(`insert_time_entry` + the `time_entry.created` event), then freeze\nthe draft with the entry backlink. The entry's notes carry the\nmachine-readable provenance marker (`travel_draft:<id>`); the write\ntrail records the full before/after so \"who did this\" and undo stay\nqueryable. Idempotent: the same submit replays the SAME entry.",
+        "tags": [
+          "scheduling"
+        ]
+      }
+    },
+    "/api/v1/dispatch/users/{user_id}/skills": {
+      "put": {
+        "operationId": "dispatch_user_skills_replace",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplaceUserSkillsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserSkillsMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "user not visible in scope"
+          },
+          "409": {
+            "description": "version conflict or idempotency key reused"
+          },
+          "422": {
+            "description": "validation failed (labels, expiry, duplicates)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "PUT /api/dispatch/users/{user_id}/skills — full-replace the\ntechnician's skill set. The technician must be an active member of\nthis org.",
         "tags": [
           "scheduling"
         ]
@@ -27175,6 +29054,10 @@
     {
       "description": "Alert ingestor: HMAC-signed webhook ingest, dedup/correlation, storm collapse into incident tickets",
       "name": "alerts"
+    },
+    {
+      "description": "Dispatch connector v1: scoped machine surface — schedule reads + field-service status pushes (API-key dispatch:read / dispatch:write)",
+      "name": "dispatch-connector"
     },
     {
       "description": "Agent platform v1: capability registry (deny-by-default, involvement dial), versioned agent skills, IF8 proposal pipeline (approval by default)",
