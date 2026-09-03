@@ -2032,6 +2032,71 @@
         ],
         "type": "object"
       },
+      "ByokOverviewResponse": {
+        "description": "Summary of all configured AI providers for the org.",
+        "properties": {
+          "active_model": {
+            "type": "string"
+          },
+          "active_provider": {
+            "type": "string"
+          },
+          "configured_providers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "active_provider",
+          "active_model",
+          "configured_providers"
+        ],
+        "type": "object"
+      },
+      "ByokSecretMutationResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ByokSecretStatus"
+          },
+          {
+            "properties": {
+              "mutation": {
+                "$ref": "#/components/schemas/MutationMeta"
+              }
+            },
+            "required": [
+              "mutation"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "Mutation response: status fields plus the instant-first mutation\nmetadata (`mutation.version` echoes into the next write)."
+      },
+      "ByokSecretStatus": {
+        "description": "Non-secret status of a stored BYOK key (presence flags only — never\nkey material). Flattened into mutation responses so a stored replay\ndeserializes byte-identically.",
+        "properties": {
+          "has_key": {
+            "type": "boolean"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "provider",
+          "has_key",
+          "updated_at"
+        ],
+        "type": "object"
+      },
       "CalendarExclusion": {
         "description": "Absolute UTC time-off punching holes in availability.",
         "properties": {
@@ -9767,6 +9832,32 @@
         ],
         "type": "object"
       },
+      "PutByokSecretRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1): idempotency key + entity\nversion. Absent in legacy clients — purely additive."
+          },
+          {
+            "properties": {
+              "api_key": {
+                "description": "Plaintext API key / token to be sealed at rest.",
+                "type": "string"
+              },
+              "provider": {
+                "description": "Provider name: an AI provider (\"openai\", \"anthropic\", \"ollama\",\n\"custom\") or an export-sync connector (\"qbo\", \"xero\").",
+                "type": "string"
+              }
+            },
+            "required": [
+              "provider",
+              "api_key"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "Request to store or update a sealed BYOK API key."
+      },
       "PutCapabilityRequest": {
         "properties": {
           "capability": {
@@ -11512,6 +11603,55 @@
           "created_by_kind",
           "created_at",
           "updated_at"
+        ],
+        "type": "object"
+      },
+      "TestConnectionRequest": {
+        "description": "Request to test the connection to an AI provider.",
+        "properties": {
+          "provider": {
+            "description": "Provider to test. If omitted, tests the currently active provider in settings.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "test_prompt": {
+            "description": "Optional prompt to test with.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "TestConnectionResponse": {
+        "description": "Result of testing an AI provider connection.",
+        "properties": {
+          "latency_ms": {
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "message": {
+            "description": "Descriptive status message or reason on failure.",
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "provider": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "ok",
+          "message"
         ],
         "type": "object"
       },
@@ -22612,6 +22752,158 @@
         "summary": "GET /api/search — unified staff search across tickets, comments and the\nclient hierarchy.",
         "tags": [
           "search"
+        ]
+      }
+    },
+    "/api/v1/settings/ai/byok": {
+      "put": {
+        "operationId": "settings_ai_byok_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutByokSecretRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ByokSecretMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "description": ""
+          },
+          "409": {
+            "description": "idempotency key reused or version conflict"
+          },
+          "422": {
+            "description": "invalid provider or key"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "PUT /api/settings/ai/byok — seals and stores an API key at rest\n(Admin:edit + owner/admin standing). Rides the instant-first write\npath; replays are byte-identical and the trail stores presence flags\nonly.",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/ai/byok/{provider}": {
+      "delete": {
+        "operationId": "settings_ai_byok_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ByokSecretMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "description": ""
+          },
+          "404": {
+            "description": "rls_sparse: no key stored for that provider"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "DELETE /api/settings/ai/byok/{provider} — removes a sealed BYOK key\nthrough the same gated path; the write trail keeps the presence\nsnapshot.",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/ai/status": {
+      "get": {
+        "operationId": "settings_ai_status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ByokOverviewResponse"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/settings/ai/status — overview of AI completion provider & configured keys.",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/ai/test": {
+      "post": {
+        "operationId": "settings_ai_test",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestConnectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestConnectionResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/settings/ai/test — test-connection probe (Admin:edit gated).\nNone mode returns the typed unavailable outcome; a configured provider\nverifies its sealed key still decrypts (tamper/rotation check). No\nvendor HTTP call happens in v1 — the live probe rides the edge adapters\nwhen a lane wires them.",
+        "tags": [
+          "settings"
         ]
       }
     },

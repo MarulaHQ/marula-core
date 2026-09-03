@@ -45,6 +45,7 @@ pub mod availability;
 pub mod billing;
 pub mod board_access;
 pub mod boards;
+pub mod byok;
 pub mod calendar;
 pub mod checklists;
 pub mod clients;
@@ -672,6 +673,14 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/org"),
             get(settings::org_profile_get).patch(settings::org_profile_patch),
         )
+        // AI/BYOK settings (TASKLIST Phase 3: CompletionProvider seam)
+        .route(&rp("/settings/ai/status"), get(byok::get_ai_status))
+        .route(&rp("/settings/ai/byok"), put(byok::put_byok_secret))
+        .route(
+            &rp("/settings/ai/byok/{provider}"),
+            axum::routing::delete(byok::delete_byok_secret),
+        )
+        .route(&rp("/settings/ai/test"), post(byok::test_ai_connection))
         // customization manifest (TASKLIST U5): admin-gated canonical
         // export; owner/admin checked inside the handler (policy §5).
         .route(&rp("/org/manifest"), get(manifest::get))

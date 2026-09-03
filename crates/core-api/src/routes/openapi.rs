@@ -173,6 +173,12 @@ use utoipa::OpenApi;
         crate::routes::settings::user_value_put,
         crate::routes::settings::org_profile_get,
         crate::routes::settings::org_profile_patch,
+        // BYOK sealed credentials + completion seam (TASKLIST Phase 3
+        // adapters lane): owner/admin-gated, instant-first write path.
+        crate::routes::byok::get_ai_status,
+        crate::routes::byok::put_byok_secret,
+        crate::routes::byok::delete_byok_secret,
+        crate::routes::byok::test_ai_connection,
         crate::routes::portal::login,
         crate::routes::portal::refresh,
         crate::routes::portal::me,
@@ -485,6 +491,11 @@ use utoipa::OpenApi;
         crate::routes::settings::UpdateSettingRequest,
         crate::routes::settings::OrgProfileResponse,
         crate::routes::settings::PatchOrgRequest,
+        crate::routes::byok::PutByokSecretRequest,
+        crate::routes::byok::ByokSecretMutationResponse,
+        crate::routes::byok::TestConnectionRequest,
+        crate::routes::byok::TestConnectionResponse,
+        crate::routes::byok::ByokOverviewResponse,
         core_domain::settings::SettingKind,
         core_domain::settings::SettingValue,
         // customization manifest (TASKLIST U5, policy §5)

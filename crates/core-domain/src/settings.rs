@@ -137,6 +137,7 @@ pub enum SettingSection {
     General,
     Appearance,
     Onboarding,
+    Integrations,
 }
 
 impl SettingSection {
@@ -145,6 +146,7 @@ impl SettingSection {
             SettingSection::General => "general",
             SettingSection::Appearance => "appearance",
             SettingSection::Onboarding => "onboarding",
+            SettingSection::Integrations => "integrations",
         }
     }
 }
@@ -210,6 +212,7 @@ impl SettingDeclaration {
                 GENERAL_DEFAULT_TIMEZONE => TIMEZONE_OPTIONS,
                 GENERAL_WEEK_START => WEEK_START_OPTIONS,
                 APPEARANCE_THEME => THEME_OPTIONS,
+                AI_COMPLETION_PROVIDER => AI_PROVIDER_OPTIONS,
                 _ => EMPTY_OPTIONS,
             }),
             _ => None,
@@ -234,6 +237,8 @@ pub const GENERAL_WEEK_START: &str = "general.week_start";
 pub const GENERAL_EOD_HOUR: &str = "general.eod_hour";
 pub const APPEARANCE_THEME: &str = "appearance.theme";
 pub const ONBOARDING_WIZARD_COMPLETED: &str = "onboarding.wizard_completed";
+pub const AI_COMPLETION_PROVIDER: &str = "ai.completion_provider";
+pub const AI_COMPLETION_MODEL: &str = "ai.completion_model";
 
 pub const TIMEZONE_OPTIONS: &[&str] = &[
     "UTC",
@@ -264,6 +269,22 @@ pub const TIMEZONE_OPTIONS: &[&str] = &[
 pub const WEEK_START_OPTIONS: &[&str] = &["monday", "sunday"];
 
 pub const THEME_OPTIONS: &[&str] = &["light", "dark"];
+
+pub const AI_PROVIDER_OPTIONS: &[&str] = &["none", "openai", "anthropic", "ollama", "custom"];
+
+/// Provider identifiers the generic sealed-key store (BYOK) accepts for
+/// accounting/export-sync connectors (Wave 9 adapters lane). Their OAuth
+/// access/refresh tokens ride the same per-org sealed storage as AI keys —
+/// one store, one audit trail, no plaintext anywhere.
+pub const CONNECTOR_PROVIDER_OPTIONS: &[&str] = &["qbo", "xero"];
+
+/// Every provider id acceptable to the BYOK seal/unseal surface.
+pub fn byok_provider_options() -> impl Iterator<Item = &'static str> {
+    AI_PROVIDER_OPTIONS
+        .iter()
+        .copied()
+        .chain(CONNECTOR_PROVIDER_OPTIONS.iter().copied())
+}
 
 const EMPTY_OPTIONS: &[&str] = &[];
 
@@ -330,6 +351,27 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> =
                 description: "Set when the Tier-1 org wizard is finished or skipped. Skipping \
                              changes nothing else — defaults already operate the org.",
             },
+            SettingDeclaration {
+                key: AI_COMPLETION_PROVIDER,
+                kind: SettingKind::Enumeration,
+                default: SettingValue::Text("none".into()),
+                scope: SettingScope::Org,
+                section: SettingSection::Integrations,
+                visibility: SettingVisibility::Ui,
+                label: "AI completion provider",
+                description: "Active LLM completion provider for BYOK intelligence. \
+                             'none' disables all outgoing model calls (none mode).",
+            },
+            SettingDeclaration {
+                key: AI_COMPLETION_MODEL,
+                kind: SettingKind::Text { max_len: 128 },
+                default: SettingValue::Text("none".into()),
+                scope: SettingScope::Org,
+                section: SettingSection::Integrations,
+                visibility: SettingVisibility::Ui,
+                label: "AI completion model",
+                description: "Model identifier to invoke on the active completion provider.",
+            },
         ]
     });
 
@@ -387,7 +429,7 @@ mod tests {
             Some(SettingValue::Text("light".into()))
         );
         assert_eq!(declarations_for(SettingScope::User).len(), 1);
-        assert_eq!(declarations_for(SettingScope::Org).len(), 4);
+        assert_eq!(declarations_for(SettingScope::Org).len(), 6);
     }
 
     #[test]

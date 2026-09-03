@@ -9,6 +9,7 @@
 pub mod attachments;
 pub mod automations;
 pub mod cadence;
+pub mod completion;
 pub mod custom_fields;
 pub mod deprecation;
 pub mod entities;
@@ -29,6 +30,10 @@ pub mod time_audit;
 pub mod webhooks;
 pub mod workflow;
 
+pub use completion::{
+    CompletionError, CompletionMessage, CompletionProvider, CompletionRequest, CompletionResponse,
+    CompletionUsage, MessageRole, NoneCompletionProvider,
+};
 pub use entities::*;
 pub use error::DomainError;
 pub use ids::*;

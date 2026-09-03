@@ -3154,6 +3154,89 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/settings/ai/byok": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * PUT /api/settings/ai/byok — seals and stores an API key at rest
+         *     (Admin:edit + owner/admin standing). Rides the instant-first write
+         *     path; replays are byte-identical and the trail stores presence flags
+         *     only.
+         */
+        put: operations["settings_ai_byok_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/ai/byok/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/settings/ai/byok/{provider} — removes a sealed BYOK key
+         *     through the same gated path; the write trail keeps the presence
+         *     snapshot.
+         */
+        delete: operations["settings_ai_byok_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/ai/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/settings/ai/status — overview of AI completion provider & configured keys. */
+        get: operations["settings_ai_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/ai/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/settings/ai/test — test-connection probe (Admin:edit gated).
+         *     None mode returns the typed unavailable outcome; a configured provider
+         *     verifies its sealed key still decrypts (tamper/rotation check). No
+         *     vendor HTTP call happens in v1 — the live probe rides the edge adapters
+         *     when a lane wires them.
+         */
+        post: operations["settings_ai_test"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/settings/org": {
         parameters: {
             query?: never;
@@ -4665,6 +4748,29 @@ export interface components {
                 string,
                 string
             ] | null)[];
+        };
+        /** @description Summary of all configured AI providers for the org. */
+        ByokOverviewResponse: {
+            active_model: string;
+            active_provider: string;
+            configured_providers: string[];
+        };
+        /**
+         * @description Mutation response: status fields plus the instant-first mutation
+         *     metadata (`mutation.version` echoes into the next write).
+         */
+        ByokSecretMutationResponse: components["schemas"]["ByokSecretStatus"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        /**
+         * @description Non-secret status of a stored BYOK key (presence flags only — never
+         *     key material). Flattened into mutation responses so a stored replay
+         *     deserializes byte-identically.
+         */
+        ByokSecretStatus: {
+            has_key: boolean;
+            provider: string;
+            updated_at: string | null;
         };
         /** @description Absolute UTC time-off punching holes in availability. */
         CalendarExclusion: {
@@ -7575,6 +7681,16 @@ export interface components {
              */
             slug: string;
         };
+        /** @description Request to store or update a sealed BYOK API key. */
+        PutByokSecretRequest: components["schemas"]["MutationParams"] & {
+            /** @description Plaintext API key / token to be sealed at rest. */
+            api_key: string;
+            /**
+             * @description Provider name: an AI provider ("openai", "anthropic", "ollama",
+             *     "custom") or an export-sync connector ("qbo", "xero").
+             */
+            provider: string;
+        };
         PutCapabilityRequest: {
             /** @description `<namespace>:read` | `<namespace>:write`. */
             capability: string;
@@ -8224,6 +8340,22 @@ export interface components {
             source_system: string;
             /** Format: date-time */
             updated_at: string;
+        };
+        /** @description Request to test the connection to an AI provider. */
+        TestConnectionRequest: {
+            /** @description Provider to test. If omitted, tests the currently active provider in settings. */
+            provider?: string | null;
+            /** @description Optional prompt to test with. */
+            test_prompt?: string | null;
+        };
+        /** @description Result of testing an AI provider connection. */
+        TestConnectionResponse: {
+            /** Format: int64 */
+            latency_ms?: number | null;
+            /** @description Descriptive status message or reason on failure. */
+            message: string;
+            ok: boolean;
+            provider: string;
         };
         TestFireResponse: {
             /**
@@ -14952,6 +15084,131 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SearchResponse"];
                 };
+            };
+        };
+    };
+    settings_ai_byok_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutByokSecretRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ByokSecretMutationResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description idempotency key reused or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid provider or key */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    settings_ai_byok_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ByokSecretMutationResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description rls_sparse: no key stored for that provider */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    settings_ai_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ByokOverviewResponse"];
+                };
+            };
+        };
+    };
+    settings_ai_test: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestConnectionRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestConnectionResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
