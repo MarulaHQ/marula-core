@@ -32,6 +32,8 @@ const SECTIONS: NavItem[] = [
   { href: "/settings/mail", label: "Mail", pending: true },
   { href: "/settings/integrations", label: "Integrations" },
   { href: "/settings/api-keys", label: "API keys" },
+  { href: "/settings/agent-platform", label: "Agent platform" },
+  { href: "/settings/ai", label: "AI & connectors" },
 ];
 
 export default function SettingsLayout({ children }: { children: ReactNode }) {
