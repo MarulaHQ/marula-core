@@ -957,9 +957,14 @@ pub async fn run_import_batch(
     Json(req): Json<ImportBatchRunRequest>,
 ) -> ApiResult<Response> {
     require_internal_token(&state, &headers)?;
-    let batch = core_db::imports::get_batch(&state.pool, req.org_id, req.batch_id)
+    // RLS-scoped read (pool carries no app.org_id GUC); internal token
+    // carries an org but no user principal, so only the org GUC is set.
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org(&mut tx, req.org_id).await?;
+    let batch = core_db::imports::get_batch(&mut *tx, req.org_id, req.batch_id)
         .await
         .map_err(|_| ApiError::NotFound)?;
+    tx.commit().await.map_err(ApiError::from)?;
     if batch.dry_run {
         return Err(ApiError::Validation(
             "dry-run probes are never executed".into(),

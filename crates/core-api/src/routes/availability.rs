@@ -81,8 +81,13 @@ pub async fn list_availability(
     require_permission(&authed.principal, sched(core_domain::policy::Action::View))?;
     let user_id = target_user(&authed.principal, q.user_id, "availability reads")?;
     let org_id = authed.principal.user.org_id;
-    let windows =
-        core_db::scheduling::list_availability_windows(&state.pool, org_id, user_id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let windows = core_db::scheduling::list_availability_windows(&mut *tx, org_id, user_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(AvailabilityListResponse { user_id, windows }))
 }
 
@@ -202,9 +207,15 @@ pub async fn list_on_call(
         q.to.unwrap_or_else(|| Utc::now() + chrono::Duration::days(14));
     validate_span(from, to)?;
     let org_id = authed.principal.user.org_id;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
     let blocks =
-        core_db::scheduling::list_on_call_blocks_between(&state.pool, org_id, &[user_id], from, to)
+        core_db::scheduling::list_on_call_blocks_between(&mut *tx, org_id, &[user_id], from, to)
             .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(blocks))
 }
 
@@ -341,14 +352,15 @@ pub async fn list_exclusions(
         q.to.unwrap_or_else(|| Utc::now() + chrono::Duration::days(180));
     validate_span(from, to)?;
     let org_id = authed.principal.user.org_id;
-    let exclusions = core_db::scheduling::list_calendar_exclusions_between(
-        &state.pool,
-        org_id,
-        user_id,
-        from,
-        to,
-    )
-    .await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let exclusions =
+        core_db::scheduling::list_calendar_exclusions_between(&mut *tx, org_id, user_id, from, to)
+            .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(exclusions))
 }
 

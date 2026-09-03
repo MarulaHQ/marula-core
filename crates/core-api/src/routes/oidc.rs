@@ -671,21 +671,30 @@ fn audit_sso_failed(state: &AppState, org_id: Uuid, reason: &str) {
     let state = state.clone();
     let reason = reason.to_string();
     tokio::spawn(async move {
-        let _ = core_db::audit::insert(
-            &state.pool,
-            &AuditEvent {
-                id: Uuid::now_v7(),
-                org_id,
-                actor: Actor::System,
-                action: "auth.oidc_login_failed".into(),
-                entity_type: None,
-                entity_id: None,
-                detail: serde_json::json!({ "reason": reason }),
-                ip: None,
-                occurred_at: chrono::Utc::now(),
-            },
-        )
+        // RLS-scoped write (pool carries no app.org_id GUC); best effort.
+        let result = async {
+            let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+            core_db::set_org(&mut tx, org_id).await?;
+            core_db::audit::insert(
+                &mut *tx,
+                &AuditEvent {
+                    id: Uuid::now_v7(),
+                    org_id,
+                    actor: Actor::System,
+                    action: "auth.oidc_login_failed".into(),
+                    entity_type: None,
+                    entity_id: None,
+                    detail: serde_json::json!({ "reason": reason }),
+                    ip: None,
+                    occurred_at: chrono::Utc::now(),
+                },
+            )
+            .await?;
+            tx.commit().await.map_err(ApiError::from)?;
+            Ok::<(), ApiError>(())
+        }
         .await;
+        let _ = result;
     });
 }
 

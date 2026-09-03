@@ -129,12 +129,22 @@ pub async fn list(
 ) -> ApiResult<Json<Vec<Document>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, documents(Action::View))?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
     let docs = core_db::documents::list_documents(
-        &state.pool,
+        &mut *tx,
         authed.principal.user.org_id,
         &core_db::documents::DocumentFilter { q: q.q },
     )
     .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(docs))
 }
 
@@ -151,9 +161,15 @@ pub async fn get_one(
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, documents(Action::View))?;
     let org_id = authed.principal.user.org_id;
-    let doc = core_db::documents::get_document(&state.pool, org_id, id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let doc = core_db::documents::get_document(&mut *tx, org_id, id).await?;
     let current =
-        core_db::documents::get_version(&state.pool, org_id, id, doc.current_version).await?;
+        core_db::documents::get_version(&mut *tx, org_id, id, doc.current_version).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(DocumentView {
         document: doc,
         body: current.body,
@@ -382,11 +398,17 @@ pub async fn list_versions(
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, documents(Action::View))?;
     let org_id = authed.principal.user.org_id;
-    // A missing document must not read as an empty history.
-    core_db::documents::get_document(&state.pool, org_id, id)
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
-    let versions = core_db::documents::list_versions(&state.pool, org_id, id).await?;
+    // A missing document must not read as an empty history.
+    core_db::documents::get_document(&mut *tx, org_id, id)
+        .await
+        .map_err(ApiError::from)?;
+    let versions = core_db::documents::list_versions(&mut *tx, org_id, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(versions))
 }
 
@@ -403,7 +425,13 @@ pub async fn get_version(
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, documents(Action::View))?;
     let org_id = authed.principal.user.org_id;
-    let v = core_db::documents::get_version(&state.pool, org_id, id, version).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let v = core_db::documents::get_version(&mut *tx, org_id, id, version).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(v))
 }
 

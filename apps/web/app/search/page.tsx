@@ -11,7 +11,7 @@ import { Button, EmptyState, Input, Spinner, StatusTag } from "@meridian/ui";
 import type { components } from "@meridian/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppHeader } from "../../components/app-header";
+
 import { api, useRequireAuth } from "../../lib/api";
 
 type SearchResult = components["schemas"]["SearchResult"];
@@ -90,7 +90,7 @@ export default function SearchPage() {
 
   if (auth.status !== "authed") {
     return (
-      <main className="flex min-h-screen items-center justify-center">
+      <main className="flex min-h-full items-center justify-center">
         <Spinner />
       </main>
     );
@@ -105,8 +105,7 @@ export default function SearchPage() {
   }
 
   return (
-    <div className="flex h-screen flex-col">
-      <AppHeader />
+    <div className="flex h-full flex-col">
       <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4">
         <Input
           autoFocus

@@ -131,8 +131,21 @@ pub async fn list(
     };
 
     let cursor = q.cursor.as_deref().and_then(decode_cursor);
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state
+        .pool
+        .begin()
+        .await
+        .map_err(crate::error::ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(crate::error::ApiError::from)?;
     let rows = core_db::provenance::list_filtered(
-        &state.pool,
+        &mut *tx,
         authed.principal.user.org_id,
         ProvenanceFilter {
             actor_kind: q.actor_kind,
@@ -151,6 +164,7 @@ pub async fn list(
         q.limit.clamp(1, 500),
     )
     .await?;
+    tx.commit().await.map_err(crate::error::ApiError::from)?;
     // A full page hints another exists; anchor it to the last row.
     let next_cursor = if rows.len() as i64 >= q.limit.clamp(1, 500) {
         rows.last()

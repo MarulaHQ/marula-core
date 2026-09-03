@@ -62,12 +62,19 @@ pub async fn get_template(
     let org_id = authed.principal.user.org_id;
     // View permission: reading config needs no board-admin rights.
     require_permission(&authed.principal, board_view())?;
-    let board = core_db::boards::get_board(&state.pool, org_id, id).await?;
-    let template = core_db::checklists::get_template_for_board(&state.pool, org_id, id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC): one tx around
+    // all three queries.
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let board = core_db::boards::get_board(&mut *tx, org_id, id).await?;
+    let template = core_db::checklists::get_template_for_board(&mut *tx, org_id, id).await?;
     let items = match &template {
-        Some(t) => core_db::checklists::list_template_items(&state.pool, org_id, t.id).await?,
+        Some(t) => core_db::checklists::list_template_items(&mut *tx, org_id, t.id).await?,
         None => Vec::new(),
     };
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(ChecklistTemplateView {
         template,
         items,

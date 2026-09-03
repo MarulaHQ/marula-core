@@ -28,7 +28,7 @@ import {
 import { PanelLayout, usePanelLayout } from "@meridian/layout";
 import { useParams, useRouter } from "next/navigation";
 import { useMemo, useState, type ReactNode } from "react";
-import { AppHeader } from "../../../components/app-header";
+
 import { TicketCustomFields } from "../../../components/ticket-custom-fields";
 import { TicketUndo } from "../../../components/ticket-undo";
 import {
@@ -472,15 +472,14 @@ export default function TicketWorkspacePage() {
 
   if (auth.status !== "authed") {
     return (
-      <main className="flex min-h-screen items-center justify-center">
+      <main className="flex min-h-full items-center justify-center">
         <Spinner />
       </main>
     );
   }
 
   return (
-    <div className="flex h-screen flex-col">
-      <AppHeader />
+    <div className="flex h-full flex-col">
       <main className="min-h-0 flex-1">
         <PanelLayout
           controller={controller}

@@ -10,12 +10,30 @@
 "use client";
 
 import type { components } from "@meridian/sdk";
-import { Button, Spinner, StatusTag } from "@meridian/ui";
+import {
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTrigger,
+  FieldHint,
+  Input,
+  Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Spinner,
+  StatusTag,
+  Textarea,
+} from "@meridian/ui";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AppHeader } from "../../../components/app-header";
+
 import { BoardNav } from "../../../components/board-nav";
 import { api, useRequireAuth } from "../../../lib/api";
+import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import {
   boardModelKey,
   makeBoardSpec,
@@ -27,11 +45,144 @@ import {
 } from "../../../lib/use-instant";
 
 type BoardMemberView = components["schemas"]["BoardMemberView"];
+type Priority = components["schemas"]["Priority"];
+
+const PRIORITIES: Priority[] = ["p1", "p2", "p3", "p4"];
 
 function categoryTone(category: string): "success" | "warning" | "neutral" {
   if (category === "closed") return "success";
   if (category === "waiting") return "warning";
   return "neutral";
+}
+
+/// New-ticket composer: the only staff create surface, wired to
+/// POST /api/v1/tickets through the IF1/IF2 envelope (idempotency key,
+/// read-your-write version). The board channel's `ticket.created` delta
+/// lands the row in the list — no local insert needed.
+function NewTicketDialog({
+  boardId,
+  canCreate,
+}: {
+  boardId: string;
+  canCreate: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [priority, setPriority] = useState<Priority>("p3");
+  const [body, setBody] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!canCreate) return null;
+
+  const reset = () => {
+    setTitle("");
+    setPriority("p3");
+    setBody("");
+    setError(null);
+  };
+
+  const create = async () => {
+    if (title.trim() === "") return;
+    setBusy(true);
+    setError(null);
+    const result = await runEnvelopeMutation<
+      components["schemas"]["CreateTicketRequest"],
+      components["schemas"]["TicketMutationResponse"]
+    >({
+      describe: "Create ticket",
+      buildBody: (base) => ({
+        idempotency_key: base.idempotency_key,
+        board_id: boardId,
+        title: title.trim(),
+        priority,
+        body: body.trim() === "" ? null : body,
+      }),
+      optimistic: () => {},
+      revert: () => {},
+      request: (client, requestBody) =>
+        client.POST("/api/v1/tickets", { body: requestBody }),
+      versions: (response) => [[response.id, response.mutation.version]],
+    });
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.message ?? "The ticket was rejected. Nothing was created.");
+      return;
+    }
+    setOpen(false);
+    reset();
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) reset();
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button size="sm">New ticket</Button>
+      </DialogTrigger>
+      <DialogContent
+        title="New ticket"
+        description="Opens on this board's entry state with SLA clocks running."
+      >
+        <div className="grid gap-3 p-4">
+          <div>
+            <Label htmlFor="new-ticket-title">Title</Label>
+            <Input
+              id="new-ticket-title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              autoFocus
+            />
+          </div>
+          <div>
+            <Label htmlFor="new-ticket-priority">Priority</Label>
+            <Select
+              value={priority}
+              onValueChange={(v) => setPriority(v as Priority)}
+            >
+              <SelectTrigger aria-label="Priority" className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PRIORITIES.map((p) => (
+                  <SelectItem key={p} value={p}>
+                    {p.toUpperCase()}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor="new-ticket-body">Description</Label>
+            <Textarea
+              id="new-ticket-body"
+              rows={4}
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+            />
+            <FieldHint>Optional. Visible to clients on the portal.</FieldHint>
+          </div>
+          {error !== null ? (
+            <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
+              {error}
+            </p>
+          ) : null}
+          <DialogActions>
+            <Button variant="ghost" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => void create()} disabled={busy || title.trim() === ""}>
+              {busy ? <Spinner /> : null} Create ticket
+            </Button>
+          </DialogActions>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 const ROLES = ["viewer", "member", "admin"] as const;
@@ -114,7 +265,7 @@ export default function BoardPage() {
 
   if (auth.status !== "authed") {
     return (
-      <main className="flex min-h-screen items-center justify-center">
+      <main className="flex min-h-full items-center justify-center">
         <Spinner />
       </main>
     );
@@ -124,8 +275,7 @@ export default function BoardPage() {
   const tickets = board?.tickets ?? null;
 
   return (
-    <div className="flex h-screen flex-col">
-      <AppHeader />
+    <div className="flex h-full flex-col">
       <div className="flex min-h-0 flex-1">
         <BoardNav />
         <main
@@ -141,6 +291,11 @@ export default function BoardPage() {
             >
               Custom fields
             </Button>
+            <span className="ml-auto" />
+            <NewTicketDialog
+              boardId={boardId}
+              canCreate={auth.me?.permissions.includes("tickets:create") ?? false}
+            />
           </div>
 
           <MembersPanel boardId={boardId} />

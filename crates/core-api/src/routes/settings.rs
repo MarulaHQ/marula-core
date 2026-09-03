@@ -140,15 +140,15 @@ fn resolve_update(
 }
 
 async fn effective_values(
-    pool: &sqlx::PgPool,
+    conn: &mut sqlx::PgConnection,
     org_id: Uuid,
     scope: SettingScope,
     owner_id: Uuid,
 ) -> ApiResult<Vec<ValueView>> {
     let stored = match scope {
-        SettingScope::Org => core_db::settings::list_org_overrides(pool, org_id).await?,
+        SettingScope::Org => core_db::settings::list_org_overrides(&mut *conn, org_id).await?,
         SettingScope::User => {
-            core_db::settings::list_user_overrides(pool, org_id, owner_id).await?
+            core_db::settings::list_user_overrides(&mut *conn, org_id, owner_id).await?
         }
     };
     let mut out = Vec::new();
@@ -179,9 +179,14 @@ pub async fn org_values_get(
 ) -> ApiResult<Json<Vec<ValueView>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     let org_id = authed.principal.user.org_id;
-    Ok(Json(
-        effective_values(&state.pool, org_id, SettingScope::Org, org_id).await?,
-    ))
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let values = effective_values(&mut *tx, org_id, SettingScope::Org, org_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(values))
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -264,9 +269,14 @@ pub async fn user_values_get(
 ) -> ApiResult<Json<Vec<ValueView>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     let (org_id, user_id) = (authed.principal.user.org_id, authed.principal.user.id);
-    Ok(Json(
-        effective_values(&state.pool, org_id, SettingScope::User, user_id).await?,
-    ))
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, user_id)
+        .await
+        .map_err(ApiError::from)?;
+    let values = effective_values(&mut *tx, org_id, SettingScope::User, user_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(values))
 }
 
 /// PUT /api/settings/user — upserts one of the CALLER's own user-scope
@@ -356,7 +366,13 @@ pub async fn org_profile_get(
 ) -> ApiResult<Json<OrgProfileResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     let org_id = authed.principal.user.org_id;
-    let org = core_db::orgs::get_org(&state.pool, org_id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let org = core_db::orgs::get_org(&mut *tx, org_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(OrgProfileResponse {
         id: org.id,
         name: org.name,

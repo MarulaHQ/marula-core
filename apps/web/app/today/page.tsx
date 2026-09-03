@@ -16,7 +16,6 @@ import type { components } from "@meridian/sdk";
 import { Button, Spinner, Tag } from "@meridian/ui";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { AppHeader } from "../../components/app-header";
 import { BoardNav } from "../../components/board-nav";
 import { api, useRequireAuth } from "../../lib/api";
 
@@ -125,7 +124,7 @@ export default function TodayPage() {
 
   if (auth.status !== "authed") {
     return (
-      <main className="flex min-h-screen items-center justify-center">
+      <main className="flex min-h-full items-center justify-center">
         <Spinner />
       </main>
     );
@@ -134,8 +133,7 @@ export default function TodayPage() {
   const day = gap?.days.find((d) => d.has_gap) ?? gap?.days[0];
 
   return (
-    <div className="flex h-screen flex-col">
-      <AppHeader />
+    <div className="flex h-full flex-col">
       <div className="flex min-h-0 flex-1">
         <BoardNav />
         <main

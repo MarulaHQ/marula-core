@@ -1239,9 +1239,19 @@ pub async fn get_batch(
 ) -> ApiResult<Json<BatchViewResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_import_gate(&authed.principal, authed.via_api_key)?;
-    let batch = core_db::imports::get_batch(&state.pool, authed.principal.user.org_id, batch_id)
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let batch = core_db::imports::get_batch(&mut *tx, authed.principal.user.org_id, batch_id)
         .await
         .map_err(|_| ApiError::NotFound)?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(batch.into()))
 }
 
@@ -1255,8 +1265,18 @@ pub async fn list_batches(
 ) -> ApiResult<Json<Vec<BatchViewResponse>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_import_gate(&authed.principal, authed.via_api_key)?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
     let batches =
-        core_db::imports::list_batches(&state.pool, authed.principal.user.org_id, 100).await?;
+        core_db::imports::list_batches(&mut *tx, authed.principal.user.org_id, 100).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(batches.into_iter().map(Into::into).collect()))
 }
 
@@ -1323,7 +1343,13 @@ pub async fn create_template(
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
-    core_db::imports::insert_template(&state.pool, &record).await?;
+    // RLS-scoped write (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    core_db::imports::insert_template(&mut *tx, &record).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(template_view(record)))
 }
 
@@ -1345,13 +1371,23 @@ pub async fn list_templates(
 ) -> ApiResult<Json<Vec<TemplateViewResponse>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_import_gate(&authed.principal, authed.via_api_key)?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
     let templates = core_db::imports::list_templates(
-        &state.pool,
+        &mut *tx,
         authed.principal.user.org_id,
         query.source_system.as_deref(),
         100,
     )
     .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(templates.into_iter().map(template_view).collect()))
 }
 
@@ -1367,10 +1403,20 @@ pub async fn get_template(
 ) -> ApiResult<Json<TemplateViewResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_import_gate(&authed.principal, authed.via_api_key)?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
     let template =
-        core_db::imports::get_template(&state.pool, authed.principal.user.org_id, template_id)
+        core_db::imports::get_template(&mut *tx, authed.principal.user.org_id, template_id)
             .await
             .map_err(|_| ApiError::NotFound)?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(template_view(template)))
 }
 
@@ -1391,7 +1437,12 @@ pub async fn update_template(
     require_import_gate(&authed.principal, authed.via_api_key)?;
     let org_id = authed.principal.user.org_id;
 
-    let existing = core_db::imports::get_template(&state.pool, org_id, template_id)
+    // RLS-scoped read + write (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let existing = core_db::imports::get_template(&mut *tx, org_id, template_id)
         .await
         .map_err(|_| ApiError::NotFound)?;
     let name = match &req.name {
@@ -1415,7 +1466,7 @@ pub async fn update_template(
         None => existing.mapping,
     };
     let updated = core_db::imports::update_template(
-        &state.pool,
+        &mut *tx,
         org_id,
         template_id,
         &name,
@@ -1423,6 +1474,7 @@ pub async fn update_template(
         &mapping,
     )
     .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(template_view(updated)))
 }
 
@@ -1439,10 +1491,16 @@ pub async fn delete_template(
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_import_gate(&authed.principal, authed.via_api_key)?;
     let org_id = authed.principal.user.org_id;
-    let existing = core_db::imports::get_template(&state.pool, org_id, template_id)
+    // RLS-scoped read + write (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let existing = core_db::imports::get_template(&mut *tx, org_id, template_id)
         .await
         .map_err(|_| ApiError::NotFound)?;
-    core_db::imports::delete_template(&state.pool, org_id, template_id).await?;
+    core_db::imports::delete_template(&mut *tx, org_id, template_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(template_view(existing)))
 }
 

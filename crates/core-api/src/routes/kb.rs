@@ -119,8 +119,17 @@ pub async fn list_categories(
 ) -> ApiResult<Json<Vec<KbCategory>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, kb(Action::View))?;
-    let categories =
-        core_db::kb::list_categories(&state.pool, authed.principal.user.org_id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let categories = core_db::kb::list_categories(&mut *tx, authed.principal.user.org_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(categories))
 }
 
@@ -399,8 +408,17 @@ pub async fn list_articles(
 ) -> ApiResult<Json<Vec<KbArticle>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, kb(Action::View))?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
     let articles = core_db::kb::list_articles(
-        &state.pool,
+        &mut *tx,
         authed.principal.user.org_id,
         &ArticleFilter {
             category_id: q.category_id,
@@ -410,6 +428,7 @@ pub async fn list_articles(
         },
     )
     .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(articles))
 }
 
@@ -425,7 +444,17 @@ pub async fn get_article(
 ) -> ApiResult<Json<KbArticle>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, kb(Action::View))?;
-    let article = core_db::kb::get_article(&state.pool, authed.principal.user.org_id, id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let article = core_db::kb::get_article(&mut *tx, authed.principal.user.org_id, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(article))
 }
 

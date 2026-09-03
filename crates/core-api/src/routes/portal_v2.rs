@@ -136,13 +136,19 @@ pub async fn list_invoices(
     check_portal(authed.user.role, PortalAction::ViewInvoices)
         .expect()
         .map_err(ApiError::Forbidden)?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, authed.user.org_id, authed.user.id)
+        .await
+        .map_err(ApiError::from)?;
     let invoices = core_db::invoices::list_client_invoices(
-        &state.pool,
+        &mut *tx,
         authed.user.org_id,
         authed.user.client_id,
         200,
     )
     .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(invoices.into_iter().map(Into::into).collect()))
 }
 
@@ -199,9 +205,15 @@ pub async fn get_invoice(
         .map_err(ApiError::Forbidden)?;
     let org_id = authed.user.org_id;
     let client_id = authed.user.client_id;
-    let invoice = core_db::invoices::get_client_invoice(&state.pool, org_id, client_id, id).await?;
-    let lines = core_db::invoices::list_lines(&state.pool, org_id, id).await?;
-    let payments = core_db::invoices::list_payments(&state.pool, org_id, id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let invoice = core_db::invoices::get_client_invoice(&mut *tx, org_id, client_id, id).await?;
+    let lines = core_db::invoices::list_lines(&mut *tx, org_id, id).await?;
+    let payments = core_db::invoices::list_payments(&mut *tx, org_id, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(PortalInvoiceDetail {
         invoice: invoice.into(),
         lines,
@@ -226,10 +238,16 @@ pub async fn invoice_document(
         .map_err(ApiError::Forbidden)?;
     let org_id = authed.user.org_id;
     let client_id = authed.user.client_id;
-    let invoice = core_db::invoices::get_client_invoice(&state.pool, org_id, client_id, id).await?;
-    let lines = core_db::invoices::list_lines(&state.pool, org_id, id).await?;
-    let client = core_db::clients::get_client(&state.pool, org_id, client_id).await?;
-    let html = render_invoice_html(&state.pool, org_id, &invoice, &lines, &client.name).await;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let invoice = core_db::invoices::get_client_invoice(&mut *tx, org_id, client_id, id).await?;
+    let lines = core_db::invoices::list_lines(&mut *tx, org_id, id).await?;
+    let client = core_db::clients::get_client(&mut *tx, org_id, client_id).await?;
+    let html = render_invoice_html(&mut *tx, org_id, &invoice, &lines, &client.name).await;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(axum::response::Html(html))
 }
 
@@ -473,7 +491,13 @@ pub async fn kb_categories(
     check_portal(authed.user.role, PortalAction::ViewKb)
         .expect()
         .map_err(ApiError::Forbidden)?;
-    let categories = core_db::kb::list_client_categories(&state.pool, authed.user.org_id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, authed.user.org_id, authed.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let categories = core_db::kb::list_client_categories(&mut *tx, authed.user.org_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(categories))
 }
 
@@ -506,14 +530,20 @@ pub async fn kb_articles(
     check_portal(authed.user.role, PortalAction::ViewKb)
         .expect()
         .map_err(ApiError::Forbidden)?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, authed.user.org_id, authed.user.id)
+        .await
+        .map_err(ApiError::from)?;
     let articles = core_db::kb::list_client_articles(
-        &state.pool,
+        &mut *tx,
         authed.user.org_id,
         q.category_id,
         q.limit.clamp(1, 100),
         q.offset.max(0),
     )
     .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(articles))
 }
 
@@ -531,7 +561,13 @@ pub async fn kb_article(
     check_portal(authed.user.role, PortalAction::ViewKb)
         .expect()
         .map_err(ApiError::Forbidden)?;
-    let article = core_db::kb::get_client_article(&state.pool, authed.user.org_id, id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, authed.user.org_id, authed.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let article = core_db::kb::get_client_article(&mut *tx, authed.user.org_id, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(article))
 }
 
@@ -573,14 +609,20 @@ pub async fn kb_search(
     if term.is_empty() {
         return Err(ApiError::Validation("q is required".into()));
     }
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, authed.user.org_id, authed.user.id)
+        .await
+        .map_err(ApiError::from)?;
     let hits = core_db::kb::search_client_articles(
-        &state.pool,
+        &mut *tx,
         authed.user.org_id,
         term,
         q.limit.clamp(1, 50),
         q.offset.max(0),
     )
     .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(
         hits.into_iter()
             .map(|hit| PortalKbSearchHit {
@@ -664,7 +706,13 @@ pub async fn schedule_slots(
         Utc,
     );
 
-    let staff = core_db::users::list_users(&state.pool, org_id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC): one tx around
+    // the whole multi-query body.
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let staff = core_db::users::list_users(&mut *tx, org_id).await?;
     let staff: Vec<_> = staff
         .into_iter()
         .filter(|u| u.is_active && q.user_id.is_none_or(|one| u.id == one))
@@ -674,9 +722,9 @@ pub async fn schedule_slots(
     }
     let staff_ids: Vec<Uuid> = staff.iter().map(|u| u.id).collect();
 
-    let windows = core_db::scheduling::list_all_availability_windows(&state.pool, org_id).await?;
+    let windows = core_db::scheduling::list_all_availability_windows(&mut *tx, org_id).await?;
     let appointments = core_db::scheduling::list_appointments_between(
-        &state.pool,
+        &mut *tx,
         org_id,
         &staff_ids,
         range_start,
@@ -684,7 +732,7 @@ pub async fn schedule_slots(
     )
     .await?;
     let on_call = core_db::scheduling::list_on_call_blocks_between(
-        &state.pool,
+        &mut *tx,
         org_id,
         &staff_ids,
         range_start,
@@ -692,13 +740,14 @@ pub async fn schedule_slots(
     )
     .await?;
     let exclusions = core_db::scheduling::list_calendar_exclusions_for_users_between(
-        &state.pool,
+        &mut *tx,
         org_id,
         &staff_ids,
         range_start,
         range_end,
     )
     .await?;
+    tx.commit().await.map_err(ApiError::from)?;
 
     let mut view = Vec::new();
     for user in &staff {
@@ -765,14 +814,20 @@ pub async fn list_appointment_requests(
     check_portal(authed.user.role, PortalAction::RequestAppointment)
         .expect()
         .map_err(ApiError::Forbidden)?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, authed.user.org_id, authed.user.id)
+        .await
+        .map_err(ApiError::from)?;
     let rows = core_db::portal::list_own_appointment_requests(
-        &state.pool,
+        &mut *tx,
         authed.user.org_id,
         authed.user.client_id,
         authed.user.id,
         100,
     )
     .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(rows))
 }
 
@@ -864,10 +919,16 @@ pub async fn create_appointment_request(
             "portal requests may only ask for on_site or remote appointments".into(),
         ));
     }
-    // The staff member must exist in this org.
-    core_db::users::get_user(&state.pool, org_id, req.user_id)
+    // The staff member must exist in this org (RLS-scoped read; pool
+    // carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    core_db::users::get_user(&mut *tx, org_id, req.user_id)
         .await
         .map_err(|_| ApiError::NotFound)?;
+    tx.commit().await.map_err(ApiError::from)?;
 
     let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
     let key = req.instant.idempotency_key.clone();

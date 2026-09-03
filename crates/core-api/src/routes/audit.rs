@@ -2,7 +2,7 @@
 //! cursor pagination over the append-only trail.
 
 use crate::auth::middleware::{authed, require_permission};
-use crate::error::ApiResult;
+use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
 use axum::{
     extract::{Query, State},
@@ -65,8 +65,17 @@ pub async fn list(
         core_domain::policy::Permission::ViewAuditLog,
     )?;
     let cursor = q.cursor.as_deref().and_then(decode_cursor);
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
     let events = core_db::audit::list_filtered(
-        &state.pool,
+        &mut *tx,
         authed.principal.user.org_id,
         AuditFilter {
             actor: q.actor,
@@ -79,6 +88,7 @@ pub async fn list(
         q.limit.clamp(1, 500),
     )
     .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     // A full page hints another exists; anchor it to the last row.
     let next_cursor = if events.len() as i64 >= q.limit.clamp(1, 500) {
         events.last().map(|e| encode_cursor(e.occurred_at, e.id))

@@ -124,16 +124,17 @@ fn on_call_item(b: &OnCallBlock) -> CalendarItem {
 }
 
 async fn merged_items(
-    state: &AppState,
+    conn: &mut sqlx::PgConnection,
     org_id: Uuid,
     users: &[Uuid],
     from: DateTime<Utc>,
     to: DateTime<Utc>,
 ) -> ApiResult<Vec<CalendarItem>> {
-    let (appts, on_call) = tokio::try_join!(
-        core_db::scheduling::list_appointments_between(&state.pool, org_id, users, from, to),
-        core_db::scheduling::list_on_call_blocks_between(&state.pool, org_id, users, from, to),
-    )?;
+    let appts =
+        core_db::scheduling::list_appointments_between(&mut *conn, org_id, users, from, to).await?;
+    let on_call =
+        core_db::scheduling::list_on_call_blocks_between(&mut *conn, org_id, users, from, to)
+            .await?;
     let mut items: Vec<CalendarItem> = appts
         .iter()
         .map(appt_item)
@@ -156,7 +157,12 @@ pub async fn calendar_day(
     require_permission(&authed.principal, sched(Action::View))?;
     let user_id = target_user(&authed.principal, q.user_id, "calendar reads")?;
     let org_id = authed.principal.user.org_id;
-    let user = core_db::users::get_user(&state.pool, org_id, user_id)
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let user = core_db::users::get_user(&mut *tx, org_id, user_id)
         .await
         .map_err(|_| ApiError::NotFound)?;
     let tz: Tz = user
@@ -167,9 +173,9 @@ pub async fn calendar_day(
         .date
         .unwrap_or_else(|| Utc::now().with_timezone(&tz).date_naive());
     let (from, to) = core_domain::time_audit::local_day_window(date, tz);
-    build_personal(&state, org_id, user_id, from, to, &user.timezone)
-        .await
-        .map(Json)
+    let view = build_personal(&mut tx, org_id, user_id, from, to, &user.timezone).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(view))
 }
 
 /// GET /api/calendar/week — Monday-start local week for one user.
@@ -185,7 +191,12 @@ pub async fn calendar_week(
     require_permission(&authed.principal, sched(Action::View))?;
     let user_id = target_user(&authed.principal, q.user_id, "calendar reads")?;
     let org_id = authed.principal.user.org_id;
-    let user = core_db::users::get_user(&state.pool, org_id, user_id)
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let user = core_db::users::get_user(&mut *tx, org_id, user_id)
         .await
         .map_err(|_| ApiError::NotFound)?;
     let tz: Tz = user
@@ -202,9 +213,9 @@ pub async fn calendar_week(
         monday + Duration::weeks(1) - Duration::days(1),
         tz,
     );
-    build_personal(&state, org_id, user_id, from, to, &user.timezone)
-        .await
-        .map(Json)
+    let view = build_personal(&mut tx, org_id, user_id, from, to, &user.timezone).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(view))
 }
 
 /// GET /api/calendar/team — every org member over an absolute UTC range.
@@ -219,7 +230,12 @@ pub async fn calendar_team(
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, sched(Action::View))?;
     let org_id = authed.principal.user.org_id;
-    let members = core_db::users::list_users(&state.pool, org_id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let members = core_db::users::list_users(&mut *tx, org_id).await?;
     let ids: Vec<Uuid> = members.iter().map(|u| u.id).collect();
     let to_default = q.from.map_or(Utc::now(), |f| f) + Duration::days(8);
     let from = q.from.unwrap_or_else(|| Utc::now() - Duration::days(1));
@@ -227,7 +243,8 @@ pub async fn calendar_team(
     if to <= from || to - from > Duration::days(62) {
         return Err(ApiError::Validation("range must be within 62 days".into()));
     }
-    let items = merged_items(&state, org_id, &ids, from, to).await?;
+    let items = merged_items(&mut tx, org_id, &ids, from, to).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(CalendarViewResponse {
         user_id: None,
         from,
@@ -240,7 +257,7 @@ pub async fn calendar_team(
 }
 
 async fn build_personal(
-    state: &AppState,
+    conn: &mut sqlx::PgConnection,
     org_id: Uuid,
     user_id: Uuid,
     from: DateTime<Utc>,
@@ -248,20 +265,14 @@ async fn build_personal(
     tz_label: &str,
 ) -> ApiResult<CalendarViewResponse> {
     let exclusions = core_db::scheduling::list_calendar_exclusions_between(
-        &state.pool,
-        org_id,
-        user_id,
-        from,
-        to,
+        &mut *conn, org_id, user_id, from, to,
     )
     .await?;
     let users = [user_id];
-    let (items, windows) =
-        tokio::try_join!(merged_items(state, org_id, &users, from, to), async {
-            core_db::scheduling::list_availability_windows(&state.pool, org_id, user_id)
-                .await
-                .map_err(ApiError::from)
-        },)?;
+    let items = merged_items(&mut *conn, org_id, &users, from, to).await?;
+    let windows = core_db::scheduling::list_availability_windows(&mut *conn, org_id, user_id)
+        .await
+        .map_err(ApiError::from)?;
     Ok(CalendarViewResponse {
         user_id: Some(user_id),
         from,

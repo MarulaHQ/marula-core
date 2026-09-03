@@ -48,7 +48,17 @@ pub async fn list_calendars(
 ) -> ApiResult<Json<Vec<core_domain::entities::SlaCalendar>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, admin(Action::View))?;
-    let rows = core_db::sla::list_calendars(&state.pool, authed.principal.user.org_id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let rows = core_db::sla::list_calendars(&mut *tx, authed.principal.user.org_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(rows))
 }
 
@@ -223,7 +233,17 @@ pub async fn list_policies(
 ) -> ApiResult<Json<Vec<PolicyView>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, admin(Action::View))?;
-    let rows = core_db::sla::list_policy_records(&state.pool, authed.principal.user.org_id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let rows = core_db::sla::list_policy_records(&mut *tx, authed.principal.user.org_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(rows.into_iter().map(policy_view).collect()))
 }
 
@@ -239,9 +259,15 @@ pub async fn get_ladder(
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, admin(Action::View))?;
     let org_id = authed.principal.user.org_id;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
     // Existence check stays org-scoped so foreign ids 404 instead of leaking.
-    core_db::sla::get_policy_record(&state.pool, org_id, policy_id).await?;
-    let steps = core_db::sla::list_steps_for_policies(&state.pool, &[policy_id]).await?;
+    core_db::sla::get_policy_record(&mut *tx, org_id, policy_id).await?;
+    let steps = core_db::sla::list_steps_for_policies(&mut *tx, &[policy_id]).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(steps))
 }
 
@@ -369,7 +395,17 @@ pub async fn list_rules(
 ) -> ApiResult<Json<Vec<serde_json::Value>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, admin(Action::View))?;
-    let rows = core_db::automations::list(&state.pool, authed.principal.user.org_id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let rows = core_db::automations::list(&mut *tx, authed.principal.user.org_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(rows.into_iter().map(rule_row).collect()))
 }
 

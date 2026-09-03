@@ -580,13 +580,19 @@ pub async fn get_session(
     require_migration_gate(&authed.principal, authed.via_api_key, true)?;
     let org_id = authed.principal.user.org_id;
 
-    let session = core_db::connector::get_push_session(&state.pool, org_id, session_id)
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let session = core_db::connector::get_push_session(&mut *tx, org_id, session_id)
         .await
         .map_err(|_| ApiError::NotFound)?;
-    let batch = core_db::imports::get_batch(&state.pool, org_id, session.batch_id)
+    let batch = core_db::imports::get_batch(&mut *tx, org_id, session.batch_id)
         .await
         .map_err(|_| ApiError::NotFound)?;
-    let chunks = core_db::connector::list_push_chunks(&state.pool, org_id, session_id).await?;
+    let chunks = core_db::connector::list_push_chunks(&mut *tx, org_id, session_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(PushSessionView {
         session_id: session.id,
         batch_id: session.batch_id,
@@ -675,13 +681,18 @@ pub async fn post_chunk(
 
     // Cursor decision against the CURRENT checkpoint, outside the commit
     // transaction (reads only; the engine owns the write transaction).
-    let session = core_db::connector::get_push_session(&state.pool, org_id, session_id)
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, driver)
+        .await
+        .map_err(ApiError::from)?;
+    let session = core_db::connector::get_push_session(&mut *tx, org_id, session_id)
         .await
         .map_err(|_| ApiError::NotFound)?;
     if session.finished_at.is_some() {
         return Err(ApiError::Conflict("push session already finished".into()));
     }
-    let chunks = core_db::connector::list_push_chunks(&state.pool, org_id, session_id).await?;
+    let chunks = core_db::connector::list_push_chunks(&mut *tx, org_id, session_id).await?;
     let checkpoint = checkpoint_of(&chunks.iter().map(|c| c.chunk_index).collect::<Vec<_>>());
 
     if req.chunk_index < checkpoint.next_chunk {
@@ -696,9 +707,10 @@ pub async fn post_chunk(
                 serde_json::from_value(stored.summary.clone()).map_err(|e| {
                     ApiError::Internal(anyhow::anyhow!("stored checkpoint summary: {e}"))
                 })?;
-            let batch = core_db::imports::get_batch(&state.pool, org_id, session.batch_id)
+            let batch = core_db::imports::get_batch(&mut *tx, org_id, session.batch_id)
                 .await
                 .map_err(|_| ApiError::NotFound)?;
+            tx.commit().await.map_err(ApiError::from)?;
             return Ok(Json(PushChunkResponse {
                 session_id,
                 chunk_index: req.chunk_index,
@@ -722,6 +734,7 @@ pub async fn post_chunk(
             provided: req.chunk_index,
         });
     }
+    tx.commit().await.map_err(ApiError::from)?;
 
     // Fresh commit: decode + engine limits, then the ONE D2 commit path.
     let (raw_rows, byte_len) = req.rows.decode()?;
@@ -783,9 +796,15 @@ pub async fn post_chunk(
     .await?;
 
     // Cumulative counters ride the batch view.
-    let batch = core_db::imports::get_batch(&state.pool, org_id, session.batch_id)
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, driver)
+        .await
+        .map_err(ApiError::from)?;
+    let batch = core_db::imports::get_batch(&mut *tx, org_id, session.batch_id)
         .await
         .map_err(|_| ApiError::NotFound)?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(PushChunkResponse {
         session_id,
         chunk_index: req.chunk_index,

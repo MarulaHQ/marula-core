@@ -68,12 +68,19 @@ pub async fn list_portal_users(
 ) -> ApiResult<Json<Vec<PortalUser>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, Permission::PortalAdmin)?;
-    let users = core_db::portal::list_portal_users(
-        &state.pool,
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
         authed.principal.user.org_id,
-        Some(client_id),
+        authed.principal.user.id,
     )
-    .await?;
+    .await
+    .map_err(ApiError::from)?;
+    let users =
+        core_db::portal::list_portal_users(&mut *tx, authed.principal.user.org_id, Some(client_id))
+            .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(users))
 }
 
@@ -98,8 +105,14 @@ pub async fn create_portal_user(
     let admin_id = authed.principal.user.id;
 
     // The client must exist in THIS org (explicit check → clean 404 instead
-    // of a raw FK violation on cross-org ids).
-    core_db::clients::get_client(&state.pool, org_id, client_id).await?;
+    // of a raw FK violation on cross-org ids). RLS-scoped read (pool
+    // carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, admin_id)
+        .await
+        .map_err(ApiError::from)?;
+    core_db::clients::get_client(&mut *tx, org_id, client_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
 
     let password_hash = crate::auth::password::hash(&req.password)
         .map_err(|e| ApiError::Validation(format!("password hashing failed: {e}")))?;
@@ -319,9 +332,19 @@ pub async fn list_board_exposures(
 ) -> ApiResult<Json<Vec<BoardExposureView>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, Permission::PortalAdmin)?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
     let rows =
-        core_db::portal::list_exposures(&state.pool, authed.principal.user.org_id, Some(client_id))
+        core_db::portal::list_exposures(&mut *tx, authed.principal.user.org_id, Some(client_id))
             .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(
         rows.into_iter()
             .map(|x| BoardExposureView {
@@ -350,12 +373,17 @@ pub async fn put_board_exposure(
     let org_id = authed.principal.user.org_id;
     let admin_id = authed.principal.user.id;
 
-    core_db::boards::get_board(&state.pool, org_id, req.board_id).await?;
-    core_db::clients::get_client(&state.pool, org_id, client_id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, admin_id)
+        .await
+        .map_err(ApiError::from)?;
+    core_db::boards::get_board(&mut *tx, org_id, req.board_id).await?;
+    core_db::clients::get_client(&mut *tx, org_id, client_id).await?;
     // Status narrowing must reference statuses OF that board.
     if !req.visible_status_ids.is_empty() {
         let valid: std::collections::HashSet<Uuid> =
-            core_db::boards::list_statuses(&state.pool, req.board_id)
+            core_db::boards::list_statuses(&mut *tx, req.board_id)
                 .await?
                 .into_iter()
                 .map(|s| s.id)
@@ -366,6 +394,7 @@ pub async fn put_board_exposure(
             ));
         }
     }
+    tx.commit().await.map_err(ApiError::from)?;
 
     let exposure = org_tx::with_org_tx(&state, org_id, admin_id, |mut ctx| async move {
         let exposure = core_db::portal::upsert_exposure(

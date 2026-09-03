@@ -369,13 +369,19 @@ pub async fn list_defs(
         tickets(core_domain::policy::Action::View),
     )?;
     let org_id = authed.principal.user.org_id;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
     // The path board must belong to the caller's org (foreign ids 404).
-    core_db::boards::get_board(&state.pool, org_id, id)
+    core_db::boards::get_board(&mut *tx, org_id, id)
         .await
         .map_err(ApiError::from)?;
-    let defs = core_db::custom_fields::list_defs_for_board(&state.pool, org_id, id)
+    let defs = core_db::custom_fields::list_defs_for_board(&mut *tx, org_id, id)
         .await
         .map_err(ApiError::from)?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(defs.into_iter().map(FieldDefView::from).collect()))
 }
 

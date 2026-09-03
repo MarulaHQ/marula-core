@@ -176,47 +176,35 @@ pub async fn dispatch_day(
         .and_utc();
     let to = from + Duration::days(1);
 
-    let members = core_db::users::list_users(&state.pool, org_id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let members = core_db::users::list_users(&mut *tx, org_id).await?;
     let technicians: Vec<Uuid> = members
         .iter()
         .filter(|u| u.is_active)
         .map(|u| u.id)
         .collect();
-    let (appointments, on_call) = tokio::try_join!(
-        async {
-            let rows = core_db::scheduling::list_dispatch_appointments_between(
-                &state.pool,
-                org_id,
-                &technicians,
-                from,
-                to,
-            )
+    let appointments = core_db::scheduling::list_dispatch_appointments_between(
+        &mut *tx,
+        org_id,
+        &technicians,
+        from,
+        to,
+    )
+    .await?;
+    let on_call =
+        core_db::scheduling::list_on_call_blocks_between(&mut *tx, org_id, &technicians, from, to)
             .await?;
-            Ok::<_, ApiError>(rows)
-        },
-        async {
-            let rows = core_db::scheduling::list_on_call_blocks_between(
-                &state.pool,
-                org_id,
-                &technicians,
-                from,
-                to,
-            )
-            .await?;
-            Ok::<_, ApiError>(rows)
-        },
-    )?;
 
     let mut views = Vec::with_capacity(technicians.len());
     for user in members.iter().filter(|u| u.is_active) {
         let windows =
-            core_db::scheduling::list_availability_windows(&state.pool, org_id, user.id).await?;
+            core_db::scheduling::list_availability_windows(&mut *tx, org_id, user.id).await?;
         let exclusions = core_db::scheduling::list_calendar_exclusions_between(
-            &state.pool,
-            org_id,
-            user.id,
-            from,
-            to,
+            &mut *tx, org_id, user.id, from, to,
         )
         .await?;
         let available = covered_minutes(&windows, &exclusions, from, to);
@@ -270,12 +258,12 @@ pub async fn dispatch_day(
     // Dispatch v2: the day view's queue honors dispatcher rank overrides
     // with the same merge rule as GET /dispatch/queue — overridden rows
     // first by explicit rank, then the computed order.
-    let unassigned = core_db::tickets::unassigned_queue_annotated(&state.pool, org_id, QUEUE_LIMIT)
+    let unassigned = core_db::tickets::unassigned_queue_annotated(&mut *tx, org_id, QUEUE_LIMIT)
         .await?
         .into_iter()
         .map(MyWorkItem::from_row)
         .collect::<Vec<_>>();
-    let overrides = core_db::dispatch::list_queue_entries(&state.pool, org_id)
+    let overrides = core_db::dispatch::list_queue_entries(&mut *tx, org_id)
         .await?
         .into_iter()
         .map(|row| (row.ticket_id, row.rank))
@@ -295,7 +283,7 @@ pub async fn dispatch_day(
         .iter()
         .flat_map(|t| t.appointments.iter().map(|a| a.id))
         .collect();
-    let latest = core_db::dispatch::latest_status_by_appointment(&state.pool, org_id, &day_ids)
+    let latest = core_db::dispatch::latest_status_by_appointment(&mut *tx, org_id, &day_ids)
         .await?
         .into_iter()
         .map(|row| (row.appointment_id, row))
@@ -310,6 +298,7 @@ pub async fn dispatch_day(
             });
         }
     }
+    tx.commit().await.map_err(ApiError::from)?;
 
     Ok(Json(DispatchDayView {
         date,
@@ -740,31 +729,37 @@ pub async fn capacity(
         .and_utc();
     let window_to = window_from + Duration::days(i64::from(days));
 
-    let members = core_db::users::list_users(&state.pool, org_id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let members = core_db::users::list_users(&mut *tx, org_id).await?;
     let technicians: Vec<Uuid> = members
         .iter()
         .filter(|u| u.is_active)
         .map(|u| u.id)
         .collect();
 
-    let (appointments, windows, exclusions, unassigned) = tokio::try_join!(
-        core_db::scheduling::list_appointments_between(
-            &state.pool,
-            org_id,
-            &technicians,
-            window_from,
-            window_to,
-        ),
-        core_db::scheduling::list_all_availability_windows(&state.pool, org_id),
-        core_db::scheduling::list_calendar_exclusions_for_users_between(
-            &state.pool,
-            org_id,
-            &technicians,
-            window_from,
-            window_to,
-        ),
-        core_db::tickets::unassigned_queue_annotated(&state.pool, org_id, i64::MAX),
-    )?;
+    let appointments = core_db::scheduling::list_appointments_between(
+        &mut *tx,
+        org_id,
+        &technicians,
+        window_from,
+        window_to,
+    )
+    .await?;
+    let windows = core_db::scheduling::list_all_availability_windows(&mut *tx, org_id).await?;
+    let exclusions = core_db::scheduling::list_calendar_exclusions_for_users_between(
+        &mut *tx,
+        org_id,
+        &technicians,
+        window_from,
+        window_to,
+    )
+    .await?;
+    let unassigned =
+        core_db::tickets::unassigned_queue_annotated(&mut *tx, org_id, i64::MAX).await?;
 
     let mut views = Vec::with_capacity(technicians.len());
     for user in members.iter().filter(|u| u.is_active) {
@@ -817,6 +812,7 @@ pub async fn capacity(
             days: day_views,
         });
     }
+    tx.commit().await.map_err(ApiError::from)?;
 
     Ok(Json(CapacityHorizonView {
         from: first,
@@ -873,16 +869,22 @@ pub async fn queue_list(
     require_permission(&authed.principal, sched(Action::View))?;
     let org_id = authed.principal.user.org_id;
     let limit = q.limit.unwrap_or(QUEUE_LIMIT).clamp(1, QUEUE_PAGE_LIMIT);
-    let base = core_db::tickets::unassigned_queue_annotated(&state.pool, org_id, limit)
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let base = core_db::tickets::unassigned_queue_annotated(&mut *tx, org_id, limit)
         .await?
         .into_iter()
         .map(MyWorkItem::from_row)
         .collect::<Vec<_>>();
-    let overrides = core_db::dispatch::list_queue_entries(&state.pool, org_id)
+    let overrides = core_db::dispatch::list_queue_entries(&mut *tx, org_id)
         .await?
         .into_iter()
         .map(|row| (row.ticket_id, (row.rank, row.note)))
         .collect::<std::collections::HashMap<Uuid, (i32, Option<String>)>>();
+    tx.commit().await.map_err(ApiError::from)?;
 
     // Stable partition: overridden rows first by (rank, base position),
     // then the remaining rows in base order. `sort_by` is stable, so the
@@ -1197,7 +1199,13 @@ pub async fn skills_catalog(
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, sched(Action::View))?;
     let org_id = authed.principal.user.org_id;
-    let rows = core_db::dispatch::list_org_skills(&state.pool, org_id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let rows = core_db::dispatch::list_org_skills(&mut *tx, org_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     let now = Utc::now();
     let mut map: std::collections::BTreeMap<String, (i64, i64)> = Default::default();
     for row in rows {
@@ -1415,13 +1423,18 @@ pub async fn match_queue(
     let org_id = authed.principal.user.org_id;
     let limit = q.limit.unwrap_or(50).clamp(1, 200);
 
-    let queue = core_db::tickets::unassigned_queue_annotated(&state.pool, org_id, limit).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let queue = core_db::tickets::unassigned_queue_annotated(&mut *tx, org_id, limit).await?;
     let ticket_ids: Vec<Uuid> = queue.iter().map(|r| r.ticket.id).collect();
-    let (required, all_skills, members) = tokio::try_join!(
-        core_db::dispatch::list_ticket_required_skills(&state.pool, org_id, &ticket_ids),
-        core_db::dispatch::list_org_skills(&state.pool, org_id),
-        core_db::users::list_users(&state.pool, org_id),
-    )?;
+    let required =
+        core_db::dispatch::list_ticket_required_skills(&mut *tx, org_id, &ticket_ids).await?;
+    let all_skills = core_db::dispatch::list_org_skills(&mut *tx, org_id).await?;
+    let members = core_db::users::list_users(&mut *tx, org_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
 
     let now = Utc::now();
     let mut held_by_user: std::collections::HashMap<Uuid, Vec<&str>> = Default::default();
@@ -1988,14 +2001,25 @@ pub async fn travel_draft_list(
             ));
         }
     }
-    let rows = core_db::dispatch::list_travel_drafts(
-        &state.pool,
+    let org_id = authed.principal.user.org_id;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
         authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let rows = core_db::dispatch::list_travel_drafts(
+        &mut *tx,
+        org_id,
         user_id,
         status,
         q.limit.unwrap_or(100).clamp(1, TRAVEL_DRAFT_LIMIT),
     )
     .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(rows.into_iter().map(draft_view).collect()))
 }
 

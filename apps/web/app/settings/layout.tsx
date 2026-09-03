@@ -10,7 +10,6 @@
 "use client";
 
 import { useRequireAuth } from "../../lib/api";
-import { AppHeader } from "../../components/app-header";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
@@ -42,10 +41,9 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
 
   return (
     <div
-      className="min-h-screen flex flex-col"
+      className="min-h-full flex flex-col"
       style={{ background: "var(--m-canvas)" }}
     >
-      <AppHeader />
       <div className="flex-1 w-full max-w-5xl mx-auto flex gap-8 px-6 py-8">
         <nav aria-label="Settings sections" className="w-44 shrink-0">
           <ul className="grid gap-1">

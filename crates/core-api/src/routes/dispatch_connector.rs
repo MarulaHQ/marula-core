@@ -301,7 +301,13 @@ pub async fn schedule(
         .and_utc();
     let to = from + chrono::Duration::days(i64::from(days));
 
-    let members = core_db::users::list_users(&state.pool, org_id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC): one tx around
+    // the whole multi-query body.
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let members = core_db::users::list_users(&mut *tx, org_id).await?;
     let technicians: Vec<Uuid> = members
         .iter()
         .filter(|u| u.is_active)
@@ -313,7 +319,7 @@ pub async fn schedule(
         .collect();
 
     let rows = core_db::scheduling::list_dispatch_appointments_between(
-        &state.pool,
+        &mut *tx,
         org_id,
         &technicians,
         from,
@@ -321,7 +327,7 @@ pub async fn schedule(
     )
     .await?;
     let ids: Vec<Uuid> = rows.iter().map(|a| a.id).collect();
-    let latest = core_db::dispatch::latest_status_by_appointment(&state.pool, org_id, &ids)
+    let latest = core_db::dispatch::latest_status_by_appointment(&mut *tx, org_id, &ids)
         .await?
         .into_iter()
         .map(|row| (row.appointment_id, row))
@@ -358,6 +364,7 @@ pub async fn schedule(
             dispatch_status: shade,
         });
     }
+    tx.commit().await.map_err(ApiError::from)?;
 
     Ok(Json(ConnectorScheduleView {
         from: from_date,
@@ -383,8 +390,14 @@ pub async fn technicians(
     )?;
     let org_id = authed.principal.user.org_id;
 
-    let members = core_db::users::list_users(&state.pool, org_id).await?;
-    let skills = core_db::dispatch::list_org_skills(&state.pool, org_id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let members = core_db::users::list_users(&mut *tx, org_id).await?;
+    let skills = core_db::dispatch::list_org_skills(&mut *tx, org_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     let now = Utc::now();
     let mut by_user: HashMap<Uuid, Vec<String>> = HashMap::new();
     for row in skills {

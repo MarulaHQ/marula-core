@@ -184,11 +184,17 @@ pub async fn list(
         },
     )?;
     let org_id = authed.principal.user.org_id;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
     let rows = if authed.principal.is_owner_or_admin() {
-        core_db::report_defs::list_all(&state.pool, org_id).await?
+        core_db::report_defs::list_all(&mut *tx, org_id).await?
     } else {
-        core_db::report_defs::list_visible(&state.pool, org_id, authed.principal.user.id).await?
+        core_db::report_defs::list_visible(&mut *tx, org_id, authed.principal.user.id).await?
     };
+    tx.commit().await.map_err(ApiError::from)?;
     let mut definitions = Vec::with_capacity(rows.len());
     for row in rows {
         definitions.push(view_of(row)?);
@@ -224,12 +230,18 @@ pub async fn get_one(
         },
     )?;
     let org_id = authed.principal.user.org_id;
-    let row = core_db::report_defs::get(&state.pool, org_id, id)
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let row = core_db::report_defs::get(&mut *tx, org_id, id)
         .await
         .map_err(|e| match e {
             core_db::DbError::NotFound => ApiError::NotFound,
             other => ApiError::from(other),
         })?;
+    tx.commit().await.map_err(ApiError::from)?;
     if !visible(&authed.principal, &row) {
         return Err(ApiError::NotFound);
     }

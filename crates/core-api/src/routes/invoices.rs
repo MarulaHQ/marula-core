@@ -730,12 +730,18 @@ pub async fn get_document(
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::View))?;
     let org_id = authed.principal.user.org_id;
-    let invoice = core_db::invoices::get_invoice(&state.pool, org_id, id).await?;
-    let lines = core_db::invoices::list_lines(&state.pool, org_id, id).await?;
-    let client = core_db::clients::get_client(&state.pool, org_id, invoice.client_id)
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
-    let html = render_invoice_html(&state.pool, org_id, &invoice, &lines, &client.name).await;
+    let invoice = core_db::invoices::get_invoice(&mut *tx, org_id, id).await?;
+    let lines = core_db::invoices::list_lines(&mut *tx, org_id, id).await?;
+    let client = core_db::clients::get_client(&mut *tx, org_id, invoice.client_id)
+        .await
+        .map_err(ApiError::from)?;
+    let html = render_invoice_html(&mut *tx, org_id, &invoice, &lines, &client.name).await;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(axum::response::Html(html))
 }
 
@@ -745,7 +751,7 @@ pub async fn get_document(
 /// what staff print. `payments` reads ride org RLS; call only after the
 /// caller's scope gate has passed.
 pub(crate) async fn render_invoice_html(
-    pool: &sqlx::PgPool,
+    conn: &mut sqlx::PgConnection,
     org_id: Uuid,
     invoice: &Invoice,
     lines: &[InvoiceLine],
@@ -782,7 +788,7 @@ pub(crate) async fn render_invoice_html(
             )
         })
         .collect();
-    let payments: String = invoice_payments_html(pool, org_id, invoice.id).await;
+    let payments: String = invoice_payments_html(&mut *conn, org_id, invoice.id).await;
     format!(
         "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>{number}</title><style>\
          body{{font-family:-apple-system,'Segoe UI',sans-serif;margin:48px auto;max-width:720px;color:#111}}\
@@ -819,8 +825,12 @@ pub(crate) async fn render_invoice_html(
     )
 }
 
-async fn invoice_payments_html(pool: &sqlx::PgPool, org_id: Uuid, invoice_id: Uuid) -> String {
-    let payments = core_db::invoices::list_payments(pool, org_id, invoice_id)
+async fn invoice_payments_html(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    invoice_id: Uuid,
+) -> String {
+    let payments = core_db::invoices::list_payments(&mut *conn, org_id, invoice_id)
         .await
         .unwrap_or_default();
     if payments.is_empty() {

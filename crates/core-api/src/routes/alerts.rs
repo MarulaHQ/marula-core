@@ -768,8 +768,18 @@ pub async fn sources_list(
 ) -> ApiResult<Json<AlertSourceList>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, Permission::ManagePlugins)?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
     let rows =
-        core_db::alerting::list_alert_sources(&state.pool, authed.principal.user.org_id).await?;
+        core_db::alerting::list_alert_sources(&mut *tx, authed.principal.user.org_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(AlertSourceList {
         sources: rows.into_iter().map(Into::into).collect(),
     }))
@@ -819,10 +829,15 @@ pub async fn sources_create(
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     // The board must exist in THIS org (RLS-visible) before we mint a
-    // secret against it.
-    core_db::boards::get_board(&state.pool, org_id, req.board_id)
+    // secret against it. RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, user_id)
+        .await
+        .map_err(ApiError::from)?;
+    core_db::boards::get_board(&mut *tx, org_id, req.board_id)
         .await
         .map_err(|_| ApiError::Validation("board_id does not resolve in your org".into()))?;
+    tx.commit().await.map_err(ApiError::from)?;
 
     // Fresh 256-bit secret; sealed immediately, returned once.
     let raw_secret = format!("alsrc_{}", Uuid::now_v7().simple());
@@ -959,10 +974,16 @@ pub async fn sources_patch(
     let user_id = authed.principal.user.id;
     // Validate a re-pointed board against THIS org before opening the
     // transaction (keeps the closure free of pool borrows).
+    // RLS-scoped read (pool carries no app.org_id GUC).
     if let Some(board_id) = req.board_id {
-        core_db::boards::get_board(&state.pool, org_id, board_id)
+        let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+        core_db::set_org_and_user(&mut tx, org_id, user_id)
+            .await
+            .map_err(ApiError::from)?;
+        core_db::boards::get_board(&mut *tx, org_id, board_id)
             .await
             .map_err(|_| ApiError::Validation("board_id does not resolve in your org".into()))?;
+        tx.commit().await.map_err(ApiError::from)?;
     }
     let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
     let key = req.instant.idempotency_key.clone();
@@ -1105,8 +1126,17 @@ pub async fn list(
             action: core_domain::policy::Action::View,
         },
     )?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
     let rows = core_db::alerting::list_alerts(
-        &state.pool,
+        &mut *tx,
         authed.principal.user.org_id,
         AlertFilter {
             source_id: q.source_id,
@@ -1116,6 +1146,7 @@ pub async fn list(
         },
     )
     .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(AlertListResponse {
         alerts: rows.into_iter().map(Into::into).collect(),
     }))

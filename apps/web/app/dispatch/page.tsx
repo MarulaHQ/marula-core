@@ -28,7 +28,7 @@ import {
   useState,
   type DragEvent as ReactDragEvent,
 } from "react";
-import { AppHeader } from "../../components/app-header";
+
 import type { Block, QueueItem, Tech } from "../../lib/dispatch-reducer";
 import { useDispatchBoard } from "../../lib/use-dispatch";
 import { useRequireAuth } from "../../lib/api";
@@ -230,8 +230,7 @@ export default function DispatchPage() {
 
   if (auth.status !== "authed") {
     return (
-      <div className="flex min-h-screen flex-col">
-        <AppHeader />
+      <div className="flex min-h-full flex-col">
         <p className="p-6 text-[13px]" style={{ color: "var(--m-text-muted)" }}>
           Signing in…
         </p>
@@ -260,8 +259,7 @@ export default function DispatchPage() {
   landRef.current = land;
 
   return (
-    <div className="flex min-h-screen flex-col" style={{ background: "var(--m-canvas)" }}>
-      <AppHeader />
+    <div className="flex h-full flex-col" style={{ background: "var(--m-canvas)" }}>
 
       {overCapacity > 0 && (
         <div

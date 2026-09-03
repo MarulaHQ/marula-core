@@ -290,13 +290,21 @@ pub async fn get_one(
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_admin(&authed.principal, Action::View)?;
     let org_id = authed.principal.user.org_id;
-    let row = core_db::report_schedules::get(&state.pool, org_id, id)
+    // RLS-scoped read (pool carries no app.org_id GUC): one tx around
+    // the schedule fetch and its definition join.
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let row = core_db::report_schedules::get(&mut *tx, org_id, id)
         .await
         .map_err(|e| match e {
             core_db::DbError::NotFound => ApiError::NotFound,
             other => ApiError::from(other),
         })?;
-    Ok(Json(view_of(&state.pool, &row).await?))
+    let view = view_of(&mut *tx, &row).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(view))
 }
 
 /// POST /api/report-schedules — create a schedule through the

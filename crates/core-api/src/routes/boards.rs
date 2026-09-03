@@ -42,7 +42,17 @@ pub async fn list(
 ) -> ApiResult<Json<Vec<core_domain::entities::Board>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, board_view())?;
-    let boards = core_db::boards::list_boards(&state.pool, authed.principal.user.org_id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let boards = core_db::boards::list_boards(&mut *tx, authed.principal.user.org_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(boards))
 }
 
@@ -122,7 +132,17 @@ pub async fn list_statuses(
 ) -> ApiResult<Json<Vec<core_domain::entities::BoardStatus>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, board_view())?;
-    let statuses = core_db::boards::list_statuses(&state.pool, id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let statuses = core_db::boards::list_statuses(&mut *tx, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(statuses))
 }
 
@@ -331,7 +351,17 @@ pub async fn list_transitions(
 ) -> ApiResult<Json<BoardTransitionsResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, board_view())?;
-    let edges = core_db::boards::list_transitions(&state.pool, id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let edges = core_db::boards::list_transitions(&mut *tx, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     let mode = if edges.is_empty() {
         "floor"
     } else {
@@ -448,24 +478,20 @@ pub async fn toggle_favorite(
     let user_id = authed.principal.user.id;
 
     // The starred board must exist in the caller's org — the favorites
-    // table's own RLS cannot see cross-org board ids.
-    core_db::boards::get_board(&state.pool, org_id, req.board_id).await?;
-
+    // table's own RLS cannot see cross-org board ids. RLS-scoped read +
+    // write (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, user_id)
+        .await
+        .map_err(ApiError::from)?;
+    core_db::boards::get_board(&mut *tx, org_id, req.board_id).await?;
     if req.favorite {
-        core_db::boards::add_favorite(&state.pool, user_id, req.board_id, 0).await?;
+        core_db::boards::add_favorite(&mut *tx, user_id, req.board_id, 0).await?;
     } else {
-        core_db::boards::remove_favorite(&state.pool, user_id, req.board_id).await?;
+        core_db::boards::remove_favorite(&mut *tx, user_id, req.board_id).await?;
     }
     // Favorites are per-user presentation state; a dedicated event keeps
     // nav clients consistent without them polling (§4.2 every-mutation).
-    let mut tx = state
-        .pool
-        .begin()
-        .await
-        .map_err(|e| ApiError::Internal(e.into()))?;
-    core_db::set_org(&mut tx, org_id)
-        .await
-        .map_err(ApiError::from)?;
     core_db::outbox::insert(
         &mut tx,
         Uuid::now_v7(),

@@ -202,8 +202,18 @@ pub async fn capabilities_list(
             action: Action::View,
         },
     )?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
     let rows =
-        agent_platform::list_capability_grants(&state.pool, authed.principal.user.org_id).await?;
+        agent_platform::list_capability_grants(&mut *tx, authed.principal.user.org_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(CapabilityGrantList {
         grants: rows.into_iter().map(CapabilityGrantView::from).collect(),
     }))
@@ -408,13 +418,19 @@ pub async fn skills_list(
         },
     )?;
     let org_id = authed.principal.user.org_id;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
     let rows = match q.slug.as_deref() {
         Some(slug) => {
             validate_slug(slug)?;
-            agent_platform::list_skill_versions(&state.pool, org_id, slug).await?
+            agent_platform::list_skill_versions(&mut *tx, org_id, slug).await?
         }
-        None => agent_platform::list_latest_skills(&state.pool, org_id).await?,
+        None => agent_platform::list_latest_skills(&mut *tx, org_id).await?,
     };
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(AgentSkillList {
         skills: rows.into_iter().map(AgentSkillView::from).collect(),
     }))
@@ -443,7 +459,17 @@ pub async fn skills_get(
             action: Action::View,
         },
     )?;
-    let row = agent_platform::get_skill(&state.pool, authed.principal.user.org_id, id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let row = agent_platform::get_skill(&mut *tx, authed.principal.user.org_id, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(AgentSkillView::from(row)))
 }
 
@@ -755,8 +781,13 @@ pub async fn proposals_list(
             )
         }
     };
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
     let rows = agent_platform::list_proposals(
-        &state.pool,
+        &mut *tx,
         org_id,
         status.as_deref(),
         after_created,
@@ -764,6 +795,7 @@ pub async fn proposals_list(
         limit,
     )
     .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     let next_cursor = if rows.len() as i64 >= limit {
         rows.last().map(|r| encode_cursor(r.created_at, r.id))
     } else {
@@ -798,7 +830,17 @@ pub async fn proposals_get(
             action: Action::View,
         },
     )?;
-    let row = agent_platform::get_proposal(&state.pool, authed.principal.user.org_id, id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let row = agent_platform::get_proposal(&mut *tx, authed.principal.user.org_id, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(AgentProposalView::from(row)))
 }
 
@@ -865,9 +907,14 @@ pub async fn proposals_create(
         }
         None => None,
     };
+    // RLS-scoped reads (pool carries no app.org_id GUC).
+    let mut gate_tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut gate_tx, org_id, caller_id)
+        .await
+        .map_err(ApiError::from)?;
     let dial_mode = match &capability {
         Some(cap) => {
-            let grant = agent_platform::get_capability_grant(&state.pool, org_id, cap)
+            let grant = agent_platform::get_capability_grant(&mut *gate_tx, org_id, cap)
                 .await?
                 .ok_or_else(|| {
                     ApiError::Forbidden(format!("capability {cap} is not granted for this org"))
@@ -883,7 +930,7 @@ pub async fn proposals_create(
     // filing is rejected before the FK ever sees it.
     let for_user = match req.for_user {
         Some(id) => {
-            core_db::users::get_user(&state.pool, org_id, id)
+            core_db::users::get_user(&mut *gate_tx, org_id, id)
                 .await
                 .map_err(|_| {
                     ApiError::Validation("for_user does not name a user of this org".into())
@@ -897,10 +944,11 @@ pub async fn proposals_create(
     // Drift provenance: the write-seq the record sits at right now.
     let base_version = match (op.as_str(), req.entity_id) {
         ("update", Some(id)) => {
-            agent_platform::entity_current_seq(&state.pool, org_id, &entity, id).await?
+            agent_platform::entity_current_seq(&mut *gate_tx, org_id, &entity, id).await?
         }
         _ => 0,
     };
+    gate_tx.commit().await.map_err(ApiError::from)?;
 
     let mut tx = org_tx::begin(&state, org_id, caller_id).await?;
     let fields = ProposalFields {

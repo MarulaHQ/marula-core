@@ -216,8 +216,13 @@ pub async fn list(
         tickets(core_domain::policy::Action::View),
     )?;
     let org_id = authed.principal.user.org_id;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
     let rows = core_db::tickets::list_tickets(
-        &state.pool,
+        &mut *tx,
         org_id,
         core_db::tickets::TicketFilter {
             board_id: q.board_id,
@@ -230,7 +235,8 @@ pub async fn list(
         },
     )
     .await?;
-    let enriched = TicketWithFields::load_many(&state.pool, org_id, rows).await?;
+    let enriched = TicketWithFields::load_many(&mut *tx, org_id, rows).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(enriched))
 }
 
@@ -516,8 +522,14 @@ pub async fn get_one(
         tickets(core_domain::policy::Action::View),
     )?;
     let org_id = authed.principal.user.org_id;
-    let ticket = core_db::tickets::get_ticket(&state.pool, org_id, id).await?;
-    let enriched = TicketWithFields::load(&state.pool, org_id, ticket).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let ticket = core_db::tickets::get_ticket(&mut *tx, org_id, id).await?;
+    let enriched = TicketWithFields::load(&mut *tx, org_id, ticket).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(enriched))
 }
 
@@ -1002,13 +1014,23 @@ pub async fn list_comments(
         tickets(core_domain::policy::Action::View),
     )?;
     let kinds: Option<Vec<NoteKind>> = q.kind.map(|k| vec![k]);
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
     let comments = core_db::tickets::list_comments(
-        &state.pool,
+        &mut *tx,
         authed.principal.user.org_id,
         id,
         kinds.as_deref(),
     )
     .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(comments))
 }
 
@@ -1602,8 +1624,17 @@ pub async fn ticket_time_entries(
         &authed.principal,
         tickets(core_domain::policy::Action::View),
     )?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
     let entries = core_db::timers::list_time_entries(
-        &state.pool,
+        &mut *tx,
         authed.principal.user.org_id,
         Some(id),
         None,
@@ -1611,5 +1642,6 @@ pub async fn ticket_time_entries(
         200,
     )
     .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(entries))
 }

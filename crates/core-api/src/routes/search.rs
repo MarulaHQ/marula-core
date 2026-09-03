@@ -163,8 +163,18 @@ pub async fn search(
     let limit = q.limit.clamp(1, 50);
     let offset = q.offset.max(0);
 
+    // RLS-scoped read (pool carries no app.org_id GUC): one tx around
+    // both queries.
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
     let hits = core_db::search::search_page(
-        &state.pool,
+        &mut *tx,
         authed.principal.user.org_id,
         &kinds,
         &trimmed,
@@ -174,13 +184,14 @@ pub async fn search(
     )
     .await?;
     let total = core_db::search::search_count(
-        &state.pool,
+        &mut *tx,
         authed.principal.user.org_id,
         &kinds,
         &trimmed,
         trigram,
     )
     .await?;
+    tx.commit().await.map_err(ApiError::from)?;
 
     Ok(Json(SearchResponse {
         query: trimmed,

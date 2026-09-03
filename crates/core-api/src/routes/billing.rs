@@ -274,23 +274,6 @@ fn parse_preview_window(q: &PreviewQuery) -> ApiResult<(chrono::NaiveDate, chron
     Ok((from, to))
 }
 
-async fn load_detail_from_pool(
-    pool: &sqlx::PgPool,
-    org_id: Uuid,
-    id: Uuid,
-) -> ApiResult<ContractDetail> {
-    let contract = core_db::contracts::get_contract(pool, org_id, id)
-        .await
-        .map_err(ApiError::from)?;
-    let rates = core_db::contracts::list_rates(pool, org_id, id).await?;
-    let fees = core_db::contracts::list_fees(pool, org_id, id).await?;
-    Ok(ContractDetail {
-        contract,
-        rates,
-        fees,
-    })
-}
-
 async fn load_detail_from_tx(
     tx: &mut sqlx::PgConnection,
     org_id: Uuid,
@@ -459,9 +442,19 @@ pub async fn list(
         status: q.status,
         effective_on: q.effective_on,
     };
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
     let contracts =
-        core_db::contracts::list_contracts(&state.pool, authed.principal.user.org_id, &filters)
+        core_db::contracts::list_contracts(&mut *tx, authed.principal.user.org_id, &filters)
             .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(contracts))
 }
 
@@ -477,7 +470,17 @@ pub async fn get_one(
 ) -> ApiResult<Json<ContractDetail>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::View))?;
-    let detail = load_detail_from_pool(&state.pool, authed.principal.user.org_id, id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let detail = load_detail_from_tx(&mut tx, authed.principal.user.org_id, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(detail))
 }
 
@@ -684,19 +687,20 @@ pub async fn preview_contract(
     let org_id = authed.principal.user.org_id;
     let (from, to) = parse_preview_window(&q)?;
 
-    let contract = core_db::contracts::get_contract(&state.pool, org_id, id)
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
-    let rates = core_db::contracts::list_rates(&state.pool, org_id, id).await?;
-    let fees = core_db::contracts::list_fees(&state.pool, org_id, id).await?;
-    let entries = core_db::contracts::list_billable_entries(
-        &state.pool,
-        org_id,
-        contract.client_id,
-        from,
-        to,
-    )
-    .await?;
+    let contract = core_db::contracts::get_contract(&mut *tx, org_id, id)
+        .await
+        .map_err(ApiError::from)?;
+    let rates = core_db::contracts::list_rates(&mut *tx, org_id, id).await?;
+    let fees = core_db::contracts::list_fees(&mut *tx, org_id, id).await?;
+    let entries =
+        core_db::contracts::list_billable_entries(&mut *tx, org_id, contract.client_id, from, to)
+            .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     let inputs: Vec<core_billing::BillableEntry> = entries
         .into_iter()
         .map(|e| core_billing::BillableEntry {
@@ -729,7 +733,12 @@ pub async fn preview_org(
     let org_id = authed.principal.user.org_id;
     let (from, to) = parse_preview_window(&q)?;
 
-    let contracts = core_db::contracts::list_billable_contracts(&state.pool, org_id, from, to)
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let contracts = core_db::contracts::list_billable_contracts(&mut *tx, org_id, from, to)
         .await
         .map_err(ApiError::from)?;
     // Entries are per client; contracts usually cluster on few clients, so
@@ -742,7 +751,7 @@ pub async fn preview_org(
             Some(cached) => cached.clone(),
             None => {
                 let rows = core_db::contracts::list_billable_entries(
-                    &state.pool,
+                    &mut *tx,
                     org_id,
                     contract.client_id,
                     from,
@@ -762,12 +771,13 @@ pub async fn preview_org(
                 inputs
             }
         };
-        let rates = core_db::contracts::list_rates(&state.pool, org_id, contract.id).await?;
-        let fees = core_db::contracts::list_fees(&state.pool, org_id, contract.id).await?;
+        let rates = core_db::contracts::list_rates(&mut *tx, org_id, contract.id).await?;
+        let fees = core_db::contracts::list_fees(&mut *tx, org_id, contract.id).await?;
         let evaluation = core_billing::rules::evaluate(contract, &rates, &fees, &inputs, from, to)
             .map_err(engine_error)?;
         evaluations.push(evaluation);
     }
+    tx.commit().await.map_err(ApiError::from)?;
     // Mixed-currency totals are meaningless; every org contract shares a
     // currency in practice, and a violation is a typed conflict rather
     // than a silently wrong number.

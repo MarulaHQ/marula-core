@@ -56,7 +56,13 @@ pub async fn get_inbound_settings(
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, admin(Action::View))?;
     let org = authed.principal.user.org_id;
-    let settings = core_db::emails::get_inbound_settings(&state.pool, org).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let settings = core_db::emails::get_inbound_settings(&mut *tx, org).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(InboundSettingsResponse {
         catchall_address: settings.as_ref().map(|s| s.catchall_address.clone()),
         catchall_board_id: settings.as_ref().map(|s| s.catchall_board_id),
@@ -79,11 +85,14 @@ pub async fn put_inbound_settings(
         ));
     }
     // Board must exist inside THIS org before it can receive mail.
-    core_db::boards::get_board(&state.pool, org, req.catchall_board_id)
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    core_db::boards::get_board(&mut *tx, org, req.catchall_board_id)
         .await
         .map_err(|_| ApiError::Validation("catchall_board_id not found in org".into()))?;
-    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
-    core_db::set_org(&mut tx, org).await?;
     core_db::emails::upsert_inbound_settings(
         &mut tx,
         org,
@@ -129,17 +138,14 @@ pub async fn put_board_inbound_address(
         core_domain::policy::BoardOp::ConfigureBoard,
     )
     .await?;
+    // Scoped write rides the same tx (pool carries no app.org_id GUC).
+    let result =
+        core_db::emails::set_board_inbound_address(&mut *tx, org, board_id, req.address.as_deref())
+            .await;
     tx.commit()
         .await
         .map_err(|e| ApiError::Internal(e.into()))?;
-    match core_db::emails::set_board_inbound_address(
-        &state.pool,
-        org,
-        board_id,
-        req.address.as_deref(),
-    )
-    .await
-    {
+    match result {
         Ok(()) => Ok(Json(serde_json::json!({ "inbound_address": req.address }))),
         Err(core_db::DbError::NotFound) => Err(ApiError::NotFound),
         // Unique-index violation: another board/org already owns it.

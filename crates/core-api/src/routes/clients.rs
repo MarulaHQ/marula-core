@@ -89,7 +89,17 @@ pub async fn list(
 ) -> ApiResult<Json<Vec<core_domain::entities::Client>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, client_view_permission())?;
-    let clients = core_db::clients::list_clients(&state.pool, authed.principal.user.org_id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let clients = core_db::clients::list_clients(&mut *tx, authed.principal.user.org_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(clients))
 }
 
@@ -104,8 +114,17 @@ pub async fn get_one(
 ) -> ApiResult<Json<core_domain::entities::Client>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, client_view_permission())?;
-    let client =
-        core_db::clients::get_client(&state.pool, authed.principal.user.org_id, id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let client = core_db::clients::get_client(&mut *tx, authed.principal.user.org_id, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     // Per-client visibility rule: restricted_to lists allowed users; admins bypass.
     if !client.restricted_to.is_empty()
         && !client.restricted_to.contains(&authed.principal.user.id)
@@ -216,7 +235,17 @@ pub async fn list_sites(
 ) -> ApiResult<Json<Vec<core_domain::entities::Site>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, client_view_permission())?;
-    let sites = core_db::clients::list_sites(&state.pool, authed.principal.user.org_id, id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let sites = core_db::clients::list_sites(&mut *tx, authed.principal.user.org_id, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(sites))
 }
 
@@ -280,8 +309,18 @@ pub async fn list_contacts(
 ) -> ApiResult<Json<Vec<core_domain::entities::Contact>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, client_view_permission())?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
     let contacts =
-        core_db::clients::list_contacts(&state.pool, authed.principal.user.org_id, id).await?;
+        core_db::clients::list_contacts(&mut *tx, authed.principal.user.org_id, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(contacts))
 }
 
@@ -342,8 +381,17 @@ pub async fn list_assets(
 ) -> ApiResult<Json<Vec<core_domain::entities::DeviceAsset>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, client_view_permission())?;
-    let assets =
-        core_db::clients::list_assets(&state.pool, authed.principal.user.org_id, id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let assets = core_db::clients::list_assets(&mut *tx, authed.principal.user.org_id, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(assets))
 }
 
@@ -359,9 +407,15 @@ pub async fn create_asset(
 ) -> ApiResult<Json<core_domain::entities::DeviceAsset>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, client_edit_permission())?;
+    let org_id = authed.principal.user.org_id;
+    // RLS-scoped write (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
     let asset = core_db::clients::create_asset(
-        &state.pool,
-        authed.principal.user.org_id,
+        &mut *tx,
+        org_id,
         Uuid::now_v7(),
         id,
         &req.tag,
@@ -369,5 +423,6 @@ pub async fn create_asset(
         req.kind.as_deref().unwrap_or("device"),
     )
     .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(asset))
 }

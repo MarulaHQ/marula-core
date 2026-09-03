@@ -54,9 +54,15 @@ pub async fn require_portal_auth(
         .ok_or_else(|| ApiError::Unauthorized("invalid or expired token".into()))?;
     let (portal_user_id, org_id, client_id, session_id) = claims;
 
-    let user = core_db::portal::get_portal_user(&state.pool, org_id, portal_user_id)
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, portal_user_id)
+        .await
+        .map_err(ApiError::from)?;
+    let user = core_db::portal::get_portal_user(&mut *tx, org_id, portal_user_id)
         .await
         .map_err(|_| ApiError::Unauthorized("portal user not found".into()))?;
+    tx.commit().await.map_err(ApiError::from)?;
     if user.status != core_domain::entities::PortalUserStatus::Active {
         return Err(ApiError::Unauthorized("account disabled".into()));
     }
@@ -207,9 +213,15 @@ pub async fn refresh(
     .map_err(|e| ApiError::Internal(e.into()))?;
     let (user_id, org_id, client_id) =
         resolved.ok_or_else(|| ApiError::Unauthorized("invalid refresh token".into()))?;
-    let user = core_db::portal::get_portal_user(&state.pool, org_id, user_id)
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut rtx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut rtx, org_id, user_id)
+        .await
+        .map_err(ApiError::from)?;
+    let user = core_db::portal::get_portal_user(&mut *rtx, org_id, user_id)
         .await
         .map_err(|_| ApiError::Unauthorized("invalid refresh token".into()))?;
+    rtx.commit().await.map_err(ApiError::from)?;
     if user.status != core_domain::entities::PortalUserStatus::Active {
         return Err(ApiError::Unauthorized("account disabled".into()));
     }
@@ -258,8 +270,13 @@ async fn issue_portal_tokens(
     let refresh = jwt::new_refresh_token();
     let refresh_hash = jwt::hash_refresh_token(&refresh);
     let expires_at = chrono::Utc::now() + chrono::Duration::seconds(state.config.refresh_ttl_secs);
+    // RLS-scoped write (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, identity.org_id, identity.id)
+        .await
+        .map_err(ApiError::from)?;
     core_db::portal::create_session(
-        &state.pool,
+        &mut *tx,
         session_id,
         identity.org_id,
         identity.id,
@@ -268,6 +285,7 @@ async fn issue_portal_tokens(
         expires_at,
     )
     .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     let access = jwt::issue_portal_access_token(
         &state.config,
         identity.id,
@@ -312,7 +330,23 @@ pub(crate) async fn audit_best_effort(
         ip: None,
         occurred_at: chrono::Utc::now(),
     };
-    let _ = core_db::audit::insert(&state.pool, &event).await;
+    // RLS-scoped write (pool carries no app.org_id GUC); best effort.
+    let result = async {
+        let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+        match &event.actor {
+            Actor::Human(id) => {
+                core_db::set_org_and_user(&mut tx, org_id, *id).await?;
+            }
+            _ => {
+                core_db::set_org(&mut tx, org_id).await?;
+            }
+        }
+        core_db::audit::insert(&mut *tx, &event).await?;
+        tx.commit().await.map_err(ApiError::from)?;
+        Ok::<(), ApiError>(())
+    }
+    .await;
+    let _ = result;
 }
 
 // --- profile ---------------------------------------------------------------
@@ -372,8 +406,13 @@ pub async fn list_tickets(
     )
     .expect()
     .map_err(ApiError::Forbidden)?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, authed.user.org_id, authed.user.id)
+        .await
+        .map_err(ApiError::from)?;
     let tickets = core_db::portal::list_client_tickets(
-        &state.pool,
+        &mut *tx,
         authed.user.org_id,
         authed.user.client_id,
         core_db::portal::PortalTicketFilter {
@@ -384,6 +423,7 @@ pub async fn list_tickets(
         },
     )
     .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(tickets))
 }
 
@@ -409,15 +449,21 @@ pub async fn get_ticket(
     let client_id = authed.user.client_id;
     let role = authed.user.role;
 
-    let ticket = core_db::portal::get_client_ticket(&state.pool, org_id, client_id, id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let ticket = core_db::portal::get_client_ticket(&mut *tx, org_id, client_id, id).await?;
     let audience = audience_for(role);
     let comments = core_db::tickets::list_comments(
-        &state.pool,
+        &mut *tx,
         org_id,
         id,
         Some(core_domain::notes::visible_kinds(audience)),
     )
     .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(PortalTicketDetail {
         ticket,
         comments,
@@ -581,10 +627,15 @@ pub async fn list_attachments(
     let org_id = authed.user.org_id;
     let client_id = authed.user.client_id;
 
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.user.id)
+        .await
+        .map_err(ApiError::from)?;
     // Exposure + ownership gate (also 404s hidden tickets).
-    core_db::portal::get_client_ticket(&state.pool, org_id, client_id, id).await?;
+    core_db::portal::get_client_ticket(&mut *tx, org_id, client_id, id).await?;
     let kinds = portal_attachment_visible_kinds(authed.user.role);
-    let items = core_db::attachments::list_portal_visible(&state.pool, org_id, id, &kinds)
+    let items = core_db::attachments::list_portal_visible(&mut *tx, org_id, id, &kinds)
         .await?
         .into_iter()
         .map(|a| PortalAttachmentView {
@@ -596,6 +647,7 @@ pub async fn list_attachments(
             created_at: a.created_at,
         })
         .collect();
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(items))
 }
 
@@ -623,14 +675,20 @@ pub async fn download_attachment(
     let org_id = authed.user.org_id;
     let client_id = authed.user.client_id;
 
-    core_db::portal::get_client_ticket(&state.pool, org_id, client_id, id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    core_db::portal::get_client_ticket(&mut *tx, org_id, client_id, id).await?;
     let kinds = portal_attachment_visible_kinds(authed.user.role);
     let Some(attachment) =
-        core_db::attachments::find_portal_visible(&state.pool, org_id, id, attachment_id, &kinds)
+        core_db::attachments::find_portal_visible(&mut *tx, org_id, id, attachment_id, &kinds)
             .await?
     else {
         return Err(ApiError::NotFound);
     };
+    tx.commit().await.map_err(ApiError::from)?;
 
     let obj = state
         .store

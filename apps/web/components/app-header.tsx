@@ -9,11 +9,16 @@
 import { useTheme } from "@meridian/ui";
 import type { Theme } from "@meridian/ui";
 import { Button, Kbd } from "@meridian/ui";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { API_BASE, useAuth } from "../lib/api";
 import { NotificationDock } from "./notification-dock";
 import { OutboxDock } from "./instant/outbox-dock";
+
+// Surfaces that own their chrome (auth flows, the client portal) render no
+// staff header.
+const HEADERLESS = [/^\/login$/, /^\/mfa$/, /^\/sso$/, /^\/welcome$/, /^\/portal(\/|$)/];
 
 function ThemeToggle() {
   const { theme, setTheme } = useTheme();
@@ -94,13 +99,22 @@ function DevToolsLink() {
 export function AppHeader() {
   const { me, logout } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
+  if (HEADERLESS.some((pattern) => pattern.test(pathname))) return null;
   return (
     <header
       className="flex h-12 shrink-0 items-center justify-between border-b px-4"
       style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
     >
       <div className="flex items-baseline gap-2">
-        <span className="text-sm font-semibold tracking-wide">Meridian</span>
+        <Link
+          href="/today"
+          className="text-sm font-semibold tracking-wide no-underline"
+          style={{ color: "var(--m-text)" }}
+          aria-label="Meridian home"
+        >
+          Meridian
+        </Link>
         <span className="text-xs" style={{ color: "var(--m-text-muted)" }}>
           open-core PSA
         </span>
@@ -109,6 +123,9 @@ export function AppHeader() {
         <OutboxDock />
         <SearchLauncher />
         <NotificationDock />
+        <Button variant="ghost" size="sm" onClick={() => router.push("/today")}>
+          Today
+        </Button>
         <Button variant="ghost" size="sm" onClick={() => router.push("/billing")}>
           Billing
         </Button>
