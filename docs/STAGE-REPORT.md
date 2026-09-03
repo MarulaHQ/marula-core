@@ -212,3 +212,54 @@ green (74 app + 34 website) · TS 0 errors · spec snapshot **128 paths
 U7 fixture capture for v0.1.0: worktree checked out at
 `../meridian-fixture-v0.1.0`; build→seed→dump into `fixtures/upgrades/`
 remains the next coordinator task before Wave 8.
+
+## Phase 3 progress — Waves 8–9 (interim, as of 2026-09-03)
+
+> Interim append: Phase 3 (commercial engine) runs as parallel lane waves;
+> per-wave acceptance detail lives in TASKLIST.md's roadmap + checkbox notes.
+> This section records what shipped and the standing UI gaps between waves.
+
+### Wave 8a (2026-08-30) — envelope-first
+IF1–IF3 instant-first write path (migration 0028; idempotent writes,
+read-your-write, typed error envelope centrally) · U5 customization-manifest
+export (`GET /org/manifest`, golden-stability + secret-leak suites) · R2
+dashboards UI (My day / Team load / SLA health). Merge order doctrine: IF →
+U5 → R2, zero conflicts.
+
+### Wave 8b (2026-08-31 → 09-02) — commercial substrate on the envelope
+All lanes merged: contracts + recurring billing rules (0029) · projects line
+(0030, 23 endpoints, milestone billing seam) · native KB v1 (0031, --breaking)
++ D4 DocumentVersion (0032) · D1 org-data export + D2 remainder (0033) · R3
+report definitions as data (0034) · D5 KB import (0035) · IF4–IF6 web client
+read models (seq-keyed cache, offline replay, hydrate-once) · U2 event
+conformance + U4 deprecation clock (contract registry, goldens, CI gate).
+
+### Wave 9 (2026-09-02/03) — monetization + platform surface, 11 lanes
+Lanes 1–9 backend, then the UI close-out (doctrine introduced this wave:
+every wave ENDS with its web close-out on merged APIs only, whole features
+end-to-end or visibly absent, typed SDK only, dark parity + motion law):
+
+| Lane | Shipped |
+|---|---|
+| 1 invoicing (0036) | invoice runs → lines → `PaymentProvider` (none-mode) → dunning; "billed once, ever" partial-unique guards; print-ready HTML doc; PDF gap recorded |
+| 2 R4 delivery (0038) | `report_schedules` + `report_deliveries`, DST-safe cadence, worker delivery loop, two-weeks harness |
+| 3 portal v2 (0039) | invoice view+pay, KB self-service, appointment requests (intent table + staff approval booking) |
+| 4 MCP v1 + IF8 (0040) | mcp-server read tools from OpenAPI, capability registry deny-by-default, IF8 proposals (CAS-guarded decisions) |
+| 5 IF7 undo (0041) | `ops.v1_*_undo_stack` views + revert-as-IF1-write; open vs reverts_only modes |
+| 6 D3 connector (0042) | bulk push/pull, checkpoint cursors, per-key rate limits, conformance suite |
+| 7 IF9 provenance (0043) | per-field `provenance_events` projection + `GET /api/provenance`; `ProvenanceContext` on the envelope |
+| 8 adapters (0044) | QBO/Xero export-sync crates, `CompletionProvider` none-mode, BYOK sealed keys |
+| 9 dispatch v2 (0045) | resource planning, connector API, travel/mileage drafts |
+| 10 web close-out (74e362c3) | billing pages, dispatch planning/travel, agent-platform admin, AI/BYOK settings, provenance browser, undo binding |
+
+Spec at **180+ v1 paths**, 45 migrations, event contract registry gates every
+lane merge. Known integration lessons: lanes branched before each other's
+merges type-break on widened structs (`RecordSpec.provenance`, tri-state
+`TicketPatch.body`) — resolved at merge with the canonical patterns.
+
+### Known gaps carried forward (see TASKLIST "UI debt" block)
+
+1. Staff UI missing for: projects, clients CRM, contracts, documents, imports,
+   KB authoring, alerts, R3 definitions, R4 schedules (backend all live).
+2. Invoice documents print-to-PDF via browser only (no server PDF binary).
+3. Portal quote approval deferred until the quotes lane exists.
