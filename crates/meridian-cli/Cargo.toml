@@ -14,6 +14,17 @@ core-otel = { path = "../core-otel" }
 realtime = { path = "../realtime" }
 worker = { path = "../worker" }
 anyhow = { workspace = true }
+chrono = { workspace = true }
 clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+core-api = { path = "../core-api" }
+reqwest = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

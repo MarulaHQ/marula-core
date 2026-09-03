@@ -1,0 +1,128 @@
+# Release pipeline (TASKLIST U10b).
+#
+# On a vX.Y.Z tag:
+#   1. Build + push five images to GHCR, pinned by digest, with provenance
+#      attestations (buildx) and SBOMs (syft), both uploaded as artifacts
+#      AND attested into the registry.
+#   2. Package the Helm chart and attach it to the release.
+#   3. Print a digest manifest into the job summary (the values the chart's
+#      digestPinningEnforced gate consumes).
+# TS packages (packages/*) are versioned via Changesets on main
+# (.github/workflows/changesets.yml), not on the tag.
+#
+# Non-purpose: no secret material in workflow files; no environment deploys.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v0.2.0)"
+        required: true
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  attestations: write
+
+env:
+  REGISTRY: ghcr.io
+  OWNER: ${{ github.repository_owner }}
+
+jobs:
+  images:
+    name: Build, push, SBOM, provenance — ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: meridian-core-api
+            dockerfile: deploy/Dockerfile.rust
+            build_args: BIN=core-api
+          - image: meridian-realtime
+            dockerfile: deploy/Dockerfile.rust
+            build_args: BIN=realtime
+          - image: meridian-worker
+            dockerfile: deploy/Dockerfile.rust
+            build_args: BIN=worker
+          - image: meridian-cli
+            dockerfile: deploy/Dockerfile.rust
+            build_args: BIN=meridian-cli
+          - image: meridian-web
+            dockerfile: deploy/Dockerfile.web
+            build_args: ""
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push (tag + provenance)
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          build-args: ${{ matrix.build_args }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}:${{ steps.tag.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}:latest
+          provenance: mode=max
+          sbom: true
+
+      - name: SBOM (syft)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          artifact-name: sbom-${{ matrix.image }}.spdx.json
+          upload-artifact: true
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+
+      - name: Record digest
+        run: echo "${{ matrix.image }}=${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
+
+  chart:
+    name: Package Helm chart
+    runs-on: ubuntu-latest
+    needs: images
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.14.4
+      - name: Lint + package
+        run: |
+          helm lint deploy/helm/meridian
+          helm package deploy/helm/meridian -d dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: helm-chart
+          path: dist/*.tgz

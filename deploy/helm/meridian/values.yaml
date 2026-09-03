@@ -1,0 +1,169 @@
+# Default values for the meridian chart.
+#
+# Image policy (release engineering, TASKLIST U10b): every image reference is
+# digest-pinned in production — set `tag` for readability AND `digest` for
+# the immutable reference. Digests are published per release with their SBOM
+# + provenance attestations (see .github/workflows/release.yml).
+
+# Global release-engineering toggle: when true (default) every image
+# reference requires `digest` to be set; the chart renders an invalid
+# resource otherwise. Opt out ONLY for local development.
+digestPinningEnforced: true
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Existing secret providing JWT_SECRET / MERIDIAN_SECRET_KEY / EMAIL_* keys.
+# When empty, a Secret is generated from the inline values below.
+existingSecret: ""
+
+secrets:
+  jwtSecret: ""
+  # Envelope encryption key for byok_secrets / webhook secrets (hex).
+  appSecretKey: ""
+  emailInboundHmacSecret: ""
+  emailInternalToken: ""
+
+imagePullSecrets: []
+
+images:
+  registry: ghcr.io/meridian-open
+  pullPolicy: IfNotPresent
+  coreApi:
+    repository: meridian-core-api
+    tag: "v0.2.0"
+    digest: ""
+  realtime:
+    repository: meridian-realtime
+    tag: "v0.2.0"
+    digest: ""
+  worker:
+    repository: meridian-worker
+    tag: "v0.2.0"
+    digest: ""
+  cli:
+    repository: meridian-cli
+    tag: "v0.2.0"
+    digest: ""
+  web:
+    repository: meridian-web
+    tag: "v0.2.0"
+    digest: ""
+
+# ---------------------------------------------------------------- database --
+# Either deploy in-chart Postgres (pgvector image, prod parity) or point at
+# an external instance. The in-chart deployment is sized for evaluation;
+# production installs should bring their own Postgres.
+postgresql:
+  deploy: true
+  image: pgvector/pgvector:pg17
+  database: meridian
+  ownerUser: meridian
+  ownerPassword: ""
+  appUser: meridian_app
+  appPassword: ""
+  storage:
+    className: ""
+    size: 20Gi
+
+# ------------------------------------------------------------------ redis --
+redis:
+  deploy: true
+  image: redis:7-alpine
+  # When deploy: false, set externalUrl (redis://host:6379/0).
+  externalUrl: ""
+
+# ------------------------------------------------------------------ core --
+coreApi:
+  replicaCount: 1
+  bindAddr: 0.0.0.0:8080
+  corsOrigin: ""
+  publicBaseUrl: ""
+  maxUploadMb: 25
+  resources: {}
+  extraEnv: []
+
+realtime:
+  replicaCount: 1
+  resources: {}
+  extraEnv: []
+
+worker:
+  replicaCount: 1
+  relayBatch: 200
+  resources: {}
+  extraEnv: []
+
+web:
+  enabled: true
+  replicaCount: 1
+  # Baked into the browser bundle at build time — must be the URL the
+  # USER'S BROWSER uses to reach the API.
+  nextPublicApiUrl: ""
+  resources: {}
+  extraEnv: []
+
+# Email: `smtp` with the bundled Mailpit profile for evaluation, `none` or
+# your own SMTP settings for production.
+email:
+  transport: smtp
+  smtpHost: ""
+  smtpPort: "1025"
+
+mailpit:
+  # Dev/demo mail sink: in-chart Mailpit + SMTP port + web UI.
+  enabled: false
+  image: axllent/mailpit:latest
+
+# Object storage: local-fs (single replica, PVC) or S3/MinIO.
+objectStore:
+  mode: local
+  localDir: /data/objects
+  s3:
+    endpoint: ""
+    bucket: meridian
+    region: us-east-1
+    accessKeyId: ""
+    secretAccessKey: ""
+
+minio:
+  enabled: false
+  image: minio/minio:latest
+  rootUser: meridian
+  rootPassword: ""
+  storage:
+    size: 20Gi
+
+# OpenTelemetry: empty endpoint = none mode.
+otel:
+  exporterOtlpEndpoint: ""
+
+migrations:
+  # Run migrations as a Helm pre-upgrade hook from the CLI image.
+  enabled: true
+
+service:
+  coreApi:
+    type: ClusterIP
+    port: 8080
+  realtime:
+    type: ClusterIP
+    port: 8081
+  web:
+    type: ClusterIP
+    port: 3000
+
+ingress:
+  enabled: false
+  className: ""
+  host: ""
+  tls: false
+  annotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+
+resources: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

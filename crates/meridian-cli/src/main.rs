@@ -1,9 +1,10 @@
 //! meridian-cli — the operator entrypoint for Meridian's background
 //! services.
 //!
-//! Purpose: wrap the three operational tasks self-hosters need — applying
+//! Purpose: wrap the operational tasks self-hosters need — applying
 //! database migrations and launching the worker / realtime services with
-//! environment-driven config identical to their standalone binaries.
+//! environment-driven config identical to their standalone binaries, the
+//! upgrade preflight (U6), and the upgrade-fixture manifest emitter (U7).
 //!
 //! Non-purpose: no server runtime code of its own (it orchestrates, it does
 //! not implement), no interactive setup wizard yet (later Stage 0 work),
@@ -11,6 +12,9 @@
 
 use clap::{Parser, Subcommand};
 use tokio::sync::watch;
+
+mod fixture;
+mod upgrade;
 
 /// Database URL default mirroring `core_api::config::Config` so bare
 /// `meridian migrate` works against the dev compose stack.
@@ -31,6 +35,35 @@ enum Command {
     ServeWorker,
     /// Run the realtime WebSocket hub.
     ServeRealtime,
+    /// Upgrade preflight + fixture tooling (policy §5/§8).
+    Upgrade {
+        /// Run the offline preflight: scan the customization manifest (and,
+        /// when given, a database copy) for deprecated-construct touchpoints.
+        #[arg(long)]
+        check: bool,
+        /// Path to the U5 customization manifest JSON to analyze.
+        #[arg(long, requires = "check")]
+        manifest: Option<std::path::PathBuf>,
+        /// Path to the deprecation registry (defaults to ./deprecations.json).
+        #[arg(long, requires = "check")]
+        registry: Option<std::path::PathBuf>,
+        /// Optional database copy URL for the second preflight leg.
+        #[arg(long, requires = "check")]
+        database_url: Option<String>,
+    },
+    /// Upgrade-fixture tooling (U7) — hidden support for fixture capture.
+    #[command(hide = true)]
+    Fixture {
+        /// Emit the org's customization manifest (U5 envelope) as JSON.
+        #[arg(long)]
+        manifest: bool,
+        /// Org to emit the manifest for.
+        #[arg(long)]
+        org_id: uuid::Uuid,
+        /// Write to this path instead of stdout.
+        #[arg(long)]
+        out: Option<std::path::PathBuf>,
+    },
 }
 
 #[tokio::main]
@@ -41,6 +74,28 @@ async fn main() -> anyhow::Result<()> {
         Command::Migrate => migrate().await,
         Command::ServeWorker => serve_worker().await,
         Command::ServeRealtime => serve_realtime().await,
+        Command::Upgrade {
+            check,
+            manifest,
+            registry,
+            database_url,
+        } => {
+            anyhow::ensure!(check, "use `meridian upgrade --check` to run the preflight");
+            upgrade_check(manifest, registry, database_url).await
+        }
+        Command::Fixture {
+            manifest,
+            org_id,
+            out,
+        } => {
+            anyhow::ensure!(
+                manifest,
+                "use `meridian fixture --manifest` to emit a manifest"
+            );
+            let url =
+                std::env::var("DATABASE_URL").unwrap_or_else(|_| DEFAULT_DATABASE_URL.to_string());
+            fixture::emit_manifest(&url, org_id, out).await
+        }
     }
 }
 
@@ -53,6 +108,116 @@ async fn migrate() -> anyhow::Result<()> {
     core_db::run_migrations(&pool).await?;
     tracing::info!("migrations applied");
     Ok(())
+}
+
+/// The U6 preflight: registry + manifest are required; the database-copy
+/// leg is optional and strictly read-only.
+async fn upgrade_check(
+    manifest: Option<std::path::PathBuf>,
+    registry: Option<std::path::PathBuf>,
+    database_url: Option<String>,
+) -> anyhow::Result<()> {
+    let manifest_path = manifest
+        .ok_or_else(|| anyhow::anyhow!("--manifest <path> is required for upgrade --check"))?;
+    let registry_path =
+        registry.unwrap_or_else(|| std::path::PathBuf::from(upgrade::DEFAULT_REGISTRY_PATH));
+
+    let reg = upgrade::load_registry(&registry_path)
+        .map_err(|e| anyhow::anyhow!("loading registry: {e}"))?;
+    let manifest_json = upgrade::load_manifest(&manifest_path)
+        .map_err(|e| anyhow::anyhow!("loading manifest: {e}"))?;
+    let findings = upgrade::scan_manifest(&reg, &manifest_json);
+
+    println!(
+        "meridian upgrade --check — registry v{} with {} registered deprecation(s)",
+        reg.version,
+        reg.deprecations.len()
+    );
+    println!("manifest: {}", manifest_path.display());
+    if findings.is_empty() {
+        println!("\nNo deprecated-construct touchpoints found in this org's customizations.");
+    }
+    let mut judgment_calls = 0usize;
+    for f in &findings {
+        println!(
+            "\n[{}] {} (kind {}, deprecated in {}, removal target {})",
+            match f.classification {
+                upgrade::Classification::AutoMigratable => "auto-migratable",
+                upgrade::Classification::JudgmentCall => "JUDGMENT CALL",
+            },
+            f.construct,
+            f.kind,
+            f.deprecated_in,
+            f.removal_target
+        );
+        for tp in &f.touchpoints {
+            match &tp.anchor {
+                Some(anchor) => println!("  - {} = {:?}  ({anchor})", tp.path, tp.value),
+                None => println!("  - {} = {:?}", tp.path, tp.value),
+            }
+        }
+        println!("  {}", f.guidance);
+        if let Some(doc) = &f.doc {
+            println!("  note: {doc}");
+        }
+        if f.classification == upgrade::Classification::JudgmentCall {
+            judgment_calls += 1;
+        }
+    }
+
+    if let Some(url) = database_url {
+        report_db_copy(&url).await;
+    } else {
+        println!("\n(Database-copy leg skipped — pass --database-url to include it.)");
+    }
+
+    if judgment_calls > 0 {
+        println!("\nRESULT: {judgment_calls} judgment-call finding(s) — review before upgrading.");
+        std::process::exit(1);
+    }
+    println!("\nRESULT: safe to proceed with the upgrade.");
+    Ok(())
+}
+
+/// Read-only survey of a database copy: migration state plus per-surface
+/// customization counts, so the operator sees what the upgrade will touch.
+/// Never writes; failures degrade to a warning, not a crash.
+async fn report_db_copy(url: &str) {
+    println!("\nDatabase copy leg ({url}):");
+    match core_db::connect(url).await {
+        Ok(pool) => {
+            let version: Option<(i64, String)> = sqlx::query_as(
+                "SELECT version, description FROM _sqlx_migrations ORDER BY version DESC LIMIT 1",
+            )
+            .fetch_optional(&pool)
+            .await
+            .ok()
+            .flatten();
+            match version {
+                Some((v, desc)) => println!("  schema at migration {v} ({desc})"),
+                None => println!("  schema version unknown (no _sqlx_migrations rows visible)"),
+            }
+            for (label, table) in [
+                ("custom field defs", "custom_field_defs"),
+                ("board statuses", "board_statuses"),
+                ("automation rules", "automation_rules"),
+                ("webhooks", "webhooks"),
+                ("settings (org+user)", "settings"),
+                ("SLA calendars", "sla_calendars"),
+                ("SLA policies", "sla_policies"),
+                ("report definitions", "report_definitions"),
+            ] {
+                let count: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table}"))
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap_or(0);
+                println!("  {label}: {count}");
+            }
+        }
+        Err(e) => {
+            println!("  warning: could not reach database copy ({e}); manifest analysis only")
+        }
+    }
 }
 
 async fn serve_worker() -> anyhow::Result<()> {
@@ -98,6 +263,63 @@ mod tests {
             parse(&["serve-realtime"]),
             Ok(Command::ServeRealtime)
         ));
+    }
+
+    #[test]
+    fn parses_upgrade_check_with_args() {
+        let cmd = parse(&[
+            "upgrade",
+            "--check",
+            "--manifest",
+            "m.json",
+            "--database-url",
+            "postgres://example/db",
+        ])
+        .expect("parses");
+        match cmd {
+            Command::Upgrade {
+                check,
+                manifest,
+                database_url,
+                ..
+            } => {
+                assert!(check);
+                assert_eq!(manifest.as_deref(), Some(std::path::Path::new("m.json")));
+                assert_eq!(database_url.as_deref(), Some("postgres://example/db"));
+            }
+            _ => panic!("expected upgrade"),
+        }
+    }
+
+    #[test]
+    fn upgrade_requires_check_flag() {
+        assert!(
+            parse(&["upgrade"]).is_err()
+                || matches!(
+                    parse(&["upgrade"]),
+                    Ok(Command::Upgrade { check: false, .. })
+                )
+        );
+    }
+
+    #[test]
+    fn check_flags_require_check() {
+        // --manifest without --check must be rejected by clap.
+        assert!(parse(&["upgrade", "--manifest", "m.json"]).is_err());
+    }
+
+    #[test]
+    fn parses_fixture_manifest() {
+        let cmd = parse(&[
+            "fixture",
+            "--manifest",
+            "--org-id",
+            "00000000-0000-4000-8000-000000000001",
+            "--out",
+            "m.json",
+        ])
+        .expect("parses");
+        assert!(matches!(cmd, Command::Fixture { manifest: true, .. }));
     }
 
     #[test]

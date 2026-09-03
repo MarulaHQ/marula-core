@@ -1,0 +1,40 @@
+# Changesets versioning for packages/* (TASKLIST U10b).
+#
+# On every push to main: consume pending changesets (`.changeset/*.md`) and
+# open/refresh a "version packages" PR. Maintainers merge it to bump the
+# TS packages ahead of the next tag. Publishing to a public registry is
+# deliberately disabled (privatePackages.version only) — packages are
+# consumed from the workspace today.
+
+name: Changesets
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: changesets-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: changesets/action@v1
+        with:
+          # @changesets/cli is invoked via npx: not a root devDependency on
+          # purpose (the workspace itself is not a publishable package).
+          version: npx --yes @changesets/cli@2 version
+          commit: "chore(release): version packages"
+          title: "chore(release): version packages"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

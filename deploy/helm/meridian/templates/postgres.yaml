@@ -1,0 +1,109 @@
+{{- if .Values.postgresql.deploy -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "meridian.fullname" . }}-postgres
+  labels:
+    {{- include "meridian.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  serviceName: {{ include "meridian.fullname" . }}-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "meridian.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "meridian.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: {{ .Values.postgresql.image | quote }}
+          env:
+            - name: POSTGRES_USER
+              value: {{ .Values.postgresql.ownerUser | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (printf "%s-secrets" (include "meridian.fullname" .)) .Values.existingSecret }}
+                  key: POSTGRES_OWNER_PASSWORD
+            - name: POSTGRES_DB
+              value: {{ .Values.postgresql.database | quote }}
+          ports:
+            - name: pg
+              containerPort: 5432
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.postgresql.ownerUser | quote }}, "-d", {{ .Values.postgresql.database | quote }}]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        {{- if .Values.postgresql.storage.className }}
+        storageClassName: {{ .Values.postgresql.storage.className | quote }}
+        {{- end }}
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.postgresql.storage.size }}
+---
+{{/* The migration 0001 role bootstrap: create meridian_app (RLS role) if
+the owner bootstrapped without it. Idempotent DO block. */}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "meridian.fullname" . }}-pg-bootstrap
+  labels:
+    {{- include "meridian.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 5
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: bootstrap
+          image: {{ .Values.postgresql.image | quote }}
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (printf "%s-secrets" (include "meridian.fullname" .)) .Values.existingSecret }}
+                  key: POSTGRES_OWNER_PASSWORD
+            - name: APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (printf "%s-secrets" (include "meridian.fullname" .)) .Values.existingSecret }}
+                  key: POSTGRES_APP_PASSWORD
+          command: ["sh", "-c"]
+          args:
+            - |
+              until pg_isready -h {{ include "meridian.fullname" . }}-postgres -U {{ .Values.postgresql.ownerUser }} -q; do sleep 2; done
+              psql -h {{ include "meridian.fullname" . }}-postgres -U {{ .Values.postgresql.ownerUser }} -d {{ .Values.postgresql.database }} -v ON_ERROR_STOP=1 <<SQL
+              DO \$\$ BEGIN
+                IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{{ .Values.postgresql.appUser }}') THEN
+                  CREATE ROLE {{ .Values.postgresql.appUser }} LOGIN PASSWORD :'app_password';
+                END IF;
+              END \$\$;
+              SQL
+              psql -h {{ include "meridian.fullname" . }}-postgres -U {{ .Values.postgresql.ownerUser }} -d {{ .Values.postgresql.database }} -c "ALTER ROLE {{ .Values.postgresql.appUser }} PASSWORD '$APP_PASSWORD'"
+{{- end }}
