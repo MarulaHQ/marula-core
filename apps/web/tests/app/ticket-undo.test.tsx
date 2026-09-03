@@ -109,8 +109,8 @@ describe("TicketUndo (IF7)", () => {
     expect(screen.getByRole("button", { name: /Undo: update/ })).toHaveAttribute("title", "Ctrl/Cmd+Z");
     fireEvent.keyDown(window, { key: "z", ctrlKey: true });
     await waitFor(() => expect(revertCalls.length).toBe(1));
-    expect(revertCalls[0].body.seq).toBe(14);
-    expect(revertCalls[0].body.idempotency_key).toBeTruthy();
+    expect(revertCalls[0]?.body.seq).toBe(14);
+    expect(revertCalls[0]?.body.idempotency_key).toBeTruthy();
     expect(onChanged).toBe(1);
     await screen.findByText(/Stepped back write #14/);
     cleanup();
@@ -140,7 +140,7 @@ describe("TicketUndo (IF7)", () => {
     await user.click(screen.getByLabelText("priority"));
     await user.click(screen.getByRole("button", { name: "Revert selected fields" }));
     await waitFor(() => expect(revertCalls.length).toBe(1));
-    expect(revertCalls[0].body.fields).toEqual(["priority"]);
+    expect(revertCalls[0]?.body.fields).toEqual(["priority"]);
     await screen.findByText(/Restored priority/);
     cleanup();
   });
