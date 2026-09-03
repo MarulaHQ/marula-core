@@ -270,15 +270,17 @@ pub async fn prefs_get(
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
 
+    // RLS-scoped read (pool carries no app.org_id GUC): one tx for the
+    // whole effective-preference sweep.
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, user_id)
+        .await
+        .map_err(ApiError::from)?;
     let mut views = Vec::with_capacity(NotificationKind::ALL.len());
     for kind in NotificationKind::ALL {
-        let row = core_db::notifications::effective_preference(
-            &state.pool,
-            org_id,
-            user_id,
-            kind.as_str(),
-        )
-        .await?;
+        let row =
+            core_db::notifications::effective_preference(&mut *tx, org_id, user_id, kind.as_str())
+                .await?;
         views.push(PreferenceView {
             kind,
             source: row.source.to_string(),
@@ -289,6 +291,7 @@ pub async fn prefs_get(
             timezone: row.timezone,
         });
     }
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(views))
 }
 

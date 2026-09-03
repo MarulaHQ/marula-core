@@ -136,7 +136,17 @@ pub async fn list_groups(
 ) -> ApiResult<Json<Vec<core_domain::entities::BoardGroup>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, org_permission_for(BoardOp::View))?;
-    let groups = core_db::boards::list_groups(&state.pool, authed.principal.user.org_id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let groups = core_db::boards::list_groups(&mut *tx, authed.principal.user.org_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(groups))
 }
 
@@ -396,9 +406,17 @@ pub async fn upsert_member(
     let user_id = authed.principal.user.id;
 
     // The member must exist in THIS org; RLS-scoped lookup proves it.
-    let target = core_db::users::get_user(&state.pool, org_id, req.user_id)
-        .await
-        .map_err(|_| ApiError::NotFound)?;
+    let target = {
+        let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+        core_db::set_org_and_user(&mut tx, org_id, user_id)
+            .await
+            .map_err(ApiError::from)?;
+        let t = core_db::users::get_user(&mut *tx, org_id, req.user_id)
+            .await
+            .map_err(|_| ApiError::NotFound)?;
+        tx.commit().await.map_err(ApiError::from)?;
+        t
+    };
 
     let view = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         authorize_board_op(&mut ctx.tx, &authed.principal, id, BoardOp::ManageMembers).await?;
