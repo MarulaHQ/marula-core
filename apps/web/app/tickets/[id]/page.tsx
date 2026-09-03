@@ -30,6 +30,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useMemo, useState, type ReactNode } from "react";
 import { AppHeader } from "../../../components/app-header";
 import { TicketCustomFields } from "../../../components/ticket-custom-fields";
+import { TicketUndo } from "../../../components/ticket-undo";
 import {
   api,
   downloadAttachment,
@@ -586,6 +587,11 @@ export default function TicketWorkspacePage() {
                       {error}
                     </p>
                   )}
+
+                  {/* IF7 undo (Wave 9 close-out): Ctrl/Cmd+Z steps the
+                      record back one applied write; closed records offer
+                      per-field reverts only. */}
+                  <TicketUndo ticketId={ticket.id} onChanged={() => void refresh()} />
 
                   <div className="flex gap-2">
                     <Button variant="primary" size="sm" onClick={() => void startTimer()}>
