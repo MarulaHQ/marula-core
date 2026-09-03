@@ -80,6 +80,9 @@ export function AppHeader() {
         <Button variant="ghost" size="sm" onClick={() => router.push("/billing")}>
           Billing
         </Button>
+        <Button variant="ghost" size="sm" onClick={() => router.push("/provenance")}>
+          Provenance
+        </Button>
         <Button variant="ghost" size="sm" onClick={() => router.push("/dashboards")}>
           Dashboards
         </Button>
