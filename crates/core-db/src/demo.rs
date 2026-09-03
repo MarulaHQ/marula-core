@@ -678,10 +678,10 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         }
     }
     let ticket_specs: [DemoTicket; 15] = [
-        t(1, 60, 70, "VPN drops every hour", "Remote users lose the tunnel on the hour mark; logs point at the firewall's IKE rekey.", "p2", acme, tech, 0, Some(8), false),
+        t(1, 60, 70, "VPN drops every hour", "Remote users lose the tunnel on the hour mark; logs point at the firewall's IKE rekey.", "p2", acme, owner, 0, Some(8), false),
         t(2, 60, 71, "License renewal question", "Asks whether the 25-seat license covers contractors.", "p3", acme, dispatcher, 1, None, false),
         t(3, 60, 72, "Mail server migration", "Move Northwind's on-prem exchange to the new host; cutover window pending.", "p2", northwind, tech, 2, Some(72), false),
-        t(4, 60, 73, "Ransomware alert on file server", "EDR flagged mass encryption on SRV-FILE-01; isolated the host.", "p1", acme, tech, 0, Some(4), false),
+        t(4, 60, 73, "Ransomware alert on file server", "EDR flagged mass encryption on SRV-FILE-01; isolated the host.", "p1", acme, owner, 0, Some(4), false),
         t(5, 60, 74, "Quote for office wifi", "Waiting on the customer's floor plan to size APs.", "p3", globex, dispatcher, 1, None, false),
         t(6, 60, 75, "Firewall rule change", "Requested outbound 3478/3480 for Teams; needs sign-off before applying.", "p2", acme, tech, 0, Some(24), false),
         t(7, 60, 76, "Password reset — vpn portal", "Standard reset, verified over the phone.", "p3", northwind, tech, 45, None, true),
@@ -691,7 +691,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         t(11, 61, 81, "Switch replacement — comms room", "Replace the failed uplink switch; parts on the van.", "p2", northwind, tech, 1, Some(24), false),
         t(12, 61, 82, "Failed UPS unit", "UPS battery bank failed self-test; replacement ordered.", "p1", acme, tech, 2, Some(12), false),
         t(13, 61, 83, "AP installation — plant 2", "Two APs installed and validated; handover notes attached to the visit.", "p3", globex, tech, 15, None, true),
-        t(14, 60, 70, "Email bounceback storm", "Bounces from one recipient domain; checking SPF/DKIM alignment.", "p1", globex, dispatcher, 0, Some(4), false),
+        t(14, 60, 70, "Email bounceback storm", "Bounces from one recipient domain; checking SPF/DKIM alignment.", "p1", globex, owner, 0, Some(4), false),
         t(15, 61, 80, "Camera firmware update", "Update the loading-dock cameras during the next visit.", "p3", acme, tech, 2, None, false),
     ];
     let mut ticket_ids: Vec<Uuid> = Vec::with_capacity(15);
@@ -742,6 +742,151 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             id,
             serde_json::json!({ "number": number, "title": spec.title, "priority": spec.priority }),
         )
+        .await?;
+    }
+
+    // Bulk demo load (TASKLIST DX volume): generated tickets so list views,
+    // filters, pagination, and the reporting views have real data to chew
+    // on. Deterministic — same rows on every seed.
+    let bulk_clients = [acme, northwind, globex];
+    let bulk_assignees = [owner, tech, dispatcher, owner, tech];
+    let bulk_priorities = ["p1", "p2", "p3", "p4", "p2", "p3"];
+    let bulk_statuses_60 = [70u64, 71, 72, 74, 75, 76];
+    let bulk_statuses_61 = [80u64, 81, 82, 83];
+    let bulk_titles = [
+        "Onboarding checklist review",
+        "VPN profile rollout",
+        "Disk cleanup — file server",
+        "Password expiry audit",
+        "Patch cycle — January",
+        "Shared drive permissions",
+        "Laptop battery swelling",
+        "Email quota increase",
+        "Backup restore test",
+        "MFA re-enrollment (lost device)",
+        "WiFi dead zone — second floor",
+        "Printer driver deployment",
+        "Firewall firmware update",
+        "Teams phone number port",
+        "Asset audit — warehouse",
+    ];
+    let bulk_bodies = [
+        "Generated demo ticket: walks the standard intake checklist end to end.",
+        "Generated demo ticket: customer reports intermittent behaviour; monitoring before escalation.",
+        "Generated demo ticket: routine maintenance item parked in the backlog.",
+        "Generated demo ticket: needs a site visit to reproduce on premises.",
+        "Generated demo ticket: waiting on vendor confirmation before work starts.",
+    ];
+    for i in 0u64..45 {
+        let board = if i % 3 == 0 { 61 } else { 60 };
+        let status = if board == 61 {
+            bulk_statuses_61[(i % 4) as usize]
+        } else {
+            bulk_statuses_60[(i % 6) as usize]
+        };
+        let title = bulk_titles[(i % 15) as usize];
+        let body = bulk_bodies[(i % 5) as usize];
+        let priority = bulk_priorities[(i % 6) as usize];
+        let client = bulk_clients[(i % 3) as usize];
+        let assignee = bulk_assignees[(i % 5) as usize];
+        let days_ago = (i % 21) as i64;
+        let resolved = i % 9 == 0;
+        let (prefix, seq) = crate::orgs::next_ticket_number(&mut *tx, DEMO_ORG_ID).await?;
+        let number = format!("{prefix}{seq}");
+        let id = demo_uuid(200 + i);
+        crate::tickets::insert_ticket(
+            &mut tx,
+            crate::tickets::NewTicket {
+                id,
+                org_id: DEMO_ORG_ID,
+                number: &number,
+                board_id: demo_uuid(board),
+                status_id: demo_uuid(status),
+                title,
+                body: Some(body),
+                priority: priority.parse().expect("demo priority is valid"),
+                client_id: Some(client),
+                site_id: None,
+                contact_id: None,
+                assignee_id: Some(assignee),
+                requester_id: None,
+                due_at: Some(now + Duration::hours(((i % 6) as i64 + 1) * 12)),
+            },
+        )
+        .await?;
+        let created = now - Duration::days(days_ago);
+        sqlx::query(
+            "UPDATE tickets SET created_at = $2, updated_at = $2,
+                    resolved_at = CASE WHEN $3 THEN $4 ELSE NULL END
+             WHERE id = $1",
+        )
+        .bind(id)
+        .bind(created)
+        .bind(resolved)
+        .bind(created + Duration::hours(6))
+        .execute(&mut *tx)
+        .await?;
+        trail_system_write(
+            &mut tx,
+            "ticket",
+            id,
+            serde_json::json!({ "number": number, "title": title, "priority": priority }),
+        )
+        .await?;
+    }
+
+    // One staff comment per even bulk ticket (authors cycle) so conversation
+    // views are not empty.
+    let bulk_comment_bodies = [
+        "Picked this up — initial triage done, gathering details.",
+        "Spoke with the customer; they confirmed the reproduction steps.",
+        "Change window requested for tomorrow evening.",
+        "Parts ordered; ETA Thursday.",
+        "Monitoring since the last patch — no recurrence so far.",
+    ];
+    for i in (0u64..45).step_by(2) {
+        let author = bulk_assignees[(i % 5) as usize];
+        let kind = if i % 4 == 0 { "client_visible" } else { "internal" };
+        let body = bulk_comment_bodies[((i / 2) % 5) as usize];
+        sqlx::query(
+            "INSERT INTO ticket_comments (id, org_id, ticket_id, author_id, kind, body, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        )
+        .bind(demo_uuid(500 + i))
+        .bind(DEMO_ORG_ID)
+        .bind(demo_uuid(200 + i))
+        .bind(author)
+        .bind(kind)
+        .bind(body)
+        .bind(now - Duration::hours(((i % 10) + 1) as i64))
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // Time entries for every other bulk ticket so the gap report and
+    // billing views have volume.
+    let bulk_work_types = ["remote", "onsite", "remote", "depot"];
+    for i in (0u64..45).step_by(2) {
+        let started = now - Duration::days((i % 14) as i64) - Duration::hours(3);
+        let minutes = 30 + i32::try_from((i * 7) % 90).unwrap_or(45);
+        let billable = i % 3 != 0;
+        let work_type = bulk_work_types[(i % 4) as usize];
+        sqlx::query(
+            "INSERT INTO time_entries (id, org_id, ticket_id, user_id, started_at, ended_at,
+                                       minutes, billable, notes, work_type)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+        )
+        .bind(demo_uuid(600 + i))
+        .bind(DEMO_ORG_ID)
+        .bind(demo_uuid(200 + i))
+        .bind(bulk_assignees[(i % 5) as usize])
+        .bind(started)
+        .bind(started + Duration::minutes(i64::from(minutes)))
+        .bind(minutes)
+        .bind(billable)
+        .bind("Generated demo work")
+        .bind(work_type)
+        .execute(&mut *tx)
         .await?;
     }
 
