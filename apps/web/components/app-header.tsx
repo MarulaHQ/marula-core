@@ -10,8 +10,8 @@ import { useTheme } from "@meridian/ui";
 import type { Theme } from "@meridian/ui";
 import { Button, Kbd } from "@meridian/ui";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
-import { useAuth } from "../lib/api";
+import { useEffect, useState } from "react";
+import { API_BASE, useAuth } from "../lib/api";
 import { NotificationDock } from "./notification-dock";
 import { OutboxDock } from "./instant/outbox-dock";
 
@@ -59,6 +59,38 @@ function SearchLauncher() {
   );
 }
 
+/**
+ * Dev-tools entry (TASKLIST DX3): ONE probe call to GET /api/dev/status on
+ * mount; the link renders ONLY when the API answers `enabled: true` —
+ * which it only does with MERIDIAN_DEV_TOOLS=1. Any failure (404, network,
+ * non-JSON) silently hides the link: no dev surface by default.
+ */
+function DevToolsLink() {
+  const router = useRouter();
+  const [enabled, setEnabled] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_BASE}/api/dev/status`)
+      .then(async (response) => {
+        if (!response.ok || cancelled) return null;
+        return (await response.json()) as { enabled?: boolean };
+      })
+      .then((body) => {
+        if (!cancelled && body?.enabled === true) setEnabled(true);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  if (!enabled) return null;
+  return (
+    <Button variant="ghost" size="sm" onClick={() => router.push("/dev")}>
+      Dev
+    </Button>
+  );
+}
+
 export function AppHeader() {
   const { me, logout } = useAuth();
   const router = useRouter();
@@ -86,6 +118,7 @@ export function AppHeader() {
         <Button variant="ghost" size="sm" onClick={() => router.push("/dashboards")}>
           Dashboards
         </Button>
+        <DevToolsLink />
         <Button
           variant="ghost"
           size="sm"

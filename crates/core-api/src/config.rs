@@ -68,6 +68,11 @@ pub struct Config {
     /// request budget per minute on the /api/dispatch-connector surface.
     /// Env `MERIDIAN_DISPATCH_RATE_LIMIT_PER_MIN` (default 600).
     pub dispatch_rate_limit_per_min: u32,
+    /// Dev-tools gate (TASKLIST DX2): when `MERIDIAN_DEV_TOOLS=1` the
+    /// `/api/dev/*` router mounts; otherwise those routes DO NOT EXIST (no
+    /// registration at all, not a 403). Unset in production — never
+    /// default-on.
+    pub dev_tools: bool,
 }
 
 /// Parses OBJECT_STORE plus its companion vars. Unknown values degrade to
@@ -188,16 +193,16 @@ impl Config {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(600),
+            dev_tools: std::env::var("MERIDIAN_DEV_TOOLS").as_deref() == Ok("1"),
         }
     }
 }
 
+/// Single source of truth for the dev fallback derivation lives in
+/// core-db::demo (the CLI seeder must derive the SAME key or the demo
+/// secrets it seals are unopenable by this API).
 fn derive_dev_key(jwt_secret: &str) -> SecretKey {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(b"meridian-at-rest-secret-key:");
-    hasher.update(jwt_secret.as_bytes());
-    SecretKey(hasher.finalize().into())
+    SecretKey(core_db::demo::derive_dev_seal_key(jwt_secret))
 }
 
 #[cfg(test)]
@@ -243,6 +248,7 @@ impl Config {
                 .unwrap_or(core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES),
             migration_rate_limit_per_min: 600,
             dispatch_rate_limit_per_min: 600,
+            dev_tools: false,
         }
     }
 }

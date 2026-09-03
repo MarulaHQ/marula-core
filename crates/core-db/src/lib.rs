@@ -20,6 +20,10 @@ pub mod clients;
 pub mod connector;
 pub mod contracts;
 pub mod custom_fields;
+// Dev-tool surface (TASKLIST DX1–DX2): only reachable behind
+// MERIDIAN_DEV_TOOLS=1 — the CLI refuses and the API router is not mounted
+// without it.
+pub mod demo;
 pub mod dispatch;
 pub mod documents;
 pub mod emails;
@@ -79,6 +83,16 @@ pub async fn connect(url: &str) -> DbResult<PgPool> {
 pub async fn run_migrations(pool: &PgPool) -> DbResult<()> {
     sqlx::migrate!("./migrations").run(pool).await?;
     Ok(())
+}
+
+/// The highest migration version embedded in THIS binary (compile-time);
+/// the dev status surface reports it as the migration head.
+pub fn migration_head() -> Option<i64> {
+    sqlx::migrate!("./migrations")
+        .migrations
+        .iter()
+        .map(|migration| migration.version)
+        .max()
 }
 
 /// Binds the transaction to one org for RLS (`SET LOCAL` semantics: scoped

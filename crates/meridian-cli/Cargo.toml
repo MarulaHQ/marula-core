@@ -15,5 +15,6 @@ realtime = { path = "../realtime" }
 worker = { path = "../worker" }
 anyhow = { workspace = true }
 clap = { workspace = true }
+hex = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
