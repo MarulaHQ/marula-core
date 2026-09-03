@@ -114,3 +114,83 @@ jobs:
       # Gate + self-tests: fails when deprecations.json carries a construct
       # past its removal_target, or when a construct is gone before it.
       - run: cargo test -p core-events --test deprecation_clock
+
+  api-conformance:
+    name: Golden OpenAPI conformance (U8 — live spec vs pinned golden)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: meridian_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/meridian_test
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-conformance-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Migrate schema
+        run: cargo run -q -p meridian-cli -- migrate
+      - name: Boot core-api
+        run: |
+          cargo run -q -p core-api &
+          for i in $(seq 1 60); do
+            curl -fsS http://localhost:8080/healthz >/dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS http://localhost:8080/healthz
+      - name: Live spec must equal the pinned golden
+        run: MERIDIAN_API_BASE_URL=http://localhost:8080 cargo test -q -p meridian-cli --test golden_openapi
+
+  upgrade-matrix:
+    name: N−2 upgrade matrix (U7 — restore fixture → migrate to HEAD)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # pgvector/pgvector:pg17 — prod parity with the fixture capture.
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: meridian_upgrade
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/meridian_upgrade
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # One leg per captured fixture (v0.2.0 onward). Restoring replays the
+      # full schema + data + migration state of the tagged release; migrating
+      # to HEAD proves the forward path on production-like data.
+      - name: Restore v0.2.0 fixture
+        run: |
+          gunzip -c fixtures/upgrades/v0.2.0.seed.sql.gz \
+            | psql postgres://postgres:postgres@localhost:5432/meridian_upgrade -v ON_ERROR_STOP=1 -q
+      - name: Migrate fixture to HEAD
+        run: cargo run -q -p meridian-cli -- migrate
+      - name: Fixture org survives the migration
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -tAc \
+            "SELECT count(*) FROM custom_field_defs WHERE org_id = '00000000-0000-4000-8000-000000000001'" \
+            | grep -q '^7$'
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c \
+            "SELECT 1 FROM board_statuses WHERE org_id = '00000000-0000-4000-8000-000000000001' AND category = 'closed'"
+      - name: Upgrade preflight consumes the captured manifest
+        run: |
+          cargo build -q -p meridian-cli
+          ./target/debug/meridian upgrade --check \
+            --manifest fixtures/upgrades/v0.2.0.manifest.json
