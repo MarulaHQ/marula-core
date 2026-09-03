@@ -2023,12 +2023,20 @@ name = "meridian-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
+ "core-api",
  "core-db",
  "core-otel",
  "realtime",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.20",
  "tokio",
  "tracing",
+ "uuid",
  "worker",
 ]
 
