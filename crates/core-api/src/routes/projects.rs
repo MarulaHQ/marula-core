@@ -230,8 +230,17 @@ pub async fn list(
 ) -> ApiResult<Json<Vec<Project>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, projects(Action::View))?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
     let rows = core_db::projects::list_projects(
-        &state.pool,
+        &mut *tx,
         authed.principal.user.org_id,
         core_db::projects::ProjectFilter {
             status: q.status,
@@ -241,6 +250,7 @@ pub async fn list(
         },
     )
     .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(rows))
 }
 

@@ -226,10 +226,14 @@ fn esc(text: &str) -> String {
 }
 
 /// Loads the invoice aggregate from the pool.
-async fn load_detail(pool: &sqlx::PgPool, org_id: Uuid, id: Uuid) -> ApiResult<InvoiceDetail> {
-    let invoice = core_db::invoices::get_invoice(pool, org_id, id).await?;
-    let lines = core_db::invoices::list_lines(pool, org_id, id).await?;
-    let payments = core_db::invoices::list_payments(pool, org_id, id).await?;
+async fn load_detail(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    id: Uuid,
+) -> ApiResult<InvoiceDetail> {
+    let invoice = core_db::invoices::get_invoice(&mut *conn, org_id, id).await?;
+    let lines = core_db::invoices::list_lines(&mut *conn, org_id, id).await?;
+    let payments = core_db::invoices::list_payments(&mut *conn, org_id, id).await?;
     Ok(InvoiceDetail {
         invoice,
         lines,
@@ -609,7 +613,17 @@ pub async fn list_runs(
 ) -> ApiResult<Json<Vec<InvoiceRun>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::View))?;
-    let runs = core_db::invoices::list_runs(&state.pool, authed.principal.user.org_id, 100).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let runs = core_db::invoices::list_runs(&mut *tx, authed.principal.user.org_id, 100).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(runs))
 }
 
@@ -625,7 +639,17 @@ pub async fn get_run(
 ) -> ApiResult<Json<InvoiceRun>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::View))?;
-    let run = core_db::invoices::get_run(&state.pool, authed.principal.user.org_id, id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let run = core_db::invoices::get_run(&mut *tx, authed.principal.user.org_id, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(run))
 }
 
@@ -648,9 +672,19 @@ pub async fn list_invoices(
         status: q.status,
         dunning_state: q.dunning_state,
     };
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
     let invoices =
-        core_db::invoices::list_invoices(&state.pool, authed.principal.user.org_id, &filters, 200)
+        core_db::invoices::list_invoices(&mut *tx, authed.principal.user.org_id, &filters, 200)
             .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(invoices))
 }
 
@@ -667,7 +701,17 @@ pub async fn get_invoice(
 ) -> ApiResult<Json<InvoiceDetail>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::View))?;
-    let detail = load_detail(&state.pool, authed.principal.user.org_id, id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let detail = load_detail(&mut *tx, authed.principal.user.org_id, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(detail))
 }
 
