@@ -18,6 +18,10 @@ members = [
     "crates/worker",
     "crates/plugin-host",
     "crates/meridian-cli",
+    # Wave 9 adapters lane: first-party Apache-2.0 connector crates
+    # (public-API-only edge adapters; separate license from the AGPL core).
+    "connectors/qbo-export-sync",
+    "connectors/xero-export-sync",
 ]
 
 [workspace.package]

@@ -106,6 +106,12 @@ pub mod types {
     /// Emitted when an org- or user-scoped setting changes through the
     /// typed settings registry.
     pub const SETTING_UPDATED: &str = "setting.updated";
+    /// BYOK sealed-key lifecycle (Wave 9 adapters lane): an API/OAuth key
+    /// was sealed for a provider (`ai.byok_updated`) or removed
+    /// (`ai.byok_deleted`). Payloads carry the provider id and presence
+    /// flags only — secret bytes never leave the sealed store.
+    pub const AI_BYOK_UPDATED: &str = "ai.byok_updated";
+    pub const AI_BYOK_DELETED: &str = "ai.byok_deleted";
     /// Emitted when the org profile (name/ticket prefix) is edited from
     /// General settings or the first-run wizard.
     pub const ORG_UPDATED: &str = "org.updated";

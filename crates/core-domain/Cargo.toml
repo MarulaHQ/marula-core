@@ -18,7 +18,8 @@ subtle = { workspace = true }
 utoipa = { workspace = true, optional = true, features = ["uuid", "chrono"] }
 
 [dev-dependencies]
-proptest = "1"
+proptest = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros"] }
 
 [features]
 default = []

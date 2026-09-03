@@ -14,6 +14,7 @@ pub mod attachments;
 pub mod audit;
 pub mod automations;
 pub mod boards;
+pub mod byok;
 pub mod checklists;
 pub mod clients;
 pub mod connector;

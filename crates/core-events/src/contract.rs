@@ -1242,6 +1242,24 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             serde_json::json!({ "name": "Meridian MSP", "ticket_prefix": "MER" })
         ),
     },
+    // -- BYOK sealed keys (Wave 9 adapters lane) ------------------------------
+    // Presence-only payloads: secret bytes never leave the sealed store,
+    // so the contract floor is provider + boolean flags.
+    PublishedEvent {
+        event_type: types::AI_BYOK_UPDATED,
+        entity: "byok_secret",
+        variant: "default",
+        shape: untyped_shape!(
+            ["provider", "has_key"],
+            serde_json::json!({ "provider": "openai", "has_key": true })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::AI_BYOK_DELETED,
+        entity: "byok_secret",
+        variant: "default",
+        shape: untyped_shape!(["provider"], serde_json::json!({ "provider": "openai" })),
+    },
     // -- portal ---------------------------------------------------------------
     PublishedEvent {
         event_type: types::PORTAL_USER_CREATED,
