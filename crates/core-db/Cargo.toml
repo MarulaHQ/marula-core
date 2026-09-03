@@ -14,6 +14,13 @@ chrono = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
+# Dev-tool surface (`demo` module, TASKLIST DX1): demo org seeding seals
+# webhook/alert-source secrets at rest and argon2-hashes the demo login
+# password — the same schemes the production write paths use.
+aes-gcm = { workspace = true }
+argon2 = { workspace = true }
+hex = { workspace = true }
+sha2 = { workspace = true }
 
 [dev-dependencies]
 aes-gcm = { workspace = true }

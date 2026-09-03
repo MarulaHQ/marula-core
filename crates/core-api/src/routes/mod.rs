@@ -52,6 +52,7 @@ pub mod checklists;
 pub mod clients;
 pub mod connector;
 pub mod custom_fields;
+pub mod dev;
 pub mod dispatch;
 pub mod dispatch_connector;
 pub mod documents;
@@ -150,6 +151,17 @@ pub fn build_router(state: AppState) -> Router {
 
     let docs = openapi::scalar_router();
 
+    // Dev-tools surface (TASKLIST DX2): mounted ONLY when the process runs
+    // with MERIDIAN_DEV_TOOLS=1. Unset, the routes DO NOT EXIST — no
+    // registration at all, not a 403 — and they stay outside the /api/v1
+    // contract, the OpenAPI document, and the two-mount rule (a dev surface
+    // is not an API generation).
+    let dev = if state.config.dev_tools {
+        Router::new().merge(dev::router(state.clone()))
+    } else {
+        Router::new()
+    };
+
     // Request telemetry (TASKLIST 2.18): outermost so the span covers the
     // entire pipeline; the route TEMPLATE + status + duration become span
     // attrs and `meridian.http.*` metrics. Unmatched routes collapse to
@@ -158,6 +170,7 @@ pub fn build_router(state: AppState) -> Router {
         .merge(api)
         .merge(internal)
         .merge(docs)
+        .merge(dev)
         .layer(middleware::from_fn(crate::otel_http::track))
         .with_state(state)
 }

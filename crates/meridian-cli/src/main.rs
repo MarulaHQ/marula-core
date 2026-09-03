@@ -64,6 +64,13 @@ enum Command {
         #[arg(long)]
         out: Option<std::path::PathBuf>,
     },
+    /// Seed the deterministic demo org (TASKLIST DX1). Dev-only: refuses
+    /// unless MERIDIAN_DEV_TOOLS=1.
+    SeedDemo {
+        /// Wipe the demo org (if present) and reseed from scratch.
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[tokio::main]
@@ -96,6 +103,7 @@ async fn main() -> anyhow::Result<()> {
                 std::env::var("DATABASE_URL").unwrap_or_else(|_| DEFAULT_DATABASE_URL.to_string());
             fixture::emit_manifest(&url, org_id, out).await
         }
+        Command::SeedDemo { force } => seed_demo(force).await,
     }
 }
 
@@ -220,6 +228,130 @@ async fn report_db_copy(url: &str) {
     }
 }
 
+/// Runtime gate for the dev-tool surface (hard rule: never default-on).
+fn dev_tools_enabled() -> bool {
+    std::env::var("MERIDIAN_DEV_TOOLS").as_deref() == Ok("1")
+}
+
+/// The at-rest seal key for demo secrets, using the same precedence as
+/// core-api's config: `MERIDIAN_SECRET_KEY` (64 hex chars) when set, else
+/// the documented dev fallback derived from `JWT_SECRET`.
+fn dev_seal_key() -> anyhow::Result<core_db::demo::DemoSeedOptions> {
+    let key = match std::env::var("MERIDIAN_SECRET_KEY") {
+        Ok(hex_key) if hex_key.len() == 64 => {
+            let mut bytes = [0u8; 32];
+            hex::decode_to_slice(&hex_key, &mut bytes)
+                .map_err(|e| anyhow::anyhow!("MERIDIAN_SECRET_KEY is not valid hex: {e}"))?;
+            bytes
+        }
+        _ => {
+            let jwt = std::env::var("JWT_SECRET")
+                .unwrap_or_else(|_| "dev-only-insecure-secret-change-me".into());
+            core_db::demo::derive_dev_seal_key(&jwt)
+        }
+    };
+    Ok(core_db::demo::DemoSeedOptions { seal_key: key })
+}
+
+/// Seeds (or reseeds, with `--force`) the demo org and prints the summary
+/// table + login hint. Same key derivation as core-api so the seeded
+/// webhook/alert-source secrets are openable by the running stack.
+async fn seed_demo(force: bool) -> anyhow::Result<()> {
+    if !dev_tools_enabled() {
+        anyhow::bail!(
+            "seed-demo is a dev-only surface: set MERIDIAN_DEV_TOOLS=1 to enable \
+             (keep it unset in production — the surface must not exist there)"
+        );
+    }
+    let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| DEFAULT_DATABASE_URL.to_string());
+    let pool = core_db::connect(&url).await?;
+    core_db::run_migrations(&pool).await?;
+    let opts = dev_seal_key()?;
+
+    let outcome = if force {
+        core_db::demo::reset(&pool, &opts).await.map(Err)
+    } else {
+        core_db::demo::seed(&pool, &opts).await.map(Ok)
+    };
+    match outcome {
+        Ok(Err(report)) => print_seed_summary(&report),
+        // --force path: always fresh.
+        Ok(Ok(report)) => print_seed_summary(&report),
+        Err(core_db::demo::DemoError::AlreadySeeded(org_id)) => {
+            println!("demo org already seeded (org_id {org_id}) — nothing written.");
+            println!("wipe + reseed: MERIDIAN_DEV_TOOLS=1 meridian seed-demo --force");
+            println!("or POST /api/dev/reset-org on a dev API with MERIDIAN_DEV_TOOLS=1.");
+            println!();
+            println!("logins: owner@demo.local / dispatcher@demo.local / tech@demo.local / bookkeeper@demo.local");
+            println!("password: {}", core_db::demo::DEMO_PASSWORD);
+        }
+        Err(e) => return Err(e.into()),
+    }
+    Ok(())
+}
+
+/// The end-of-seed summary: counts table, login hint, and the dev secrets
+/// (alert HMAC + webhook signing secret) printed ONCE, per the DX1 contract.
+fn print_seed_summary(report: &core_db::demo::DemoSeedReport) {
+    let rows: &[(&str, String)] = &[
+        ("org", format!("{} ({})", report.org_name, report.slug)),
+        ("users", report.users.to_string()),
+        ("clients (sites/contacts)", report.clients.to_string()),
+        ("boards", report.boards.to_string()),
+        ("tickets", report.tickets.to_string()),
+        (
+            "comments / checklist items",
+            format!("{} / {}", report.comments, report.checklist_items),
+        ),
+        (
+            "timer sessions / time entries",
+            format!("{} / {}", report.timer_sessions, report.time_entries),
+        ),
+        (
+            "contracts / invoices",
+            format!("{} / {}", report.contracts, report.invoices),
+        ),
+        ("kb articles", report.kb_articles.to_string()),
+        ("documents", report.documents.to_string()),
+        ("projects", report.projects.to_string()),
+        ("appointments", report.appointments.to_string()),
+        (
+            "alert sources / alerts / incidents",
+            format!(
+                "{} / {} / {}",
+                report.alert_sources, report.alerts, report.alert_incidents
+            ),
+        ),
+        ("report schedules", report.report_schedules.to_string()),
+        ("webhooks", report.webhooks.to_string()),
+    ];
+    println!();
+    println!("demo org seeded");
+    println!("---------------");
+    for (label, value) in rows {
+        println!("{label:<34} {value}");
+    }
+    println!();
+    println!("logins (password: {}):", report.password);
+    for (email, role) in &report.logins {
+        println!("  {email:<26} {role}");
+    }
+    println!();
+    println!(
+        "alert HMAC secret (printed once): {}",
+        report.alert_hmac_secret
+    );
+    println!(
+        "webhook signing secret (printed once): {}",
+        report.webhook_signing_secret
+    );
+    println!();
+    println!(
+        "sign in at http://localhost:3000 with owner@demo.local / {}",
+        report.password
+    );
+}
+
 async fn serve_worker() -> anyhow::Result<()> {
     worker::run(worker::config::WorkerConfig::from_env(), shutdown_watch()).await
 }
@@ -262,6 +394,14 @@ mod tests {
         assert!(matches!(
             parse(&["serve-realtime"]),
             Ok(Command::ServeRealtime)
+        ));
+        assert!(matches!(
+            parse(&["seed-demo"]),
+            Ok(Command::SeedDemo { force: false })
+        ));
+        assert!(matches!(
+            parse(&["seed-demo", "--force"]),
+            Ok(Command::SeedDemo { force: true })
         ));
     }
 
@@ -333,5 +473,18 @@ mod tests {
     #[test]
     fn cli_definition_is_debug_valid() {
         Cli::command().debug_assert();
+    }
+
+    /// The DX hard rule: without MERIDIAN_DEV_TOOLS=1 the seeder refuses
+    /// with a message that names the variable (never a default-on surface).
+    #[tokio::test]
+    async fn seed_demo_refuses_without_dev_tools_gate() {
+        // The test process must NOT carry the gate from the ambient env.
+        unsafe { std::env::remove_var("MERIDIAN_DEV_TOOLS") };
+        let err = seed_demo(false).await.expect_err("must refuse");
+        assert!(err.to_string().contains("MERIDIAN_DEV_TOOLS"));
+        // The same refusal applies to --force: the gate precedes everything.
+        let err = seed_demo(true).await.expect_err("must refuse");
+        assert!(err.to_string().contains("MERIDIAN_DEV_TOOLS"));
     }
 }

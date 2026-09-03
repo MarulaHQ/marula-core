@@ -174,6 +174,9 @@ export function apiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 }
 
+/** Kept as API_BASE for callers binding to the documented constant. */
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+
 export interface UploadedAttachment {
   id: string;
   filename: string;
