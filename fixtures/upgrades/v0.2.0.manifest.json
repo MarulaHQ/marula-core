@@ -1,0 +1,660 @@
+{
+  "manifest_version": 1,
+  "org_id": "00000000-0000-4000-8000-000000000001",
+  "generated_at": "2026-09-03T03:27:13.748099Z",
+  "sections": {
+    "custom_fields": [
+      {
+        "id": "00000000-0000-4000-8000-000000000106",
+        "entity": "asset",
+        "name": "Warranty Expiry",
+        "kind": "date",
+        "config": {},
+        "required": false,
+        "sort_order": 0,
+        "archived_at": null
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000104",
+        "entity": "client",
+        "name": "Contract Tier",
+        "kind": "select",
+        "config": {
+          "options": [
+            "Bronze",
+            "Silver",
+            "Gold"
+          ]
+        },
+        "required": false,
+        "sort_order": 0,
+        "archived_at": null
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000105",
+        "entity": "contact",
+        "name": "Preferred Language",
+        "kind": "select",
+        "config": {
+          "options": [
+            "English",
+            "Spanish",
+            "German"
+          ]
+        },
+        "required": false,
+        "sort_order": 0,
+        "archived_at": null
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000102",
+        "entity": "ticket",
+        "name": "Business Impact",
+        "kind": "text",
+        "config": {
+          "max_length": 280
+        },
+        "required": true,
+        "sort_order": 1,
+        "archived_at": null
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000101",
+        "entity": "ticket",
+        "name": "Environment",
+        "kind": "select",
+        "config": {
+          "options": [
+            "Production",
+            "Staging",
+            "Development"
+          ]
+        },
+        "required": true,
+        "sort_order": 0,
+        "archived_at": null
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000103",
+        "entity": "ticket",
+        "name": "Estimated Hours",
+        "kind": "number",
+        "config": {
+          "max": 500,
+          "min": 0,
+          "step": 0.5
+        },
+        "required": false,
+        "sort_order": 2,
+        "archived_at": null
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000107",
+        "entity": "ticket",
+        "name": "Legacy Source ID",
+        "kind": "text",
+        "config": {},
+        "required": false,
+        "sort_order": 3,
+        "archived_at": "2026-05-01T00:00:00Z"
+      }
+    ],
+    "boards": [
+      {
+        "id": "00000000-0000-4000-8000-000000000082",
+        "name": "Projects Board",
+        "is_default": false,
+        "require_checklist_close": false,
+        "statuses": [
+          {
+            "id": "00000000-0000-4000-8000-000000000096",
+            "name": "Intake",
+            "category": "open",
+            "sort_order": 0,
+            "is_entry": true,
+            "color": "#64748b"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000097",
+            "name": "Scoping",
+            "category": "in_progress",
+            "sort_order": 1,
+            "is_entry": false,
+            "color": "#0ea5e9"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000098",
+            "name": "On Hold",
+            "category": "waiting",
+            "sort_order": 2,
+            "is_entry": false,
+            "color": "#f59e0b"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000099",
+            "name": "Delivered",
+            "category": "closed",
+            "sort_order": 3,
+            "is_entry": false,
+            "color": "#10b981"
+          }
+        ],
+        "transitions": []
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000081",
+        "name": "Service Desk",
+        "is_default": true,
+        "require_checklist_close": true,
+        "statuses": [
+          {
+            "id": "00000000-0000-4000-8000-000000000091",
+            "name": "New",
+            "category": "open",
+            "sort_order": 0,
+            "is_entry": true,
+            "color": "#64748b"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000092",
+            "name": "Triage",
+            "category": "in_progress",
+            "sort_order": 1,
+            "is_entry": false,
+            "color": "#0ea5e9"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000093",
+            "name": "Waiting on Customer",
+            "category": "waiting",
+            "sort_order": 2,
+            "is_entry": false,
+            "color": "#f59e0b"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000094",
+            "name": "Resolved",
+            "category": "closed",
+            "sort_order": 3,
+            "is_entry": false,
+            "color": "#10b981"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000095",
+            "name": "Scheduled",
+            "category": "waiting",
+            "sort_order": 4,
+            "is_entry": false,
+            "color": "#8b5cf6"
+          }
+        ],
+        "transitions": [
+          {
+            "from_status_id": "00000000-0000-4000-8000-000000000091",
+            "to_status_id": "00000000-0000-4000-8000-000000000092"
+          },
+          {
+            "from_status_id": "00000000-0000-4000-8000-000000000091",
+            "to_status_id": "00000000-0000-4000-8000-000000000095"
+          },
+          {
+            "from_status_id": "00000000-0000-4000-8000-000000000092",
+            "to_status_id": "00000000-0000-4000-8000-000000000093"
+          },
+          {
+            "from_status_id": "00000000-0000-4000-8000-000000000092",
+            "to_status_id": "00000000-0000-4000-8000-000000000094"
+          },
+          {
+            "from_status_id": "00000000-0000-4000-8000-000000000093",
+            "to_status_id": "00000000-0000-4000-8000-000000000092"
+          },
+          {
+            "from_status_id": "00000000-0000-4000-8000-000000000094",
+            "to_status_id": "00000000-0000-4000-8000-000000000092"
+          },
+          {
+            "from_status_id": "00000000-0000-4000-8000-000000000095",
+            "to_status_id": "00000000-0000-4000-8000-000000000092"
+          }
+        ]
+      }
+    ],
+    "automation_rules": [
+      {
+        "id": "00000000-0000-4000-8000-000000000121",
+        "board_id": null,
+        "name": "P1 pages on-call",
+        "trigger_event": "ticket.created",
+        "conditions": [
+          {
+            "field": "priority",
+            "op": "equals",
+            "value": "p1"
+          }
+        ],
+        "actions": [
+          {
+            "type": "assign",
+            "user_id": "00000000-0000-4000-8000-000000000023"
+          },
+          {
+            "kind": "sla_risk",
+            "type": "notify",
+            "user_ids": [
+              "00000000-0000-4000-8000-000000000022"
+            ]
+          }
+        ],
+        "enabled": true
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000123",
+        "board_id": "00000000-0000-4000-8000-000000000082",
+        "name": "Stale intake reminder",
+        "trigger_event": "ticket.commented",
+        "conditions": [
+          {
+            "field": "category",
+            "op": "equals",
+            "value": "open"
+          }
+        ],
+        "actions": [
+          {
+            "kind": "ticket_update",
+            "type": "notify",
+            "user_ids": [
+              "00000000-0000-4000-8000-000000000024"
+            ]
+          }
+        ],
+        "enabled": false
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000122",
+        "board_id": "00000000-0000-4000-8000-000000000081",
+        "name": "Waiting-state watchdog",
+        "trigger_event": "ticket.status_changed",
+        "conditions": [
+          {
+            "field": "to_category",
+            "op": "equals",
+            "value": "waiting"
+          }
+        ],
+        "actions": [
+          {
+            "body": "Flagged as waiting — remember to follow up.",
+            "type": "add_comment"
+          }
+        ],
+        "enabled": true
+      }
+    ],
+    "webhooks": [
+      {
+        "id": "00000000-0000-4000-8000-000000000131",
+        "url": "https://hooks.northwind.example/meridian/tickets",
+        "event_types": [
+          "ticket.created",
+          "ticket.status_changed"
+        ],
+        "enabled": true,
+        "created_by": "00000000-0000-4000-8000-000000000021"
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000132",
+        "url": "https://ops.acme-it.example/webhooks/wildcard",
+        "event_types": [],
+        "enabled": false,
+        "created_by": "00000000-0000-4000-8000-000000000021"
+      }
+    ],
+    "api_keys": [
+      {
+        "id": "00000000-0000-4000-8000-000000000041",
+        "name": "CI integration",
+        "prefix": "mrd_ab12cd34",
+        "scopes": [
+          "tickets:read",
+          "clients:read",
+          "time_entries:read"
+        ],
+        "created_by": "00000000-0000-4000-8000-000000000021",
+        "created_at": "2026-09-03T03:27:13.553703Z",
+        "last_used_at": "2026-09-02T02:00:00Z",
+        "revoked_at": null
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000042",
+        "name": "Legacy exporter",
+        "prefix": "mrd_ef90ab12",
+        "scopes": [
+          "clients:read"
+        ],
+        "created_by": "00000000-0000-4000-8000-000000000021",
+        "created_at": "2026-09-03T03:27:13.553703Z",
+        "last_used_at": "2026-07-01T00:00:00Z",
+        "revoked_at": "2026-08-01T00:00:00Z"
+      }
+    ],
+    "settings": [
+      {
+        "key": "org.default_timezone",
+        "value": "America/New_York"
+      },
+      {
+        "key": "org.display_name",
+        "value": "Acme IT Services"
+      },
+      {
+        "key": "portal.enabled",
+        "value": true
+      },
+      {
+        "key": "sla.default_calendar_hours",
+        "value": 8
+      }
+    ],
+    "sla": {
+      "calendars": [
+        {
+          "id": "00000000-0000-4000-8000-000000000151",
+          "name": "Business Hours ET",
+          "calendar": {
+            "name": "Business Hours ET",
+            "timezone": "America/New_York",
+            "windows": [
+              [
+                "09:00",
+                "17:00"
+              ],
+              [
+                "09:00",
+                "17:00"
+              ],
+              [
+                "09:00",
+                "17:00"
+              ],
+              [
+                "09:00",
+                "17:00"
+              ],
+              [
+                "09:00",
+                "17:00"
+              ],
+              null,
+              null
+            ],
+            "holidays": [
+              "2026-11-26",
+              "2026-11-27",
+              "2026-12-25"
+            ],
+            "maintenance": [
+              {
+                "name": "ISP maintenance window",
+                "starts_at": "2026-09-12T06:00:00Z",
+                "ends_at": "2026-09-12T10:00:00Z"
+              }
+            ]
+          }
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000152",
+          "name": "Follow-the-Sun 24x7",
+          "calendar": {
+            "name": "Follow-the-Sun 24x7",
+            "timezone": "UTC",
+            "windows": [
+              [
+                "00:00",
+                "23:59"
+              ],
+              [
+                "00:00",
+                "23:59"
+              ],
+              [
+                "00:00",
+                "23:59"
+              ],
+              [
+                "00:00",
+                "23:59"
+              ],
+              [
+                "00:00",
+                "23:59"
+              ],
+              [
+                "00:00",
+                "23:59"
+              ],
+              [
+                "00:00",
+                "23:59"
+              ]
+            ],
+            "holidays": [],
+            "maintenance": []
+          }
+        }
+      ],
+      "policies": [
+        {
+          "id": "00000000-0000-4000-8000-000000000162",
+          "name": "Critical Systems 24x7",
+          "is_default": false,
+          "targets": {
+            "p1": {
+              "first_response_minutes": 10,
+              "resolve_minutes": 240
+            },
+            "p2": {
+              "first_response_minutes": 30,
+              "resolve_minutes": 480
+            }
+          },
+          "calendar": {
+            "name": "Critical Systems fallback",
+            "timezone": "UTC",
+            "windows": [
+              [
+                "00:00",
+                "23:59"
+              ],
+              [
+                "00:00",
+                "23:59"
+              ],
+              [
+                "00:00",
+                "23:59"
+              ],
+              [
+                "00:00",
+                "23:59"
+              ],
+              [
+                "00:00",
+                "23:59"
+              ],
+              [
+                "00:00",
+                "23:59"
+              ],
+              [
+                "00:00",
+                "23:59"
+              ]
+            ],
+            "holidays": [],
+            "maintenance": []
+          },
+          "calendar_id": "00000000-0000-4000-8000-000000000152",
+          "escalation_steps": [
+            {
+              "step_index": 0,
+              "trigger_kind": "breach",
+              "at_pct": 100,
+              "notify_user_ids": [
+                "00000000-0000-4000-8000-000000000022"
+              ],
+              "enabled": true
+            }
+          ]
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000161",
+          "name": "Standard Response",
+          "is_default": true,
+          "targets": {
+            "p1": {
+              "first_response_minutes": 15,
+              "resolve_minutes": 480
+            },
+            "p2": {
+              "first_response_minutes": 60,
+              "resolve_minutes": 1440
+            },
+            "p3": {
+              "first_response_minutes": 240,
+              "resolve_minutes": 4320
+            },
+            "p4": {
+              "first_response_minutes": 480,
+              "resolve_minutes": 10080
+            }
+          },
+          "calendar": {
+            "name": "Standard Response fallback",
+            "timezone": "America/New_York",
+            "windows": [
+              [
+                "09:00",
+                "17:00"
+              ],
+              [
+                "09:00",
+                "17:00"
+              ],
+              [
+                "09:00",
+                "17:00"
+              ],
+              [
+                "09:00",
+                "17:00"
+              ],
+              [
+                "09:00",
+                "17:00"
+              ],
+              null,
+              null
+            ],
+            "holidays": [],
+            "maintenance": []
+          },
+          "calendar_id": "00000000-0000-4000-8000-000000000151",
+          "escalation_steps": [
+            {
+              "step_index": 0,
+              "trigger_kind": "risk",
+              "at_pct": 75,
+              "notify_user_ids": [
+                "00000000-0000-4000-8000-000000000022"
+              ],
+              "enabled": true
+            },
+            {
+              "step_index": 1,
+              "trigger_kind": "breach",
+              "at_pct": 100,
+              "notify_user_ids": [
+                "00000000-0000-4000-8000-000000000021",
+                "00000000-0000-4000-8000-000000000022"
+              ],
+              "enabled": true
+            },
+            {
+              "step_index": 2,
+              "trigger_kind": "escalate",
+              "at_pct": 150,
+              "notify_user_ids": [
+                "00000000-0000-4000-8000-000000000021"
+              ],
+              "enabled": true
+            }
+          ]
+        }
+      ]
+    },
+    "report_definitions": [
+      {
+        "id": "00000000-0000-4000-8000-000000000172",
+        "name": "Billable hours per week",
+        "description": "Billable minutes trend",
+        "kind": "time_entries",
+        "spec": {
+          "filters": {
+            "billable": true
+          },
+          "group_by": "week",
+          "measures": [
+            "minutes"
+          ]
+        },
+        "viz": "line",
+        "scope": "org",
+        "created_by": "00000000-0000-4000-8000-000000000021",
+        "created_at": "2026-09-03T03:27:13.553703Z",
+        "updated_at": "2026-09-03T03:27:13.553703Z"
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000173",
+        "name": "SLA outcomes detail",
+        "description": "Per-ticket SLA outcome table",
+        "kind": "sla_outcomes",
+        "spec": {
+          "filters": {
+            "breached": true
+          },
+          "group_by": "ticket",
+          "measures": [
+            "count"
+          ]
+        },
+        "viz": "table",
+        "scope": "self",
+        "created_by": "00000000-0000-4000-8000-000000000022",
+        "created_at": "2026-09-03T03:27:13.553703Z",
+        "updated_at": "2026-09-03T03:27:13.553703Z"
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000171",
+        "name": "Tickets by priority",
+        "description": "Open + closed ticket volume per priority",
+        "kind": "tickets",
+        "spec": {
+          "filters": {
+            "board_id": "00000000-0000-4000-8000-000000000081"
+          },
+          "group_by": "priority",
+          "measures": [
+            "count"
+          ]
+        },
+        "viz": "bar",
+        "scope": "org",
+        "created_by": "00000000-0000-4000-8000-000000000021",
+        "created_at": "2026-09-03T03:27:13.553703Z",
+        "updated_at": "2026-09-03T03:27:13.553703Z"
+      }
+    ]
+  }
+}
