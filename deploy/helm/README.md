@@ -1,9 +1,20 @@
-# Helm chart — scaffolded, unimplemented (TASKLIST Phase 3 release pipeline)
+# Helm chart — deploy/helm/meridian
 
-Purpose: values-driven chart for self-hosted Kubernetes installs mirroring
-deploy/docker-compose.yml services (pgvector, redis, core-api, realtime,
-worker; optional observability + mailpit profiles). Digest-pinned images per
-release engineering policy.
+Values-driven chart mirroring `deploy/docker-compose.yml`: Postgres
+(pgvector image, prod parity; or external), Redis, migrations (pre-upgrade
+hook), core-api, realtime, worker, web; Mailpit and MinIO as opt-in
+profiles; optional ingress.
 
-Non-purpose: not an operator dashboard, no cross-env secret management beyond
-documented values.
+Image policy (TASKLIST U10b): every image reference is digest-pinned —
+`digestPinningEnforced: true` (default) refuses to render images without
+`images.*.digest` set. Digests are published per release with SBOM +
+provenance attestations (`.github/workflows/release.yml`).
+
+Validate locally (helm 3.14+):
+
+    helm lint meridian
+    helm template meridian --set digestPinningEnforced=false
+
+Non-purpose: not an operator dashboard; no cross-env secret management
+beyond documented values (set `existingSecret` for production secret
+plumbing).
