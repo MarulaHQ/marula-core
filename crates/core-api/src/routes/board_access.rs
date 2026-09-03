@@ -95,8 +95,14 @@ pub async fn nav(
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
 
-    let entries = core_db::boards::list_boards_annotated(&state.pool, org_id, user_id).await?;
-    let groups = core_db::boards::list_groups(&state.pool, org_id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, user_id)
+        .await
+        .map_err(ApiError::from)?;
+    let entries = core_db::boards::list_boards_annotated(&mut *tx, org_id, user_id).await?;
+    let groups = core_db::boards::list_groups(&mut *tx, org_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     let group_names: std::collections::HashMap<Uuid, String> =
         groups.into_iter().map(|g| (g.id, g.name)).collect();
 

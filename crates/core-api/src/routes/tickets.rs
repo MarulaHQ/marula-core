@@ -248,13 +248,26 @@ pub async fn my_work(
         &authed.principal,
         tickets(core_domain::policy::Action::View),
     )?;
-    let rows = core_db::tickets::my_work_annotated(
-        &state.pool,
-        authed.principal.user.org_id,
-        authed.principal.user.id,
-        100,
-    )
-    .await?;
+    let rows = {
+        // RLS-scoped read (pool carries no app.org_id GUC).
+        let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+        core_db::set_org_and_user(
+            &mut tx,
+            authed.principal.user.org_id,
+            authed.principal.user.id,
+        )
+        .await
+        .map_err(ApiError::from)?;
+        let rows = core_db::tickets::my_work_annotated(
+            &mut *tx,
+            authed.principal.user.org_id,
+            authed.principal.user.id,
+            100,
+        )
+        .await?;
+        tx.commit().await.map_err(ApiError::from)?;
+        rows
+    };
     Ok(Json(rows.into_iter().map(MyWorkItem::from_row).collect()))
 }
 

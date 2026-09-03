@@ -82,8 +82,18 @@ pub async fn list(
         Some(raw) => Some(decode_cursor(raw)?),
         None => None,
     };
+    // RLS-scoped read: notifications policies demand app.org_id and the
+    // pool carries no GUC of its own — ride an org-bound tx.
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
     let (items, next) = core_db::notifications::list_page(
-        &state.pool,
+        &mut *tx,
         authed.principal.user.org_id,
         authed.principal.user.id,
         q.unread_only,
@@ -91,6 +101,7 @@ pub async fn list(
         q.limit.clamp(1, 200),
     )
     .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(NotificationPage {
         items,
         next_cursor: next.map(|c| encode_cursor(c.created_at, c.id)),
@@ -105,12 +116,21 @@ pub async fn unread_count(
     extensions: Extensions,
 ) -> ApiResult<Json<UnreadCount>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
     let count = core_db::notifications::unread_count(
-        &state.pool,
+        &mut *tx,
         authed.principal.user.org_id,
         authed.principal.user.id,
     )
     .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(UnreadCount { count }))
 }
 

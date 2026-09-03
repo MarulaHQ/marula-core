@@ -122,8 +122,17 @@ pub async fn working_set(
 ) -> ApiResult<Json<Vec<TimerSession>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, time_perm(Action::View))?;
-    let sessions =
-        core_db::timers::recent_sessions(&state.pool, authed.principal.user.id, 10).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let sessions = core_db::timers::recent_sessions(&mut *tx, authed.principal.user.id, 10).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(sessions))
 }
 

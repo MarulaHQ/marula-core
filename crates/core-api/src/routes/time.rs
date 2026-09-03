@@ -221,19 +221,24 @@ async fn build_report(
     if to < from {
         return Err(ApiError::Validation("to must not precede from".into()));
     }
-    let settings = core_db::time_audit::org_time_settings(&state.pool, org_id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC): every query below
+    // rides one org-bound tx.
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, user_id)
+        .await
+        .map_err(ApiError::from)?;
+    let settings = core_db::time_audit::org_time_settings(&mut *tx, org_id).await?;
     let expected = i64::from(settings.time_gap_min_minutes);
 
     let days = day_series(from, to);
-    let ledger =
-        core_db::time_audit::list_gap_audits(&state.pool, org_id, user_id, from, to).await?;
+    let ledger = core_db::time_audit::list_gap_audits(&mut *tx, org_id, user_id, from, to).await?;
     let mut views = Vec::with_capacity(days.len());
     for day in days {
         let (start, end) = local_day_window(day, tz);
         let activity =
-            core_db::time_audit::day_activity(&state.pool, org_id, user_id, start, end).await?;
+            core_db::time_audit::day_activity(&mut *tx, org_id, user_id, start, end).await?;
         let logged =
-            core_db::timers::minutes_logged_on(&state.pool, user_id, org_id, start, end).await?;
+            core_db::timers::minutes_logged_on(&mut *tx, user_id, org_id, start, end).await?;
         let gap = evaluate_day(day, activity, logged, expected);
         views.push(GapDayView {
             day: day.to_string(),
@@ -248,6 +253,7 @@ async fn build_report(
                 .and_then(|a| a.nudge_sent_at),
         });
     }
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(GapReportResponse {
         user_id,
         timezone: timezone.to_string(),
