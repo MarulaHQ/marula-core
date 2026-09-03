@@ -777,6 +777,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         "Generated demo ticket: needs a site visit to reproduce on premises.",
         "Generated demo ticket: waiting on vendor confirmation before work starts.",
     ];
+    let mut bulk_ticket_count = 0usize;
     for i in 0u64..45 {
         let board = if i % 3 == 0 { 61 } else { 60 };
         let status = if board == 61 {
@@ -833,6 +834,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             serde_json::json!({ "number": number, "title": title, "priority": priority }),
         )
         .await?;
+        bulk_ticket_count += 1;
     }
 
     // One staff comment per even bulk ticket (authors cycle) so conversation
@@ -1908,7 +1910,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         users: users.len(),
         clients: client_specs.len(),
         boards: board_specs.len(),
-        tickets: ticket_ids.len(),
+        tickets: ticket_ids.len() + bulk_ticket_count,
         comments: comment_count,
         checklist_items: checklist_count,
         timer_sessions: 3,
