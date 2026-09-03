@@ -263,24 +263,29 @@ where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
     let row = sqlx::query!(
-        r#"INSERT INTO auth_sessions (id, user_id, refresh_token_hash, user_agent, chain_id, expires_at)
-           VALUES ($1, $2, $3, $4, $1, $5)
-           RETURNING id, user_id, refresh_token_hash, user_agent, expires_at, created_at, revoked_at"#,
+        r#"SELECT * FROM app_create_session($1, $2, $3, $4, $5, $6)"#,
         id,
         user_id,
         refresh_hash,
         user_agent,
-        expires_at
+        expires_at,
+        id
     )
     .fetch_one(executor)
     .await?;
     Ok(AuthSession {
-        id: row.id,
-        user_id: row.user_id,
-        refresh_token_hash: row.refresh_token_hash,
+        id: row.id.expect("app_create_session returns id"),
+        user_id: row.user_id.expect("app_create_session returns user_id"),
+        refresh_token_hash: row
+            .refresh_token_hash
+            .expect("app_create_session returns refresh_token_hash"),
         user_agent: row.user_agent,
-        expires_at: row.expires_at,
-        created_at: row.created_at,
+        expires_at: row
+            .expires_at
+            .expect("app_create_session returns expires_at"),
+        created_at: row
+            .created_at
+            .expect("app_create_session returns created_at"),
         revoked_at: row.revoked_at,
     })
 }

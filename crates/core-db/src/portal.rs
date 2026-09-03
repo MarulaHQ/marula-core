@@ -434,18 +434,15 @@ pub async fn create_session<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    sqlx::query!(
-        r#"INSERT INTO portal_sessions (id, org_id, portal_user_id, refresh_token_hash, user_agent, expires_at)
-           VALUES ($1, $2, $3, $4, $5, $6)"#,
-        id,
-        org_id,
-        portal_user_id,
-        refresh_hash,
-        user_agent,
-        expires_at
-    )
-    .execute(executor)
-    .await?;
+    sqlx::query(r#"SELECT * FROM app_create_portal_session($1, $2, $3, $4, $5, $6)"#)
+        .bind(id)
+        .bind(org_id)
+        .bind(portal_user_id)
+        .bind(refresh_hash)
+        .bind(user_agent)
+        .bind(expires_at)
+        .execute(executor)
+        .await?;
     Ok(())
 }
 
