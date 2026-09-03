@@ -53,6 +53,7 @@ pub mod clients;
 pub mod connector;
 pub mod custom_fields;
 pub mod dispatch;
+pub mod dispatch_connector;
 pub mod documents;
 pub mod email_admin;
 pub mod export;
@@ -882,6 +883,10 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // (rides the D2 engine, checkpoint cursors) + cursor-paged pull
         // exports; module owns its own router.
         .merge(connector::routes(gen))
+        // dispatch connector (TASKLIST Phase 3, Wave 9 lane 9): scoped
+        // machine surface — schedule reads + field-service status pushes;
+        // module owns its own router.
+        .merge(dispatch_connector::routes(gen))
         // Stamps org_id onto the current request span (telemetry) once the
         // auth middleware below has resolved it.
         .layer(middleware::from_fn(crate::otel_http::record_org))
@@ -889,6 +894,38 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(&rp("/dispatch/day"), get(dispatch::dispatch_day))
         .route(&rp("/dispatch/bulk-move"), post(dispatch::bulk_move))
         .route(&rp("/dispatch/assign"), post(dispatch::assign))
+        // dispatch v2 (TASKLIST Phase 3, Wave 9 lane 9): resource
+        // planning (capacity horizon, queue prioritization, skills
+        // matching) + travel/mileage entry drafts.
+        .route(&rp("/dispatch/capacity"), get(dispatch::capacity))
+        .route(&rp("/dispatch/queue"), get(dispatch::queue_list))
+        .route(
+            &rp("/dispatch/queue/{ticket_id}"),
+            axum::routing::put(dispatch::queue_set).delete(dispatch::queue_clear),
+        )
+        .route(&rp("/dispatch/skills"), get(dispatch::skills_catalog))
+        .route(
+            &rp("/dispatch/users/{user_id}/skills"),
+            axum::routing::put(dispatch::user_skills_replace),
+        )
+        .route(&rp("/dispatch/match"), get(dispatch::match_queue))
+        .route(
+            &rp("/dispatch/tickets/{ticket_id}/required-skills"),
+            axum::routing::put(dispatch::ticket_skills_replace),
+        )
+        .route(
+            &rp("/dispatch/travel-drafts"),
+            get(dispatch::travel_draft_list).post(dispatch::travel_draft_create),
+        )
+        .route(
+            &rp("/dispatch/travel-drafts/{id}"),
+            axum::routing::patch(dispatch::travel_draft_patch)
+                .delete(dispatch::travel_draft_delete),
+        )
+        .route(
+            &rp("/dispatch/travel-drafts/{id}/submit"),
+            post(dispatch::travel_draft_submit),
+        )
         .layer(middleware::from_fn_with_state(state.clone(), require_auth));
 
     public.merge(protected)

@@ -1,0 +1,15 @@
+{
+  "event_type": "dispatch.status_updated",
+  "entity": "appointment",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "actor_id": "00000000-0000-0000-0000-000000000029",
+    "appointment_id": "00000000-0000-0000-0000-000000000028",
+    "note": "Left the depot",
+    "occurred_at": "2023-11-14T22:13:24Z",
+    "source": "connector",
+    "status": "en_route"
+  }
+}

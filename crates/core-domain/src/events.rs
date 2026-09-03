@@ -194,6 +194,17 @@ pub mod types {
     pub const INVOICE_VOIDED: &str = "invoice.voided";
     pub const INVOICE_PAYMENT_RECORDED: &str = "invoice.payment_recorded";
     pub const INVOICE_DUNNING_CHANGED: &str = "invoice.dunning_changed";
+    /// Dispatch v2 (TASKLIST Phase 3, Wave 9 lane 9): a field-service
+    /// status push landed against an appointment (connector or staff);
+    /// the `dispatch_status_updates` ledger is the ground truth.
+    pub const DISPATCH_STATUS_UPDATED: &str = "dispatch.status_updated";
+    /// A dispatcher set or cleared an unassigned-queue rank override;
+    /// consumers refetch the queue ordering.
+    pub const DISPATCH_QUEUE_UPDATED: &str = "dispatch.queue_updated";
+    /// A travel/mileage draft was submitted through the existing
+    /// time-entry path; `time_entry.created` co-emits for the entry
+    /// itself — this payload carries the draft→entry provenance pair.
+    pub const TRAVEL_DRAFT_SUBMITTED: &str = "travel_draft.submitted";
     /// Projects line (TASKLIST Phase 3, migration 0030): project/phase/task
     /// lifecycle, saved views, templates, and the milestone billing seam.
     pub const PROJECT_CREATED: &str = "project.created";
@@ -1003,6 +1014,56 @@ pub struct AppointmentRequestCancelled {
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub cancelled_by_portal_user_id: uuid::Uuid,
     pub cancelled_at: DateTime<Utc>,
+}
+
+/// dispatch.status_updated — a field-service status push landed against
+/// an appointment. The appointment's lifecycle status is untouched; this
+/// is the connector-visible progress vocabulary (en_route, arrived,
+/// in_progress, completed, blocked, delayed).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct DispatchStatusUpdated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub appointment_id: uuid::Uuid,
+    pub status: String,
+    pub note: Option<String>,
+    /// `connector` (machine key) or `staff`.
+    pub source: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub actor_id: uuid::Uuid,
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// dispatch.queue_updated — an unassigned-queue rank override was set or
+/// cleared for one ticket. `rank` is the new explicit rank; cleared
+/// overrides carry `rank: 0` with `cleared: true`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct DispatchQueueUpdated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub ticket_id: uuid::Uuid,
+    pub rank: i32,
+    pub cleared: bool,
+}
+
+/// travel_draft.submitted — a travel/mileage draft converted into a real
+/// time entry through the existing time-entry path. `time_entry_id` is
+/// the backlink the draft row also stores; `time_entry.created` co-emits
+/// for the entry itself.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TravelDraftSubmitted {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub draft_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub ticket_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub user_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub time_entry_id: uuid::Uuid,
+    pub distance: f64,
+    pub distance_unit: String,
+    pub vehicle: String,
 }
 
 #[cfg(test)]

@@ -20,6 +20,7 @@ pub mod clients;
 pub mod connector;
 pub mod contracts;
 pub mod custom_fields;
+pub mod dispatch;
 pub mod documents;
 pub mod emails;
 pub mod export;

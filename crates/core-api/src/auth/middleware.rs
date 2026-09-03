@@ -176,6 +176,9 @@ const API_KEY_PATHS: &[&str] = &[
     "/api/agent-proposals",
     "/api/v1/agent-proposals",
     "/api/migration",
+    // The dispatch connector (Wave 9 lane 9): scoped schedule reads +
+    // field-service status pushes; handlers gate on `dispatch:*` scopes.
+    "/api/dispatch-connector",
 ];
 
 /// Maps capability scopes onto the permission matrix. Unknown scopes are
@@ -210,6 +213,14 @@ fn permissions_from_scopes(scopes: &[String]) -> Vec<core_domain::policy::Permis
             // through the D2 engine. The engine's gate checks the Clients
             // matrix (the import framework's machine contract), so the
             // scope resolves onto exactly that.
+            // Dispatch connector (TASKLIST Phase 3, Wave 9 lane 9):
+            // read = schedule visibility; write = status pushes ride the
+            // Scheduling module's create+edit matrix like booking writes.
+            "dispatch:read" => push(Module::Scheduling, &[Action::View]),
+            "dispatch:write" => push(
+                Module::Scheduling,
+                &[Action::View, Action::Create, Action::Edit],
+            ),
             "migration:read" => push(Module::Clients, &[Action::View]),
             "migration:write" => push(
                 Module::Clients,

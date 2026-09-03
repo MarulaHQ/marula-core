@@ -38,6 +38,8 @@ pub const KNOWN_SCOPES: &[&str] = &[
     "timers:write",
     "migration:read",
     "migration:write",
+    "dispatch:read",
+    "dispatch:write",
 ];
 
 // --- hashing ------------------------------------------------------------------
