@@ -376,8 +376,18 @@ pub async fn get_one(
 ) -> ApiResult<Json<Project>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, projects(Action::View))?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
     let project =
-        core_db::projects::get_project(&state.pool, authed.principal.user.org_id, id).await?;
+        core_db::projects::get_project(&mut *tx, authed.principal.user.org_id, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(project))
 }
 
@@ -552,8 +562,17 @@ pub async fn list_phases(
 ) -> ApiResult<Json<Vec<ProjectPhase>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, projects(Action::View))?;
-    let rows =
-        core_db::projects::list_phases(&state.pool, authed.principal.user.org_id, id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let rows = core_db::projects::list_phases(&mut *tx, authed.principal.user.org_id, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(rows))
 }
 
@@ -989,8 +1008,17 @@ pub async fn list_tasks(
 ) -> ApiResult<Json<Vec<ProjectTask>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, projects(Action::View))?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
     let rows = core_db::projects::list_tasks(
-        &state.pool,
+        &mut *tx,
         authed.principal.user.org_id,
         id,
         core_db::projects::TaskFilter {
@@ -1003,6 +1031,7 @@ pub async fn list_tasks(
         },
     )
     .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(rows))
 }
 
@@ -1453,11 +1482,17 @@ pub async fn get_deps(
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, projects(Action::View))?;
     let org_id = authed.principal.user.org_id;
-    let task = core_db::projects::get_task(&state.pool, org_id, task_id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let task = core_db::projects::get_task(&mut *tx, org_id, task_id).await?;
     if task.project_id != id {
         return Err(ApiError::NotFound);
     }
-    let depends_on = core_db::projects::list_task_deps(&state.pool, org_id, task_id).await?;
+    let depends_on = core_db::projects::list_task_deps(&mut *tx, org_id, task_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(DependencyListResponse {
         task_id,
         project_id: id,
@@ -1574,9 +1609,18 @@ pub async fn list_views(
 ) -> ApiResult<Json<Vec<ProjectView>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, projects(Action::View))?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
     let rows =
-        core_db::projects::list_views(&state.pool, authed.principal.user.org_id, q.project_id)
-            .await?;
+        core_db::projects::list_views(&mut *tx, authed.principal.user.org_id, q.project_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(rows))
 }
 
@@ -1775,7 +1819,17 @@ pub async fn list_templates(
 ) -> ApiResult<Json<Vec<ProjectTemplate>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, projects(Action::View))?;
-    let rows = core_db::projects::list_templates(&state.pool, authed.principal.user.org_id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let rows = core_db::projects::list_templates(&mut *tx, authed.principal.user.org_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(rows))
 }
 

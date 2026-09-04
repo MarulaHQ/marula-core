@@ -108,7 +108,17 @@ pub async fn active(
 ) -> ApiResult<Json<Option<TimerSession>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, time_perm(Action::View))?;
-    let session = core_db::timers::active_session(&state.pool, authed.principal.user.id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let session = core_db::timers::active_session(&mut *tx, authed.principal.user.id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(session))
 }
 
@@ -485,8 +495,17 @@ pub async fn list_entries(
     } else {
         Some(authed.principal.user.id)
     };
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
     let entries = core_db::timers::list_time_entries(
-        &state.pool,
+        &mut *tx,
         authed.principal.user.org_id,
         q.ticket_id,
         user_id,
@@ -494,6 +513,7 @@ pub async fn list_entries(
         q.limit.clamp(1, 500),
     )
     .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(entries))
 }
 

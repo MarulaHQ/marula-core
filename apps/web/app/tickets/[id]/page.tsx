@@ -480,6 +480,19 @@ export default function TicketWorkspacePage() {
 
   return (
     <div className="flex h-full flex-col">
+      <div className="flex items-center justify-end gap-2 px-2 py-1">
+        <button
+          type="button"
+          onClick={() => {
+            void controller.reset();
+          }}
+          title="Restore the default three-pane layout (reopens closed panes)"
+          className="cursor-pointer border-none bg-transparent text-[11px] transition-opacity duration-100"
+          style={{ color: "var(--m-text-muted)" }}
+        >
+          Reset layout
+        </button>
+      </div>
       <main className="min-h-0 flex-1">
         <PanelLayout
           controller={controller}

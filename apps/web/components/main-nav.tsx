@@ -136,11 +136,25 @@ function Submenu({ group, onNavigate }: SubmenuProps) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const closeTimer = useRef<number | null>(null);
   const groupActive = group.items.some((item) => isActive(pathname, item));
 
   useEffect(() => {
     setOpen(false);
   }, [pathname]);
+
+  // Hover intent: a short close delay so the pointer can travel between the
+  // trigger and the flyout (and momentarily across the nav bar) without
+  // slamming the menu shut.
+  function scheduleClose() {
+    if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
+    closeTimer.current = window.setTimeout(() => setOpen(false), 150);
+  }
+  function cancelClose() {
+    if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
+    closeTimer.current = null;
+    setOpen(true);
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -157,6 +171,7 @@ function Submenu({ group, onNavigate }: SubmenuProps) {
     return () => {
       window.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("keydown", onKeyDown);
+      if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
     };
   }, [open]);
 
@@ -164,8 +179,8 @@ function Submenu({ group, onNavigate }: SubmenuProps) {
     <div
       ref={rootRef}
       className="relative"
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
+      onMouseEnter={cancelClose}
+      onMouseLeave={scheduleClose}
     >
       <button
         type="button"
@@ -193,7 +208,7 @@ function Submenu({ group, onNavigate }: SubmenuProps) {
         </span>
       </button>
       <div
-        className={`absolute left-0 top-full z-40 mt-1 min-w-44 py-1 ${open ? "" : "pointer-events-none opacity-0"}`}
+        className={`absolute left-0 top-full z-40 min-w-44 py-1 ${open ? "" : "pointer-events-none opacity-0"}`}
         role="menu"
         aria-label={group.label}
         style={{

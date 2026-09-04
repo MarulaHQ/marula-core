@@ -229,8 +229,18 @@ pub async fn get_appointment(
 ) -> ApiResult<Json<Appointment>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, sched(Action::View))?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
     let appt =
-        core_db::scheduling::get_appointment(&state.pool, authed.principal.user.org_id, id).await?;
+        core_db::scheduling::get_appointment(&mut *tx, authed.principal.user.org_id, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(appt))
 }
 
@@ -408,14 +418,24 @@ pub async fn conflict_check(
     require_permission(&authed.principal, sched(Action::View))?;
     target_user(&authed.principal, Some(req.user_id), "conflict checks")?;
     validate_span(req.starts_at, req.ends_at)?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
     let existing = core_db::scheduling::list_appointments_between(
-        &state.pool,
+        &mut *tx,
         authed.principal.user.org_id,
         &[req.user_id],
         req.starts_at,
         req.ends_at,
     )
     .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     let hits = conflict_indices(
         req.starts_at,
         req.ends_at,

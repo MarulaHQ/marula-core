@@ -123,13 +123,16 @@ pub struct ByokOverviewResponse {
 
 // --- handlers -----------------------------------------------------------------
 
-async fn active_org_value(
-    state: &AppState,
+async fn active_org_value<'e, E>(
+    executor: E,
     org_id: Uuid,
     key: &str,
     fallback: &str,
-) -> ApiResult<String> {
-    let overrides = core_db::settings::list_org_overrides(&state.pool, org_id).await?;
+) -> ApiResult<String>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let overrides = core_db::settings::list_org_overrides(executor, org_id).await?;
     Ok(overrides
         .iter()
         .find(|o| o.key == key)
@@ -153,23 +156,32 @@ pub async fn get_ai_status(
 ) -> ApiResult<Json<ByokOverviewResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+
+    // RLS-scoped read: settings and byok_secrets policies demand app.org_id
+    // and the pool carries no GUC of its own — ride an org-bound tx.
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, user_id)
+        .await
+        .map_err(ApiError::from)?;
 
     let active_provider = active_org_value(
-        &state,
+        &mut *tx,
         org_id,
         core_domain::settings::AI_COMPLETION_PROVIDER,
         "none",
     )
     .await?;
     let active_model = active_org_value(
-        &state,
+        &mut *tx,
         org_id,
         core_domain::settings::AI_COMPLETION_MODEL,
         "none",
     )
     .await?;
 
-    let secrets = core_db::byok::list_secret_summaries(&state.pool, org_id).await?;
+    let secrets = core_db::byok::list_secret_summaries(&mut *tx, org_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     let configured_providers = secrets.into_iter().map(|s| s.provider).collect();
 
     Ok(Json(ByokOverviewResponse {
@@ -472,13 +484,20 @@ pub async fn test_ai_connection(
     require_admin(&authed.principal, Action::Edit)?;
 
     let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+
+    // RLS-scoped read: settings/byok_secrets policies demand app.org_id.
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, user_id)
+        .await
+        .map_err(ApiError::from)?;
 
     // Resolve provider: explicit in request or active in org settings
     let provider = match req.provider {
         Some(p) if !p.trim().is_empty() => p.trim().to_ascii_lowercase(),
         _ => {
             active_org_value(
-                &state,
+                &mut *tx,
                 org_id,
                 core_domain::settings::AI_COMPLETION_PROVIDER,
                 "none",
@@ -488,6 +507,7 @@ pub async fn test_ai_connection(
     };
 
     if provider == "none" {
+        tx.commit().await.map_err(ApiError::from)?;
         let test_req = CompletionRequest {
             messages: vec![CompletionMessage {
                 role: MessageRole::User,
@@ -511,7 +531,8 @@ pub async fn test_ai_connection(
     }
 
     // Check if secret key is present for this provider
-    let secret = core_db::byok::get_secret(&state.pool, org_id, &provider).await?;
+    let secret = core_db::byok::get_secret(&mut *tx, org_id, &provider).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     let Some(ciphertext) = secret else {
         return Ok(Json(TestConnectionResponse {
             provider: provider.clone(),

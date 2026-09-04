@@ -196,17 +196,25 @@ pub async fn undo_stack(
     let org_id = authed.principal.user.org_id;
     let limit = query.limit.unwrap_or(50);
 
+    // RLS-scoped read (pool carries no app.org_id GUC): tickets and the
+    // write-trail tables all raw-cast the GUC.
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+
     // The record gates the stack: an invisible ticket exposes nothing.
-    let ticket = core_db::tickets::get_ticket(&state.pool, org_id, id).await?;
+    let ticket = core_db::tickets::get_ticket(&mut *tx, org_id, id).await?;
     let mode = if ticket.category == TicketStatusCategory::Closed {
         UndoMode::RevertsOnly
     } else {
         UndoMode::Open
     };
 
-    let steps = core_db::undo::record_stack(&state.pool, org_id, "ticket", id, limit).await?;
+    let steps = core_db::undo::record_stack(&mut *tx, org_id, "ticket", id, limit).await?;
     let current_version = steps.first().map(|s| s.seq).unwrap_or(0);
-    let fields = core_db::undo::field_stack(&state.pool, org_id, "ticket", id, limit).await?;
+    let fields = core_db::undo::field_stack(&mut *tx, org_id, "ticket", id, limit).await?;
+    tx.commit().await.map_err(ApiError::from)?;
 
     Ok(Json(UndoStackResponse {
         entity: "ticket".into(),

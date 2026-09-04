@@ -69,14 +69,24 @@ pub async fn list(
 ) -> ApiResult<Json<Vec<AppointmentRequest>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, sched(Action::View))?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
     let rows = core_db::portal::list_appointment_requests(
-        &state.pool,
+        &mut *tx,
         authed.principal.user.org_id,
         q.status.map(|s| s.as_str()),
         q.limit.clamp(1, 200),
         q.offset.max(0),
     )
     .await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(rows))
 }
 

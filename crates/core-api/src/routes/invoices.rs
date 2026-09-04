@@ -1131,9 +1131,19 @@ pub async fn list_payments(
     require_permission(&authed.principal, commercial(Action::View))?;
     // A missing invoice and an empty payment list are indistinguishable
     // through this lens; existence is validated by the 404 on the read.
-    core_db::invoices::get_invoice(&state.pool, authed.principal.user.org_id, id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    core_db::invoices::get_invoice(&mut *tx, authed.principal.user.org_id, id).await?;
     let payments =
-        core_db::invoices::list_payments(&state.pool, authed.principal.user.org_id, id).await?;
+        core_db::invoices::list_payments(&mut *tx, authed.principal.user.org_id, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(payments))
 }
 

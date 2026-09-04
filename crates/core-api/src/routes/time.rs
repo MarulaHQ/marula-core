@@ -68,8 +68,17 @@ pub async fn get_settings(
 ) -> ApiResult<Json<TimeSettingsResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, admin(Action::View))?;
-    let s =
-        core_db::time_audit::org_time_settings(&state.pool, authed.principal.user.org_id).await?;
+    // RLS-scoped read (pool carries no app.org_id GUC; orgs raw-cast it).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let s = core_db::time_audit::org_time_settings(&mut *tx, authed.principal.user.org_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(TimeSettingsResponse {
         eod_nudges_enabled: s.eod_nudges_enabled,
         eod_nudge_hour: s.eod_nudge_hour,
@@ -102,7 +111,13 @@ pub async fn put_settings(
         eod_nudge_hour: req.eod_nudge_hour,
         time_gap_min_minutes: req.time_gap_min_minutes,
     };
-    core_db::time_audit::update_org_time_settings(&state.pool, org_id, &settings).await?;
+    // RLS-scoped write (pool carries no app.org_id GUC; orgs raw-cast it).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    core_db::time_audit::update_org_time_settings(&mut *tx, org_id, &settings).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(TimeSettingsResponse {
         eod_nudges_enabled: settings.eod_nudges_enabled,
         eod_nudge_hour: settings.eod_nudge_hour,
@@ -187,9 +202,19 @@ pub async fn user_gaps(
     let user_id = q.user_id.ok_or_else(|| {
         ApiError::Validation("user_id is required (use /api/time-gaps/me for yourself)".into())
     })?;
-    let user = core_db::users::get_user(&state.pool, authed.principal.user.org_id, user_id)
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let user = core_db::users::get_user(&mut *tx, authed.principal.user.org_id, user_id)
         .await
         .map_err(|_| ApiError::NotFound)?;
+    tx.commit().await.map_err(ApiError::from)?;
     let report = build_report(
         &state,
         authed.principal.user.org_id,
