@@ -54,6 +54,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Money",
     items: [
+      { label: "Clients", href: "/clients", match: ["/clients"] },
       { label: "Billing", href: "/billing", match: ["/billing"] },
     ],
   },
