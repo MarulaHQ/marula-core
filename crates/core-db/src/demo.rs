@@ -1235,6 +1235,60 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     }
     let time_entry_count = entry_specs.len();
 
+    // Search index backfill (TASKLIST search QA): the worker indexer is
+    // event-driven, and the seeder writes rows directly without events —
+    // so populate the index here. Set-based and idempotent; later real
+    // events re-upsert the same (org, kind, entity) keys.
+    sqlx::query(
+        r#"
+        INSERT INTO search_index (id, org_id, entity_kind, entity_id, parent_id, title, body)
+        SELECT md5('ticket' || t.id::text)::uuid, t.org_id, 'ticket', t.id,
+               t.board_id, t.title, coalesce(t.body, '')
+        FROM tickets t WHERE t.org_id = $1
+        ON CONFLICT (org_id, entity_kind, entity_id) DO UPDATE SET
+          title = EXCLUDED.title, body = EXCLUDED.body, indexed_at = now();
+        INSERT INTO search_index (id, org_id, entity_kind, entity_id, parent_id, title, body)
+        SELECT md5('client' || c.id::text)::uuid, c.org_id, 'client', c.id,
+               NULL, c.name, ''
+        FROM clients c WHERE c.org_id = $1
+        ON CONFLICT (org_id, entity_kind, entity_id) DO UPDATE SET
+          title = EXCLUDED.title, body = EXCLUDED.body, indexed_at = now();
+        INSERT INTO search_index (id, org_id, entity_kind, entity_id, parent_id, title, body)
+        SELECT md5('site' || s.id::text)::uuid, s.org_id, 'site', s.id,
+               s.client_id, s.name, coalesce(s.address, '')
+        FROM sites s WHERE s.org_id = $1
+        ON CONFLICT (org_id, entity_kind, entity_id) DO UPDATE SET
+          title = EXCLUDED.title, body = EXCLUDED.body, indexed_at = now();
+        INSERT INTO search_index (id, org_id, entity_kind, entity_id, parent_id, title, body)
+        SELECT md5('contact' || c.id::text)::uuid, c.org_id, 'contact', c.id,
+               c.client_id, c.name, c.email
+        FROM contacts c WHERE c.org_id = $1
+        ON CONFLICT (org_id, entity_kind, entity_id) DO UPDATE SET
+          title = EXCLUDED.title, body = EXCLUDED.body, indexed_at = now();
+        INSERT INTO search_index (id, org_id, entity_kind, entity_id, parent_id, title, body)
+        SELECT md5('kb' || k.id::text)::uuid, k.org_id, 'kb_article', k.id,
+               NULL, k.title, coalesce(k.body, '')
+        FROM kb_articles k WHERE k.org_id = $1
+        ON CONFLICT (org_id, entity_kind, entity_id) DO UPDATE SET
+          title = EXCLUDED.title, body = EXCLUDED.body, indexed_at = now();
+        INSERT INTO search_index (id, org_id, entity_kind, entity_id, parent_id, title, body)
+        SELECT md5('doc' || d.id::text)::uuid, d.org_id, 'document', d.id,
+               NULL, d.title, coalesce(d.body, '')
+        FROM documents d WHERE d.org_id = $1
+        ON CONFLICT (org_id, entity_kind, entity_id) DO UPDATE SET
+          title = EXCLUDED.title, body = EXCLUDED.body, indexed_at = now();
+        INSERT INTO search_index (id, org_id, entity_kind, entity_id, parent_id, title, body)
+        SELECT md5('comment' || c.id::text)::uuid, c.org_id, 'comment', c.id,
+               c.ticket_id, left(c.body, 60), c.body
+        FROM ticket_comments c WHERE c.org_id = $1
+        ON CONFLICT (org_id, entity_kind, entity_id) DO UPDATE SET
+          title = EXCLUDED.title, body = EXCLUDED.body, indexed_at = now();
+        "#,
+    )
+    .bind(DEMO_ORG_ID)
+    .execute(&mut *tx)
+    .await?;
+
     // --- contracts: 1 recurring + 1 T&M with a rate card -----------------
     let contract_recurring = demo_uuid(170);
     sqlx::query(

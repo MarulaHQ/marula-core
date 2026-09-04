@@ -188,7 +188,10 @@ pub struct TicketChecklistMutationResponse {
 /// Live SLA clock readout for one ticket (badge + countdown surfaces).
 #[derive(Debug, Serialize, ToSchema)]
 pub struct TicketSlaStatus {
-    pub state: core_domain::entities::TicketSlaState,
+    /// False when no SLA policy applies to the ticket — a typed empty
+    /// state, never a 404 (the endpoint is polled by the ticket header).
+    pub applied: bool,
+    pub state: Option<core_domain::entities::TicketSlaState>,
     /// Business minutes left on the resolution budget (negative = over).
     pub minutes_remaining: Option<i64>,
     /// True while a Waiting-category pause is open.
@@ -961,9 +964,20 @@ pub async fn sla_status(
         authed.principal.user.id,
         |mut ctx| async move {
             let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id).await?;
-            let state_row = core_db::sla::get_ticket_state(&mut *ctx.tx, id)
-                .await?
-                .ok_or(ApiError::NotFound)?;
+            // None-mode: a ticket created without an applicable SLA policy
+            // has no state row — that is a typed empty state, not a 404.
+            let Some(state_row) = core_db::sla::get_ticket_state(&mut *ctx.tx, id).await? else {
+                return Ok((
+                    ctx,
+                    TicketSlaStatus {
+                        applied: false,
+                        state: None,
+                        minutes_remaining: None,
+                        paused: false,
+                        breached: false,
+                    },
+                ));
+            };
             // Attached row wins; embedded document keeps governing otherwise.
             let record = core_db::sla::get_policy_record(&mut *ctx.tx, org_id, state_row.policy_id)
                 .await
@@ -982,13 +996,16 @@ pub async fn sla_status(
             );
             let minutes_remaining =
                 position.map(|p| ((p.budget_secs - p.consumed_secs) / 60).max(i64::MIN / 2));
+            let paused = state_row.paused_since.is_some();
+            let breached = state_row.breached;
             Ok((
                 ctx,
                 TicketSlaStatus {
+                    applied: true,
+                    state: Some(state_row),
                     minutes_remaining,
-                    paused: state_row.paused_since.is_some(),
-                    breached: state_row.breached,
-                    state: state_row,
+                    paused,
+                    breached,
                 },
             ))
         },
