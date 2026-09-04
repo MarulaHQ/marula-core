@@ -1,8 +1,9 @@
 // App header shared by authenticated surfaces.
 //
-// Purpose: product mark, unified-search entry point (⌘K), theme toggle,
-// identity + logout. Chrome-quiet per docs/theme.md — greyscale, one
-// hairline border, no marketing surface.
+// Purpose: product mark, the primary nav (MainNav — every reachable staff
+// surface, grouped Workspace/Dispatch/Money/Ops/Settings), unified-search
+// entry point (⌘K), theme toggle, identity + logout. Chrome-quiet per
+// docs/theme.md — greyscale, one hairline border, no marketing surface.
 // Non-purpose: no navigation state of its own; the search page owns results.
 "use client";
 
@@ -15,6 +16,7 @@ import { useEffect, useState } from "react";
 import { API_BASE, useAuth } from "../lib/api";
 import { NotificationDock } from "./notification-dock";
 import { OutboxDock } from "./instant/outbox-dock";
+import { MainNav } from "./main-nav";
 
 // Surfaces that own their chrome (auth flows, the client portal) render no
 // staff header.
@@ -106,43 +108,27 @@ export function AppHeader() {
       className="flex h-12 shrink-0 items-center justify-between border-b px-4"
       style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
     >
-      <div className="flex items-baseline gap-2">
-        <Link
-          href="/today"
-          className="text-sm font-semibold tracking-wide no-underline"
-          style={{ color: "var(--m-text)" }}
-          aria-label="Meridian home"
-        >
-          Meridian
-        </Link>
-        <span className="text-xs" style={{ color: "var(--m-text-muted)" }}>
-          open-core PSA
-        </span>
+      <div className="flex items-center gap-5">
+        <div className="flex items-baseline gap-2">
+          <Link
+            href="/today"
+            className="text-sm font-semibold tracking-wide no-underline"
+            style={{ color: "var(--m-text)" }}
+            aria-label="Meridian home"
+          >
+            Meridian
+          </Link>
+          <span className="text-xs" style={{ color: "var(--m-text-muted)" }}>
+            open-core PSA
+          </span>
+        </div>
+        <MainNav />
       </div>
       <div className="flex items-center gap-2">
         <OutboxDock />
         <SearchLauncher />
         <NotificationDock />
-        <Button variant="ghost" size="sm" onClick={() => router.push("/today")}>
-          Today
-        </Button>
-        <Button variant="ghost" size="sm" onClick={() => router.push("/billing")}>
-          Billing
-        </Button>
-        <Button variant="ghost" size="sm" onClick={() => router.push("/provenance")}>
-          Provenance
-        </Button>
-        <Button variant="ghost" size="sm" onClick={() => router.push("/dashboards")}>
-          Dashboards
-        </Button>
         <DevToolsLink />
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => router.push("/settings/general")}
-        >
-          Settings
-        </Button>
         <ThemeToggle />
         <span className="text-xs" style={{ color: "var(--m-text-secondary)" }}>
           {me?.display_name ?? ""}
