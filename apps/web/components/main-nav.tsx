@@ -71,6 +71,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Settings",
     items: [
       { label: "Overview", href: "/settings" },
+      { label: "Boards", href: "/settings/boards" },
       { label: "General", href: "/settings/general" },
       { label: "Workflow", href: "/settings/workflow" },
       { label: "SLA", href: "/settings/sla" },
