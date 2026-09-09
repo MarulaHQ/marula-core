@@ -29,13 +29,15 @@ Builds share `.kilo/target-shared` via `.cargo/config.toml` + `.kilo/setup-scrip
 (disk guardrails DX6) — never build into a worktree-local `target/`; disk
 housekeeping is `scripts/dev-clean.sh` (dry-run default, `--go` applies).
 
-## Lane task lists (all agent worktrees)
+## Lane to-do lists (all agent worktrees)
 
-Every worktree lane maintains `LANE-TASKLIST.md` at its worktree root
-(gitignored, coordinator-visible): decompose your assigned scope into
-checkbox items at lane start, tick them as you complete each one, and note
-blockers inline the moment they appear. The coordinator reads this file to
-track mid-flight progress — an out-of-date lane task list is a stale lane.
+Every worktree lane decomposes its assigned scope into a to-do list using
+Kilo's NATIVE to-do list tool (`todowrite`) at lane start — one item per
+concrete deliverable — and updates it in real time: `in_progress` while
+working, `completed` the moment an item is done, blockers called out inline.
+Do NOT track lane work in markdown files (LANE-TASKLIST.md or similar) — the
+native to-do list is the single source of truth and is visible in the Agent
+Manager UI. An out-of-date to-do list reads as a stalled lane.
 
 ## graphify
 

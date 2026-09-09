@@ -30,5 +30,3 @@ Thumbs.db
 # Graphify knowledge graph (machine-generated; hooks rebuild it locally)
 graphify-out/
 
-# Per-lane task lists (worktree-local, coordinator-visible)
-LANE-TASKLIST.md
