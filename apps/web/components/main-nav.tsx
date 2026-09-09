@@ -251,7 +251,7 @@ function Submenu({ group, onNavigate }: SubmenuProps) {
  */
 export function MainNav() {
   return (
-    <nav aria-label="Primary" className="flex items-center gap-4 text-[13px]">
+    <nav aria-label="Primary" className="flex items-center gap-1.5 text-[13px] md:gap-3 lg:gap-4">
       {NAV_GROUPS.map((group) =>
         group.items.length === 1 && group.items[0] !== undefined ? (
           <NavItemLink key={group.label} item={group.items[0]} />

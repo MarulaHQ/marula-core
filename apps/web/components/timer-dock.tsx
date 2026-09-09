@@ -101,7 +101,7 @@ export function TimerDock() {
     <div
       role="region"
       aria-label="Active timer"
-      className="fixed inset-x-0 bottom-0 z-40 border-t"
+      className="sticky bottom-0 z-40 shrink-0 border-t"
       style={{
         borderTop: live
           ? "2px solid var(--m-accent)"
