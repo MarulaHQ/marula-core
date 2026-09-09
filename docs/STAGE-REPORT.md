@@ -263,3 +263,6 @@ merges type-break on widened structs (`RecordSpec.provenance`, tri-state
    KB authoring, alerts, R3 definitions, R4 schedules (backend all live).
 2. Invoice documents print-to-PDF via browser only (no server PDF binary).
 3. Portal quote approval deferred until the quotes lane exists.
+
+### Waves 10–11 (2026-09-04 → 09-09, interim)
+Wave 10 landed: nav pass (grouped nav + active states, global header) + workspace-core UIs (clients/projects/contracts/board admin). QA findings fixed: systemic RLS-scope 500s (~70 handlers moved to org-bound txs), search index seeding, SLA none-mode, register slug UX tracked. Wave 11 fired (8 lanes): vision-driven UI quality pass, org-users backend, ticket taxonomy, scheduling links, assets UX, money+docs UI, ops UI, workflow constructs (tags/merge/costs/PM tickets). Typography changed by owner decision: JetBrains Mono headings via shadcn preset b3J8o4J600 (theme.md + BUILD-PROMPT updated).
