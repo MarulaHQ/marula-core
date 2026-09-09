@@ -29,6 +29,14 @@ Builds share `.kilo/target-shared` via `.cargo/config.toml` + `.kilo/setup-scrip
 (disk guardrails DX6) — never build into a worktree-local `target/`; disk
 housekeeping is `scripts/dev-clean.sh` (dry-run default, `--go` applies).
 
+## Lane task lists (all agent worktrees)
+
+Every worktree lane maintains `LANE-TASKLIST.md` at its worktree root
+(gitignored, coordinator-visible): decompose your assigned scope into
+checkbox items at lane start, tick them as you complete each one, and note
+blockers inline the moment they appear. The coordinator reads this file to
+track mid-flight progress — an out-of-date lane task list is a stale lane.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
