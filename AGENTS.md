@@ -25,6 +25,9 @@ references), stripe-best-practices (for the future PaymentProvider adapter),
 insecure-defaults (Trail of Bits; audit command + pattern catalogs for the
 Phase-4 security pass). Backend lanes: load rust-best-practices for all Rust
 work, postgres-best-practices when writing migrations/queries/RLS policies.
+Builds share `.kilo/target-shared` via `.cargo/config.toml` + `.kilo/setup-script`
+(disk guardrails DX6) — never build into a worktree-local `target/`; disk
+housekeeping is `scripts/dev-clean.sh` (dry-run default, `--go` applies).
 
 ## graphify
 
