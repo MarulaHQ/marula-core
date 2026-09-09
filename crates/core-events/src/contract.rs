@@ -357,7 +357,7 @@ use core_domain::events::{
     ProjectUpdated, ProjectViewRemoved, ProjectViewUpdated, SiteCreated, SiteUpdated,
     TicketAssigned, TicketChecklistUpdated, TicketCommentAdded, TicketCreated, TicketReverted,
     TicketStatusChanged, TimeEntryCreated, TimerPaused, TimerStarted, TimerStopped,
-    TravelDraftSubmitted,
+    TravelDraftSubmitted, UserActivated, UserDeactivated, UserInvited, UserRoleChanged,
 };
 use core_domain::money::{CurrencyCode, Money};
 use core_domain::policy::BoardRole;
@@ -979,6 +979,46 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
                 user_id: su(4),
                 board_id: su(2),
                 favorite: true,
+            }
+        ),
+    },
+    // -- org user management (Wave 11 lane 2) -------------------------------
+    PublishedEvent {
+        event_type: types::USER_INVITED,
+        entity: "user",
+        variant: "default",
+        shape: typed_shape!(
+            UserInvited,
+            UserInvited {
+                user_id: su(4),
+                email: "dana@acme.example".into(),
+                display_name: "Dana Reyes".into(),
+                role: "technician".into(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::USER_ACTIVATED,
+        entity: "user",
+        variant: "default",
+        shape: typed_shape!(UserActivated, UserActivated { user_id: su(4) }),
+    },
+    PublishedEvent {
+        event_type: types::USER_DEACTIVATED,
+        entity: "user",
+        variant: "default",
+        shape: typed_shape!(UserDeactivated, UserDeactivated { user_id: su(4) }),
+    },
+    PublishedEvent {
+        event_type: types::USER_ROLE_CHANGED,
+        entity: "user",
+        variant: "default",
+        shape: typed_shape!(
+            UserRoleChanged,
+            UserRoleChanged {
+                user_id: su(4),
+                from_role: Some("technician".into()),
+                to_role: "dispatcher".into(),
             }
         ),
     },

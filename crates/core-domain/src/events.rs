@@ -12,6 +12,15 @@ use serde::{Deserialize, Serialize};
 pub mod types {
     pub const ORG_CREATED: &str = "org.created";
     pub const USER_CREATED: &str = "user.created";
+    /// A staff user was invited into an org (inactive until first
+    /// password set via the one-time setup token).
+    pub const USER_INVITED: &str = "user.invited";
+    /// A staff user was re-activated by an org manager.
+    pub const USER_ACTIVATED: &str = "user.activated";
+    /// A staff user was deactivated: live sessions revoked, login blocked.
+    pub const USER_DEACTIVATED: &str = "user.deactivated";
+    /// A staff user's builtin org role changed.
+    pub const USER_ROLE_CHANGED: &str = "user.role_changed";
     pub const CLIENT_CREATED: &str = "client.created";
     pub const CLIENT_UPDATED: &str = "client.updated";
     pub const SITE_CREATED: &str = "site.created";
@@ -356,6 +365,38 @@ pub struct TicketCommentAdded {
 pub struct ClientCreated {
     pub client_id: ClientId,
     pub name: String,
+}
+
+/// A staff user was invited into an org (payload for `user.invited`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserInvited {
+    pub user_id: UserId,
+    pub email: String,
+    pub display_name: String,
+    pub role: String,
+}
+
+/// A staff user was re-activated (payload for `user.activated`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserActivated {
+    pub user_id: UserId,
+}
+
+/// A staff user was deactivated (payload for `user.deactivated`); live
+/// sessions were revoked in the same transaction.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserDeactivated {
+    pub user_id: UserId,
+}
+
+/// A staff user's builtin org role changed (payload for
+/// `user.role_changed`). `from_role` is `None` when no builtin role was
+/// held before.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserRoleChanged {
+    pub user_id: UserId,
+    pub from_role: Option<String>,
+    pub to_role: String,
 }
 
 /// A site was created under a client (payload for `site.created`).

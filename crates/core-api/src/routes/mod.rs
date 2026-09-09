@@ -66,6 +66,7 @@ pub mod manifest;
 pub mod notifications;
 pub mod oidc;
 pub mod openapi;
+pub mod org_users;
 pub mod portal;
 pub mod portal_admin;
 pub mod portal_v2;
@@ -211,6 +212,12 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(&rp("/auth/oidc/{name}/login"), get(oidc::login_redirect))
         .route(&rp("/auth/oidc/{name}/callback"), get(oidc::callback))
         .route(&rp("/sso/exchange"), post(oidc::sso_exchange))
+        // Org user invite redemption (Wave 11 lane 2): public — the
+        // one-time setup token is the credential; no JWT middleware.
+        .route(
+            &rp("/org/users/accept-invite"),
+            post(org_users::accept_invite),
+        )
         // Machine-to-machine surfaces with their own auth (HMAC webhook,
         // internal worker token) — never behind JWT middleware.
         .route(
@@ -361,6 +368,20 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             put(oidc::providers_upsert).delete(oidc::providers_delete),
         )
         .route(&rp("/auth/oidc/{name}/link"), post(oidc::link_begin))
+        // org user management (Wave 11 lane 2): directory is manager+,
+        // mutations owner/admin, instant-first envelope, audited.
+        .route(
+            &rp("/org/users"),
+            get(org_users::list).post(org_users::invite),
+        )
+        .route(
+            &rp("/org/users/{id}/status"),
+            axum::routing::patch(org_users::set_status),
+        )
+        .route(
+            &rp("/org/users/{id}/role"),
+            axum::routing::patch(org_users::set_role),
+        )
         // clients
         .route(&rp("/clients"), get(clients::list).post(clients::create))
         .route(&rp("/clients/{id}"), get(clients::get_one))
