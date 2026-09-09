@@ -27,7 +27,7 @@ import {
 } from "@meridian/ui";
 import { PanelLayout, usePanelLayout } from "@meridian/layout";
 import { useParams, useRouter } from "next/navigation";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { TicketCustomFields } from "../../../components/ticket-custom-fields";
 import { TicketUndo } from "../../../components/ticket-undo";
@@ -170,6 +170,18 @@ export default function TicketWorkspacePage() {
   );
   const { mutate, stampEntity } = useInstantWrite();
   const [error, setError] = useState<string | null>(null);
+
+  // Deep-link/hard-load recovery: the hydrate-once snapshot can fire before
+  // the auth token is ready (401) and store a model with ticket=null. When
+  // auth is ready and the ticket never arrived, re-snapshot once per ticket.
+  const rehydratedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (auth.status !== "authed") return;
+    if (loading || model?.ticket != null) return;
+    if (rehydratedFor.current === ticketId) return;
+    rehydratedFor.current = ticketId;
+    void refresh();
+  }, [auth.status, loading, model?.ticket, ticketId, refresh]);
 
   useInstantChannels([
     model?.ticket?.board_id !== undefined && model?.ticket?.board_id !== null
@@ -480,7 +492,7 @@ export default function TicketWorkspacePage() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-end gap-2 px-2 py-1">
+      <div className="flex items-center justify-end gap-2 px-3 py-1.5">
         <button
           type="button"
           onClick={() => {
