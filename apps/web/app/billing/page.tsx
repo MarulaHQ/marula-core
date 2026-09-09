@@ -70,6 +70,21 @@ function isoDay(offsetDays: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+// Semantic status tones (theme.md §3): paid is success-green, dunning
+// escalation runs neutral → warning (reminder) → danger (overdue+).
+function invoiceStatusTone(status: InvoiceStatus): "success" | "neutral" {
+  if (status === "paid") return "success";
+  return "neutral";
+}
+
+function dunningTone(state: DunningState): "neutral" | "warning" | "danger" {
+  if (state === "reminder_sent") return "warning";
+  if (state === "overdue" || state === "final_notice" || state === "collections") {
+    return "danger";
+  }
+  return "neutral";
+}
+
 export default function BillingPage() {
   const auth = useRequireAuth();
   const [invoices, setInvoices] = useState<Invoice[] | null>(null);
@@ -186,8 +201,8 @@ export default function BillingPage() {
   if (auth.status !== "authed") return null;
 
   return (
-    <div className="grid gap-8">
-      <div className="flex items-center justify-between">
+    <div className="mx-auto grid w-full max-w-[1400px] gap-8 p-4 md:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold">Billing</h1>
           <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
@@ -294,11 +309,11 @@ export default function BillingPage() {
       ) : null}
 
       <Card>
-        <div className="flex items-center justify-between p-4 pb-0">
+        <div className="flex flex-wrap items-center justify-between gap-3 p-4 pb-0">
           <h2 className="text-sm font-semibold">Invoices</h2>
-          <div className="flex gap-2">
+          <div className="flex shrink-0 gap-2">
             <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as InvoiceStatus | "all")}>
-              <SelectTrigger aria-label="Filter by status" className="w-32">
+              <SelectTrigger aria-label="Filter by status" className="w-36 whitespace-nowrap">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -313,7 +328,7 @@ export default function BillingPage() {
               value={dunningFilter}
               onValueChange={(v) => setDunningFilter(v as DunningState | "all")}
             >
-              <SelectTrigger aria-label="Filter by dunning state" className="w-40">
+              <SelectTrigger aria-label="Filter by dunning state" className="w-44 whitespace-nowrap">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -363,11 +378,11 @@ export default function BillingPage() {
                     </Link>
                   </Td>
                   <Td>
-                    <Tag>{inv.status}</Tag>
+                    <Tag tone={invoiceStatusTone(inv.status)}>{inv.status}</Tag>
                   </Td>
                   <Td>
                     {inv.dunning_state !== "none" ? (
-                      <Tag>{inv.dunning_state}</Tag>
+                      <Tag tone={dunningTone(inv.dunning_state)}>{inv.dunning_state}</Tag>
                     ) : (
                       <span style={{ color: "var(--m-text-muted)" }}>—</span>
                     )}
