@@ -17,6 +17,15 @@ Skill output that violates the token set or motion law is rejected, not applied.
 Enforcement stays mechanical: CI hex-scan, typecheck/tests, the p11-ui-quality
 lane's screenshot review.
 
+## Backend skills (vendored)
+
+`.kilo/skills/` also carries stack skills: rust-best-practices (Apollo handbook),
+postgres-best-practices (Supabase; includes RLS performance + connection pooling
+references), stripe-best-practices (for the future PaymentProvider adapter),
+insecure-defaults (Trail of Bits; audit command + pattern catalogs for the
+Phase-4 security pass). Backend lanes: load rust-best-practices for all Rust
+work, postgres-best-practices when writing migrations/queries/RLS policies.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
