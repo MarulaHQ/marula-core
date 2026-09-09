@@ -1,3 +1,22 @@
+## UI skills (vendored design-engineering skills)
+
+`/skills` on ui-skills.com, vendored to `.kilo/skills/` (ui-skills-root, improve-ui,
+web-design-guidelines, better-ui, interface-design, fixing-accessibility, rams).
+When doing UI work (building pages, components, polish, audits), consult these:
+- Routing: start from `.kilo/skills/ui-skills-root/SKILL.md`.
+- Audits/reviews: improve-ui (audit → self-contained plan for another agent),
+  web-design-guidelines, fixing-accessibility.
+- Polish/craft: better-ui, interface-design (dashboards/admin/SaaS), rams.
+
+**Override rules (always win over skill guidance):** `docs/theme.md` + Workbench
+tokens (no off-palette colors, Ember interactive-only ≤5%) · Inter/JetBrains Mono
+typography · motion law (≤120ms, transform/opacity, prefers-reduced-motion) ·
+instant-first envelope patterns in `docs/instant-first.md`. Skills advise on
+craft; they never change palette, typography, stack, or feature decisions.
+Skill output that violates the token set or motion law is rejected, not applied.
+Enforcement stays mechanical: CI hex-scan, typecheck/tests, the p11-ui-quality
+lane's screenshot review.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
