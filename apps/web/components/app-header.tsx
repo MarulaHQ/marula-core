@@ -59,9 +59,16 @@ function SearchLauncher() {
       onClick={() => router.push("/search")}
       className="flex items-center gap-1.5"
       aria-label="Search (Command K)"
+      title="Search (⌘K)"
     >
-      Search
-      <Kbd>⌘K</Kbd>
+      <span className="hidden md:inline">Search</span>
+      <svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" className="md:hidden">
+        <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.4" />
+        <path d="m10.5 10.5 3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+      <span className="hidden md:inline">
+        <Kbd>⌘K</Kbd>
+      </span>
     </Button>
   );
 }
@@ -105,10 +112,10 @@ export function AppHeader() {
   if (HEADERLESS.some((pattern) => pattern.test(pathname))) return null;
   return (
     <header
-      className="flex h-12 shrink-0 items-center justify-between border-b px-4"
+      className="flex h-12 shrink-0 items-center justify-between border-b px-3 md:px-4"
       style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
     >
-      <div className="flex items-center gap-5">
+      <div className="flex min-w-0 items-center gap-3 md:gap-5">
         <div className="flex items-baseline gap-2">
           <Link
             href="/today"
@@ -118,19 +125,21 @@ export function AppHeader() {
           >
             Meridian
           </Link>
-          <span className="text-xs" style={{ color: "var(--m-text-muted)" }}>
+          <span className="hidden text-xs lg:inline" style={{ color: "var(--m-text-muted)" }}>
             open-core PSA
           </span>
         </div>
         <MainNav />
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-1 md:gap-2">
         <OutboxDock />
         <SearchLauncher />
         <NotificationDock />
-        <DevToolsLink />
+        <span className="hidden lg:inline-flex">
+          <DevToolsLink />
+        </span>
         <ThemeToggle />
-        <span className="text-xs" style={{ color: "var(--m-text-secondary)" }}>
+        <span className="hidden whitespace-nowrap text-xs lg:inline" style={{ color: "var(--m-text-secondary)" }}>
           {me?.display_name ?? ""}
         </span>
         <Button variant="ghost" size="sm" onClick={() => void logout()}>
