@@ -35,9 +35,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <AuthProvider>
           <div className="flex h-dvh flex-col">
             <AppHeader />
-            <div className="min-h-0 flex-1 overflow-auto">{children}</div>
-          </div>
+          <div className="min-h-0 flex-1 overflow-auto">{children}</div>
           <TimerDock />
+        </div>
         </AuthProvider>
       </body>
     </html>
