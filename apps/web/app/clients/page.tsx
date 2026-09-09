@@ -117,8 +117,8 @@ export default function ClientsPage() {
   if (auth.status !== "authed") return null;
 
   return (
-    <div className="grid gap-8">
-      <div className="flex items-center justify-between">
+    <div className="mx-auto grid w-full max-w-[1400px] gap-8 p-4 md:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold">Clients</h1>
           <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
@@ -175,14 +175,14 @@ export default function ClientsPage() {
       </div>
 
       <Card>
-        <div className="flex items-center justify-between p-4 pb-0">
-          <h2 className="text-sm font-semibold">All clients</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3 p-4 pb-0">
+          <h2 className="whitespace-nowrap text-sm font-semibold">All clients</h2>
           <Input
             aria-label="Search clients"
             placeholder="Search by name…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="w-56"
+            className="min-w-48 flex-1 sm:max-w-72"
           />
         </div>
         {filtered === null ? (

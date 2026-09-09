@@ -89,7 +89,7 @@ export default function CalendarPage() {
   );
 
   return (
-    <div className="grid gap-4">
+    <div className="mx-auto grid w-full max-w-[1400px] gap-4 p-4 md:p-6">
       <header className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-lg font-semibold" style={{ color: "var(--m-text)" }}>
@@ -129,7 +129,7 @@ export default function CalendarPage() {
         </span>
       )}
 
-      <Card className="overflow-x-auto p-0">
+      <Card className="min-w-0 overflow-x-auto p-0">
         <div className="min-w-[840px]">
           {/* Day headers */}
           <div

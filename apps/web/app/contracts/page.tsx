@@ -209,8 +209,8 @@ export default function ContractsPage() {
   if (auth.status !== "authed") return null;
 
   return (
-    <div className="grid gap-8">
-      <div className="flex items-center justify-between">
+    <div className="mx-auto grid w-full max-w-[1400px] gap-8 p-4 md:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold">Contracts</h1>
           <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
