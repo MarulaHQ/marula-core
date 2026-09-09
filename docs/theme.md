@@ -15,7 +15,7 @@
 |---|---|
 | Brand color | **Monochrome + Ember** — greyscale everything, burnt-orange accent `#D64B0A` / `#FF8A4C` used sparingly |
 | Temperature | Cool neutral — grey canvas, graphite dark mode |
-| Headers | Inter sans-serif only — no serif anywhere |
+| Headers | Inter for UI/body; JetBrains Mono for headings (owner override 2026-09-09 via shadcn preset b3J8o4J600 — supersedes the earlier "Inter-only, no serif" rule; still no serif) |
 | Corners | 2px throughout — squared tags, not pills |
 | Depth | Visible 1px borders, shadows for overlays only |
 | Feel | "Workbench" |

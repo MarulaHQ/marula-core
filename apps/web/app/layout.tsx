@@ -7,11 +7,14 @@
 // survives every route. Headerless surfaces (login, portal) are excluded
 // inside AppHeader itself.
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "../lib/api";
 import { AppHeader } from "../components/app-header";
 import { TimerDock } from "../components/timer-dock";
+import { cn } from "@/lib/utils";
+
+const jetbrainsMonoHeading = JetBrains_Mono({subsets:['latin'],variable:'--font-heading'});
 
 const inter = Inter({ subsets: ["latin"], variable: "--m-font-sans" });
 
@@ -24,7 +27,7 @@ const themeBootstrap = `(function(){try{var t=localStorage.getItem("meridian-the
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning className={cn(jetbrainsMonoHeading.variable)}>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
       </head>
