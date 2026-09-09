@@ -1,0 +1,4 @@
+# Shared build cache across main + all agent worktrees (disk guardrails DX6).
+# Machine-local; gitignored. See TASKLIST DX6 and .kilo/setup-script.
+[build]
+target-dir = "/Users/iordn/Documents/GitHub/meridian-open-psa-core/.kilo/target-shared"
