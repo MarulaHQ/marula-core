@@ -59,7 +59,7 @@ pub enum LoginResponse {
     },
 }
 
-fn validate_password(pw: &str) -> ApiResult<()> {
+pub(crate) fn validate_password(pw: &str) -> ApiResult<()> {
     if pw.len() < 10 {
         return Err(ApiError::Validation(
             "password must be at least 10 characters".into(),
@@ -68,7 +68,7 @@ fn validate_password(pw: &str) -> ApiResult<()> {
     Ok(())
 }
 
-fn validate_email(email: &str) -> ApiResult<()> {
+pub(crate) fn validate_email(email: &str) -> ApiResult<()> {
     let ok = email.contains('@') && email.contains('.') && !email.contains(' ') && email.len() >= 5;
     if ok {
         Ok(())

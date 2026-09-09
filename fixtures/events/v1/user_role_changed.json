@@ -1,0 +1,12 @@
+{
+  "event_type": "user.role_changed",
+  "entity": "user",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "from_role": "technician",
+    "to_role": "dispatcher",
+    "user_id": "00000000-0000-0000-0000-000000000004"
+  }
+}

@@ -1,6 +1,29 @@
 {
   "components": {
     "schemas": {
+      "AcceptInviteRequest": {
+        "properties": {
+          "password": {
+            "description": "First password (argon2-hashed server-side).",
+            "type": "string"
+          },
+          "timezone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "token": {
+            "description": "The one-time setup token from the invite response.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "password"
+        ],
+        "type": "object"
+      },
       "Actor": {
         "description": "Who performed the audited action. Append-only provenance record.\nPortal variants carry the client-side tier so audit trails distinguish\nstaff actions from client-portal actions at the storage layer\n(actor_kind portal_contact / portal_approver / portal_it_manager).",
         "oneOf": [
@@ -7061,6 +7084,56 @@
           }
         ]
       },
+      "InviteInfo": {
+        "description": "The one-time setup token an admin delivers to the invitee (shown once;\nonly its sha-256 is stored).",
+        "properties": {
+          "expires_at": {
+            "type": "string"
+          },
+          "setup_token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "setup_token",
+          "expires_at"
+        ],
+        "type": "object"
+      },
+      "InviteUserRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1): idempotency key."
+          },
+          {
+            "properties": {
+              "display_name": {
+                "type": "string"
+              },
+              "email": {
+                "type": "string"
+              },
+              "role": {
+                "description": "Builtin org role: owner, admin, dispatcher, technician, read_only.",
+                "type": "string"
+              },
+              "timezone": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "email",
+              "display_name",
+              "role"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "Invoice": {
         "description": "The billing document. Derives from exactly one contract; `currency`\nand `total_minor` come from the contract's evaluation (line sum).",
         "properties": {
@@ -7714,6 +7787,27 @@
             "format": "uuid",
             "type": [
               "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "ListOrgUsersQuery": {
+        "properties": {
+          "limit": {
+            "description": "Page size (default 50, max 200).",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "offset": {
+            "description": "Offset paging.",
+            "format": "int64",
+            "type": [
+              "integer",
               "null"
             ]
           }
@@ -8954,6 +9048,96 @@
           "ticket_prefix"
         ],
         "type": "object"
+      },
+      "OrgUser": {
+        "description": "Directory view of one staff user (route-level DTO; `org_role` is the\nuser's highest-precedence builtin role, `null` for custom-only).",
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "org_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "org_role": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "org_id",
+          "email",
+          "display_name",
+          "is_active",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "OrgUserListResponse": {
+        "properties": {
+          "total": {
+            "description": "Total directory size (for offset paging).",
+            "format": "int64",
+            "type": "integer"
+          },
+          "users": {
+            "items": {
+              "$ref": "#/components/schemas/OrgUser"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "users",
+          "total"
+        ],
+        "type": "object"
+      },
+      "OrgUserMutationResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/OrgUser"
+          },
+          {
+            "properties": {
+              "invite": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/InviteInfo",
+                    "description": "Present on invite only: the setup token for the invitee."
+                  }
+                ]
+              },
+              "mutation": {
+                "$ref": "#/components/schemas/MutationMeta"
+              }
+            },
+            "required": [
+              "mutation"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "Instant-first mutation response (IF2): the invited (still inactive)\nuser at the top level plus the one-time setup token and the additive\n`mutation` metadata."
       },
       "OwnedDeleteQuery": {
         "properties": {
@@ -12854,6 +13038,46 @@
         ],
         "type": "object"
       },
+      "SetUserRoleRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1): idempotency key + version."
+          },
+          {
+            "properties": {
+              "role": {
+                "description": "Builtin org role: owner, admin, dispatcher, technician, read_only.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "role"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "SetUserStatusRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1): idempotency key + version."
+          },
+          {
+            "properties": {
+              "active": {
+                "description": "`false` deactivates: sessions revoked, login blocked. Never deletes.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "active"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "SettingKind": {
         "description": "The value shapes the registry understands. A stored value must satisfy\nits declaration's kind or the write is rejected (validation is applied\nbefore persistence, never after).",
         "oneOf": [
@@ -14206,6 +14430,10 @@
       "TicketSlaStatus": {
         "description": "Live SLA clock readout for one ticket (badge + countdown surfaces).",
         "properties": {
+          "applied": {
+            "description": "False when no SLA policy applies to the ticket — a typed empty\nstate, never a 404 (the endpoint is polled by the ticket header).",
+            "type": "boolean"
+          },
           "breached": {
             "type": "boolean"
           },
@@ -14222,11 +14450,18 @@
             "type": "boolean"
           },
           "state": {
-            "$ref": "#/components/schemas/TicketSlaState"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TicketSlaState"
+              }
+            ]
           }
         },
         "required": [
-          "state",
+          "applied",
           "paused",
           "breached"
         ],
@@ -23826,6 +24061,237 @@
         "summary": "GET /api/org/manifest — the org's customization manifest.",
         "tags": [
           "org"
+        ]
+      }
+    },
+    "/api/v1/org/users": {
+      "get": {
+        "operationId": "org_users_list",
+        "parameters": [
+          {
+            "description": "Page size (default 50, max 200).",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Offset paging.",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgUserListResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "description": "requires manager role"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/org/users — the staff directory (manager+).",
+        "tags": [
+          "org-users"
+        ]
+      },
+      "post": {
+        "operationId": "org_users_invite",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgUserMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "description": "email already in org, or idempotency key reused"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/org/users — invite (create) a staff user. The row lands\nINACTIVE with an unusable password; the response carries a one-time\nsetup token the invitee redeems at `POST /org/users/accept-invite`.",
+        "tags": [
+          "org-users"
+        ]
+      }
+    },
+    "/api/v1/org/users/accept-invite": {
+      "post": {
+        "operationId": "org_users_accept_invite",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptInviteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenPair"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "invite unknown, already used, or expired"
+          },
+          "422": {
+            "description": "validation error"
+          }
+        },
+        "summary": "POST /api/org/users/accept-invite — public invite redemption: set the\nfirst password and activate the account; returns a normal token pair.\nThe token is single-use and expiring; an unknown, used, or expired\ntoken is an indistinguishable 404.",
+        "tags": [
+          "org-users"
+        ]
+      }
+    },
+    "/api/v1/org/users/{id}/role": {
+      "patch": {
+        "operationId": "org_users_set_role",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetUserRoleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgUserMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "description": "last active owner, version conflict, or idempotency key reused"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "PATCH /api/org/users/{id}/role — assign a builtin org role. Each change\nis audited; the last active owner cannot be demoted away from owner.",
+        "tags": [
+          "org-users"
+        ]
+      }
+    },
+    "/api/v1/org/users/{id}/status": {
+      "patch": {
+        "operationId": "org_users_set_status",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetUserStatusRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgUserMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "description": "last active owner, version conflict, or idempotency key reused"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "PATCH /api/org/users/{id}/status — activate or deactivate. Deactivation\nrevokes every live session and blocks login in the same commit.",
+        "tags": [
+          "org-users"
         ]
       }
     },

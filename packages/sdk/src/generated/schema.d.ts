@@ -2953,6 +2953,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/org/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/org/users — the staff directory (manager+). */
+        get: operations["org_users_list"];
+        put?: never;
+        /**
+         * POST /api/org/users — invite (create) a staff user. The row lands
+         *     INACTIVE with an unusable password; the response carries a one-time
+         *     setup token the invitee redeems at `POST /org/users/accept-invite`.
+         */
+        post: operations["org_users_invite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/org/users/accept-invite": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/org/users/accept-invite — public invite redemption: set the
+         *     first password and activate the account; returns a normal token pair.
+         *     The token is single-use and expiring; an unknown, used, or expired
+         *     token is an indistinguishable 404.
+         */
+        post: operations["org_users_accept_invite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/org/users/{id}/role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/org/users/{id}/role — assign a builtin org role. Each change
+         *     is audited; the last active owner cannot be demoted away from owner.
+         */
+        patch: operations["org_users_set_role"];
+        trace?: never;
+    };
+    "/api/v1/org/users/{id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/org/users/{id}/status — activate or deactivate. Deactivation
+         *     revokes every live session and blocks login in the same commit.
+         */
+        patch: operations["org_users_set_status"];
+        trace?: never;
+    };
     "/api/v1/portal-users/{id}": {
         parameters: {
             query?: never;
@@ -4721,6 +4805,13 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AcceptInviteRequest: {
+            /** @description First password (argon2-hashed server-side). */
+            password: string;
+            timezone?: string | null;
+            /** @description The one-time setup token from the invite response. */
+            token: string;
+        };
         /**
          * @description Who performed the audited action. Append-only provenance record.
          *     Portal variants carry the client-side tier so audit trails distinguish
@@ -7376,6 +7467,21 @@ export interface components {
             start_date?: string | null;
         };
         /**
+         * @description The one-time setup token an admin delivers to the invitee (shown once;
+         *     only its sha-256 is stored).
+         */
+        InviteInfo: {
+            expires_at: string;
+            setup_token: string;
+        };
+        InviteUserRequest: components["schemas"]["MutationParams"] & {
+            display_name: string;
+            email: string;
+            /** @description Builtin org role: owner, admin, dispatcher, technician, read_only. */
+            role: string;
+            timezone?: string | null;
+        };
+        /**
          * @description The billing document. Derives from exactly one contract; `currency`
          *     and `total_minor` come from the contract's evaluation (line sum).
          */
@@ -7642,6 +7748,18 @@ export interface components {
             ticket_id?: string | null;
             /** Format: uuid */
             user_id?: string | null;
+        };
+        ListOrgUsersQuery: {
+            /**
+             * Format: int64
+             * @description Page size (default 50, max 200).
+             */
+            limit?: number | null;
+            /**
+             * Format: int64
+             * @description Offset paging.
+             */
+            offset?: number | null;
         };
         ListTravelDraftsQuery: {
             /**
@@ -8166,6 +8284,38 @@ export interface components {
             name: string;
             slug: string;
             ticket_prefix: string;
+        };
+        /**
+         * @description Directory view of one staff user (route-level DTO; `org_role` is the
+         *     user's highest-precedence builtin role, `null` for custom-only).
+         */
+        OrgUser: {
+            created_at: string;
+            display_name: string;
+            email: string;
+            /** Format: uuid */
+            id: string;
+            is_active: boolean;
+            /** Format: uuid */
+            org_id: string;
+            org_role?: string | null;
+        };
+        OrgUserListResponse: {
+            /**
+             * Format: int64
+             * @description Total directory size (for offset paging).
+             */
+            total: number;
+            users: components["schemas"]["OrgUser"][];
+        };
+        /**
+         * @description Instant-first mutation response (IF2): the invited (still inactive)
+         *     user at the top level plus the one-time setup token and the additive
+         *     `mutation` metadata.
+         */
+        OrgUserMutationResponse: components["schemas"]["OrgUser"] & {
+            invite?: null | components["schemas"]["InviteInfo"];
+            mutation: components["schemas"]["MutationMeta"];
         };
         OwnedDeleteQuery: {
             /**
@@ -9575,6 +9725,14 @@ export interface components {
              *     floor-mode governance.
              */
             edges: components["schemas"]["TransitionEdge"][];
+        };
+        SetUserRoleRequest: components["schemas"]["MutationParams"] & {
+            /** @description Builtin org role: owner, admin, dispatcher, technician, read_only. */
+            role: string;
+        };
+        SetUserStatusRequest: components["schemas"]["MutationParams"] & {
+            /** @description `false` deactivates: sessions revoked, login blocked. Never deletes. */
+            active: boolean;
         };
         /**
          * @description The value shapes the registry understands. A stored value must satisfy
@@ -15876,6 +16034,168 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["CustomizationManifest"];
                 };
+            };
+        };
+    };
+    org_users_list: {
+        parameters: {
+            query?: {
+                /** @description Page size (default 50, max 200). */
+                limit?: number | null;
+                /** @description Offset paging. */
+                offset?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgUserListResponse"];
+                };
+            };
+            /** @description requires manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    org_users_invite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InviteUserRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgUserMutationResponse"];
+                };
+            };
+            /** @description email already in org, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    org_users_accept_invite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcceptInviteRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenPair"];
+                };
+            };
+            /** @description invite unknown, already used, or expired */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    org_users_set_role: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetUserRoleRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgUserMutationResponse"];
+                };
+            };
+            /** @description last active owner, version conflict, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    org_users_set_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetUserStatusRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgUserMutationResponse"];
+                };
+            };
+            /** @description last active owner, version conflict, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
