@@ -14206,6 +14206,10 @@
       "TicketSlaStatus": {
         "description": "Live SLA clock readout for one ticket (badge + countdown surfaces).",
         "properties": {
+          "applied": {
+            "description": "False when no SLA policy applies to the ticket — a typed empty\nstate, never a 404 (the endpoint is polled by the ticket header).",
+            "type": "boolean"
+          },
           "breached": {
             "type": "boolean"
           },
@@ -14222,11 +14226,18 @@
             "type": "boolean"
           },
           "state": {
-            "$ref": "#/components/schemas/TicketSlaState"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TicketSlaState"
+              }
+            ]
           }
         },
         "required": [
-          "state",
+          "applied",
           "paused",
           "breached"
         ],

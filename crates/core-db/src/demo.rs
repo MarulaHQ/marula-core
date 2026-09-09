@@ -848,7 +848,11 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     ];
     for i in (0u64..45).step_by(2) {
         let author = bulk_assignees[(i % 5) as usize];
-        let kind = if i % 4 == 0 { "client_visible" } else { "internal" };
+        let kind = if i % 4 == 0 {
+            "client_visible"
+        } else {
+            "internal"
+        };
         let body = bulk_comment_bodies[((i / 2) % 5) as usize];
         sqlx::query(
             "INSERT INTO ticket_comments (id, org_id, ticket_id, author_id, kind, body, created_at)

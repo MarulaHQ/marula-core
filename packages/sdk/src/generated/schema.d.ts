@@ -10069,6 +10069,11 @@ export interface components {
         };
         /** @description Live SLA clock readout for one ticket (badge + countdown surfaces). */
         TicketSlaStatus: {
+            /**
+             * @description False when no SLA policy applies to the ticket — a typed empty
+             *     state, never a 404 (the endpoint is polled by the ticket header).
+             */
+            applied: boolean;
             breached: boolean;
             /**
              * Format: int64
@@ -10077,7 +10082,7 @@ export interface components {
             minutes_remaining?: number | null;
             /** @description True while a Waiting-category pause is open. */
             paused: boolean;
-            state: components["schemas"]["TicketSlaState"];
+            state?: null | components["schemas"]["TicketSlaState"];
         };
         /**
          * @description The four semantic categories every ticket status maps to (§5).
