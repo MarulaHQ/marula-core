@@ -367,6 +367,46 @@ where
     Ok(())
 }
 
+/// Move a ticket to a different board with an explicit target status
+/// (Wave 11 lane 3). The category re-derives from the TARGET board's
+/// status row — the semantic-category binding lives on board_statuses,
+/// never on the taxonomy trees (classification-only doctrine, §5).
+/// `resolved_at` mirrors `update_status`: crossing into a closed-category
+/// status stamps it once; leaving one keeps the original stamp.
+pub async fn move_to_board<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    ticket_id: Uuid,
+    new_board_id: Uuid,
+    new_status_id: Uuid,
+) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let res = sqlx::query!(
+        r#"UPDATE tickets SET
+             board_id = $3,
+             status_id = $4,
+             category = (SELECT category FROM board_statuses WHERE id = $4),
+             resolved_at = CASE
+               WHEN (SELECT category FROM board_statuses WHERE id = $4) = 'closed'
+                 AND resolved_at IS NULL THEN now()
+               ELSE resolved_at END,
+             updated_at = now()
+           WHERE org_id = $1 AND id = $2"#,
+        org_id,
+        ticket_id,
+        new_board_id,
+        new_status_id
+    )
+    .execute(executor)
+    .await?;
+    if res.rows_affected() == 0 {
+        return Err(DbError::NotFound);
+    }
+    Ok(())
+}
+
 pub struct TicketPatch<'a> {
     pub title: Option<&'a str>,
     /// `Some(Some(text))` sets; `Some(None)` clears; `None` = no change.
@@ -379,6 +419,11 @@ pub struct TicketPatch<'a> {
     pub site_id: Option<Option<Uuid>>,
     pub contact_id: Option<Option<Uuid>>,
     pub due_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
+    /// Classification (Wave 11 lane 3): `Some(Some(id))` sets; `Some(None)`
+    /// clears; `None` = no change. The caller validates org membership and
+    /// retired-ness (classification-only doctrine: behavior-neutral).
+    pub type_id: Option<Option<Uuid>>,
+    pub category_id: Option<Option<Uuid>>,
 }
 
 /// Dynamic patch via QueryBuilder (injection-safe: every value is push_bind).
@@ -418,6 +463,12 @@ where
     }
     if let Some(v) = p.due_at {
         q.push(", due_at = ").push_bind(v);
+    }
+    if let Some(v) = p.type_id {
+        q.push(", type_id = ").push_bind(v);
+    }
+    if let Some(v) = p.category_id {
+        q.push(", category_id = ").push_bind(v);
     }
     q.push(" WHERE org_id = ")
         .push_bind(org_id)

@@ -587,6 +587,9 @@ pub async fn assign(
                 site_id: None,
                 contact_id: None,
                 due_at: None,
+
+                type_id: None,
+                category_id: None,
             },
         )
         .await?;

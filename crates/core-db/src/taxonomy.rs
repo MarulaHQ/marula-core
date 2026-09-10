@@ -85,11 +85,9 @@ pub const STANDARD_SUBCATEGORIES: &[(&str, &str, i32)] = &[
 /// `None` for types (flat) and for root categories; subcategories carry
 /// their parent.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TaxonomyNode {
     pub id: Uuid,
     pub org_id: Uuid,
-    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>, nullable = true))]
     pub parent_id: Option<Uuid>,
     pub name: String,
     pub description: Option<String>,
@@ -122,10 +120,34 @@ impl std::fmt::Display for TaxonomyTable {
     }
 }
 
-const NODE_COLUMNS: &str =
+/// `parent_id` exists only on ticket_categories; the shared node shape
+/// reads NULL for types (flat list) via a constant.
+const NODE_COLUMNS_TYPE: &str =
+    "id, org_id, NULL::uuid AS parent_id, name, description, is_retired, sort_order, created_at, updated_at";
+const NODE_COLUMNS_CATEGORY: &str =
     "id, org_id, parent_id, name, description, is_retired, sort_order, created_at, updated_at";
 
-fn node(row: (Uuid, Uuid, Option<Uuid>, String, Option<String>, bool, i32, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)) -> TaxonomyNode {
+/// One taxonomy row as `query_as` sees it (the shared node shape).
+type NodeRow = (
+    Uuid,
+    Uuid,
+    Option<Uuid>,
+    String,
+    Option<String>,
+    bool,
+    i32,
+    chrono::DateTime<chrono::Utc>,
+    chrono::DateTime<chrono::Utc>,
+);
+
+fn node_columns(table: TaxonomyTable) -> &'static str {
+    match table {
+        TaxonomyTable::Type => NODE_COLUMNS_TYPE,
+        TaxonomyTable::Category => NODE_COLUMNS_CATEGORY,
+    }
+}
+
+fn node(row: NodeRow) -> TaxonomyNode {
     let (id, org_id, parent_id, name, description, is_retired, sort_order, created_at, updated_at) =
         row;
     TaxonomyNode {
@@ -149,14 +171,14 @@ pub async fn get_node(
     table: TaxonomyTable,
     id: Uuid,
 ) -> DbResult<TaxonomyNode> {
-    let row: Option<(Uuid, Uuid, Option<Uuid>, String, Option<String>, bool, i32, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)> =
-        sqlx::query_as(&format!(
-            "SELECT {NODE_COLUMNS} FROM {table} WHERE org_id = $1 AND id = $2"
-        ))
-        .bind(org_id)
-        .bind(id)
-        .fetch_optional(&mut *conn)
-        .await?;
+    let row: Option<NodeRow> = sqlx::query_as(&format!(
+        "SELECT {} FROM {table} WHERE org_id = $1 AND id = $2",
+        node_columns(table)
+    ))
+    .bind(org_id)
+    .bind(id)
+    .fetch_optional(&mut *conn)
+    .await?;
     row.map(node).ok_or(DbError::NotFound)
 }
 
@@ -174,14 +196,13 @@ pub async fn list_nodes(
     } else {
         "AND is_retired = false"
     };
-    let rows: Vec<(Uuid, Uuid, Option<Uuid>, String, Option<String>, bool, i32, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)> =
-        sqlx::query_as(&format!(
-            "SELECT {NODE_COLUMNS} FROM {table} WHERE org_id = $1 {filter} \
-             ORDER BY sort_order, name, id"
-        ))
-        .bind(org_id)
-        .fetch_all(&mut *conn)
-        .await?;
+    let rows: Vec<NodeRow> = sqlx::query_as(&format!(
+        "SELECT {} FROM {table} WHERE org_id = $1 {filter} ORDER BY sort_order, name, id",
+        node_columns(table)
+    ))
+    .bind(org_id)
+    .fetch_all(&mut *conn)
+    .await?;
     Ok(rows.into_iter().map(node).collect())
 }
 
@@ -209,6 +230,7 @@ pub async fn count_ticket_references(
 
 // --- creates ---------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 pub async fn insert_node(
     conn: &mut sqlx::PgConnection,
     org_id: Uuid,

@@ -14,7 +14,8 @@
 //! vocabulary: `not_found`, `rls_sparse`, `unauthorized`, `forbidden`,
 //! `validation_failed`, `conflict`, `version_conflict`,
 //! `idempotency_key_reused`, `pre_close_checklist_blocked`,
-//! `dispatch_move_conflict`, `import_chunk_rejected`,
+//! `dispatch_move_conflict`, `board_move_status_conflict`,
+//! `import_chunk_rejected`,
 //! `migration_cursor_mismatch`, `migration_chunk_reused`, `rate_limited`,
 //! `task_dependencies_unsatisfied`, `undo_reverts_only`,
 //! `service_unavailable`, `internal_error`.
@@ -77,6 +78,22 @@ pub enum ApiError {
         /// Title of the blocking booking (empty when the rejection is a
         /// non-overlap failure such as an invalid span).
         blocker_title: String,
+    },
+    /// Typed 409 for a board move whose current status's SEMANTIC category
+    /// has no counterpart on the target board (Wave 11 lane 3): carries
+    /// every target-board status (id/name/category, deterministic order)
+    /// so the client can render the pick list and retry with an explicit
+    /// `status_id` — no second round-trip to discover the options.
+    #[error("no status on the target board matches the current semantic category")]
+    BoardMoveStatusConflict {
+        /// Board the ticket was headed to.
+        target_board_id: Uuid,
+        /// The ticket's current status id (on the source board).
+        from_status_id: Uuid,
+        /// Semantic category that had no counterpart on the target board.
+        from_category: String,
+        /// Every status on the target board, sort order first.
+        target_statuses: Vec<crate::routes::taxonomy::TargetStatusOption>,
     },
     /// Capability present but disabled by configuration (fail-closed
     /// surfaces such as the internal effect surface without its token).
@@ -222,6 +239,22 @@ impl IntoResponse for ApiError {
                     "index": index,
                     "appointment_id": appointment_id,
                     "blocker_title": blocker_title,
+                })),
+            ),
+            ApiError::BoardMoveStatusConflict {
+                target_board_id,
+                from_status_id,
+                from_category,
+                target_statuses,
+            } => (
+                StatusCode::CONFLICT,
+                "board_move_status_conflict",
+                "no status on the target board matches the current semantic category".to_string(),
+                Some(json!({
+                    "target_board_id": target_board_id,
+                    "from_status_id": from_status_id,
+                    "from_category": from_category,
+                    "target_statuses": target_statuses,
                 })),
             ),
             ApiError::ImportChunkRejected { report } => (

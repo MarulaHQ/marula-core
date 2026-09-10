@@ -565,6 +565,9 @@ pub async fn effects(
                             site_id: None,
                             contact_id: None,
                             due_at: None,
+
+                            type_id: None,
+                            category_id: None,
                         },
                     )
                     .await?;
@@ -599,6 +602,8 @@ pub async fn effects(
                             site_id: None,
                             contact_id: None,
                             due_at: None,
+                            type_id: None,
+                            category_id: None,
                         },
                     )
                     .await?;

@@ -479,6 +479,9 @@ pub async fn revert(
                     .iter()
                     .any(|f| f == "due_at")
                     .then_some(snapshot.due_at),
+
+                type_id: None,
+                category_id: None,
             },
         )
         .await?;

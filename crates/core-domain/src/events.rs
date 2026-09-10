@@ -53,6 +53,11 @@ pub mod types {
     pub const TICKET_CREATED: &str = "ticket.created";
     pub const TICKET_UPDATED: &str = "ticket.updated";
     pub const TICKET_STATUS_CHANGED: &str = "ticket.status_changed";
+    /// A ticket was moved to a different board (Wave 11 lane 3): the
+    /// status was remapped through the SEMANTIC categories, and the SLA
+    /// state was either preserved verbatim (`sla_reset: false`) or
+    /// explicitly re-initialized (`sla_reset: true`).
+    pub const TICKET_BOARD_MOVED: &str = "ticket.board_moved";
     pub const TICKET_ASSIGNED: &str = "ticket.assigned";
     pub const TICKET_COMMENT_ADDED: &str = "ticket.comment_added";
     pub const TICKET_CHECKLIST_UPDATED: &str = "ticket.checklist_updated";
@@ -269,6 +274,32 @@ pub struct TicketStatusChanged {
     pub to_category: TicketStatusCategory,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub changed_by: Option<UserId>,
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// A ticket moved to a different board (Wave 11 lane 3). The new status is
+/// remapped through the SEMANTIC categories — never through the taxonomy
+/// trees, which are classification-only (§5). `sla_reset` records which
+/// SLA rule applied: `false` = the existing `ticket_sla_state` row was
+/// preserved untouched (the default), `true` = the caller asked for an
+/// explicit re-init and the clocks were restarted from the move moment.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TicketBoardMoved {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub ticket_id: TicketId,
+    pub number: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub from_board_id: BoardId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub to_board_id: BoardId,
+    pub from_status: String,
+    pub to_status: String,
+    pub from_category: TicketStatusCategory,
+    pub to_category: TicketStatusCategory,
+    pub sla_reset: bool,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub moved_by: Option<UserId>,
     pub occurred_at: DateTime<Utc>,
 }
 

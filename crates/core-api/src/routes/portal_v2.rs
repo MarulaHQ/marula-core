@@ -246,7 +246,7 @@ pub async fn invoice_document(
     let invoice = core_db::invoices::get_client_invoice(&mut *tx, org_id, client_id, id).await?;
     let lines = core_db::invoices::list_lines(&mut *tx, org_id, id).await?;
     let client = core_db::clients::get_client(&mut *tx, org_id, client_id).await?;
-    let html = render_invoice_html(&mut *tx, org_id, &invoice, &lines, &client.name).await;
+    let html = render_invoice_html(&mut tx, org_id, &invoice, &lines, &client.name).await;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(axum::response::Html(html))
 }

@@ -64,7 +64,7 @@ async fn seed_is_deterministic_and_re_runs_never_double_apply() {
 
     let report = demo::seed(&db.app, &opts()).await.expect("first seed");
     assert_eq!(report.org_id, DEMO_ORG_ID);
-    assert_eq!(report.tickets, 15);
+    assert_eq!(report.tickets, 60);
     assert_eq!(report.users, 4);
     assert_eq!(report.clients, 3);
     assert_eq!(report.boards, 2);
@@ -79,7 +79,7 @@ async fn seed_is_deterministic_and_re_runs_never_double_apply() {
 
     // Nothing was written by the refused run.
     assert_eq!(count(&db, "SELECT count(*) FROM orgs").await, 1);
-    assert_eq!(count(&db, "SELECT count(*) FROM tickets").await, 15);
+    assert_eq!(count(&db, "SELECT count(*) FROM tickets").await, 60);
     assert_eq!(count(&db, "SELECT count(*) FROM users").await, 4);
 }
 
@@ -89,13 +89,13 @@ async fn reset_reseed_loop_converges_to_the_same_shape() {
 
     // The lock helper already reset once; a second reset must converge.
     let second = demo::reset(&db.app, &opts()).await.expect("reset+reseed");
-    assert_eq!(second.tickets, 15);
+    assert_eq!(second.tickets, 60);
     assert_eq!(second.org_id, DEMO_ORG_ID);
 
     // The wipe really cascaded, then the seed rebuilt everything.
     assert_eq!(count(&db, "SELECT count(*) FROM orgs").await, 1);
-    assert_eq!(count(&db, "SELECT count(*) FROM tickets").await, 15);
-    assert_eq!(count(&db, "SELECT count(*) FROM time_entries").await, 10);
+    assert_eq!(count(&db, "SELECT count(*) FROM tickets").await, 60);
+    assert_eq!(count(&db, "SELECT count(*) FROM time_entries").await, 33);
     assert_eq!(count(&db, "SELECT count(*) FROM invoices").await, 2);
     assert_eq!(count(&db, "SELECT count(*) FROM invoice_payments").await, 1);
     assert_eq!(count(&db, "SELECT count(*) FROM kb_articles").await, 3);

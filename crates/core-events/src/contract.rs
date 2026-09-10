@@ -355,8 +355,8 @@ use core_domain::events::{
     ProjectPhaseCompleted, ProjectPhaseCreated, ProjectPhaseUpdated, ProjectTaskCompleted,
     ProjectTaskCreated, ProjectTaskUpdated, ProjectTemplateRemoved, ProjectTemplateUpdated,
     ProjectUpdated, ProjectViewRemoved, ProjectViewUpdated, SiteCreated, SiteUpdated,
-    TicketAssigned, TicketChecklistUpdated, TicketCommentAdded, TicketCreated, TicketReverted,
-    TicketStatusChanged, TimeEntryCreated, TimerPaused, TimerStarted, TimerStopped,
+    TicketAssigned, TicketBoardMoved, TicketChecklistUpdated, TicketCommentAdded, TicketCreated,
+    TicketReverted, TicketStatusChanged, TimeEntryCreated, TimerPaused, TimerStarted, TimerStopped,
     TravelDraftSubmitted, UserActivated, UserDeactivated, UserInvited, UserRoleChanged,
 };
 use core_domain::money::{CurrencyCode, Money};
@@ -403,6 +403,27 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
                 board_id: su(2),
                 assignee_id: Some(su(4)),
                 occurred_at: st(2),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::TICKET_BOARD_MOVED,
+        entity: "ticket",
+        variant: "default",
+        shape: typed_shape!(
+            TicketBoardMoved,
+            TicketBoardMoved {
+                ticket_id: su(1),
+                number: "MER-1001".into(),
+                from_board_id: su(2),
+                to_board_id: su(6),
+                from_status: "triage".into(),
+                to_status: "intake".into(),
+                from_category: TicketStatusCategory::Open,
+                to_category: TicketStatusCategory::Open,
+                sla_reset: false,
+                moved_by: Some(su(5)),
+                occurred_at: st(3),
             }
         ),
     },
