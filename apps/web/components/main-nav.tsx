@@ -61,6 +61,15 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    label: "Docs",
+    items: [
+      { label: "Documents", href: "/documents", match: ["/documents"] },
+      { label: "Knowledge base", href: "/kb", match: ["/kb"] },
+      { label: "Vault", href: "/passwords", match: ["/passwords"] },
+      { label: "Imports", href: "/imports", match: ["/imports"] },
+    ],
+  },
+  {
     label: "Ops",
     items: [
       { label: "Dashboards", href: "/dashboards" },
