@@ -28,6 +28,7 @@ const SECTIONS: NavItem[] = [
   { href: "/settings/security", label: "Security" },
   { href: "/settings/workflow", label: "Workflow" },
   { href: "/settings/sla", label: "SLA" },
+  { href: "/settings/portal", label: "Portal" },
   { href: "/settings/mail", label: "Mail", pending: true },
   { href: "/settings/integrations", label: "Integrations" },
   { href: "/settings/api-keys", label: "API keys" },
