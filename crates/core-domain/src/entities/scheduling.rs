@@ -102,6 +102,10 @@ pub struct Appointment {
     pub status: AppointmentStatus,
     pub travel_minutes: i32,
     pub notes: Option<String>,
+    /// Set when the booking came through a Calendly-style scheduling
+    /// link (Wave 11 lane 4); NULL for every other creation path.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub scheduling_link_id: Option<uuid::Uuid>,
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
     pub created_at: DateTime<Utc>,
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]

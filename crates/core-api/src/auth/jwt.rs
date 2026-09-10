@@ -219,6 +219,7 @@ mod tests {
             secret_key: crate::config::SecretKey([3u8; 32]),
             mfa_pending_ttl_secs: 300,
             dispatch_rate_limit_per_min: 600,
+            scheduling_links_rate_limit_per_min: 60,
             dev_tools: false,
             webauthn_rp_id: "localhost".into(),
             webauthn_rp_origin: "http://localhost:3000".into(),

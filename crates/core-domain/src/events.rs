@@ -168,6 +168,14 @@ pub mod types {
     pub const AVAILABILITY_UPDATED: &str = "availability.updated";
     pub const ON_CALL_UPDATED: &str = "on_call.updated";
     pub const CALENDAR_EXCLUSION_UPDATED: &str = "calendar_exclusion.updated";
+    /// Calendly-style scheduling links (Wave 11 lane 4). A link was
+    /// created (raw token NEVER appears — only its hash is stored),
+    /// first viewed by the client, booked through (co-emits the
+    /// standard `appointment.created`), or revoked by staff.
+    pub const SCHEDULING_LINK_CREATED: &str = "scheduling_link.created";
+    pub const SCHEDULING_LINK_VIEWED: &str = "scheduling_link.viewed";
+    pub const SCHEDULING_LINK_SCHEDULED: &str = "scheduling_link.scheduled";
+    pub const SCHEDULING_LINK_REVOKED: &str = "scheduling_link.revoked";
     /// Attachments (TASKLIST 2.14): added on upload/extraction, linked
     /// when bound to a comment, deleted when a row (and possibly its
     /// content-addressed object) goes away.
@@ -1109,6 +1117,57 @@ pub struct AppointmentRequestCancelled {
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub cancelled_by_portal_user_id: uuid::Uuid,
     pub cancelled_at: DateTime<Utc>,
+}
+
+/// scheduling_link.created — staff minted a shareable booking link.
+/// The raw token never appears here; the tech's HTTP create response
+/// carries it exactly once.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SchedulingLinkCreated {
+    pub link: crate::entities::SchedulingLink,
+    pub created_by: uuid::Uuid,
+}
+
+/// scheduling_link.viewed — the unauthenticated public page resolved the
+/// token (lifecycle signal only; lightweight by design).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SchedulingLinkViewed {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub link_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub viewed_at: DateTime<Utc>,
+    pub view_count: i64,
+}
+
+/// scheduling_link.scheduled — a booking landed through the link.
+/// Co-emits the standard `appointment.created` (the booking enters the
+/// world through the normal creation path).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SchedulingLinkScheduled {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub link_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub appointment_id: uuid::Uuid,
+    pub booker_name: Option<String>,
+    pub booker_email: Option<String>,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub scheduled_at: DateTime<Utc>,
+}
+
+/// scheduling_link.revoked — staff pulled the link; it can never book
+/// again. Existing bookings are untouched.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SchedulingLinkRevoked {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub link_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub revoked_by: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub revoked_at: DateTime<Utc>,
 }
 
 /// dispatch.status_updated — a field-service status push landed against

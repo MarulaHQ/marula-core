@@ -68,6 +68,11 @@ pub struct Config {
     /// request budget per minute on the /api/dispatch-connector surface.
     /// Env `MERIDIAN_DISPATCH_RATE_LIMIT_PER_MIN` (default 600).
     pub dispatch_rate_limit_per_min: u32,
+    /// Scheduling links (Wave 11 lane 4): per-token request budget per
+    /// minute on the UNAUTHENTICATED public booking surface. Env
+    /// `MERIDIAN_SCHEDULING_LINKS_RATE_LIMIT_PER_MIN` (default 60; 0
+    /// disables limiting).
+    pub scheduling_links_rate_limit_per_min: u32,
     /// Dev-tools gate (TASKLIST DX2): when `MERIDIAN_DEV_TOOLS=1` the
     /// `/api/dev/*` router mounts; otherwise those routes DO NOT EXIST (no
     /// registration at all, not a 403). Unset in production — never
@@ -193,6 +198,12 @@ impl Config {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(600),
+            scheduling_links_rate_limit_per_min: std::env::var(
+                "MERIDIAN_SCHEDULING_LINKS_RATE_LIMIT_PER_MIN",
+            )
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(60),
             dev_tools: std::env::var("MERIDIAN_DEV_TOOLS").as_deref() == Ok("1"),
         }
     }
@@ -248,6 +259,7 @@ impl Config {
                 .unwrap_or(core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES),
             migration_rate_limit_per_min: 600,
             dispatch_rate_limit_per_min: 600,
+            scheduling_links_rate_limit_per_min: 60,
             dev_tools: false,
         }
     }

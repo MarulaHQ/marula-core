@@ -240,6 +240,7 @@ async fn decide(
                 status: AppointmentStatus::Scheduled,
                 travel_minutes: 0,
                 notes: request.notes.clone(),
+                scheduling_link_id: None,
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
             };

@@ -2795,6 +2795,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/meeting-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/meeting-types */
+        get: operations["meeting_types_list"];
+        put?: never;
+        /** POST /api/meeting-types */
+        post: operations["meeting_types_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/meeting-types/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** PATCH /api/meeting-types/{id} */
+        patch: operations["meeting_types_update"];
+        trace?: never;
+    };
     "/api/v1/migration/pull/{family}": {
         parameters: {
             query?: never;
@@ -4087,6 +4122,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/scheduling-links/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/public/scheduling-links/{token} — unauthenticated, token-
+         *     scoped, rate-limited. First view stamps the link's lifecycle
+         *     (`first_viewed_at` + count) and emits `scheduling_link.viewed`.
+         */
+        get: operations["public_scheduling_link_view"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/scheduling-links/{token}/book": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/public/scheduling-links/{token}/book — unauthenticated but
+         *     token-scoped and rate-limited. Race-safe exactly like portal
+         *     appointment-request approval: the availability + conflict gate and
+         *     the single-winner link flip run INSIDE the booking transaction, and
+         *     the appointments EXCLUDE constraint is the concurrency backstop.
+         */
+        post: operations["public_scheduling_link_book"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/report-definitions": {
         parameters: {
             query?: never;
@@ -4211,6 +4290,146 @@ export interface paths {
         get: operations["report_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scheduling-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/scheduling-groups — the org's free-form groups (availability
+         *     pools; deliberately NOT the org chart).
+         */
+        get: operations["scheduling_groups_list"];
+        put?: never;
+        /** POST /api/scheduling-groups — create a pool. */
+        post: operations["scheduling_groups_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scheduling-groups/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/scheduling-groups/{id} */
+        get: operations["scheduling_groups_get"];
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/scheduling-groups/{id} — removes the pool (memberships go
+         *     with it; meeting types pointed at it retire with their FK CASCADE,
+         *     mirroring Calendly's delete semantics).
+         */
+        delete: operations["scheduling_groups_delete"];
+        options?: never;
+        head?: never;
+        /** PATCH /api/scheduling-groups/{id} */
+        patch: operations["scheduling_groups_update"];
+        trace?: never;
+    };
+    "/api/v1/scheduling-groups/{id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/scheduling-groups/{id}/members — add a calendar to the pool. */
+        post: operations["scheduling_groups_add_member"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scheduling-groups/{id}/members/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** DELETE /api/scheduling-groups/{id}/members/{user_id} */
+        delete: operations["scheduling_groups_remove_member"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scheduling-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/scheduling-links — newest-first (optionally per ticket) so
+         *     the tech sees the created / viewed / scheduled / expired lifecycle.
+         */
+        get: operations["scheduling_links_list"];
+        put?: never;
+        /**
+         * POST /api/scheduling-links — mint a shareable link (token returned
+         *     once). A replay (same key + same body) replays the SAME token.
+         */
+        post: operations["scheduling_links_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scheduling-links/{id}/bookings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/scheduling-links/{id}/bookings — the link → booking trail. */
+        get: operations["scheduling_links_bookings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scheduling-links/{id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/scheduling-links/{id}/revoke — the link can never book
+         *     again; an already-used link keeps its `used` state so the booking
+         *     trail never changes meaning.
+         */
+        post: operations["scheduling_links_revoke"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5348,6 +5567,10 @@ export interface components {
             body: string;
             kind: components["schemas"]["NoteKind"];
         };
+        AddMemberRequest: components["schemas"]["MutationParams"] & {
+            /** Format: uuid */
+            user_id: string;
+        };
         /** @description GET /api/agent-proposals envelope. */
         AgentProposalPage: {
             next_cursor?: string | null;
@@ -5539,6 +5762,12 @@ export interface components {
             notes?: string | null;
             /** Format: uuid */
             org_id: string;
+            /**
+             * Format: uuid
+             * @description Set when the booking came through a Calendly-style scheduling
+             *     link (Wave 11 lane 4); NULL for every other creation path.
+             */
+            scheduling_link_id?: string | null;
             /** Format: uuid */
             site_id?: string | null;
             /** Format: date-time */
@@ -6066,6 +6295,21 @@ export interface components {
              *     the semantic-category default governs (any→any except closed→open).
              */
             mode: string;
+        };
+        BookRequest: components["schemas"]["MutationParams"] & {
+            booker_email?: string | null;
+            booker_name?: string | null;
+            booker_notes?: string | null;
+            /**
+             * Format: date-time
+             * @description Slot start (the template's duration extends it). Must sit fully
+             *     inside ONE free interval of the scope at book time.
+             */
+            starts_at: string;
+        };
+        BookResponse: {
+            appointment: components["schemas"]["Appointment"];
+            mutation: components["schemas"]["MutationMeta"];
         };
         BulkMoveRequest: {
             moves: components["schemas"]["MoveSpec"][];
@@ -6872,9 +7116,8 @@ export interface components {
             sort_order?: number;
         };
         CreateGroupRequest: {
+            description?: string | null;
             name: string;
-            /** Format: int32 */
-            position?: number | null;
         };
         /** @description POST /api/imports/templates request. */
         CreateImportTemplateRequest: {
@@ -7228,6 +7471,17 @@ export interface components {
             event_types?: string[];
             /** @description HTTPS endpoint receiving `POST`s. (http:// allowed for local dev.) */
             url: string;
+        };
+        /**
+         * @description The create response. `token` is the RAW shareable token — shown ONCE,
+         *     never stored server-side (only its SHA-256 hash).
+         */
+        CreatedLink: {
+            /** @description Relative booking path clients render against the public origin. */
+            booking_path: string;
+            link: components["schemas"]["SchedulingLink"];
+            mutation: components["schemas"]["MutationMeta"];
+            token: string;
         };
         /** @description The customization manifest envelope, `manifest_version` 1. */
         CustomizationManifest: {
@@ -8039,6 +8293,10 @@ export interface components {
             /** Format: uuid */
             user_id: string;
         };
+        GroupMutation: {
+            group: components["schemas"]["SchedulingGroup"];
+            mutation: components["schemas"]["MutationMeta"];
+        };
         HealthResponse: {
             status: string;
         };
@@ -8798,6 +9056,77 @@ export interface components {
             agg: components["schemas"]["Aggregate"];
             /** @description `None` only with [`Aggregate::Count`] (`COUNT(*)`). */
             column?: string | null;
+        };
+        /**
+         * @description Who a meeting type books against: ONE user's calendar, or the
+         *     unioned availability of a free-form admin-defined group.
+         * @enum {string}
+         */
+        MeetingAssigneeScope: "user" | "group";
+        /**
+         * @description A bookable template: duration, buffer before/after, booking window,
+         *     org-editable free-form `parameters`, and the assignee scope. Auto-
+         *     email is per-template; with transport `none` the send is skipped.
+         */
+        MeetingType: {
+            /** Format: uuid */
+            assignee_group_id?: string | null;
+            assignee_scope: components["schemas"]["MeetingAssigneeScope"];
+            /** Format: uuid */
+            assignee_user_id?: string | null;
+            auto_email_body?: string | null;
+            auto_email_enabled: boolean;
+            auto_email_subject?: string | null;
+            /** Format: int32 */
+            booking_window_days: number;
+            /** Format: int32 */
+            buffer_minutes: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            description?: string | null;
+            /** Format: int32 */
+            duration_minutes: number;
+            /** Format: uuid */
+            id: string;
+            is_active: boolean;
+            name: string;
+            /** Format: uuid */
+            org_id: string;
+            /**
+             * @description Free-form org-edited payload (location hint, agenda, questions…).
+             *     Consumers must tolerate any shape; nothing in behavior keys off it.
+             */
+            parameters: unknown;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        MeetingTypeBody: components["schemas"]["MutationParams"] & {
+            /** Format: uuid */
+            assignee_group_id?: string | null;
+            assignee_scope: components["schemas"]["MeetingAssigneeScope"];
+            /** Format: uuid */
+            assignee_user_id?: string | null;
+            auto_email_body?: string | null;
+            auto_email_enabled?: boolean;
+            auto_email_subject?: string | null;
+            /** Format: int32 */
+            booking_window_days?: number;
+            /** Format: int32 */
+            buffer_minutes?: number;
+            description?: string | null;
+            /** Format: int32 */
+            duration_minutes: number;
+            /** @description PATCH-only toggle (absent on create = active). */
+            is_active?: boolean | null;
+            name: string;
+            /** @description Free-form org-edited payload (location hint, agenda, questions…). */
+            parameters?: unknown;
+        };
+        MeetingTypeMutation: {
+            meeting_type: components["schemas"]["MeetingType"];
+            mutation: components["schemas"]["MutationMeta"];
         };
         MfaTokenRequest: {
             mfa_token: string;
@@ -9859,6 +10188,36 @@ export interface components {
             /** @description Opaque cursor for the next page; absent when exhausted. */
             next_cursor?: string | null;
         };
+        /**
+         * @description What the public page needs to render the booking UI: the template's
+         *     bookable shape plus a slot preview over the booking window. Slot
+         *     generation is bounded at 31 days (calendar-view cap).
+         */
+        PublicLinkView: {
+            /** Format: int32 */
+            booking_window_days: number;
+            /** Format: int32 */
+            buffer_minutes: number;
+            /** Format: int32 */
+            duration_minutes: number;
+            /**
+             * Format: date-time
+             * @description Absolute expiry, when the tech set one.
+             */
+            expires_at?: string | null;
+            is_expired: boolean;
+            label?: string | null;
+            /** Format: uuid */
+            link_id: string;
+            meeting_type_description?: string | null;
+            meeting_type_name: string;
+            parameters: unknown;
+            /**
+             * @description Free intervals (unioned across the assignee scope) within the
+             *     bookable horizon; clients slice them into bookable choices.
+             */
+            slots: components["schemas"]["SlotInterval"][];
+        };
         PublicProvider: {
             display_name: string;
             /** @description URL path segment for /api/auth/oidc/{name}/login. */
@@ -10461,6 +10820,83 @@ export interface components {
              */
             limit?: number | null;
         };
+        /**
+         * @description A free-form admin-defined group/department — a pure availability
+         *     pool ("Service Desk"). Deliberately NOT the org chart: no reporting
+         *     lines, no permissions; membership only feeds unioned availability.
+         */
+        SchedulingGroup: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            description?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** @description Current membership (unioned availability pool). */
+            member_user_ids: string[];
+            name: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /**
+         * @description A shareable booking link. The raw token is generated at create,
+         *     returned ONCE in the create response, and never stored (only its
+         *     SHA-256 hash); the tech's visible lifecycle is the view/schedule/
+         *     revoke timestamps.
+         */
+        SchedulingLink: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** Format: date-time */
+            expires_at?: string | null;
+            /** Format: date-time */
+            first_viewed_at?: string | null;
+            /** Format: uuid */
+            id: string;
+            label?: string | null;
+            /** Format: uuid */
+            meeting_type_id: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            scheduled_appointment_id?: string | null;
+            /** Format: date-time */
+            scheduled_at?: string | null;
+            status: components["schemas"]["SchedulingLinkStatus"];
+            /**
+             * Format: uuid
+             * @description Ticket cross-ref: bookings land back on the originating ticket.
+             */
+            ticket_id?: string | null;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: int64 */
+            view_count: number;
+        };
+        /** @description The link → booking trail row (mirrors the appointment for audit). */
+        SchedulingLinkBooking: {
+            /** Format: uuid */
+            appointment_id: string;
+            booker_email?: string | null;
+            booker_name?: string | null;
+            booker_notes?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            link_id: string;
+        };
+        /**
+         * @description Link lifecycle: `active` → `used` (a booking landed) or `revoked`
+         *     (tech pulled it). Expiry is DERIVED (`expires_at` + the template's
+         *     booking window), never a stored state.
+         * @enum {string}
+         */
+        SchedulingLinkStatus: "active" | "revoked" | "used";
         SearchQuery: {
             /** Format: int64 */
             limit?: number;
@@ -10700,6 +11136,12 @@ export interface components {
             title: string;
             /** @description 'risk' | 'breach' | 'escalate' */
             trigger: string;
+        };
+        SlotInterval: {
+            /** Format: date-time */
+            ends_at: string;
+            /** Format: date-time */
+            starts_at: string;
         };
         /** @description One spec filter: catalog column + operator + typed operand. */
         SpecFilter: {
@@ -11436,10 +11878,9 @@ export interface components {
             /** Format: int32 */
             sort_order?: number | null;
         };
-        UpdateGroupRequest: {
+        UpdateGroupRequest: components["schemas"]["MutationParams"] & {
+            description?: string | null;
             name?: string | null;
-            /** Format: int32 */
-            position?: number | null;
         };
         UpdateLayoutRequest: components["schemas"]["MutationParams"] & {
             description?: string;
@@ -16983,6 +17424,93 @@ export interface operations {
             };
         };
     };
+    meeting_types_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeetingType"][];
+                };
+            };
+        };
+    };
+    meeting_types_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MeetingTypeBody"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeetingTypeMutation"];
+                };
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    meeting_types_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MeetingTypeBody"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeetingTypeMutation"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     migration_pull: {
         parameters: {
             query?: {
@@ -19382,6 +19910,99 @@ export interface operations {
             };
         };
     };
+    public_scheduling_link_view: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicLinkView"];
+                };
+            };
+            /** @description unknown token */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description revoked or already used */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    public_scheduling_link_book: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BookRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookResponse"];
+                };
+            };
+            /** @description unknown token */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description revoked/used/expired link, slot no longer free, double-booking backstop, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description slot outside the link's availability or booking window */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     report_definitions_list: {
         parameters: {
             query?: never;
@@ -19800,6 +20421,309 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ReportPage"];
                 };
+            };
+        };
+    };
+    scheduling_groups_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SchedulingGroup"][];
+                };
+            };
+        };
+    };
+    scheduling_groups_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateGroupRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SchedulingGroup"];
+                };
+            };
+            /** @description name already taken */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    scheduling_groups_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SchedulingGroup"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    scheduling_groups_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    scheduling_groups_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateGroupRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupMutation"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    scheduling_groups_add_member: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddMemberRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SchedulingGroup"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    scheduling_groups_remove_member: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SchedulingGroup"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    scheduling_links_list: {
+        parameters: {
+            query?: {
+                ticket_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SchedulingLink"][];
+                };
+            };
+        };
+    };
+    scheduling_links_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLinkRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedLink"];
+                };
+            };
+            /** @description meeting type not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    scheduling_links_bookings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SchedulingLinkBooking"][];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    scheduling_links_revoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SchedulingLink"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

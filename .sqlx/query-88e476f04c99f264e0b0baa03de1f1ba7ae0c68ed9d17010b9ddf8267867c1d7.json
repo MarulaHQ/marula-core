@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO appointments (id, org_id, user_id, ticket_id, client_id, site_id, title,\n                                     starts_at, ends_at, kind, status, travel_minutes, notes,\n                                     scheduling_link_id)\n           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::text::appointment_kind,\n                   $11::text::appointment_status, $12, $13, $14)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Timestamptz",
+        "Timestamptz",
+        "Text",
+        "Text",
+        "Int4",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "88e476f04c99f264e0b0baa03de1f1ba7ae0c68ed9d17010b9ddf8267867c1d7"
+}

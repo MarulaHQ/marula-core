@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE appointments SET ticket_id = $3, client_id = $4, site_id = $5, title = $6,\n                                   starts_at = $7, ends_at = $8, kind = $9::text::appointment_kind,\n                                   status = $10::text::appointment_status,\n                                   travel_minutes = $11, notes = $12,\n                                   scheduling_link_id = $13, updated_at = now()\n           WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Timestamptz",
+        "Timestamptz",
+        "Text",
+        "Text",
+        "Int4",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3316d8ac4c9ef8a34509b4c73f63bee85bb96b943a7bd101e6792e9ed2a3982c"
+}

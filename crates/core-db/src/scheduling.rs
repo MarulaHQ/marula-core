@@ -22,7 +22,7 @@ use uuid::Uuid;
 
 const APPOINTMENT_COLS: &str = "id, org_id, user_id, ticket_id, client_id, site_id, title, \
      starts_at, ends_at, kind::text AS kind, status::text AS status, travel_minutes, notes, \
-     created_at, updated_at";
+     scheduling_link_id, created_at, updated_at";
 
 fn row_to_appt(row: &sqlx::postgres::PgRow) -> DbResult<Appointment> {
     let kind: String = row.get("kind");
@@ -43,12 +43,13 @@ fn row_to_appt(row: &sqlx::postgres::PgRow) -> DbResult<Appointment> {
             .ok_or_else(|| unknown_enum("appointment_status", &status))?,
         travel_minutes: row.get("travel_minutes"),
         notes: row.get("notes"),
+        scheduling_link_id: row.get("scheduling_link_id"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     })
 }
 
-fn unknown_enum(pg_type: &str, value: &str) -> DbError {
+pub(crate) fn unknown_enum(pg_type: &str, value: &str) -> DbError {
     DbError::Sql(sqlx::Error::Configuration(
         format!("unknown {pg_type} '{value}'").into(),
     ))
@@ -64,9 +65,10 @@ where
 {
     sqlx::query!(
         r#"INSERT INTO appointments (id, org_id, user_id, ticket_id, client_id, site_id, title,
-                                     starts_at, ends_at, kind, status, travel_minutes, notes)
+                                     starts_at, ends_at, kind, status, travel_minutes, notes,
+                                     scheduling_link_id)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::text::appointment_kind,
-                   $11::text::appointment_status, $12, $13)"#,
+                   $11::text::appointment_status, $12, $13, $14)"#,
         a.id,
         a.org_id,
         a.user_id,
@@ -80,6 +82,7 @@ where
         a.status.as_str(),
         a.travel_minutes,
         a.notes,
+        a.scheduling_link_id,
     )
     .execute(executor)
     .await?;
@@ -197,7 +200,8 @@ where
         r#"UPDATE appointments SET ticket_id = $3, client_id = $4, site_id = $5, title = $6,
                                    starts_at = $7, ends_at = $8, kind = $9::text::appointment_kind,
                                    status = $10::text::appointment_status,
-                                   travel_minutes = $11, notes = $12, updated_at = now()
+                                   travel_minutes = $11, notes = $12,
+                                   scheduling_link_id = $13, updated_at = now()
            WHERE org_id = $1 AND id = $2"#,
         a.org_id,
         a.id,
@@ -211,6 +215,7 @@ where
         a.status.as_str(),
         a.travel_minutes,
         a.notes,
+        a.scheduling_link_id,
     )
     .execute(executor)
     .await?;

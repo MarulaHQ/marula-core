@@ -4740,6 +4740,7 @@ fn appt(org: Uuid, user: Uuid, id: u64, from_h: u32, to_h: u32) -> Appointment {
         status: AppointmentStatus::Scheduled,
         travel_minutes: 15,
         notes: None,
+        scheduling_link_id: None,
         created_at: at(1),
         updated_at: at(1),
     }
