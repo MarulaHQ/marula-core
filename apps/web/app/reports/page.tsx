@@ -301,7 +301,7 @@ export default function ReportsPage() {
                     setEditingDefId(null);
                     setDefName("");
                     setDefDescription("");
-                    setDefKind("time_by_user");
+                    setDefKind("tickets");
                     setDefScope("org");
                   }}
                 >
@@ -580,6 +580,7 @@ export default function ReportsPage() {
                     <Th>Definition</Th>
                     <Th>Cadence</Th>
                     <Th>Next Run</Th>
+                    <Th>Last Run</Th>
                     <Th>Recipients</Th>
                     <Th className="text-right">Action</Th>
                   </tr>
@@ -596,6 +597,19 @@ export default function ReportsPage() {
                       </Td>
                       <Td className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
                         {s.next_run_at ? new Date(s.next_run_at).toLocaleString() : "—"}
+                      </Td>
+                      <Td className="text-[12px]">
+                        {s.last_error ? (
+                          <span title={s.last_error} style={{ color: "var(--m-status-danger-fg)" }}>
+                            Failed {s.last_run_at ? new Date(s.last_run_at).toLocaleString() : ""}
+                          </span>
+                        ) : s.last_run_at ? (
+                          <span style={{ color: "var(--m-text-secondary)" }}>
+                            {new Date(s.last_run_at).toLocaleString()}
+                          </span>
+                        ) : (
+                          "—"
+                        )}
                       </Td>
                       <Td className="text-[12px]">
                         {s.recipients.length} user{s.recipients.length === 1 ? "" : "s"}

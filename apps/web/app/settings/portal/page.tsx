@@ -79,7 +79,7 @@ export default function PortalAdminSettingsPage() {
 
   const refreshClientsAndBoards = useCallback(async () => {
     const [clientsRes, boardsRes] = await Promise.all([
-      api.api.GET("/api/v1/clients", { params: { query: { limit: 100 } } }),
+      api.api.GET("/api/v1/clients"),
       api.api.GET("/api/v1/boards/nav"),
     ]);
 
