@@ -315,6 +315,10 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     .execute(&mut *tx)
     .await?;
 
+    // Docs-platform v1 (Wave 11 lane 7): the demo org gets the standard
+    // system layout set like any registered org.
+    crate::document_layouts::seed_default_document_layouts(&mut tx, DEMO_ORG_ID).await?;
+
     // --- users (argon2 hashed once, shared) -------------------------------
     let password_hash = hash_demo_password()?;
     let users: [(&str, &str, u64, &str); 4] = [

@@ -1,0 +1,86 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, org_id, client_id, layout_id, fields, title, current_version, created_by, updated_by, created_at, updated_at\n           FROM documents\n           WHERE org_id = $1\n             AND ($2::text IS NULL OR title ILIKE '%' || $2 || '%')\n             AND ($3::uuid IS NULL OR client_id = $3)\n             AND (NOT $4::bool OR client_id IS NULL)\n             AND ($5::uuid IS NULL OR layout_id = $5)\n           ORDER BY updated_at DESC, id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "client_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "layout_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "fields",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "current_version",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 8,
+        "name": "updated_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Bool",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "dd6c81faf6e69c1ddc9e65aecd3cf8b7476d5c93f7e7ebab51b4e5f4f55ad076"
+}

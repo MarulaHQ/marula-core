@@ -194,6 +194,20 @@ pub mod types {
     pub const DOCUMENT_CREATED: &str = "document.created";
     pub const DOCUMENT_UPDATED: &str = "document.updated";
     pub const DOCUMENT_RESTORED: &str = "document.restored";
+    /// Docs-platform v1 (Wave 11 lane 7, migration 0053): typed document
+    /// layouts, cross-entity links, and the password vault. Payloads ride
+    /// the D4 pattern (untyped additive JSON; the row itself is the read
+    /// model). `password.revealed` is the provenance rail for "who saw
+    /// this credential" — never carries the secret itself.
+    pub const DOCUMENT_LAYOUT_CREATED: &str = "document_layout.created";
+    pub const DOCUMENT_LAYOUT_UPDATED: &str = "document_layout.updated";
+    pub const DOCUMENT_LAYOUT_REMOVED: &str = "document_layout.removed";
+    pub const PASSWORD_CREATED: &str = "password.created";
+    pub const PASSWORD_UPDATED: &str = "password.updated";
+    pub const PASSWORD_DELETED: &str = "password.deleted";
+    pub const PASSWORD_REVEALED: &str = "password.revealed";
+    pub const LINK_ADDED: &str = "link.added";
+    pub const LINK_REMOVED: &str = "link.removed";
     /// Contracts + recurring billing rules (TASKLIST Phase 3): contract
     /// CRUD lifecycle. Billing previews are read-only and emit nothing;
     /// invoice runs are Wave 9.

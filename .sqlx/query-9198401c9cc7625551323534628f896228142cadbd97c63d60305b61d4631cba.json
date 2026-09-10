@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, org_id, title, current_version, created_by, updated_by, created_at, updated_at\n           FROM documents WHERE org_id = $1 AND id = $2",
+  "query": "INSERT INTO documents (id, org_id, client_id, layout_id, fields, title, current_version, created_by, updated_by)\n           VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $7)\n           RETURNING id, org_id, client_id, layout_id, fields, title, current_version, created_by, updated_by, created_at, updated_at",
   "describe": {
     "columns": [
       {
@@ -15,31 +15,46 @@
       },
       {
         "ordinal": 2,
+        "name": "client_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "layout_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "fields",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
         "name": "title",
         "type_info": "Text"
       },
       {
-        "ordinal": 3,
+        "ordinal": 6,
         "name": "current_version",
         "type_info": "Int4"
       },
       {
-        "ordinal": 4,
+        "ordinal": 7,
         "name": "created_by",
         "type_info": "Uuid"
       },
       {
-        "ordinal": 5,
+        "ordinal": 8,
         "name": "updated_by",
         "type_info": "Uuid"
       },
       {
-        "ordinal": 6,
+        "ordinal": 9,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 7,
+        "ordinal": 10,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
@@ -47,11 +62,19 @@
     "parameters": {
       "Left": [
         "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Jsonb",
+        "Text",
         "Uuid"
       ]
     },
     "nullable": [
       false,
+      false,
+      true,
+      true,
       false,
       false,
       false,
@@ -61,5 +84,5 @@
       false
     ]
   },
-  "hash": "350643e79c95b52d81dc8efc76fb3d3d45fceeec1761289cea34edd862c68ce7"
+  "hash": "9198401c9cc7625551323534628f896228142cadbd97c63d60305b61d4631cba"
 }

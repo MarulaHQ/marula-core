@@ -23,13 +23,19 @@ pub enum Module {
     /// holds view. Staff roles gain it by explicit custom-role grant —
     /// additive to widen later without breaking stored roles.
     Documents,
+    /// Staff password vault (docs-platform v1, migration 0053).
+    /// Owner/Admin hold the full matrix; Technician can use the vault
+    /// (view/create/edit — credentials are working material); Dispatcher
+    /// and Read-Only hold view. Reveal additionally requires edit
+    /// (enforced in the route, not the matrix).
+    Passwords,
     Reporting,
     Admin,
     Plugins,
 }
 
 impl Module {
-    pub const ALL: [Module; 12] = [
+    pub const ALL: [Module; 13] = [
         Module::Tickets,
         Module::Clients,
         Module::Time,
@@ -39,6 +45,7 @@ impl Module {
         Module::Invoicing,
         Module::Kb,
         Module::Documents,
+        Module::Passwords,
         Module::Reporting,
         Module::Admin,
         Module::Plugins,
@@ -55,6 +62,7 @@ impl Module {
             Module::Invoicing => "invoicing",
             Module::Kb => "kb",
             Module::Documents => "documents",
+            Module::Passwords => "passwords",
             Module::Reporting => "reporting",
             Module::Admin => "admin",
             Module::Plugins => "plugins",
@@ -223,11 +231,28 @@ impl BuiltinRole {
                         )
                     }),
                 );
+                p.extend([Permission::Matrix {
+                    module: Module::Passwords,
+                    action: Action::View,
+                }]);
                 p.extend(specials(&[Permission::ManageBoards]));
                 p
             }
             BuiltinRole::Technician => {
                 let mut p = full_matrix(&[Module::Tickets, Module::Kb]);
+                p.extend(
+                    full_matrix(&[Module::Passwords])
+                        .into_iter()
+                        .filter(|perm| {
+                            matches!(
+                                perm,
+                                Permission::Matrix {
+                                    action: Action::View | Action::Create | Action::Edit,
+                                    ..
+                                }
+                            )
+                        }),
+                );
                 p.extend([
                     Permission::Matrix {
                         module: Module::Clients,

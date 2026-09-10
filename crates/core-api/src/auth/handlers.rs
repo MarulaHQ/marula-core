@@ -158,6 +158,7 @@ pub async fn register(
     // Standard type/category/subcategory taxonomy (Wave 11 lane 3) — the
     // defaults-first baseline so pickers work with zero configuration.
     core_db::orgs::seed_default_taxonomy(&mut tx, org_id).await?;
+    core_db::document_layouts::seed_default_document_layouts(&mut tx, org_id).await?;
 
     core_db::users::create_user(
         &mut *tx,

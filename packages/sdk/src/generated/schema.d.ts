@@ -2038,6 +2038,65 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/documents/layouts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/documents/layouts — the org's layout catalog (system first). */
+        get: operations["documents_list_layouts"];
+        put?: never;
+        /** POST /api/documents/layouts — instant-first; system slugs are reserved. */
+        post: operations["documents_create_layout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/layouts/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/documents/layouts/{id} — custom layouts only; system
+         *     layouts are a typed 409 (imports and the DMS seam rely on them).
+         */
+        delete: operations["documents_delete_layout"];
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/documents/layouts/{id} — instant-first; system layouts are
+         *     editable (schema and branding), never deletable.
+         */
+        patch: operations["documents_update_layout"];
+        trace?: never;
+    };
+    "/api/v1/documents/links/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** DELETE /api/documents/links/{id} */
+        delete: operations["documents_delete_link"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/documents/{id}": {
         parameters: {
             query?: never;
@@ -2058,6 +2117,27 @@ export interface paths {
          *     existing version row is touched.
          */
         patch: operations["documents_update"];
+        trace?: never;
+    };
+    "/api/v1/documents/{id}/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["documents_list_links"];
+        put?: never;
+        /**
+         * POST /api/documents/{id}/links — target existence is enforced by the
+         *     resolution join (the link row itself allows any uuid, so the route
+         *     checks the target kind's table exists for the org before insert).
+         */
+        post: operations["documents_add_link"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/documents/{id}/restore": {
@@ -3035,6 +3115,112 @@ export interface paths {
          *     revokes every live session and blocks login in the same commit.
          */
         patch: operations["org_users_set_status"];
+        trace?: never;
+    };
+    "/api/v1/passwords": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/passwords — vault browser rows; never carries secrets. */
+        get: operations["passwords_list"];
+        put?: never;
+        /**
+         * POST /api/passwords — instant-first (IF1/IF2); seals the secret before
+         *     the claim so a crypto failure never consumes an idempotency key.
+         */
+        post: operations["passwords_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/passwords/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/passwords/{id} */
+        get: operations["passwords_get"];
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/passwords/{id} — the vault is deletion-capable; history
+         *     cascade-deletes. Emits `password.deleted`.
+         */
+        delete: operations["passwords_delete"];
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/passwords/{id} — instant-first; a present `secret` rotates
+         *     the ciphertext and archives the previous one to history in-commit.
+         */
+        patch: operations["passwords_update"];
+        trace?: never;
+    };
+    "/api/v1/passwords/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/passwords/{id}/history — change ledger metadata (the
+         *     ciphertexts are retained for forensic re-derivation, never exposed).
+         */
+        get: operations["passwords_history"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/passwords/{id}/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/passwords/{id}/links */
+        get: operations["passwords_list_links"];
+        put?: never;
+        /** POST /api/passwords/{id}/links */
+        post: operations["passwords_add_link"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/passwords/{id}/reveal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/passwords/{id}/reveal — the ONLY plaintext path. Requires
+         *     `passwords:edit`, runs inside the org tx so the reveal event commits
+         *     atomically with the read, and the response is the sole carrier of the
+         *     decrypted secret.
+         */
+        post: operations["passwords_reveal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/portal-users/{id}": {
@@ -6514,6 +6700,17 @@ export interface components {
         CreateDocumentRequest: components["schemas"]["MutationParams"] & {
             body?: string | null;
             change_summary?: string | null;
+            /**
+             * Format: uuid
+             * @description NULL = org-global (docs-platform v1).
+             */
+            client_id?: string | null;
+            fields?: unknown;
+            /**
+             * Format: uuid
+             * @description Typed layout; when set, `fields` is validated against its schema.
+             */
+            layout_id?: string | null;
             title: string;
         };
         CreateExclusionRequest: {
@@ -6538,6 +6735,19 @@ export interface components {
             /** Format: int32 */
             position?: number | null;
         };
+        /** @description POST /api/imports/templates request. */
+        CreateImportTemplateRequest: {
+            entity_kind: components["schemas"]["EntityKind"];
+            /**
+             * @description Source column → canonical Meridian column. Targets are validated
+             *     against the canonical field catalog for the entity kind.
+             */
+            mapping: Record<string, never>;
+            /** @description Operator-facing template name (unique per source system + kind). */
+            name: string;
+            /** @description Source-system label this template belongs to (e.g. "connectwise"). */
+            source_system: string;
+        };
         CreateInvoiceRunRequest: components["schemas"]["MutationParams"] & {
             /**
              * Format: uuid
@@ -6560,6 +6770,20 @@ export interface components {
              */
             to: string;
         };
+        CreateLayoutRequest: components["schemas"]["MutationParams"] & {
+            description?: string;
+            fields?: components["schemas"]["LayoutField"][];
+            icon?: string;
+            name: string;
+            /** @description Stable handle; derived from the name when absent. */
+            slug?: string | null;
+        };
+        CreateLinkRequest: {
+            /** Format: uuid */
+            to_id: string;
+            /** @description One of: document | password | client | ticket | kb_article. */
+            to_kind: string;
+        };
         CreateOnCallRequest: {
             /** @description Rotation label ('primary', 'secondary', 'escalation', …). */
             category: string;
@@ -6570,6 +6794,21 @@ export interface components {
             starts_at: string;
             /** Format: uuid */
             user_id?: string | null;
+        };
+        CreatePasswordRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * Format: uuid
+             * @description NULL = org-level vault entry.
+             */
+            client_id?: string | null;
+            /** Format: date-time */
+            expires_at?: string | null;
+            /** @description Encrypted at rest; returned only through the reveal endpoint. */
+            notes?: string | null;
+            secret: string;
+            title: string;
+            url?: string;
+            username?: string;
         };
         CreatePhaseRequest: components["schemas"]["MutationParams"] & {
             description?: string | null;
@@ -7094,6 +7333,12 @@ export interface components {
          *     ever a [`DocumentVersion`]; `current_version` names the newest one.
          */
         Document: {
+            /**
+             * Format: uuid
+             * @description NULL = org-global document; set = client-scoped (docs-platform v1,
+             *     migration 0053).
+             */
+            client_id?: string | null;
             /** Format: date-time */
             created_at: string;
             /** Format: uuid */
@@ -7103,8 +7348,15 @@ export interface components {
              * @description The newest version number in the document's history.
              */
             current_version: number;
+            /** @description Custom-field values validated against the layout's schema. */
+            fields?: unknown;
             /** Format: uuid */
             id: string;
+            /**
+             * Format: uuid
+             * @description The typed layout this document instantiates; NULL = untyped.
+             */
+            layout_id?: string | null;
             /** Format: uuid */
             org_id: string;
             title: string;
@@ -7113,7 +7365,52 @@ export interface components {
             /** Format: uuid */
             updated_by?: string | null;
         };
+        /**
+         * @description An org-managed document/asset type. System layouts (the seeded
+         *     standard MSP set) are editable but not deletable.
+         */
+        DocumentLayout: {
+            /** Format: date-time */
+            created_at: string;
+            description?: string;
+            fields: components["schemas"]["LayoutField"][];
+            icon: string;
+            /** Format: uuid */
+            id: string;
+            is_system: boolean;
+            name: string;
+            /** Format: uuid */
+            org_id: string;
+            /** @description Stable per-org handle (unique). */
+            slug: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /** @description A cross-entity relationship row (`document_links`, 0053). */
+        DocumentLink: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** Format: uuid */
+            from_id: string;
+            from_kind: components["schemas"]["LinkKind"];
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            to_id: string;
+            to_kind: components["schemas"]["LinkKind"];
+        };
         DocumentListQuery: {
+            /**
+             * @description Scope narrow: a client uuid, or the literal `global` for org-wide
+             *     documents (docs-platform v1). Absent = all scopes.
+             */
+            client_id?: string | null;
+            /** Format: uuid */
+            layout_id?: string | null;
             /** @description Title substring narrowing; ranked full-text search rides /api/search. */
             q?: string | null;
         };
@@ -7920,9 +8217,34 @@ export interface components {
             /** @description 'risk' | 'breach' | 'escalate' (notification-center kinds). */
             trigger_kind: string;
         };
+        /**
+         * @description One field in a layout's schema. The `fields` column stores an array of
+         *     these (as JSON); the API validates document `fields` objects against
+         *     them.
+         */
+        LayoutField: {
+            key: string;
+            label: string;
+            /** @description Select-type options. */
+            options?: string[];
+            /** Format: int32 */
+            position?: number;
+            required?: boolean;
+            /** @description text | number | date | bool | select | url | email */
+            type: string;
+        };
+        LayoutMutationResponse: components["schemas"]["DocumentLayout"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
         LinkBeginResponse: {
             authorize_url: string;
         };
+        /**
+         * @description Either endpoint of a link. Documents and passwords can link FROM;
+         *     documents, passwords, clients, tickets, and KB articles can be linked TO.
+         * @enum {string}
+         */
+        LinkKind: "document" | "password" | "client" | "ticket" | "kb_article";
         ListEntriesQuery: {
             /** Format: int64 */
             limit?: number;
@@ -8567,6 +8889,73 @@ export interface components {
              * @description Owner of the row being deleted (must match self-or-admin rule).
              */
             user_id: string;
+        };
+        /**
+         * @description A vault credential. `secret_ciphertext` is AES-256-GCM from
+         *     core-api crypto::seal — plaintext NEVER reaches the database layer,
+         *     and this entity never carries it either (reveal is a dedicated,
+         *     audited endpoint response type).
+         */
+        PasswordEntry: {
+            /**
+             * Format: uuid
+             * @description NULL = org-level vault entry.
+             */
+            client_id?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** Format: date-time */
+            expires_at?: string | null;
+            has_notes?: boolean;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            title: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: uuid */
+            updated_by?: string | null;
+            url?: string;
+            username?: string;
+        };
+        /** @description One archived secret ciphertext from a credential's change history. */
+        PasswordHistoryEntry: {
+            /** Format: uuid */
+            changed_by?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            password_id: string;
+        };
+        PasswordListQuery: {
+            /** Format: uuid */
+            client_id?: string | null;
+            /** @description `true` = org-level entries only. */
+            global?: boolean | null;
+        };
+        /** @description Instant-first mutation response (IF2). */
+        PasswordMutationResponse: components["schemas"]["PasswordEntry"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        /**
+         * @description The audited reveal response: plaintext is returned exactly once,
+         *     over TLS, to a caller holding `passwords:edit`; the reveal emits a
+         *     `password.revealed` contract event (provenance query: "who looked
+         *     at this credential and when").
+         */
+        PasswordReveal: {
+            /** Format: uuid */
+            id: string;
+            notes?: string | null;
+            secret: string;
+            title: string;
         };
         PatchAlertSourceRequest: components["schemas"]["MutationParams"] & {
             /** Format: uuid */
@@ -9772,6 +10161,21 @@ export interface components {
             /** @description Presentation hint (never affects the compiled SQL). */
             viz: components["schemas"]["VizHint"];
         };
+        /**
+         * @description A link with its target resolved to a display label for the UI
+         *     (typed read model; the raw row never carries the label).
+         */
+        ResolvedLink: components["schemas"]["DocumentLink"] & {
+            /** Format: uuid */
+            target_client_id?: string | null;
+            /**
+             * @description The target's own current link count — surfaced for document
+             *     targets so the panel can hint at hub records.
+             */
+            target_deleted?: boolean;
+            /** @description Present when the target row still exists. */
+            target_label?: string | null;
+        };
         RestoreDocumentRequest: components["schemas"]["MutationParams"] & {
             change_summary?: string | null;
             /**
@@ -10837,6 +11241,18 @@ export interface components {
         UpdateDocumentRequest: components["schemas"]["MutationParams"] & {
             body?: string | null;
             change_summary?: string | null;
+            /**
+             * Format: uuid
+             * @description Absent = keep the current scope; explicit null moves to global.
+             */
+            client_id?: string | null;
+            /** @description Absent = keep; present = validated against the (current) layout. */
+            fields?: unknown;
+            /**
+             * Format: uuid
+             * @description Absent = keep; explicit null = untyped.
+             */
+            layout_id?: string | null;
             title?: string | null;
         };
         UpdateFieldDefRequest: {
@@ -10851,6 +11267,29 @@ export interface components {
             name?: string | null;
             /** Format: int32 */
             position?: number | null;
+        };
+        UpdateLayoutRequest: components["schemas"]["MutationParams"] & {
+            description?: string;
+            fields?: components["schemas"]["LayoutField"][];
+            icon?: string;
+            name: string;
+        };
+        UpdatePasswordRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * Format: date-time
+             * @description absent = keep; null = clear; value = set.
+             */
+            expires_at?: string | null;
+            /** @description absent = keep; null = clear; string = replace (encrypted at rest). */
+            notes?: string | null;
+            /**
+             * @description Absent = keep the current secret; present (even empty string is
+             *     rejected) = rotate and archive the previous ciphertext to history.
+             */
+            secret?: string | null;
+            title: string;
+            url?: string;
+            username?: string;
         };
         UpdatePreferenceRequest: {
             email: boolean;
@@ -14688,6 +15127,12 @@ export interface operations {
             query?: {
                 /** @description Title substring narrowing; ranked full-text search rides /api/search. */
                 q?: string | null;
+                /**
+                 * @description Scope narrow: a client uuid, or the literal `global` for org-wide
+                 *     documents (docs-platform v1). Absent = all scopes.
+                 */
+                client_id?: string | null;
+                layout_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -14735,6 +15180,155 @@ export interface operations {
             };
             /** @description title/body rejected by document rules */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    documents_list_layouts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentLayout"][];
+                };
+            };
+        };
+    };
+    documents_create_layout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLayoutRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LayoutMutationResponse"];
+                };
+            };
+            /** @description idempotency key reused or slug taken */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid field schema */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    documents_delete_layout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description layout not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description system layouts cannot be deleted */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    documents_update_layout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateLayoutRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LayoutMutationResponse"];
+                };
+            };
+            /** @description layout not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    documents_delete_link: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description link not visible in scope */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -14809,6 +15403,66 @@ export interface operations {
             };
             /** @description title/body rejected by document rules */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    documents_list_links: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResolvedLink"][];
+                };
+            };
+        };
+    };
+    documents_add_link: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLinkRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResolvedLink"][];
+                };
+            };
+            /** @description document or link target not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description link already exists */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -15128,7 +15782,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateTemplateRequest"];
+                "application/json": components["schemas"]["CreateImportTemplateRequest"];
             };
         };
         responses: {
@@ -16506,6 +17160,276 @@ export interface operations {
             };
             /** @description last active owner, version conflict, or idempotency key reused */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    passwords_list: {
+        parameters: {
+            query?: {
+                client_id?: string | null;
+                /** @description `true` = org-level entries only. */
+                global?: boolean | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasswordEntry"][];
+                };
+            };
+        };
+    };
+    passwords_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePasswordRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasswordMutationResponse"];
+                };
+            };
+            /** @description idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description title/secret rejected */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    passwords_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasswordEntry"];
+                };
+            };
+            /** @description entry not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    passwords_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description entry not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    passwords_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePasswordRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasswordMutationResponse"];
+                };
+            };
+            /** @description entry not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    passwords_history: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasswordHistoryEntry"][];
+                };
+            };
+        };
+    };
+    passwords_list_links: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResolvedLink"][];
+                };
+            };
+        };
+    };
+    passwords_add_link: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLinkRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResolvedLink"][];
+                };
+            };
+            /** @description password or link target not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    passwords_reveal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasswordReveal"];
+                };
+            };
+            /** @description reveal requires passwords:edit */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description entry not visible in scope */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

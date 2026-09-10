@@ -144,7 +144,7 @@ pub struct CreateBatchRequest {
 
 /// POST /api/imports/templates request.
 #[derive(Debug, Clone, Deserialize, ToSchema)]
-pub struct CreateTemplateRequest {
+pub struct CreateImportTemplateRequest {
     /// Operator-facing template name (unique per source system + kind).
     pub name: String,
     /// Source-system label this template belongs to (e.g. "connectwise").
@@ -1308,12 +1308,12 @@ fn validate_template_label(value: &str, field: &str) -> ApiResult<String> {
 /// typed 409.
 #[utoipa::path(operation_id = "imports_create_template", post, path = "/api/imports/templates", tag = "imports",
     security(("bearer" = [])),
-    request_body = CreateTemplateRequest,
+    request_body = CreateImportTemplateRequest,
     responses((status = 200, body = TemplateViewResponse)))]
 pub async fn create_template(
     State(state): State<AppState>,
     extensions: Extensions,
-    Json(req): Json<CreateTemplateRequest>,
+    Json(req): Json<CreateImportTemplateRequest>,
 ) -> ApiResult<Json<TemplateViewResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_import_gate(&authed.principal, authed.via_api_key)?;

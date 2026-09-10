@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO documents (id, org_id, title, current_version, created_by, updated_by)\n           VALUES ($1, $2, $3, 1, $4, $4)\n           RETURNING id, org_id, title, current_version, created_by, updated_by, created_at, updated_at",
+  "query": "SELECT id, org_id, client_id, layout_id, fields, title, current_version, created_by, updated_by, created_at, updated_at\n           FROM documents WHERE org_id = $1 AND id = $2",
   "describe": {
     "columns": [
       {
@@ -15,31 +15,46 @@
       },
       {
         "ordinal": 2,
+        "name": "client_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "layout_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "fields",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
         "name": "title",
         "type_info": "Text"
       },
       {
-        "ordinal": 3,
+        "ordinal": 6,
         "name": "current_version",
         "type_info": "Int4"
       },
       {
-        "ordinal": 4,
+        "ordinal": 7,
         "name": "created_by",
         "type_info": "Uuid"
       },
       {
-        "ordinal": 5,
+        "ordinal": 8,
         "name": "updated_by",
         "type_info": "Uuid"
       },
       {
-        "ordinal": 6,
+        "ordinal": 9,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 7,
+        "ordinal": 10,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
@@ -47,13 +62,14 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Uuid",
-        "Text",
         "Uuid"
       ]
     },
     "nullable": [
       false,
+      false,
+      true,
+      true,
       false,
       false,
       false,
@@ -63,5 +79,5 @@
       false
     ]
   },
-  "hash": "317c532d5a5705dd27933eb0ed23fc5e5d3daadea78e702f52193528f772f08d"
+  "hash": "4e709c6e26f400cd37560af6bec7d9ab4bd03639a76f23ae869a650ce7ef0fb8"
 }

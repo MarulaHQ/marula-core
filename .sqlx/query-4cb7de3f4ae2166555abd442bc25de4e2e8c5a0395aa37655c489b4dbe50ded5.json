@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, org_id, title, current_version, created_by, updated_by, created_at, updated_at\n           FROM documents\n           WHERE org_id = $1\n             AND ($2::text IS NULL OR title ILIKE '%' || $2 || '%')\n           ORDER BY updated_at DESC, id",
+  "query": "UPDATE documents SET\n             title = $3, client_id = $4, layout_id = $5, fields = $6, updated_at = now()\n           WHERE org_id = $1 AND id = $2\n           RETURNING id, org_id, client_id, layout_id, fields, title, current_version,\n                     created_by, updated_by, created_at, updated_at",
   "describe": {
     "columns": [
       {
@@ -15,31 +15,46 @@
       },
       {
         "ordinal": 2,
+        "name": "client_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "layout_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "fields",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
         "name": "title",
         "type_info": "Text"
       },
       {
-        "ordinal": 3,
+        "ordinal": 6,
         "name": "current_version",
         "type_info": "Int4"
       },
       {
-        "ordinal": 4,
+        "ordinal": 7,
         "name": "created_by",
         "type_info": "Uuid"
       },
       {
-        "ordinal": 5,
+        "ordinal": 8,
         "name": "updated_by",
         "type_info": "Uuid"
       },
       {
-        "ordinal": 6,
+        "ordinal": 9,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 7,
+        "ordinal": 10,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
@@ -47,11 +62,18 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Text"
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Jsonb"
       ]
     },
     "nullable": [
       false,
+      false,
+      true,
+      true,
       false,
       false,
       false,
@@ -61,5 +83,5 @@
       false
     ]
   },
-  "hash": "64f3355aa7bd286e249efc5b1092adab4ce98a72350b11b22ad8cec939036959"
+  "hash": "4cb7de3f4ae2166555abd442bc25de4e2e8c5a0395aa37655c489b4dbe50ded5"
 }
