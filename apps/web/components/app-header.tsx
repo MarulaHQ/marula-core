@@ -20,7 +20,15 @@ import { MainNav } from "./main-nav";
 
 // Surfaces that own their chrome (auth flows, the client portal) render no
 // staff header.
-const HEADERLESS = [/^\/login$/, /^\/mfa$/, /^\/sso$/, /^\/welcome$/, /^\/portal(\/|$)/, /^\/s\//];
+const HEADERLESS = [
+  /^\/login$/,
+  /^\/mfa$/,
+  /^\/sso$/,
+  /^\/welcome$/,
+  /^\/portal(\/|$)/,
+  /^\/s\//,
+  /^\/accept-invite/,
+];
 
 function ThemeToggle() {
   const { theme, setTheme } = useTheme();

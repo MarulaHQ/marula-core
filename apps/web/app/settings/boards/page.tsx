@@ -48,6 +48,7 @@ type BoardMemberView = components["schemas"]["BoardMemberView"];
 type BoardRole = components["schemas"]["BoardRole"];
 type ChecklistTemplateView = components["schemas"]["ChecklistTemplateView"];
 type NavEntry = components["schemas"]["BoardNavEntry"];
+type OrgUser = components["schemas"]["OrgUser"];
 
 export default function BoardAdminPage() {
   const auth = useRequireAuth();
@@ -72,6 +73,24 @@ export default function BoardAdminPage() {
 
   const [memberUserId, setMemberUserId] = useState("");
   const [memberRole, setMemberRole] = useState<BoardRole>("member");
+  const [directory, setDirectory] = useState<OrgUser[] | null>(null);
+
+  // Org-user directory (0047): the member picker reads the same paged
+  // directory the Team page uses; read access covers manage_boards.
+  useEffect(() => {
+    if (auth.status !== "authed" || !canAdmin) return;
+    let cancelled = false;
+    void api.api
+      .GET("/api/v1/org/users", { params: { query: { limit: 200 } } })
+      .then(({ data }) => {
+        if (cancelled || data === undefined) return;
+        setDirectory(data.users);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.status, canAdmin]);
 
   const [templateName, setTemplateName] = useState("");
   const [templateItems, setTemplateItems] = useState<string[]>([]);
@@ -409,11 +428,28 @@ export default function BoardAdminPage() {
             {canAdmin ? (
               <div className="flex items-end gap-2 p-4">
                 <div className="flex-1">
-                  <Label htmlFor="bm-user">User id</Label>
-                  <Input id="bm-user" value={memberUserId} onChange={(e) => setMemberUserId(e.target.value)} placeholder="Org user uuid" />
+                  <Label htmlFor="bm-user">Member</Label>
+                  {directory === null ? (
+                    <Input id="bm-user" value={memberUserId} onChange={(e) => setMemberUserId(e.target.value)} placeholder="Org user uuid" />
+                  ) : (
+                    <Select value={memberUserId} onValueChange={setMemberUserId}>
+                      <SelectTrigger id="bm-user" className="w-full" aria-label="Directory member">
+                        <SelectValue placeholder="Pick a member from the directory" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {directory.map((user) => (
+                          <SelectItem key={user.id} value={user.id}>
+                            {user.display_name} — {user.email}
+                            {user.is_active ? "" : " (inactive)"}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                   <FieldHint>
-                    The org-user directory endpoint does not exist yet, so the id must be pasted
-                    (see TASKLIST "Org users & roles").
+                    {directory === null
+                      ? "Loading the org directory — the paste fallback stays while it loads."
+                      : "Picked from the org directory (Settings → Team)."}
                   </FieldHint>
                 </div>
                 <div className="w-40">

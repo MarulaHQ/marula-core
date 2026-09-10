@@ -136,7 +136,7 @@ pub async fn get_rollup(
 // --- link mutations ----------------------------------------------------------------
 
 #[derive(Debug, Deserialize, ToSchema, Serialize)]
-pub struct CreateLinkRequest {
+pub struct CreateTicketLinkRequest {
     #[serde(flatten)]
     pub instant: instant::MutationParams,
     pub to_ticket_id: Uuid,
@@ -146,7 +146,7 @@ pub struct CreateLinkRequest {
 /// POST /api/tickets/{id}/links — link this ticket (from) to another (to).
 #[utoipa::path(operation_id = "tickets_create_link", post, path = "/api/tickets/{id}/links", tag = "ticket-links", security(("bearer" = [])),
     params(("id" = Uuid, Path)),
-    request_body = CreateLinkRequest,
+    request_body = CreateTicketLinkRequest,
     responses((status = 200, body = Value),
               (status = 404, description = "ticket not found in scope"),
               (status = 409, description = "duplicate link or idempotency key reused")))]
@@ -154,7 +154,7 @@ pub async fn create_link(
     State(state): State<AppState>,
     extensions: Extensions,
     Path(id): Path<Uuid>,
-    Json(req): Json<CreateLinkRequest>,
+    Json(req): Json<CreateTicketLinkRequest>,
 ) -> ApiResult<Json<Value>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(

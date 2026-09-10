@@ -113,7 +113,7 @@ fn one() -> f64 {
 #[utoipa::path(operation_id = "tickets_create_cost_line", post, path = "/api/tickets/{id}/cost-lines", tag = "ticket-costs", security(("bearer" = [])),
     params(("id" = Uuid, Path)),
     request_body = CreateCostLineRequest,
-    responses((status = 200, body = TicketCostLine),
+    responses((status = 200, body = CostLineMutationResponse),
               (status = 404, description = "ticket not found in scope"),
               (status = 409, description = "idempotency key reused"),
               (status = 422, description = "invalid quantity/currency")))]

@@ -35,6 +35,7 @@ import {
 import type { components } from "@meridian/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../lib/api";
+import { ReportDeliveryHistory } from "../../components/report-delivery-history";
 
 type ReportDefinitionView = components["schemas"]["ReportDefinitionView"];
 type ReportScheduleView = components["schemas"]["ReportScheduleView"];
@@ -615,13 +616,16 @@ export default function ReportsPage() {
                         {s.recipients.length} user{s.recipients.length === 1 ? "" : "s"}
                       </Td>
                       <Td className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => void handleDeleteSchedule(s.id)}
-                        >
-                          Delete
-                        </Button>
+                        <div className="flex justify-end gap-1">
+                          <ReportDeliveryHistory scheduleId={s.id} scheduleName={s.name} />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => void handleDeleteSchedule(s.id)}
+                          >
+                            Delete
+                          </Button>
+                        </div>
                       </Td>
                     </Tr>
                   ))}

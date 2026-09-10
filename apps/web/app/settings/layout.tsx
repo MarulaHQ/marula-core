@@ -23,10 +23,13 @@ interface NavItem {
 
 const SECTIONS: NavItem[] = [
   { href: "/settings/general", label: "General" },
+  { href: "/settings/team", label: "Team" },
   { href: "/settings/preferences", label: "Preferences" },
   { href: "/settings/notifications", label: "Notifications" },
   { href: "/settings/security", label: "Security" },
   { href: "/settings/workflow", label: "Workflow" },
+  { href: "/settings/tags", label: "Tags" },
+  { href: "/settings/pm-schedules", label: "PM schedules" },
   { href: "/settings/sla", label: "SLA" },
   { href: "/settings/portal", label: "Portal" },
   { href: "/settings/mail", label: "Mail", pending: true },

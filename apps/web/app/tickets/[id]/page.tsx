@@ -85,6 +85,9 @@ import { TicketTimeline } from "../../../components/ticket-workspace/timeline";
 import { SchedulingPod } from "../../../components/ticket-workspace/scheduling-pod";
 import { CloseFlow } from "../../../components/ticket-workspace/close-flow";
 import { DetailTabs, OriginalRequest, DETAIL_TABS, type DetailTabId } from "../../../components/ticket-workspace/detail-tabs";
+import { TicketTags } from "../../../components/ticket-tags";
+import { TicketLinksPanel, MergedIntoBanner } from "../../../components/ticket-links";
+import { TicketMoney } from "../../../components/ticket-money";
 
 type BoardStatus = components["schemas"]["BoardStatus"];
 type BoardTransitionsResponse = components["schemas"]["BoardTransitionsResponse"];
@@ -150,6 +153,27 @@ export default function TicketWorkspacePage() {
   const ticket = model?.ticket ?? null;
   const statuses = model?.statuses ?? [];
   const workflow = model?.workflow ?? { mode: "floor" as const, edges: [] };
+
+  // Merged tickets: banner title resolution + mutation suppression.
+  const mergedIntoId = ticket?.merged_into_ticket_id ?? null;
+  const [mergedIntoTitle, setMergedIntoTitle] = useState<string | null>(null);
+  useEffect(() => {
+    if (mergedIntoId === null) {
+      setMergedIntoTitle(null);
+      return;
+    }
+    let cancelled = false;
+    void api.api
+      .GET("/api/v1/tickets/{id}", { params: { path: { id: mergedIntoId } } })
+      .then(({ data }) => {
+        if (!cancelled && data !== undefined && data !== null) setMergedIntoTitle(`${data.number} ${data.title}`);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [mergedIntoId]);
+  const isMerged = mergedIntoId !== null;
 
   // --- org directory (author names for notes/timeline) -----------------------
   const [namesByUser, setNamesByUser] = useState<Map<string, string>>(new Map());
@@ -675,14 +699,39 @@ export default function TicketWorkspacePage() {
           {(model?.attachments ?? []).map((a) => paperclipRow(a))}
         </div>
       </section>
-      <section className="grid gap-1">
-        <h2 className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>Links &amp; tags</h2>
-        <p className="text-xs" style={{ color: "var(--m-text-muted)" }} data-testid="related-gap">
-          Tag/merge/link surfaces ride the Wave 11 close-out lane — the endpoints exist on the typed SDK.
-        </p>
-      </section>
     </div>
   );
+
+  const renderLinksTab = (): ReactNode =>
+    ticket === null ? null : (
+      <div className="p-3">
+        <TicketLinksPanel
+          ticketId={ticket.id}
+          ticket={ticket}
+          canWork={!isMerged && (auth.me?.permissions.includes("tickets:edit") ?? false)}
+          namesByUser={namesByUser}
+          onChanged={() => void refresh()}
+        />
+      </div>
+    );
+
+  const renderMoneyTab = (): ReactNode => {
+    const canViewFinancials = auth.me?.permissions.includes("special:view_financials") ?? false;
+    if (!canViewFinancials) {
+      return (
+        <div className="p-3">
+          <p className="text-xs" data-testid="money-gap" style={{ color: "var(--m-text-muted)" }}>
+            Cost lines and expenses are financial data — your role does not include financial visibility.
+          </p>
+        </div>
+      );
+    }
+    return (
+      <div className="p-3">
+        <TicketMoney ticketId={ticketId} />
+      </div>
+    );
+  };
 
   const renderPod = (podId: PodId): ReactNode => {
     if (ticket === null) return null;
@@ -805,6 +854,9 @@ export default function TicketWorkspacePage() {
             if (pane.id === PANE_DETAIL && ticket !== null) {
               return (
                 <div className="grid content-start">
+                  {isMerged && mergedIntoId !== null ? (
+                    <MergedIntoBanner mergedIntoTicketId={mergedIntoId} linkedTitle={mergedIntoTitle} />
+                  ) : null}
                   <TicketStatusBar
                     number={ticket.number}
                     title={ticket.title}
@@ -814,16 +866,23 @@ export default function TicketWorkspacePage() {
                     sla={model?.sla ?? null}
                     onChangeStatus={(id) => void changeStatus(id)}
                   />
-                  <div className="flex justify-end gap-2 px-3 pt-2">
-                    <Button size="sm" variant="primary" data-testid="validate-close" onClick={() => setCloseOpen(true)}>
-                      Validate for close
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => void startTimer()}>
-                      Start timer
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => void stopTimer()}>
-                      Stop timer
-                    </Button>
+                  <div className="flex flex-wrap items-center justify-between gap-2 px-3 pt-2">
+                    <TicketTags
+                      ticketId={ticket.id}
+                      canEdit={!isMerged && (auth.me?.permissions.includes("tickets:edit") ?? false)}
+                      onChanged={() => void refresh()}
+                    />
+                    <div className="flex justify-end gap-2">
+                      <Button size="sm" variant="primary" data-testid="validate-close" onClick={() => setCloseOpen(true)} disabled={isMerged}>
+                        Validate for close
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => void startTimer()} disabled={isMerged}>
+                        Start timer
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => void stopTimer()} disabled={isMerged}>
+                        Stop timer
+                      </Button>
+                    </div>
                   </div>
                   <div className="grid gap-3 p-3">
                     <OriginalRequest ticket={ticket} />
@@ -833,6 +892,8 @@ export default function TicketWorkspacePage() {
                       {activeTab === "tasks" && renderTasksTab()}
                       {activeTab === "details" && renderDetailsTab()}
                       {activeTab === "related" && renderRelatedTab()}
+                      {activeTab === "links" && renderLinksTab()}
+                      {activeTab === "money" && renderMoneyTab()}
                       {activeTab === "original" && (
                         <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>
                           The original request is pinned above and always visible.
@@ -898,37 +959,166 @@ export default function TicketWorkspacePage() {
 }
 
 /// Left pane: the caller's my-work queue (same ordering as /today) through
-/// the shared my-work read model — hydrate-once, delta-reconciled.
+/// the shared my-work read model — hydrate-once, delta-reconciled — plus
+/// the tag filter: when tags are picked the pane switches to the full
+/// ticket list through GET /tickets?tags=… (AND semantics — a ticket must
+/// carry EVERY selected tag, surfaced in the UI).
 function MyWorkList({ selectedId, onSelect }: { selectedId: string; onSelect(id: string): void }) {
   const myWorkSpec = useMemo(() => makeMyWorkSpec(api.api), []);
   const { data: tickets, loading } = useInstantCollection(MY_WORK_KEY, myWorkSpec);
 
-  if (loading) {
+  // Tag filter state (B1): org tags + the AND-selected subset.
+  const [orgTags, setOrgTags] = useState<components["schemas"]["Tag"][]>([]);
+  const [pickedTags, setPickedTags] = useState<string[]>([]);
+  const [tagResults, setTagResults] = useState<components["schemas"]["TicketWithFields"][] | null>(null);
+  const [filterExpanded, setFilterExpanded] = useState(false);
+  const [tagLoading, setTagLoading] = useState(false);
+  const [tagError, setTagError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api.api
+      .GET("/api/v1/tags")
+      .then(({ data }) => {
+        if (!cancelled && data !== undefined) setOrgTags(data.map((tv) => tv.tag));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (pickedTags.length === 0) {
+      setTagResults(null);
+      setTagError(null);
+      return;
+    }
+    let cancelled = false;
+    setTagLoading(true);
+    void api.api
+      .GET("/api/v1/tickets", { params: { query: { tags: pickedTags.join(","), limit: 200 } } })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        setTagLoading(false);
+        if (error !== undefined || data === undefined) {
+          setTagError("The tag-filtered list could not be loaded.");
+          return;
+        }
+        setTagResults(data);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setTagLoading(false);
+          setTagError("The tag-filtered list could not be loaded.");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pickedTags]);
+
+  const activeRows: { id: string; number: string; title: string }[] | null =
+    pickedTags.length > 0
+      ? (tagResults ?? []).map((t) => ({ id: t.id, number: t.number, title: t.title }))
+      : (tickets ?? []).map((t) => ({ id: t.id, number: t.number, title: t.title }));
+
+  if (pickedTags.length > 0 && tagLoading && tagResults === null) {
     return (
       <div className="flex h-full items-center justify-center">
         <Spinner />
       </div>
     );
   }
-  if (tickets === undefined || tickets.length === 0) {
-    return <EmptyState message="Your open tickets appear here." />;
-  }
+
   return (
-    <Table>
-      <thead>
-        <tr>
-          <Th>Number</Th>
-          <Th>Title</Th>
-        </tr>
-      </thead>
-      <tbody>
-        {tickets.map((t) => (
-          <Tr key={t.id} selected={t.id === selectedId} onClick={() => onSelect(t.id)}>
-            <Td>{t.number}</Td>
-            <Td>{t.title}</Td>
-          </Tr>
-        ))}
-      </tbody>
-    </Table>
+    <div className="flex h-full flex-col">
+      {orgTags.length > 0 ? (
+        <div
+          className="shrink-0 border-b px-2 py-1.5"
+          style={{ borderColor: "var(--m-border)" }}
+          data-testid="tags-filter"
+        >
+          <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
+            Tags
+            {pickedTags.length > 1 ? <span title="A ticket must carry every selected tag">· matches ALL</span> : null}
+          </div>
+          <div className="mt-1 flex flex-wrap gap-1">
+            {(filterExpanded ? orgTags : orgTags.slice(0, 10)).map((tag) => {
+              const picked = pickedTags.includes(tag.id);
+              const color = tag.color ?? "var(--m-text-muted)";
+              return (
+                <button
+                  key={tag.id}
+                  type="button"
+                  aria-pressed={picked}
+                  className="cursor-pointer rounded-[2px] border px-1.5 py-0.5 text-[10px] transition-opacity duration-100"
+                  style={{
+                    borderColor: color,
+                    color: picked ? "var(--m-surface)" : color,
+                    background: picked ? color : "transparent",
+                  }}
+                  onClick={() =>
+                    setPickedTags((prev) => (prev.includes(tag.id) ? prev.filter((t) => t !== tag.id) : [...prev, tag.id]))
+                  }
+                >
+                  {tag.name}
+                </button>
+              );
+            })}
+            {orgTags.length > 10 ? (
+              <button
+                type="button"
+                className="cursor-pointer border-none bg-transparent text-[10px] underline"
+                style={{ color: "var(--m-text-muted)" }}
+                onClick={() => setFilterExpanded((v) => !v)}
+              >
+                {filterExpanded ? "less" : `+${orgTags.length - 10} more`}
+              </button>
+            ) : null}
+            {pickedTags.length > 0 ? (
+              <button
+                type="button"
+                className="cursor-pointer border-none bg-transparent text-[10px] underline"
+                style={{ color: "var(--m-text-muted)" }}
+                onClick={() => setPickedTags([])}
+              >
+                clear
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+      <div className="min-h-0 flex-1 overflow-auto">
+        {tagError !== null ? (
+          <p className="p-2 text-xs" role="alert" style={{ color: "var(--m-status-danger-fg)" }}>
+            {tagError}
+          </p>
+        ) : activeRows === null || (pickedTags.length === 0 && loading) ? (
+          <div className="flex h-full items-center justify-center">
+            <Spinner />
+          </div>
+        ) : activeRows.length === 0 ? (
+          <EmptyState message={pickedTags.length > 0 ? "No tickets carry every selected tag." : "Your open tickets appear here."} />
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <Th>Number</Th>
+                <Th>Title</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {activeRows.map((t) => (
+                <Tr key={t.id} selected={t.id === selectedId} onClick={() => onSelect(t.id)}>
+                  <Td>{t.number}</Td>
+                  <Td>{t.title}</Td>
+                </Tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+      </div>
+    </div>
   );
 }

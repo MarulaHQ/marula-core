@@ -569,7 +569,7 @@ use utoipa::OpenApi;
         crate::routes::tags::UpdateTagRequest,
         crate::routes::tags::ApplyTagRequest,
         crate::routes::ticket_links::LinksView,
-        crate::routes::ticket_links::CreateLinkRequest,
+        crate::routes::ticket_links::CreateTicketLinkRequest,
         crate::routes::ticket_links::MergeRequest,
         crate::routes::ticket_links::MergeResponse,
         crate::routes::ticket_links::MergeConflictEntry,

@@ -15,13 +15,15 @@ import type { ReactNode } from "react";
 
 type Ticket = components["schemas"]["TicketWithFields"];
 
-export type DetailTabId = "original" | "notes" | "tasks" | "details" | "related";
+export type DetailTabId = "original" | "notes" | "tasks" | "details" | "related" | "links" | "money";
 
 export const DETAIL_TABS: { id: DetailTabId; label: string }[] = [
   { id: "original", label: "Original request" },
   { id: "notes", label: "Notes" },
   { id: "tasks", label: "Tasks" },
   { id: "details", label: "Details" },
+  { id: "links", label: "Links" },
+  { id: "money", label: "Money" },
   { id: "related", label: "Related" },
 ];
 

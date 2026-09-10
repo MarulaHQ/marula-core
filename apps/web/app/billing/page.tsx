@@ -103,11 +103,13 @@ export default function BillingPage() {
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const [runNote, setRunNote] = useState<string | null>(null);
+  const [candidates, setCandidates] = useState<components["schemas"]["InvoiceCandidateView"][]>([]);
 
   const refresh = useCallback(async () => {
-    const [inv, ir] = await Promise.all([
+    const [inv, ir, cand] = await Promise.all([
       api.api.GET("/api/v1/invoices"),
       api.api.GET("/api/v1/billing/invoice-runs"),
+      api.api.GET("/api/v1/invoice-candidates"),
     ]);
     if (inv.error !== undefined || ir.error !== undefined) {
       setLoadError("Failed to load billing data.");
@@ -115,6 +117,7 @@ export default function BillingPage() {
     }
     setInvoices(inv.data ?? []);
     setRuns(ir.data ?? []);
+    if (cand.error === undefined && cand.data !== undefined) setCandidates(cand.data);
     setLoadError(null);
   }, []);
 
@@ -431,6 +434,44 @@ export default function BillingPage() {
                     {r.currency != null ? money(r.total_minor, r.currency) : "—"}
                   </Td>
                   <Td>{r.created_at !== undefined ? new Date(r.created_at).toLocaleString() : "—"}</Td>
+                </Tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+      </Card>
+      <Card>
+        <h2 className="p-4 pb-0 text-sm font-semibold">Unbilled ticket candidates</h2>
+        <p className="px-4 pt-1 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+          Billable cost lines and expenses waiting to be picked up by an invoice run (read-only — consumption is marked through <code className="font-mono text-[11px]">invoice_line_id</code> when a run lands).
+        </p>
+        {candidates.length === 0 ? (
+          <div className="p-4 pt-2">
+            <EmptyState message="No unbilled candidates. Ticket cost lines and expenses marked billable appear here." />
+          </div>
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <Th>Source</Th>
+                <Th>Description</Th>
+                <Th>Ticket</Th>
+                <Th className="text-right">Amount</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {candidates.map((c) => (
+                <Tr key={c.line_id}>
+                  <Td>
+                    <Tag tone={c.source === "cost" ? "neutral" : "success"}>{c.source}</Tag>
+                  </Td>
+                  <Td>{c.description}</Td>
+                  <Td>
+                    <Link href={`/tickets/${c.ticket_id}`} className="underline decoration-[var(--m-border)] underline-offset-2">
+                      {c.ticket_id.slice(0, 8)}…
+                    </Link>
+                  </Td>
+                  <Td className="text-right tabular-nums">{money(c.amount_minor, c.currency)}</Td>
                 </Tr>
               ))}
             </tbody>

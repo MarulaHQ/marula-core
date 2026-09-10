@@ -58,6 +58,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Projects", href: "/projects", match: ["/projects"] },
       { label: "Contracts", href: "/contracts", match: ["/contracts"] },
       { label: "Billing", href: "/billing", match: ["/billing"] },
+      { label: "Credit notes", href: "/billing/credit-notes", match: ["/billing/credit-notes"] },
     ],
   },
   {
@@ -86,7 +87,10 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Overview", href: "/settings" },
       { label: "Boards", href: "/settings/boards" },
       { label: "General", href: "/settings/general" },
+      { label: "Team", href: "/settings/team" },
       { label: "Workflow", href: "/settings/workflow" },
+      { label: "Tags", href: "/settings/tags" },
+      { label: "PM schedules", href: "/settings/pm-schedules" },
       { label: "SLA", href: "/settings/sla" },
       { label: "Notifications", href: "/settings/notifications" },
       { label: "Preferences", href: "/settings/preferences" },

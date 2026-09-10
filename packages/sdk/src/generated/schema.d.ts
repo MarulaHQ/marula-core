@@ -7953,6 +7953,11 @@ export interface components {
              */
             spec: unknown;
         };
+        CreateTicketLinkRequest: components["schemas"]["MutationParams"] & {
+            link_type: components["schemas"]["TicketLinkType"];
+            /** Format: uuid */
+            to_ticket_id: string;
+        };
         CreateTicketRequest: components["schemas"]["MutationParams"] & {
             /** Format: uuid */
             assignee_id?: string | null;
@@ -23648,7 +23653,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TicketCostLine"];
+                    "application/json": components["schemas"]["CostLineMutationResponse"];
                 };
             };
             /** @description ticket not found in scope */
@@ -23985,7 +23990,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateLinkRequest"];
+                "application/json": components["schemas"]["CreateTicketLinkRequest"];
             };
         };
         responses: {

@@ -33,6 +33,7 @@ import {
   Tr,
 } from "@meridian/ui";
 import type { components } from "@meridian/sdk";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { api, apiBaseUrl, loadTokens, useRequireAuth } from "../../../lib/api";
@@ -71,6 +72,10 @@ export default function InvoiceDetailPage() {
 
   const [voidBusy, setVoidBusy] = useState(false);
   const [actionNote, setActionNote] = useState<string | null>(null);
+
+  const [statementBusy, setStatementBusy] = useState(false);
+  const [statementNote, setStatementNote] = useState<string | null>(null);
+  const [statementError, setStatementError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const { data, error } = await api.api.GET("/api/v1/invoices/{id}", {
@@ -247,6 +252,37 @@ export default function InvoiceDetailPage() {
     window.open(url, "_blank", "noopener");
   };
 
+  /** Send-statement dunning action (p11-backend-gaps): generates a statement
+   * of the client's open invoices and queues the email to client contacts.
+   * In none-mode mail transport the message STAYS QUEUED — surfaced honestly. */
+  const sendStatement = async () => {
+    if (invoice === null) return;
+    setStatementBusy(true);
+    setStatementError(null);
+    setStatementNote(null);
+    const { data, error } = await api.api.POST("/api/v1/invoices/{id}/dunning/statement", {
+      params: { path: { id: invoice.id } },
+      body: { idempotency_key: `statement-${invoice.id}-${Date.now()}` },
+    });
+    setStatementBusy(false);
+    if (error !== undefined || data === undefined) {
+      const body = error as { error?: { code?: number; message?: string } } | undefined;
+      setStatementError(
+        body?.error?.code === 422
+          ? "No contact emails on the client to deliver the statement to."
+          : (body?.error?.message ?? "The statement could not be generated."),
+      );
+      return;
+    }
+    setStatementNote(
+      data.queued_to.length === 0
+        ? "Statement generated, but no contact emails were available to queue delivery."
+        : `Statement queued for delivery to ${data.queued_to.join(", ")} — ${
+            data.open_invoices.length
+          } open invoice(s), ${money(data.total_outstanding_minor, data.currency)} outstanding. With the none mail transport it stays queued (no external send).`,
+    );
+  };
+
   if (auth.status !== "authed") return null;
 
   if (invoice === null) {
@@ -282,6 +318,13 @@ export default function InvoiceDetailPage() {
           <Button variant="secondary" onClick={() => void openPrintDocument()}>
             Print document
           </Button>
+          <Link
+            href={`/billing/credit-notes?client=${invoice.client_id}&invoice=${invoice.id}`}
+            className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2"
+            style={{ color: "var(--m-text-secondary)" }}
+          >
+            Issue credit note
+          </Link>
           {invoice.status === "issued" ? (
             <>
               <Dialog open={payOpen} onOpenChange={(o) => { setPayOpen(o); setPayError(null); }}>
@@ -481,6 +524,28 @@ export default function InvoiceDetailPage() {
             <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
               {dunningError}
             </p>
+          ) : null}
+          {invoice.status === "issued" ? (
+            <div className="grid gap-2 border-t pt-3" style={{ borderColor: "var(--m-border)" }} data-testid="send-statement">
+              <div className="flex items-center gap-2">
+                <Button variant="secondary" onClick={() => void sendStatement()} disabled={statementBusy}>
+                  {statementBusy ? <Spinner /> : null} Send statement
+                </Button>
+                <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+                  Emails the client a statement of every open invoice. None-mode transport keeps it queued.
+                </span>
+              </div>
+              {statementNote !== null ? (
+                <p role="status" className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+                  {statementNote}
+                </p>
+              ) : null}
+              {statementError !== null ? (
+                <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
+                  {statementError}
+                </p>
+              ) : null}
+            </div>
           ) : null}
         </div>
       </Card>
