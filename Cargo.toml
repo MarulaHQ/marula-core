@@ -22,6 +22,9 @@ members = [
     # (public-API-only edge adapters; separate license from the AGPL core).
     "connectors/qbo-export-sync",
     "connectors/xero-export-sync",
+    # DMS sync-connector lane (2026-09-10): external documentation-system
+    # adapter (IT Glue / Hudu exports + generic REST), public-API-only.
+    "connectors/dms-sync",
 ]
 
 [workspace.package]

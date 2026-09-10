@@ -1,0 +1,66 @@
+{
+  "companies": [
+    { "id": 7, "name": "Globex Industries" },
+    { "id": 8, "name": "Initech" }
+  ],
+  "asset_layouts": [
+    {
+      "id": 11,
+      "name": "Workstation",
+      "slug": "workstation",
+      "icon": "laptop",
+      "fields": [
+        { "label": "Hostname", "slug": "hostname", "field_type": "text", "required": true },
+        { "label": "Serial Number", "slug": "serial", "field_type": "text", "required": false },
+        { "label": "Operating System", "slug": "os", "field_type": "text", "required": false }
+      ]
+    },
+    {
+      "id": 12,
+      "name": "Policy",
+      "slug": "policy",
+      "icon": "book",
+      "fields": [
+        { "label": "Applies To", "slug": "applies_to", "field_type": "text", "required": false },
+        { "label": "Last Reviewed", "slug": "last_reviewed", "field_type": "date", "required": false }
+      ]
+    }
+  ],
+  "assets": [
+    {
+      "id": 41,
+      "name": "WS-FIN-01",
+      "asset_layout_id": 11,
+      "company_id": 7,
+      "fields": [
+        { "label": "Hostname", "value": "ws-fin-01.globex.test" },
+        { "label": "Serial Number", "value": "SN-WS-041" },
+        { "label": "Operating System", "value": "macOS 15" }
+      ]
+    },
+    {
+      "id": 42,
+      "name": "Acceptable use policy",
+      "asset_layout_id": 12,
+      "company_id": 7,
+      "fields": [
+        { "label": "Applies To", "value": "All staff" },
+        { "label": "Last Reviewed", "value": "2026-07-15" }
+      ]
+    }
+  ],
+  "websites": [
+    { "id": 21, "company_id": 8, "name": "initech.com", "url": "https://initech.test" }
+  ],
+  "passwords": [
+    {
+      "id": 31,
+      "name": "Router admin",
+      "company_id": 7,
+      "username": "admin",
+      "password": "hudu-vault-secret-42",
+      "url": "",
+      "expires_at": null
+    }
+  ]
+}
