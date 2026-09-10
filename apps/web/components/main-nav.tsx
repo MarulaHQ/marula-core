@@ -65,6 +65,10 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: "Dashboards", href: "/dashboards" },
       { label: "Provenance", href: "/provenance" },
+      { label: "Alerts", href: "/alerts", match: ["/alerts"] },
+      { label: "Reports", href: "/reports", match: ["/reports"] },
+      { label: "Automations", href: "/automations", match: ["/automations"] },
+      { label: "Audit", href: "/audit", match: ["/audit"] },
     ],
   },
   {
@@ -77,6 +81,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "SLA", href: "/settings/sla" },
       { label: "Notifications", href: "/settings/notifications" },
       { label: "Preferences", href: "/settings/preferences" },
+      { label: "Portal", href: "/settings/portal" },
       { label: "Mail", href: "/settings/mail" },
       { label: "Security", href: "/settings/security" },
       { label: "API keys", href: "/settings/api-keys" },
