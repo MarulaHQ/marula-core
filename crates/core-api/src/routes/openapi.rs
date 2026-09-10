@@ -395,7 +395,7 @@ use utoipa::OpenApi;
         core_domain::import_core::ConflictPolicy,
         core_domain::import_core::RowFormat,
         // D2 remainder: saved field-mapping templates + async batches
-        crate::routes::imports::CreateTemplateRequest,
+        crate::routes::imports::CreateImportTemplateRequest,
         crate::routes::imports::UpdateTemplateRequest,
         crate::routes::imports::TemplateViewResponse,
         crate::routes::imports::TemplateListQuery,

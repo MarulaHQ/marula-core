@@ -4133,6 +4133,23 @@
                   "null"
                 ]
               },
+              "client_id": {
+                "description": "NULL = org-global (docs-platform v1).",
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "fields": {},
+              "layout_id": {
+                "description": "Typed layout; when set, `fields` is validated against its schema.",
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "title": {
                 "type": "string"
               }
@@ -4220,6 +4237,33 @@
         ],
         "type": "object"
       },
+      "CreateImportTemplateRequest": {
+        "description": "POST /api/imports/templates request.",
+        "properties": {
+          "entity_kind": {
+            "$ref": "#/components/schemas/EntityKind"
+          },
+          "mapping": {
+            "description": "Source column → canonical Meridian column. Targets are validated\nagainst the canonical field catalog for the entity kind.",
+            "type": "object"
+          },
+          "name": {
+            "description": "Operator-facing template name (unique per source system + kind).",
+            "type": "string"
+          },
+          "source_system": {
+            "description": "Source-system label this template belongs to (e.g. \"connectwise\").",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "source_system",
+          "entity_kind",
+          "mapping"
+        ],
+        "type": "object"
+      },
       "CreateInvoiceRunRequest": {
         "allOf": [
           {
@@ -4263,6 +4307,61 @@
           }
         ]
       },
+      "CreateLayoutRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1)."
+          },
+          {
+            "properties": {
+              "description": {
+                "type": "string"
+              },
+              "fields": {
+                "items": {
+                  "$ref": "#/components/schemas/LayoutField"
+                },
+                "type": "array"
+              },
+              "icon": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "slug": {
+                "description": "Stable handle; derived from the name when absent.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "CreateLinkRequest": {
+        "properties": {
+          "to_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "to_kind": {
+            "description": "One of: document | password | client | ticket | kb_article.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "to_kind",
+          "to_id"
+        ],
+        "type": "object"
+      },
       "CreateOnCallRequest": {
         "properties": {
           "category": {
@@ -4297,6 +4396,57 @@
           "category"
         ],
         "type": "object"
+      },
+      "CreatePasswordRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1)."
+          },
+          {
+            "properties": {
+              "client_id": {
+                "description": "NULL = org-level vault entry.",
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "expires_at": {
+                "format": "date-time",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "notes": {
+                "description": "Encrypted at rest; returned only through the reveal endpoint.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "secret": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "username": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "title",
+              "secret"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "CreatePhaseRequest": {
         "allOf": [
@@ -5694,6 +5844,14 @@
       "Document": {
         "description": "A document's living handle. No content lives here — content is only\never a [`DocumentVersion`]; `current_version` names the newest one.",
         "properties": {
+          "client_id": {
+            "description": "NULL = org-global document; set = client-scoped (docs-platform v1,\nmigration 0053).",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "created_at": {
             "format": "date-time",
             "type": "string"
@@ -5710,9 +5868,20 @@
             "format": "int32",
             "type": "integer"
           },
+          "fields": {
+            "description": "Custom-field values validated against the layout's schema."
+          },
           "id": {
             "format": "uuid",
             "type": "string"
+          },
+          "layout_id": {
+            "description": "The typed layout this document instantiates; NULL = untyped.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "org_id": {
             "format": "uuid",
@@ -5743,8 +5912,125 @@
         ],
         "type": "object"
       },
+      "DocumentLayout": {
+        "description": "An org-managed document/asset type. System layouts (the seeded\nstandard MSP set) are editable but not deletable.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/LayoutField"
+            },
+            "type": "array"
+          },
+          "icon": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_system": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "org_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "slug": {
+            "description": "Stable per-org handle (unique).",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "org_id",
+          "slug",
+          "name",
+          "icon",
+          "fields",
+          "is_system",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "DocumentLink": {
+        "description": "A cross-entity relationship row (`document_links`, 0053).",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "from_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "from_kind": {
+            "$ref": "#/components/schemas/LinkKind"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "org_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "to_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "to_kind": {
+            "$ref": "#/components/schemas/LinkKind"
+          }
+        },
+        "required": [
+          "id",
+          "org_id",
+          "from_kind",
+          "from_id",
+          "to_kind",
+          "to_id",
+          "created_at"
+        ],
+        "type": "object"
+      },
       "DocumentListQuery": {
         "properties": {
+          "client_id": {
+            "description": "Scope narrow: a client uuid, or the literal `global` for org-wide\ndocuments (docs-platform v1). Absent = all scopes.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "layout_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "q": {
             "description": "Title substring narrowing; ranked full-text search rides /api/search.",
             "type": [
@@ -7752,6 +8038,59 @@
         ],
         "type": "object"
       },
+      "LayoutField": {
+        "description": "One field in a layout's schema. The `fields` column stores an array of\nthese (as JSON); the API validates document `fields` objects against\nthem.",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "options": {
+            "description": "Select-type options.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "position": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "type": {
+            "description": "text | number | date | bool | select | url | email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "type"
+        ],
+        "type": "object"
+      },
+      "LayoutMutationResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/DocumentLayout"
+          },
+          {
+            "properties": {
+              "mutation": {
+                "$ref": "#/components/schemas/MutationMeta"
+              }
+            },
+            "required": [
+              "mutation"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "LinkBeginResponse": {
         "properties": {
           "authorize_url": {
@@ -7762,6 +8101,17 @@
           "authorize_url"
         ],
         "type": "object"
+      },
+      "LinkKind": {
+        "description": "Either endpoint of a link. Documents and passwords can link FROM;\ndocuments, passwords, clients, tickets, and KB articles can be linked TO.",
+        "enum": [
+          "document",
+          "password",
+          "client",
+          "ticket",
+          "kb_article"
+        ],
+        "type": "string"
       },
       "ListEntriesQuery": {
         "properties": {
@@ -9149,6 +9499,176 @@
         },
         "required": [
           "user_id"
+        ],
+        "type": "object"
+      },
+      "PasswordEntry": {
+        "description": "A vault credential. `secret_ciphertext` is AES-256-GCM from\ncore-api crypto::seal — plaintext NEVER reaches the database layer,\nand this entity never carries it either (reveal is a dedicated,\naudited endpoint response type).",
+        "properties": {
+          "client_id": {
+            "description": "NULL = org-level vault entry.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "has_notes": {
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "org_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updated_by": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "url": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "org_id",
+          "title",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "PasswordHistoryEntry": {
+        "description": "One archived secret ciphertext from a credential's change history.",
+        "properties": {
+          "changed_by": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "org_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "password_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "org_id",
+          "password_id",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "PasswordListQuery": {
+        "properties": {
+          "client_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "global": {
+            "description": "`true` = org-level entries only.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "PasswordMutationResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PasswordEntry"
+          },
+          {
+            "properties": {
+              "mutation": {
+                "$ref": "#/components/schemas/MutationMeta"
+              }
+            },
+            "required": [
+              "mutation"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "Instant-first mutation response (IF2)."
+      },
+      "PasswordReveal": {
+        "description": "The audited reveal response: plaintext is returned exactly once,\nover TLS, to a caller holding `passwords:edit`; the reveal emits a\n`password.revealed` contract event (provenance query: \"who looked\nat this credential and when\").",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "secret": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "secret"
         ],
         "type": "object"
       },
@@ -12498,6 +13018,37 @@
         ],
         "type": "object"
       },
+      "ResolvedLink": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/DocumentLink"
+          },
+          {
+            "properties": {
+              "target_client_id": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "target_deleted": {
+                "description": "The target's own current link count — surfaced for document\ntargets so the panel can hint at hub records.",
+                "type": "boolean"
+              },
+              "target_label": {
+                "description": "Present when the target row still exists.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "A link with its target resolved to a display label for the UI\n(typed read model; the raw row never carries the label)."
+      },
       "RestoreDocumentRequest": {
         "allOf": [
           {
@@ -15249,6 +15800,25 @@
                   "null"
                 ]
               },
+              "client_id": {
+                "description": "Absent = keep the current scope; explicit null moves to global.",
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "fields": {
+                "description": "Absent = keep; present = validated against the (current) layout."
+              },
+              "layout_id": {
+                "description": "Absent = keep; explicit null = untyped.",
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "title": {
                 "type": [
                   "string",
@@ -15311,6 +15881,84 @@
           }
         },
         "type": "object"
+      },
+      "UpdateLayoutRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1)."
+          },
+          {
+            "properties": {
+              "description": {
+                "type": "string"
+              },
+              "fields": {
+                "items": {
+                  "$ref": "#/components/schemas/LayoutField"
+                },
+                "type": "array"
+              },
+              "icon": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "UpdatePasswordRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams",
+            "description": "Instant-first autosave parameters (IF1)."
+          },
+          {
+            "properties": {
+              "expires_at": {
+                "description": "absent = keep; null = clear; value = set.",
+                "format": "date-time",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "notes": {
+                "description": "absent = keep; null = clear; string = replace (encrypted at rest).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "secret": {
+                "description": "Absent = keep the current secret; present (even empty string is\nrejected) = rotate and archive the previous ciphertext to history.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "title": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "username": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "title"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "UpdatePreferenceRequest": {
         "properties": {
@@ -21550,6 +22198,30 @@
                 "null"
               ]
             }
+          },
+          {
+            "description": "Scope narrow: a client uuid, or the literal `global` for org-wide\ndocuments (docs-platform v1). Absent = all scopes.",
+            "in": "query",
+            "name": "client_id",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "layout_id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
           }
         ],
         "responses": {
@@ -21613,6 +22285,192 @@
           }
         ],
         "summary": "POST /api/documents — instant-first (IF1/IF2); creates the document and\nits immutable version 1 in one commit.",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/api/v1/documents/layouts": {
+      "get": {
+        "operationId": "documents_list_layouts",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DocumentLayout"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/documents/layouts — the org's layout catalog (system first).",
+        "tags": [
+          "documents"
+        ]
+      },
+      "post": {
+        "operationId": "documents_create_layout",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLayoutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LayoutMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "description": "idempotency key reused or slug taken"
+          },
+          "422": {
+            "description": "invalid field schema"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/documents/layouts — instant-first; system slugs are reserved.",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/api/v1/documents/layouts/{id}": {
+      "delete": {
+        "operationId": "documents_delete_layout",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "deleted"
+          },
+          "404": {
+            "description": "layout not visible in scope"
+          },
+          "409": {
+            "description": "system layouts cannot be deleted"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "DELETE /api/documents/layouts/{id} — custom layouts only; system\nlayouts are a typed 409 (imports and the DMS seam rely on them).",
+        "tags": [
+          "documents"
+        ]
+      },
+      "patch": {
+        "operationId": "documents_update_layout",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateLayoutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LayoutMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "layout not visible in scope"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "PATCH /api/documents/layouts/{id} — instant-first; system layouts are\neditable (schema and branding), never deletable.",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/api/v1/documents/links/{id}": {
+      "delete": {
+        "operationId": "documents_delete_link",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "deleted"
+          },
+          "404": {
+            "description": "link not visible in scope"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "DELETE /api/documents/links/{id}",
         "tags": [
           "documents"
         ]
@@ -21707,6 +22565,99 @@
           }
         ],
         "summary": "PATCH /api/documents/{id} — instant-first (IF1/IF2); an edit APPENDS\nthe next immutable version and moves the document's head to it. No\nexisting version row is touched.",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/api/v1/documents/{id}/links": {
+      "get": {
+        "operationId": "documents_list_links",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ResolvedLink"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "documents"
+        ]
+      },
+      "post": {
+        "operationId": "documents_add_link",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLinkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ResolvedLink"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "document or link target not visible in scope"
+          },
+          "409": {
+            "description": "link already exists"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/documents/{id}/links — target existence is enforced by the\nresolution join (the link row itself allows any uuid, so the route\nchecks the target kind's table exists for the org before insert).",
         "tags": [
           "documents"
         ]
@@ -22209,7 +23160,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateTemplateRequest"
+                "$ref": "#/components/schemas/CreateImportTemplateRequest"
               }
             }
           },
@@ -24292,6 +25243,400 @@
         "summary": "PATCH /api/org/users/{id}/status — activate or deactivate. Deactivation\nrevokes every live session and blocks login in the same commit.",
         "tags": [
           "org-users"
+        ]
+      }
+    },
+    "/api/v1/passwords": {
+      "get": {
+        "operationId": "passwords_list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "client_id",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "`true` = org-level entries only.",
+            "in": "query",
+            "name": "global",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PasswordEntry"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/passwords — vault browser rows; never carries secrets.",
+        "tags": [
+          "passwords"
+        ]
+      },
+      "post": {
+        "operationId": "passwords_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasswordMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "description": "idempotency key reused"
+          },
+          "422": {
+            "description": "title/secret rejected"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/passwords — instant-first (IF1/IF2); seals the secret before\nthe claim so a crypto failure never consumes an idempotency key.",
+        "tags": [
+          "passwords"
+        ]
+      }
+    },
+    "/api/v1/passwords/{id}": {
+      "delete": {
+        "operationId": "passwords_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "deleted"
+          },
+          "404": {
+            "description": "entry not visible in scope"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "DELETE /api/passwords/{id} — the vault is deletion-capable; history\ncascade-deletes. Emits `password.deleted`.",
+        "tags": [
+          "passwords"
+        ]
+      },
+      "get": {
+        "operationId": "passwords_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasswordEntry"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "entry not visible in scope"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/passwords/{id}",
+        "tags": [
+          "passwords"
+        ]
+      },
+      "patch": {
+        "operationId": "passwords_update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasswordMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "entry not visible in scope"
+          },
+          "409": {
+            "description": "idempotency key reused"
+          },
+          "422": {
+            "description": "validation error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "PATCH /api/passwords/{id} — instant-first; a present `secret` rotates\nthe ciphertext and archives the previous one to history in-commit.",
+        "tags": [
+          "passwords"
+        ]
+      }
+    },
+    "/api/v1/passwords/{id}/history": {
+      "get": {
+        "operationId": "passwords_history",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PasswordHistoryEntry"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/passwords/{id}/history — change ledger metadata (the\nciphertexts are retained for forensic re-derivation, never exposed).",
+        "tags": [
+          "passwords"
+        ]
+      }
+    },
+    "/api/v1/passwords/{id}/links": {
+      "get": {
+        "operationId": "passwords_list_links",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ResolvedLink"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/passwords/{id}/links",
+        "tags": [
+          "passwords"
+        ]
+      },
+      "post": {
+        "operationId": "passwords_add_link",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLinkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ResolvedLink"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "password or link target not visible in scope"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/passwords/{id}/links",
+        "tags": [
+          "passwords"
+        ]
+      }
+    },
+    "/api/v1/passwords/{id}/reveal": {
+      "post": {
+        "operationId": "passwords_reveal",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasswordReveal"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "description": "reveal requires passwords:edit"
+          },
+          "404": {
+            "description": "entry not visible in scope"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/passwords/{id}/reveal — the ONLY plaintext path. Requires\n`passwords:edit`, runs inside the org tx so the reveal event commits\natomically with the read, and the response is the sole carrier of the\ndecrypted secret.",
+        "tags": [
+          "passwords"
         ]
       }
     },
