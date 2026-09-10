@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*)::bigint AS n FROM ticket_tags WHERE org_id = $1 AND tag_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "04d5af41930f9821065ee0f56f2cd4ce6af3887eb53f8008ab5d9f238ad4d7e9"
+}

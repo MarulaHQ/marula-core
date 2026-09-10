@@ -1,0 +1,70 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE pm_schedules SET\n             next_run_at = next_run_at + interval '1 hour',\n             updated_at = now()\n           WHERE id IN (\n             SELECT id FROM pm_schedules\n             WHERE enabled AND next_run_at <= now()\n             ORDER BY next_run_at\n             LIMIT $1\n             FOR UPDATE SKIP LOCKED\n           )\n           RETURNING id, org_id, name, cadence, time_of_day, day_of_week,\n                     day_of_month, timezone, next_run_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "cadence",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "time_of_day",
+        "type_info": "Time"
+      },
+      {
+        "ordinal": 5,
+        "name": "day_of_week",
+        "type_info": "Int2"
+      },
+      {
+        "ordinal": 6,
+        "name": "day_of_month",
+        "type_info": "Int2"
+      },
+      {
+        "ordinal": 7,
+        "name": "timezone",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "next_run_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "191a8118d741529f9dce84295c56df0438aac9fbadc463937026113b12ce6d21"
+}

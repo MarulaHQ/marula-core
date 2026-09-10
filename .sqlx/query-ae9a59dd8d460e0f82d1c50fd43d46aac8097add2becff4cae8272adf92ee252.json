@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE pm_schedules SET\n             next_run_at = $3,\n             last_run_at = $4,\n             last_error = CASE WHEN $5::boolean THEN $6 ELSE NULL END,\n             updated_at = now()\n           WHERE id = $1 AND next_run_at = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz",
+        "Timestamptz",
+        "Timestamptz",
+        "Bool",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ae9a59dd8d460e0f82d1c50fd43d46aac8097add2becff4cae8272adf92ee252"
+}

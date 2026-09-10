@@ -36,6 +36,11 @@ pub struct Ticket {
     pub resolved_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Merge marker (Wave 11 lane 9): the survivor this ticket folded
+    /// into, when it was absorbed by a merge. The row stays queryable
+    /// (doctrine #9) but is closed and never re-opened.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub merged_into_ticket_id: Option<crate::ids::TicketId>,
 }
 
 impl Ticket {
@@ -137,6 +142,7 @@ mod tests {
             resolved_at: Some(Utc::now()),
             created_at: Utc::now(),
             updated_at: Utc::now(),
+            merged_into_ticket_id: None,
         };
         assert!(!t.can_transition_to(&open));
         assert!(t.can_transition_to(&waiting)); // reopen via intermediate is allowed

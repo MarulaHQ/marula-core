@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE ticket_comments SET ticket_id = $3\n           WHERE org_id = $1 AND ticket_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1b7f0a5cfff8a6ca8ebf86b20de8401e9412c0d1fce7a21f22402a729f27df55"
+}

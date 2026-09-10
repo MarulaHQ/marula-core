@@ -1089,3 +1089,160 @@ pub async fn run_import_batch(
     )
         .into_response())
 }
+
+// --- PM schedule generation (Wave 11 lane 9, migration 0056) ---------------------
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct PmGenerateRequest {
+    pub org_id: Uuid,
+    pub schedule_id: Uuid,
+    /// The discharged slot (the schedule's next_run_at at claim time).
+    pub slot_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// POST /api/internal/pm/generate — generates the ticket instance for one
+/// claimed PM schedule slot. Idempotent: the `pm_runs` ledger is unique
+/// per (schedule, slot), so a retried job cannot double-generate; the
+/// schedule's next occurrence was already advanced by the worker's claim
+/// (§4.1: the worker touches only its own scheduling table; this is the
+/// ONLY domain write). The machine actor is the org itself.
+#[utoipa::path(operation_id = "internal_pm_generate", post, path = "/api/internal/pm/generate", tag = "automations",
+    request_body = PmGenerateRequest,
+    responses((status = 200, body = Object)))]
+pub async fn pm_generate(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<PmGenerateRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    require_internal_token(&state, &headers)?;
+
+    let result = org_tx::with_org_tx(&state, req.org_id, req.org_id, |mut ctx| async move {
+        // Ledger gate: inert when the slot already discharged (job retry).
+        let run_id = Uuid::now_v7();
+        let claimed = core_db::recurring::claim_run_slot(
+            &mut *ctx.tx,
+            run_id,
+            req.org_id,
+            req.schedule_id,
+            req.slot_at,
+        )
+        .await?;
+        if !claimed {
+            return Ok((
+                ctx,
+                json!({ "generated": false, "reason": "slot_already_discharged" }),
+            ));
+        }
+        let schedule =
+            core_db::recurring::get_schedule(&mut *ctx.tx, req.org_id, req.schedule_id).await?;
+        if !schedule.enabled {
+            core_db::recurring::record_run_skipped(
+                &mut *ctx.tx,
+                run_id,
+                req.org_id,
+                "schedule_disabled",
+            )
+            .await?;
+            return Ok((
+                ctx,
+                json!({ "generated": false, "reason": "schedule_disabled" }),
+            ));
+        }
+
+        // The instance enters the world through the NORMAL creation path
+        // (same helpers as POST /api/tickets): board default status,
+        // org sequence number, SLA clocks, checklist instantiation, and
+        // the ordinary `ticket.created` event — PM instances are first-
+        // class tickets, not a parallel artifact kind.
+        let status =
+            core_db::boards::default_status_for_board(&mut *ctx.tx, schedule.board_id).await?;
+        let (prefix, seq) = core_db::orgs::next_ticket_number(&mut *ctx.tx, req.org_id).await?;
+        let number = format!("{prefix}-{seq}");
+        let ticket = core_db::tickets::insert_ticket(
+            &mut ctx.tx,
+            core_db::tickets::NewTicket {
+                id: Uuid::now_v7(),
+                org_id: req.org_id,
+                number: &number,
+                board_id: schedule.board_id,
+                status_id: status.id,
+                title: schedule.title.as_str(),
+                body: schedule.body.as_deref(),
+                priority: schedule.priority,
+                client_id: schedule.client_id,
+                site_id: schedule.site_id,
+                contact_id: None,
+                assignee_id: schedule.assignee_id,
+                requester_id: None,
+                due_at: Some(req.slot_at),
+            },
+        )
+        .await?;
+        core_db::recurring::record_run_ticket(&mut *ctx.tx, run_id, req.org_id, ticket.id).await?;
+        if let Ok(policy) = core_db::sla::get_default_policy(&mut *ctx.tx, req.org_id).await {
+            let sla = core_domain::entities::TicketSlaState::init(
+                req.org_id,
+                ticket.id,
+                &policy,
+                ticket.priority,
+                ticket.created_at,
+            );
+            core_db::sla::upsert_ticket_state(&mut *ctx.tx, &sla).await?;
+        }
+        core_db::checklists::instantiate_missing(
+            &mut ctx.tx,
+            req.org_id,
+            schedule.board_id,
+            ticket.id,
+        )
+        .await?;
+        core_db::audit::insert(
+            &mut *ctx.tx,
+            &AuditEvent {
+                id: Uuid::now_v7(),
+                org_id: req.org_id,
+                actor: Actor::System,
+                action: "pm_schedule.generated_ticket".into(),
+                entity_type: Some("ticket".into()),
+                entity_id: Some(ticket.id.to_string()),
+                detail: serde_json::json!({
+                    "schedule_id": req.schedule_id,
+                    "schedule_name": schedule.name,
+                    "slot_at": req.slot_at.to_rfc3339(),
+                }),
+                ip: None,
+                occurred_at: chrono::Utc::now(),
+            },
+        )
+        .await?;
+        ctx.emit(
+            types::TICKET_CREATED,
+            "ticket",
+            Some(ticket.id.to_string().as_str()),
+            &serde_json::to_value(core_domain::events::TicketCreated {
+                ticket_id: ticket.id,
+                number: ticket.number.0.clone(),
+                board_id: ticket.board_id,
+                title: ticket.title.clone(),
+                priority: ticket.priority,
+                client_id: ticket.client_id,
+                assignee_id: ticket.assignee_id,
+                created_at: ticket.created_at,
+            })
+            .unwrap_or_default(),
+        )
+        .await?;
+        Ok((
+            ctx,
+            json!({
+                "generated": true,
+                "ticket_id": ticket.id,
+                "ticket_number": ticket.number.0,
+                "slot_at": req.slot_at.to_rfc3339(),
+            }),
+        ))
+    })
+    .await?;
+
+    Ok(Json(result))
+}

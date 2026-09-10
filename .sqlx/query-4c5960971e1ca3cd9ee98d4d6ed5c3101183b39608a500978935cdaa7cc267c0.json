@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE ticket_links SET from_ticket_id = $3\n           WHERE org_id = $1 AND from_ticket_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4c5960971e1ca3cd9ee98d4d6ed5c3101183b39608a500978935cdaa7cc267c0"
+}

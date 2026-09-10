@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE ticket_cost_lines SET\n             description = COALESCE($3, description),\n             quantity = COALESCE($4::double precision, quantity),\n             unit_cost_minor = COALESCE($5, unit_cost_minor),\n             billable = COALESCE($6, billable),\n             updated_at = now()\n           WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Float8",
+        "Int8",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "78cdbe8afdc4a85bfda94f0a7c528658064fd71287f0dcf196193bc6832a1b66"
+}

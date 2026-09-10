@@ -22,6 +22,7 @@ pub mod scheduling;
 pub mod sla;
 pub mod ticket;
 pub mod time_tracking;
+pub mod workflow_constructs;
 
 pub use appointment_request::*;
 pub use attachment::*;
@@ -44,3 +45,4 @@ pub use scheduling::*;
 pub use sla::*;
 pub use ticket::*;
 pub use time_tracking::*;
+pub use workflow_constructs::*;

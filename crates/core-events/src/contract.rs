@@ -247,6 +247,84 @@ fn sample_invoice_payment() -> InvoicePayment {
     }
 }
 
+/// Representative org tag for the workflow-construct samples.
+fn sample_tag() -> Tag {
+    Tag {
+        id: su(41),
+        org_id: su(2),
+        name: "customer-site".into(),
+        color: Some("#0ea5e9".into()),
+        created_by: Some(su(5)),
+        created_at: st(1),
+        updated_at: st(1),
+    }
+}
+
+/// Representative ticket cost line for the workflow-construct samples.
+fn sample_cost_line() -> TicketCostLine {
+    TicketCostLine {
+        id: su(45),
+        org_id: su(2),
+        ticket_id: su(1),
+        kind: CostLineKind::Parts,
+        description: "Replacement PSU".into(),
+        quantity: 1.0,
+        unit_cost_minor: 8_900,
+        currency: "USD".into(),
+        billable: true,
+        invoice_line_id: None,
+        created_by: Some(su(5)),
+        created_at: st(1),
+        updated_at: st(1),
+    }
+}
+
+/// Representative ticket expense for the workflow-construct samples.
+fn sample_expense() -> TicketExpense {
+    TicketExpense {
+        id: su(47),
+        org_id: su(2),
+        ticket_id: su(1),
+        description: "Courier for replacement hardware".into(),
+        amount_minor: 2_400,
+        currency: "USD".into(),
+        billable: true,
+        invoice_line_id: None,
+        incurred_by: Some(su(5)),
+        incurred_at: st(1),
+        created_at: st(1),
+        updated_at: st(1),
+    }
+}
+
+/// Representative PM schedule for the workflow-construct samples.
+fn sample_pm_schedule() -> PmSchedule {
+    PmSchedule {
+        id: su(48),
+        org_id: su(2),
+        name: "Monthly backup restore check".into(),
+        board_id: su(2),
+        title: "Backup restore verification".into(),
+        body: Some("Run the documented restore drill.".into()),
+        priority: Priority::P3,
+        client_id: Some(su(3)),
+        site_id: None,
+        assignee_id: Some(su(4)),
+        cadence: core_domain::cadence::Cadence::Monthly,
+        time_of_day: chrono::NaiveTime::from_hms_opt(9, 0, 0).unwrap(),
+        day_of_week: None,
+        day_of_month: Some(1),
+        timezone: "UTC".into(),
+        enabled: true,
+        next_run_at: st(2),
+        last_run_at: None,
+        last_error: None,
+        created_by: su(5),
+        created_at: st(1),
+        updated_at: st(1),
+    }
+}
+
 /// Representative milestone phase of the sample project.
 fn sample_phase() -> ProjectPhase {
     ProjectPhase {
@@ -335,10 +413,10 @@ macro_rules! untyped_shape {
 
 use core_domain::entities::{
     Appointment, AppointmentKind, AppointmentStatus, BillingFrequency, BillingMethod, BoardGroup,
-    BoardStatus, ChecklistItem, Contract, ContractStatus, ContractType, DunningState, Invoice,
-    InvoicePayment, InvoiceRun, InvoiceStatus, NotificationKind, NotificationPreference,
-    PhaseStatus, Project, ProjectPhase, ProjectStatus, ProjectTask, TaskStatus, TicketComment,
-    TimeEntry,
+    BoardStatus, ChecklistItem, Contract, ContractStatus, ContractType, CostLineKind, DunningState,
+    Invoice, InvoicePayment, InvoiceRun, InvoiceStatus, NotificationKind, NotificationPreference,
+    PhaseStatus, PmSchedule, Project, ProjectPhase, ProjectStatus, ProjectTask, Tag, TaskStatus,
+    TicketComment, TicketCostLine, TicketExpense, TicketLinkType, TimeEntry,
 };
 use core_domain::events::{
     types, AlertIngested, AppointmentCancelled, AppointmentCreated, AppointmentRequestApproved,
@@ -351,13 +429,16 @@ use core_domain::events::{
     ContractUpdated, DispatchQueueUpdated, DispatchStatusUpdated, ImportBatchFinished,
     ImportBatchStarted, InvoiceCreated, InvoiceDunningChanged, InvoicePaymentRecorded,
     InvoiceRunCompleted, InvoiceVoided, MigrationPushSessionFinished, MigrationPushSessionStarted,
-    NotificationCreated, OnCallChanged, ProjectCreated, ProjectMilestoneCompleted,
-    ProjectPhaseCompleted, ProjectPhaseCreated, ProjectPhaseUpdated, ProjectTaskCompleted,
-    ProjectTaskCreated, ProjectTaskUpdated, ProjectTemplateRemoved, ProjectTemplateUpdated,
-    ProjectUpdated, ProjectViewRemoved, ProjectViewUpdated, SiteCreated, SiteUpdated,
-    TicketAssigned, TicketBoardMoved, TicketChecklistUpdated, TicketCommentAdded, TicketCreated,
-    TicketReverted, TicketStatusChanged, TimeEntryCreated, TimerPaused, TimerStarted, TimerStopped,
-    TravelDraftSubmitted, UserActivated, UserDeactivated, UserInvited, UserRoleChanged,
+    NotificationCreated, OnCallChanged, PmScheduleChanged, PmScheduleDeleted, ProjectCreated,
+    ProjectMilestoneCompleted, ProjectPhaseCompleted, ProjectPhaseCreated, ProjectPhaseUpdated,
+    ProjectTaskCompleted, ProjectTaskCreated, ProjectTaskUpdated, ProjectTemplateRemoved,
+    ProjectTemplateUpdated, ProjectUpdated, ProjectViewRemoved, ProjectViewUpdated, SiteCreated,
+    SiteUpdated, TagCreated, TagDeleted, TagUpdated, TicketAssigned, TicketBoardMoved,
+    TicketChecklistUpdated, TicketCommentAdded, TicketCostLineAdded, TicketCostLineRemoved,
+    TicketCreated, TicketExpenseRecorded, TicketExpenseRemoved, TicketLinkChanged, TicketMerged,
+    TicketReverted, TicketStatusChanged, TicketTagsChanged, TimeEntryCreated, TimerPaused,
+    TimerStarted, TimerStopped, TravelDraftSubmitted, UserActivated, UserDeactivated, UserInvited,
+    UserRoleChanged,
 };
 use core_domain::money::{CurrencyCode, Money};
 use core_domain::policy::BoardRole;
@@ -1919,6 +2000,202 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             }
         ),
     },
+    // -- workflow constructs (Wave 11 lane 9, migration 0056) --------------
+    PublishedEvent {
+        event_type: types::TAG_CREATED,
+        entity: "tag",
+        variant: "default",
+        shape: typed_shape!(TagCreated, TagCreated { tag: sample_tag() }),
+    },
+    PublishedEvent {
+        event_type: types::TAG_UPDATED,
+        entity: "tag",
+        variant: "default",
+        shape: typed_shape!(TagUpdated, TagUpdated { tag: sample_tag() }),
+    },
+    PublishedEvent {
+        event_type: types::TAG_DELETED,
+        entity: "tag",
+        variant: "default",
+        shape: typed_shape!(
+            TagDeleted,
+            TagDeleted {
+                tag_id: su(41),
+                name: "customer-site".into(),
+                applied_count: 3,
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::TICKET_TAGS_CHANGED,
+        entity: "ticket",
+        variant: "default",
+        shape: typed_shape!(
+            TicketTagsChanged,
+            TicketTagsChanged {
+                ticket_id: su(1),
+                board_id: su(2),
+                tag_id: su(41),
+                applied: true,
+                changed_by: Some(su(5)),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::TICKET_MERGED,
+        entity: "ticket",
+        variant: "default",
+        shape: typed_shape!(
+            TicketMerged,
+            TicketMerged {
+                source_id: su(1),
+                source_number: "MER-1001".into(),
+                survivor_id: su(42),
+                survivor_number: "MER-1002".into(),
+                comments_folded: 4,
+                time_entries_folded: 2,
+                time_minutes_folded: 95,
+                cost_lines_folded: 1,
+                expenses_folded: 1,
+                children_relinked: 1,
+                conflicts: vec!["priority".into()],
+                merged_by: Some(su(5)),
+                occurred_at: st(5),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::TICKET_LINKED,
+        entity: "ticket",
+        variant: "default",
+        shape: typed_shape!(
+            TicketLinkChanged,
+            TicketLinkChanged {
+                from_ticket_id: su(1),
+                to_ticket_id: su(42),
+                link_type: TicketLinkType::ParentChild.as_str().into(),
+                linked: true,
+                changed_by: Some(su(5)),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::TICKET_UNLINKED,
+        entity: "ticket",
+        variant: "default",
+        shape: typed_shape!(
+            TicketLinkChanged,
+            TicketLinkChanged {
+                from_ticket_id: su(1),
+                to_ticket_id: su(42),
+                link_type: TicketLinkType::MajorIncident.as_str().into(),
+                linked: false,
+                changed_by: Some(su(5)),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::TICKET_COST_LINE_ADDED,
+        entity: "ticket_cost_line",
+        variant: "default",
+        shape: typed_shape!(
+            TicketCostLineAdded,
+            TicketCostLineAdded {
+                line: sample_cost_line(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::TICKET_COST_LINE_UPDATED,
+        entity: "ticket_cost_line",
+        variant: "default",
+        shape: typed_shape!(
+            TicketCostLineAdded,
+            TicketCostLineAdded {
+                line: sample_cost_line(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::TICKET_COST_LINE_REMOVED,
+        entity: "ticket_cost_line",
+        variant: "default",
+        shape: typed_shape!(
+            TicketCostLineRemoved,
+            TicketCostLineRemoved {
+                line_id: su(45),
+                ticket_id: su(1),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::TICKET_EXPENSE_RECORDED,
+        entity: "ticket_expense",
+        variant: "default",
+        shape: typed_shape!(
+            TicketExpenseRecorded,
+            TicketExpenseRecorded {
+                expense: sample_expense(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::TICKET_EXPENSE_UPDATED,
+        entity: "ticket_expense",
+        variant: "default",
+        shape: typed_shape!(
+            TicketExpenseRecorded,
+            TicketExpenseRecorded {
+                expense: sample_expense(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::TICKET_EXPENSE_REMOVED,
+        entity: "ticket_expense",
+        variant: "default",
+        shape: typed_shape!(
+            TicketExpenseRemoved,
+            TicketExpenseRemoved {
+                expense_id: su(47),
+                ticket_id: su(1),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PM_SCHEDULE_CREATED,
+        entity: "pm_schedule",
+        variant: "default",
+        shape: typed_shape!(
+            PmScheduleChanged,
+            PmScheduleChanged {
+                schedule: sample_pm_schedule(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PM_SCHEDULE_UPDATED,
+        entity: "pm_schedule",
+        variant: "default",
+        shape: typed_shape!(
+            PmScheduleChanged,
+            PmScheduleChanged {
+                schedule: sample_pm_schedule(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PM_SCHEDULE_DELETED,
+        entity: "pm_schedule",
+        variant: "default",
+        shape: typed_shape!(
+            PmScheduleDeleted,
+            PmScheduleDeleted {
+                schedule_id: su(48),
+                name: "Quarterly fleet audit".into(),
+            }
+        ),
+    },
     // -- report definitions ------------------------------------------------
     PublishedEvent {
         event_type: types::REPORT_DEFINITION_CREATED,
@@ -2248,6 +2525,20 @@ pub static RESERVED_EVENT_TYPES: &[&str] = &[
     types::ORG_CREATED,
     types::USER_CREATED,
     types::TIME_ENTRY_UPDATED,
+    // Wave 11 lane 7 (docs-platform) declared these emission-site types on
+    // main without landing their contract entries + goldens; reserved here
+    // so the registry invariant holds until the owning lane publishes them
+    // properly (each needs a fixture + shape registration, not a silent
+    // passthrough).
+    types::DOCUMENT_LAYOUT_CREATED,
+    types::DOCUMENT_LAYOUT_UPDATED,
+    types::DOCUMENT_LAYOUT_REMOVED,
+    types::PASSWORD_CREATED,
+    types::PASSWORD_UPDATED,
+    types::PASSWORD_DELETED,
+    types::PASSWORD_REVEALED,
+    types::LINK_ADDED,
+    types::LINK_REMOVED,
 ];
 
 /// A retired event type (policy §2: "retired event types keep emitting

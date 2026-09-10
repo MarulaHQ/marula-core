@@ -766,6 +766,25 @@
         ],
         "type": "object"
       },
+      "ApplyTagRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams"
+          },
+          {
+            "properties": {
+              "tag_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "tag_id"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "Appointment": {
         "description": "A booked slot on one user's calendar, optionally tied to a ticket and\nclient/site. `travel_minutes` is a dispatch-board placeholder — never\ninterpreted by scheduling rules in this stage.",
         "properties": {
@@ -2256,6 +2275,53 @@
         ],
         "type": "object"
       },
+      "Cadence": {
+        "description": "The typed cadence of a schedule row (the stored slug's Rust shape).",
+        "enum": [
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "type": "string"
+      },
+      "CadenceSpec": {
+        "description": "The typed cadence + wall-clock shape (same columns as report\nschedules; the DB CHECKs pin the same consistency rules).",
+        "properties": {
+          "cadence": {
+            "description": "\"daily\" | \"weekly\" | \"monthly\"",
+            "type": "string"
+          },
+          "day_of_month": {
+            "description": "1–28; monthly only.",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "day_of_week": {
+            "description": "0 = Monday .. 6 = Sunday; weekly only.",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "time_of_day": {
+            "description": "Local wall-clock fire time in `timezone` (HH:MM:SS).",
+            "type": "string"
+          },
+          "timezone": {
+            "description": "IANA zone the wall clock reads in.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cadence",
+          "time_of_day"
+        ],
+        "type": "object"
+      },
       "CalendarExclusion": {
         "description": "Absolute UTC time-off punching holes in availability.",
         "properties": {
@@ -3560,6 +3626,30 @@
         ],
         "type": "string"
       },
+      "CostLineKind": {
+        "description": "One money line on a ticket: `parts`, `flat`, or `other`.",
+        "enum": [
+          "parts",
+          "flat",
+          "other"
+        ],
+        "type": "string"
+      },
+      "CostLineMutationResponse": {
+        "properties": {
+          "line": {
+            "$ref": "#/components/schemas/TicketCostLine"
+          },
+          "mutation": {
+            "$ref": "#/components/schemas/MutationMeta"
+          }
+        },
+        "required": [
+          "line",
+          "mutation"
+        ],
+        "type": "object"
+      },
       "CreateAlertSourceRequest": {
         "allOf": [
           {
@@ -4113,6 +4203,44 @@
           }
         ]
       },
+      "CreateCostLineRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams"
+          },
+          {
+            "properties": {
+              "billable": {
+                "type": "boolean"
+              },
+              "currency": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "kind": {
+                "$ref": "#/components/schemas/CostLineKind"
+              },
+              "quantity": {
+                "format": "double",
+                "type": "number"
+              },
+              "unit_cost_minor": {
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "description",
+              "unit_cost_minor",
+              "currency"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "CreateDocumentRequest": {
         "allOf": [
           {
@@ -4190,6 +4318,36 @@
           "ends_at"
         ],
         "type": "object"
+      },
+      "CreateExpenseRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams"
+          },
+          {
+            "properties": {
+              "amount_minor": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "billable": {
+                "type": "boolean"
+              },
+              "currency": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "description",
+              "amount_minor",
+              "currency"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "CreateFieldDefRequest": {
         "properties": {
@@ -4870,6 +5028,67 @@
         ],
         "type": "object"
       },
+      "CreateScheduleRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams"
+          },
+          {
+            "$ref": "#/components/schemas/CadenceSpec"
+          },
+          {
+            "properties": {
+              "assignee_id": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "board_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "body": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "client_id": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "priority": {
+                "description": "\"p1\" | \"p2\" | \"p3\" | \"p4\" (defaults p3)",
+                "type": "string"
+              },
+              "site_id": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "board_id",
+              "title"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "CreateSiteRequest": {
         "properties": {
           "address": {
@@ -4955,6 +5174,30 @@
           "is_entry"
         ],
         "type": "object"
+      },
+      "CreateTagRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams"
+          },
+          {
+            "properties": {
+              "color": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "CreateTaskRequest": {
         "allOf": [
@@ -6360,6 +6603,21 @@
         ],
         "type": "object"
       },
+      "ExpenseMutationResponse": {
+        "properties": {
+          "expense": {
+            "$ref": "#/components/schemas/TicketExpense"
+          },
+          "mutation": {
+            "$ref": "#/components/schemas/MutationMeta"
+          }
+        },
+        "required": [
+          "expense",
+          "mutation"
+        ],
+        "type": "object"
+      },
       "ExportBundle": {
         "description": "The org-data export envelope, `bundle_version` 1.",
         "properties": {
@@ -7049,6 +7307,14 @@
         ],
         "type": "string"
       },
+      "FieldResolution": {
+        "description": "Per-field resolution: which side's value wins when the tickets\ndisagree. `\"survivor\"` (the default) keeps the survivor's value.",
+        "enum": [
+          "survivor",
+          "source"
+        ],
+        "type": "string"
+      },
       "FilterOp": {
         "description": "Filter operators supported by the v1 compiled reports. Operand typing is\nenforced through [`ValueType`] matches in the builder, so e.g. a bool\noperand can never reach a timestamp column. The serde encoding is the\n`snake_case` slug (`lt_eq`, `is_null`, …) stored specs carry.",
         "enum": [
@@ -7581,6 +7847,48 @@
           "dunning_state",
           "created_at",
           "updated_at"
+        ],
+        "type": "object"
+      },
+      "InvoiceCandidateView": {
+        "properties": {
+          "amount_minor": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "client_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "line_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "source": {
+            "description": "\"cost\" | \"expense\"",
+            "type": "string"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "source",
+          "line_id",
+          "description",
+          "amount_minor",
+          "currency"
         ],
         "type": "object"
       },
@@ -8149,6 +8457,31 @@
           "kb_article"
         ],
         "type": "string"
+      },
+      "LinksView": {
+        "properties": {
+          "from": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "rollup": {
+            "$ref": "#/components/schemas/TicketRollup"
+          },
+          "to": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "rollup"
+        ],
+        "type": "object"
       },
       "ListEntriesQuery": {
         "properties": {
@@ -9086,6 +9419,178 @@
         },
         "required": [
           "agg"
+        ],
+        "type": "object"
+      },
+      "MergeConflictEntry": {
+        "properties": {
+          "field": {
+            "description": "\"board\" | \"title\" | \"priority\" | \"client\" | \"assignee\"",
+            "type": "string"
+          },
+          "resolution": {
+            "$ref": "#/components/schemas/FieldResolution"
+          },
+          "source_value": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "survivor_value": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "field",
+          "resolution",
+          "survivor_value",
+          "source_value"
+        ],
+        "type": "object"
+      },
+      "MergeFoldSummary": {
+        "properties": {
+          "children_relinked": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "comments_folded": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "cost_lines_folded": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "expenses_folded": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "time_entries_folded": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "time_minutes_folded": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "comments_folded",
+          "time_entries_folded",
+          "time_minutes_folded",
+          "cost_lines_folded",
+          "expenses_folded",
+          "children_relinked"
+        ],
+        "type": "object"
+      },
+      "MergeRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams"
+          },
+          {
+            "properties": {
+              "resolve": {
+                "$ref": "#/components/schemas/MergeResolutions"
+              },
+              "survivor_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "survivor_id"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "MergeResolutions": {
+        "properties": {
+          "assignee": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FieldResolution"
+              }
+            ]
+          },
+          "board": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FieldResolution"
+              }
+            ]
+          },
+          "client": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FieldResolution"
+              }
+            ]
+          },
+          "priority": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FieldResolution"
+              }
+            ]
+          },
+          "title": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FieldResolution"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "MergeResponse": {
+        "properties": {
+          "conflicts": {
+            "items": {
+              "$ref": "#/components/schemas/MergeConflictEntry"
+            },
+            "type": "array"
+          },
+          "fold": {
+            "$ref": "#/components/schemas/MergeFoldSummary"
+          },
+          "source_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "survivor_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "survivor_id",
+          "source_id",
+          "conflicts",
+          "fold"
         ],
         "type": "object"
       },
@@ -10640,6 +11145,180 @@
           "cancelled"
         ],
         "type": "string"
+      },
+      "PmRun": {
+        "description": "One append-only PM run ledger row.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "detail": {},
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "org_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "schedule_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "slot_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "description": "\"generated\" | \"skipped\"",
+            "type": "string"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "org_id",
+          "schedule_id",
+          "slot_at",
+          "status",
+          "detail",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "PmSchedule": {
+        "description": "A recurring/scheduled ticket (PM schedule): a ticket template plus the\ntyped cadence (same shape as report schedules). The worker claims due\nrows; core-api generates the instance and advances the cadence.",
+        "properties": {
+          "assignee_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "board_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "body": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cadence": {
+            "$ref": "#/components/schemas/Cadence"
+          },
+          "client_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "day_of_month": {
+            "description": "1–28; monthly only.",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "day_of_week": {
+            "description": "0 = Monday .. 6 = Sunday; weekly only.",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_run_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "next_run_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "org_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/Priority"
+          },
+          "site_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "time_of_day": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "org_id",
+          "name",
+          "board_id",
+          "title",
+          "priority",
+          "cadence",
+          "time_of_day",
+          "timezone",
+          "enabled",
+          "next_run_at",
+          "created_by",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
       },
       "PolicyView": {
         "properties": {
@@ -13574,6 +14253,21 @@
         },
         "type": "object"
       },
+      "ScheduleMutationResponse": {
+        "properties": {
+          "mutation": {
+            "$ref": "#/components/schemas/MutationMeta"
+          },
+          "schedule": {
+            "$ref": "#/components/schemas/PmSchedule"
+          }
+        },
+        "required": [
+          "schedule",
+          "mutation"
+        ],
+        "type": "object"
+      },
       "SearchQuery": {
         "properties": {
           "limit": {
@@ -14382,6 +15076,83 @@
         ],
         "description": "POST /api/dispatch/travel-drafts/{id}/submit body."
       },
+      "Tag": {
+        "description": "An org-wide tag: a flat named label with an optional display color.",
+        "properties": {
+          "color": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "org_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "org_id",
+          "name",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "TagMutationResponse": {
+        "properties": {
+          "mutation": {
+            "$ref": "#/components/schemas/MutationMeta"
+          },
+          "tag": {
+            "$ref": "#/components/schemas/TagView"
+          }
+        },
+        "required": [
+          "tag",
+          "mutation"
+        ],
+        "type": "object"
+      },
+      "TagView": {
+        "description": "One tag + how many tickets currently carry it.",
+        "properties": {
+          "applied_count": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "tag": {
+            "$ref": "#/components/schemas/Tag"
+          }
+        },
+        "required": [
+          "tag",
+          "applied_count"
+        ],
+        "type": "object"
+      },
       "TargetStatusOption": {
         "description": "One target-board status option inside a `board_move_status_conflict`\n409 — everything the client needs to render the pick list.",
         "properties": {
@@ -14844,6 +15615,14 @@
             "format": "uuid",
             "type": "string"
           },
+          "merged_into_ticket_id": {
+            "description": "Merge marker (Wave 11 lane 9): the survivor this ticket folded\ninto, when it was absorbed by a merge. The row stays queryable\n(doctrine #9) but is closed and never re-opened.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "number": {
             "$ref": "#/components/schemas/TicketNumber"
           },
@@ -15038,6 +15817,79 @@
         ],
         "description": "Same additive envelope for comments (plain comment body)."
       },
+      "TicketCostLine": {
+        "properties": {
+          "billable": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "invoice_line_id": {
+            "description": "Set once this line became an invoice line (\"billed once, ever\").",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/CostLineKind"
+          },
+          "org_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "quantity": {
+            "format": "double",
+            "type": "number"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "unit_cost_minor": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "org_id",
+          "ticket_id",
+          "kind",
+          "description",
+          "quantity",
+          "unit_cost_minor",
+          "currency",
+          "billable",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
       "TicketCustomFieldValue": {
         "description": "One stored ticket value with its definition context.",
         "properties": {
@@ -15070,6 +15922,75 @@
         ],
         "type": "object"
       },
+      "TicketExpense": {
+        "description": "One expense entry on a ticket.",
+        "properties": {
+          "amount_minor": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "billable": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "incurred_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "incurred_by": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invoice_line_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "org_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "org_id",
+          "ticket_id",
+          "description",
+          "amount_minor",
+          "currency",
+          "billable",
+          "incurred_at",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
       "TicketFieldInput": {
         "description": "One value assignment on a ticket create/patch: raw JSON validated against\nits definition server-side.",
         "properties": {
@@ -15084,6 +16005,14 @@
           "value"
         ],
         "type": "object"
+      },
+      "TicketLinkType": {
+        "description": "A typed edge between two tickets.\n\n- `ParentChild`: `from_ticket_id` is the CHILD, `to_ticket_id` the\n  parent — child work rolls up to the parent.\n- `MajorIncident`: `from_ticket_id` is a MEMBER, `to_ticket_id` the\n  major incident it folded into.",
+        "enum": [
+          "parent_child",
+          "major_incident"
+        ],
+        "type": "string"
       },
       "TicketListQuery": {
         "properties": {
@@ -15134,6 +16063,13 @@
               {
                 "$ref": "#/components/schemas/Priority"
               }
+            ]
+          },
+          "tags": {
+            "description": "Comma-separated tag ids (Wave 11 lane 9): AND semantics — tickets\nmust carry every listed tag.",
+            "type": [
+              "string",
+              "null"
             ]
           }
         },
@@ -15214,6 +16150,47 @@
           }
         ],
         "description": "The reverted ticket with the mutation envelope, plus what was reverted.\nDeserializable so an IF1 idempotent replay can reconstruct the exact\nstored response."
+      },
+      "TicketRollup": {
+        "description": "Rollup over the children/members pointing at one ticket, plus the\nticket's own billable money lines.",
+        "properties": {
+          "billable_cost_minor": {
+            "description": "Summed minor-unit total of billable cost lines + expenses.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "child_count": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "child_open_count": {
+            "description": "Open (not closed, not merged) children still carrying work.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "major_incident_member_count": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "ticket_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "time_minutes": {
+            "description": "Summed minutes of folded-in time (own + children/members).",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "child_count",
+          "child_open_count",
+          "major_incident_member_count",
+          "time_minutes",
+          "billable_cost_minor"
+        ],
+        "type": "object"
       },
       "TicketSkillsMutationResponse": {
         "allOf": [
@@ -16117,6 +17094,44 @@
           }
         ]
       },
+      "UpdateCostLineRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams"
+          },
+          {
+            "properties": {
+              "billable": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "quantity": {
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "unit_cost_minor": {
+                "format": "int64",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        ]
+      },
       "UpdateDocumentRequest": {
         "allOf": [
           {
@@ -16157,6 +17172,37 @@
                 ]
               },
               "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        ]
+      },
+      "UpdateExpenseRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams"
+          },
+          {
+            "properties": {
+              "amount_minor": {
+                "format": "int64",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "billable": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "description": {
                 "type": [
                   "string",
                   "null"
@@ -16480,6 +17526,80 @@
         },
         "type": "object"
       },
+      "UpdateScheduleRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams"
+          },
+          {
+            "properties": {
+              "assignee_id": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "body": {
+                "description": "Some → set (null clears); absent → no change.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "cadence": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CadenceSpec"
+                  }
+                ]
+              },
+              "client_id": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "enabled": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "priority": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "site_id": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        ]
+      },
       "UpdateSettingRequest": {
         "properties": {
           "key": {
@@ -16529,6 +17649,31 @@
           }
         },
         "type": "object"
+      },
+      "UpdateTagRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationParams"
+          },
+          {
+            "properties": {
+              "color": {
+                "description": "Some → set (null clears); absent → no change.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        ]
       },
       "UpdateTaxonomyNodeRequest": {
         "allOf": [
@@ -23734,6 +24879,35 @@
         ]
       }
     },
+    "/api/v1/invoice-candidates": {
+      "get": {
+        "operationId": "invoice_candidates_list",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/InvoiceCandidateView"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/invoice-candidates — every billable, not-yet-billed cost line\nand expense in the org, oldest first. The invoicing run consumes rows\nby writing `invoice_line_id` through the costs module's marker.",
+        "tags": [
+          "ticket-costs"
+        ]
+      }
+    },
     "/api/v1/invoices": {
       "get": {
         "operationId": "invoices_list",
@@ -26003,6 +27177,251 @@
         "summary": "POST /api/passwords/{id}/reveal — the ONLY plaintext path. Requires\n`passwords:edit`, runs inside the org tx so the reveal event commits\natomically with the read, and the response is the sole carrier of the\ndecrypted secret.",
         "tags": [
           "passwords"
+        ]
+      }
+    },
+    "/api/v1/pm-schedules": {
+      "get": {
+        "operationId": "pm_schedules_list",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PmSchedule"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/pm-schedules — every schedule, next-run ordered.",
+        "tags": [
+          "pm-schedules"
+        ]
+      },
+      "post": {
+        "operationId": "pm_schedules_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateScheduleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "board not found"
+          },
+          "409": {
+            "description": "duplicate schedule name or idempotency key reused"
+          },
+          "422": {
+            "description": "invalid cadence shape"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/pm-schedules — create a recurring-ticket template.",
+        "tags": [
+          "pm-schedules"
+        ]
+      }
+    },
+    "/api/v1/pm-schedules/{id}": {
+      "delete": {
+        "operationId": "pm_schedules_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "schedule not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "DELETE /api/pm-schedules/{id} — removes the schedule. Existing\ngenerated tickets are unaffected (templates are blueprints).",
+        "tags": [
+          "pm-schedules"
+        ]
+      },
+      "get": {
+        "operationId": "pm_schedules_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PmSchedule"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "schedule not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/pm-schedules/{id}",
+        "tags": [
+          "pm-schedules"
+        ]
+      },
+      "patch": {
+        "operationId": "pm_schedules_update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateScheduleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "schedule not found"
+          },
+          "409": {
+            "description": "version conflict or duplicate name"
+          },
+          "422": {
+            "description": "invalid cadence shape"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "PATCH /api/pm-schedules/{id} — edit template/cadence/enabled. A\ncadence edit re-materializes `next_run_at` from the new shape.",
+        "tags": [
+          "pm-schedules"
+        ]
+      }
+    },
+    "/api/v1/pm-schedules/{id}/runs": {
+      "get": {
+        "operationId": "pm_schedules_runs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PmRun"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "schedule not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/pm-schedules/{id}/runs — the append-only run ledger (the run\nrecord; the worker emits nothing).",
+        "tags": [
+          "pm-schedules"
         ]
       }
     },
@@ -29676,6 +31095,161 @@
         ]
       }
     },
+    "/api/v1/tags": {
+      "get": {
+        "operationId": "tags_list",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TagView"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/tags — the org's tag taxonomy with application counts.",
+        "tags": [
+          "tags"
+        ]
+      },
+      "post": {
+        "operationId": "tags_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTagRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TagMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "description": "duplicate tag name or idempotency key reused"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/tags — create a tag.",
+        "tags": [
+          "tags"
+        ]
+      }
+    },
+    "/api/v1/tags/{id}": {
+      "delete": {
+        "operationId": "tags_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "tag not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "DELETE /api/tags/{id} — removes the tag and every ticket application.",
+        "tags": [
+          "tags"
+        ]
+      },
+      "patch": {
+        "operationId": "tags_update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTagRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TagMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "tag not found"
+          },
+          "409": {
+            "description": "version conflict or duplicate name"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "PATCH /api/tags/{id} — rename / recolor.",
+        "tags": [
+          "tags"
+        ]
+      }
+    },
     "/api/v1/taxonomy/categories": {
       "get": {
         "operationId": "taxonomy_list_categories",
@@ -30165,6 +31739,18 @@
                 {
                   "$ref": "#/components/schemas/Priority"
                 }
+              ]
+            }
+          },
+          {
+            "description": "Comma-separated tag ids (Wave 11 lane 9): AND semantics — tickets\nmust carry every listed tag.",
+            "in": "query",
+            "name": "tags",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
               ]
             }
           },
@@ -30770,6 +32356,414 @@
         ]
       }
     },
+    "/api/v1/tickets/{id}/cost-lines": {
+      "get": {
+        "operationId": "tickets_list_cost_lines",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TicketCostLine"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/tickets/{id}/cost-lines",
+        "tags": [
+          "ticket-costs"
+        ]
+      },
+      "post": {
+        "operationId": "tickets_create_cost_line",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCostLineRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketCostLine"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "ticket not found in scope"
+          },
+          "409": {
+            "description": "idempotency key reused"
+          },
+          "422": {
+            "description": "invalid quantity/currency"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/tickets/{id}/cost-lines — add a money line (parts/flat/other).",
+        "tags": [
+          "ticket-costs"
+        ]
+      }
+    },
+    "/api/v1/tickets/{id}/cost-lines/{line_id}": {
+      "delete": {
+        "operationId": "tickets_remove_cost_line",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "line not found in scope"
+          },
+          "409": {
+            "description": "already billed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "DELETE /api/tickets/{id}/cost-lines/{line_id} — remove an unbilled line.",
+        "tags": [
+          "ticket-costs"
+        ]
+      },
+      "patch": {
+        "operationId": "tickets_update_cost_line",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCostLineRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CostLineMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "line not found in scope"
+          },
+          "409": {
+            "description": "already billed, version conflict, or idempotency key reused"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "PATCH /api/tickets/{id}/cost-lines/{line_id} — edit an unbilled line.",
+        "tags": [
+          "ticket-costs"
+        ]
+      }
+    },
+    "/api/v1/tickets/{id}/expenses": {
+      "get": {
+        "operationId": "tickets_list_expenses",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TicketExpense"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/tickets/{id}/expenses — the ticket's expense entries.",
+        "tags": [
+          "ticket-costs"
+        ]
+      },
+      "post": {
+        "operationId": "tickets_create_expense",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateExpenseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExpenseMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "ticket not found in scope"
+          },
+          "409": {
+            "description": "idempotency key reused"
+          },
+          "422": {
+            "description": "invalid amount/currency"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/tickets/{id}/expenses — record an expense entry.",
+        "tags": [
+          "ticket-costs"
+        ]
+      }
+    },
+    "/api/v1/tickets/{id}/expenses/{expense_id}": {
+      "delete": {
+        "operationId": "tickets_remove_expense",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "expense_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "expense not found in scope"
+          },
+          "409": {
+            "description": "already billed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "DELETE /api/tickets/{id}/expenses/{expense_id} — remove an unbilled expense.",
+        "tags": [
+          "ticket-costs"
+        ]
+      },
+      "patch": {
+        "operationId": "tickets_update_expense",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "expense_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateExpenseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExpenseMutationResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "expense not found in scope"
+          },
+          "409": {
+            "description": "already billed, version conflict, or idempotency key reused"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "PATCH /api/tickets/{id}/expenses/{expense_id} — edit an unbilled expense.",
+        "tags": [
+          "ticket-costs"
+        ]
+      }
+    },
     "/api/v1/tickets/{id}/fields/{field_id}": {
       "delete": {
         "operationId": "fields_clear_ticket_value",
@@ -30866,6 +32860,195 @@
         "summary": "PUT /api/tickets/{id}/fields/{field_id} — validates the incoming JSON\nagainst the definition (kind coercion, option membership) and stores the\ncanonical encoding; emits `ticket.field_set`.",
         "tags": [
           "fields"
+        ]
+      }
+    },
+    "/api/v1/tickets/{id}/links": {
+      "get": {
+        "operationId": "tickets_list_links",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinksView"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/tickets/{id}/links — outgoing + incoming edges + the rollup.",
+        "tags": [
+          "ticket-links"
+        ]
+      },
+      "post": {
+        "operationId": "tickets_create_link",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLinkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "ticket not found in scope"
+          },
+          "409": {
+            "description": "duplicate link or idempotency key reused"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/tickets/{id}/links — link this ticket (from) to another (to).",
+        "tags": [
+          "ticket-links"
+        ]
+      }
+    },
+    "/api/v1/tickets/{id}/links/{link_id}": {
+      "delete": {
+        "operationId": "tickets_remove_link",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "link_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "link not found in scope"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "DELETE /api/tickets/{id}/links/{link_id} — remove one edge.",
+        "tags": [
+          "ticket-links"
+        ]
+      }
+    },
+    "/api/v1/tickets/{id}/merge": {
+      "post": {
+        "operationId": "tickets_merge",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MergeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MergeResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "ticket not found in scope"
+          },
+          "409": {
+            "description": "typed merge conflict (self_merge, already_merged, closed_survivor, board_mismatch)"
+          },
+          "422": {
+            "description": "idempotency key reused"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/tickets/{id}/merge — merge THIS ticket into `survivor_id`.\nChildren, comments, time entries, cost lines, and expenses fold into\nthe survivor; the source is closed on its own board and marked\n`merged_into_ticket_id` (its row stays queryable — doctrine #9).",
+        "tags": [
+          "ticket-links"
         ]
       }
     },
@@ -30978,6 +33161,43 @@
         ]
       }
     },
+    "/api/v1/tickets/{id}/rollup": {
+      "get": {
+        "operationId": "tickets_rollup",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketRollup"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/tickets/{id}/rollup — children/members + folded time + billable money.",
+        "tags": [
+          "ticket-links"
+        ]
+      }
+    },
     "/api/v1/tickets/{id}/sla": {
       "get": {
         "operationId": "tickets_sla_status",
@@ -31068,6 +33288,142 @@
         "summary": "POST /api/tickets/{id}/status — the guarded lifecycle transition:\ndomain transition rules, pre-close checklist enforcement (typed 409\nlisting the incomplete required items when the board enforces), SLA\npause bookkeeping, and the `ticket.status_changed` event, all in one tx.\nInstant-first (IF1/IF2): idempotency-keyed, version-gated, read-your-write.",
         "tags": [
           "tickets"
+        ]
+      }
+    },
+    "/api/v1/tickets/{id}/tags": {
+      "get": {
+        "operationId": "tickets_list_tags",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Tag"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "GET /api/tickets/{id}/tags — the ticket's applied tags.",
+        "tags": [
+          "tags"
+        ]
+      },
+      "post": {
+        "operationId": "tickets_apply_tag",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyTagRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "ticket or tag not found"
+          },
+          "409": {
+            "description": "idempotency key reused"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "POST /api/tickets/{id}/tags — apply a tag to a ticket (idempotent).",
+        "tags": [
+          "tags"
+        ]
+      }
+    },
+    "/api/v1/tickets/{id}/tags/{tag_id}": {
+      "delete": {
+        "operationId": "tickets_remove_tag",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tag_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "description": "ticket or tag not in scope"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "DELETE /api/tickets/{id}/tags/{tag_id} — remove one applied tag.",
+        "tags": [
+          "tags"
         ]
       }
     },

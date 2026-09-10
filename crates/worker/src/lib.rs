@@ -28,6 +28,7 @@ pub mod delivery;
 pub mod effects;
 pub mod email;
 pub mod notifier;
+pub mod pm_sweep;
 pub mod queue_runner;
 pub mod search_indexer;
 pub mod sla_sweep;
@@ -215,6 +216,20 @@ pub async fn run(
         });
     }
 
+    // PM-schedule tick (Wave 11 lane 9): claims due recurring-ticket
+    // schedules, stamps the next occurrence, enqueues pm.generate jobs.
+    let pm_alive = Arc::new(AtomicBool::new(true));
+    {
+        let alive = Arc::clone(&pm_alive);
+        let pm_pool = pool.clone();
+        let pm_shutdown = shutdown.clone();
+        tokio::spawn(async move {
+            pm_sweep::run_pm_sweep(pm_pool, config.eval_interval_secs, pm_shutdown).await;
+            alive.store(false, Ordering::Relaxed);
+            tracing::error!("pm sweep exited; reporting unhealthy");
+        });
+    }
+
     // Signed-webhook delivery consumer: event stream → matched
     // subscriptions → durable webhook.deliver jobs (processed by the
     // queue runner above).
@@ -240,6 +255,7 @@ pub async fn run(
         automations_alive: auto_alive,
         webhooks_alive,
         delivery_alive,
+        pm_alive,
     };
     // Unified-search indexing: consumes domain events and pushes index
     // writes through core-api's internal effect surface. Disabled cleanly
@@ -283,6 +299,7 @@ struct HealthFlags {
     automations_alive: Arc<AtomicBool>,
     webhooks_alive: Arc<AtomicBool>,
     delivery_alive: Arc<AtomicBool>,
+    pm_alive: Arc<AtomicBool>,
 }
 
 async fn healthz(State(flags): State<Arc<HealthFlags>>) -> Json<serde_json::Value> {
@@ -293,10 +310,11 @@ async fn healthz(State(flags): State<Arc<HealthFlags>>) -> Json<serde_json::Valu
         && flags.sla_alive.load(Ordering::Relaxed)
         && flags.automations_alive.load(Ordering::Relaxed)
         && flags.webhooks_alive.load(Ordering::Relaxed)
-        && flags.delivery_alive.load(Ordering::Relaxed);
+        && flags.delivery_alive.load(Ordering::Relaxed)
+        && flags.pm_alive.load(Ordering::Relaxed);
     if ok {
         Json(
-            json!({ "status": "ok", "relay": "alive", "email": "alive", "queue": "alive", "sla": "alive", "automations": "alive", "webhooks": "alive", "delivery": "alive" }),
+            json!({ "status": "ok", "relay": "alive", "email": "alive", "queue": "alive", "sla": "alive", "automations": "alive", "webhooks": "alive", "delivery": "alive", "pm": "alive" }),
         )
     } else {
         Json(json!({ "status": "unhealthy" }))
@@ -327,6 +345,7 @@ mod tests {
             automations_alive: Arc::new(AtomicBool::new(true)),
             webhooks_alive: Arc::new(AtomicBool::new(true)),
             delivery_alive: Arc::new(AtomicBool::new(true)),
+            pm_alive: Arc::new(AtomicBool::new(true)),
         };
         let healthy = healthz(State(Arc::new(flags.clone()))).await;
         assert_eq!(healthy.0["relay"], "alive");

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO ticket_tags (org_id, ticket_id, tag_id, applied_by, applied_at)\n           SELECT org_id, $3, tag_id, applied_by, applied_at\n           FROM ticket_tags WHERE org_id = $1 AND ticket_id = $2\n           ON CONFLICT (ticket_id, tag_id) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7bbd6ff492b3ccb7015cb0544ad6cccbb060e8717894b54e5bc8708f008a8ee1"
+}

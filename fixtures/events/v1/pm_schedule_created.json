@@ -1,0 +1,33 @@
+{
+  "event_type": "pm_schedule.created",
+  "entity": "pm_schedule",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "schedule": {
+      "assignee_id": "00000000-0000-0000-0000-000000000004",
+      "board_id": "00000000-0000-0000-0000-000000000002",
+      "body": "Run the documented restore drill.",
+      "cadence": "monthly",
+      "client_id": "00000000-0000-0000-0000-000000000003",
+      "created_at": "2023-11-14T22:13:21Z",
+      "created_by": "00000000-0000-0000-0000-000000000005",
+      "day_of_month": 1,
+      "day_of_week": null,
+      "enabled": true,
+      "id": "00000000-0000-0000-0000-000000000030",
+      "last_error": null,
+      "last_run_at": null,
+      "name": "Monthly backup restore check",
+      "next_run_at": "2023-11-14T22:13:22Z",
+      "org_id": "00000000-0000-0000-0000-000000000002",
+      "priority": "p3",
+      "site_id": null,
+      "time_of_day": "09:00:00",
+      "timezone": "UTC",
+      "title": "Backup restore verification",
+      "updated_at": "2023-11-14T22:13:21Z"
+    }
+  }
+}

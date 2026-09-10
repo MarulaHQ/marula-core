@@ -30,7 +30,9 @@ use chrono_tz::Tz;
 const MAX_OCCURRENCE_PROBES: usize = 4_000;
 
 /// The typed cadence of a schedule row (the stored slug's Rust shape).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
 pub enum Cadence {
     Daily,
     Weekly,

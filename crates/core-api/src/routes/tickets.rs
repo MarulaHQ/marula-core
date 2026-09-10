@@ -150,6 +150,10 @@ pub struct TicketListQuery {
     pub client_id: Option<Uuid>,
     pub category: Option<TicketStatusCategory>,
     pub priority: Option<Priority>,
+    /// Comma-separated tag ids (Wave 11 lane 9): AND semantics — tickets
+    /// must carry every listed tag.
+    #[serde(default)]
+    pub tags: Option<String>,
     #[serde(default = "default_limit")]
     pub limit: i64,
     #[serde(default)]
@@ -250,6 +254,14 @@ pub async fn list(
             client_id: q.client_id,
             category: q.category,
             priority: q.priority,
+            tag_ids: q.tags.as_deref().and_then(|s| {
+                let ids: Result<Vec<Uuid>, _> = s
+                    .split(',')
+                    .filter(|t| !t.trim().is_empty())
+                    .map(|t| Uuid::parse_str(t.trim()))
+                    .collect();
+                ids.ok()
+            }),
             limit: q.limit.clamp(1, 200),
             offset: q.offset.max(0),
         },

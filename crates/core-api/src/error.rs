@@ -159,6 +159,7 @@ impl From<core_db::DbError> for ApiError {
     fn from(e: core_db::DbError) -> Self {
         match &e {
             core_db::DbError::NotFound => ApiError::NotFound,
+            core_db::DbError::Conflict(msg) => ApiError::Conflict(msg.clone()),
             core_db::DbError::Sql(sqlx::Error::RowNotFound) => ApiError::NotFound,
             core_db::DbError::Sql(sqlx::Error::Database(db)) if db.constraint().is_some() => {
                 ApiError::Conflict(db.constraint().unwrap_or("").to_string())

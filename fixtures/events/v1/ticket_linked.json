@@ -1,0 +1,14 @@
+{
+  "event_type": "ticket.linked",
+  "entity": "ticket",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "changed_by": "00000000-0000-0000-0000-000000000005",
+    "from_ticket_id": "00000000-0000-0000-0000-000000000001",
+    "link_type": "parent_child",
+    "linked": true,
+    "to_ticket_id": "00000000-0000-0000-0000-00000000002a"
+  }
+}

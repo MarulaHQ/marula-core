@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM ticket_links WHERE org_id = $1\n             AND (from_ticket_id = $2 OR to_ticket_id = $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9a8e84dcf7b06dc007fb11ed5176bcddec65b16604d40e490c97ab4f94157fbe"
+}

@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE time_entries SET ticket_id = $3\n           WHERE org_id = $1 AND ticket_id = $2\n           RETURNING minutes",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "minutes",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c0ee75ade508314e22d9501a363b87aea8ec06661c16805375e066ad8b04614c"
+}

@@ -1,0 +1,11 @@
+{
+  "event_type": "pm_schedule.deleted",
+  "entity": "pm_schedule",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "name": "Quarterly fleet audit",
+    "schedule_id": "00000000-0000-0000-0000-000000000030"
+  }
+}

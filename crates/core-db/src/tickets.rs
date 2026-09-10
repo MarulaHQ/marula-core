@@ -47,12 +47,13 @@ pub(crate) fn row_to_ticket(row: sqlx::postgres::PgRow) -> Result<Ticket, sqlx::
         resolved_at: row.get("resolved_at"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
+        merged_into_ticket_id: row.try_get("merged_into_ticket_id").unwrap_or(None),
     })
 }
 
 const TICKET_COLS: &str = "id, org_id, number, board_id, status_id, title, body, priority, \
      client_id, site_id, contact_id, assignee_id, requester_id, category, due_at, \
-     resolved_at, created_at, updated_at";
+     resolved_at, created_at, updated_at, merged_into_ticket_id";
 
 pub struct NewTicket<'a> {
     pub id: Uuid,
@@ -139,6 +140,9 @@ pub struct TicketFilter {
     pub client_id: Option<Uuid>,
     pub category: Option<TicketStatusCategory>,
     pub priority: Option<Priority>,
+    /// Tag filter (Wave 11 lane 9): tickets carrying EVERY tag in the
+    /// set (AND semantics across ids); None/empty disables the clause.
+    pub tag_ids: Option<Vec<Uuid>>,
     pub limit: i64,
     pub offset: i64,
 }
@@ -151,6 +155,14 @@ pub async fn list_tickets<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
+    // Tag clause (lane 9): semi-join against ticket_tags, $9. Built as a
+    // literal fragment + bound array — no value interpolation, so the
+    // injection surface stays exactly the bind parameter.
+    let tag_clause = if f.tag_ids.as_ref().is_some_and(|v| !v.is_empty()) {
+        crate::tags::tag_filter_sql(9)
+    } else {
+        String::new()
+    };
     let sql = format!(
         r#"SELECT {TICKET_COLS} FROM tickets
            WHERE org_id = $1
@@ -159,6 +171,7 @@ where
              AND ($4::uuid IS NULL OR client_id = $4)
              AND ($5::text IS NULL OR category = $5)
              AND ($6::text IS NULL OR priority = $6)
+             {tag_clause}
            ORDER BY
              CASE priority WHEN 'p1' THEN 0 WHEN 'p2' THEN 1 WHEN 'p3' THEN 2 ELSE 3 END,
              due_at NULLS LAST, created_at
@@ -173,6 +186,7 @@ where
         .bind(f.priority.map(|p| p.as_str().to_string()))
         .bind(f.limit)
         .bind(f.offset)
+        .bind(f.tag_ids.clone().unwrap_or_default())
         .fetch_all(executor)
         .await?;
     Ok(rows

@@ -1,0 +1,11 @@
+{
+  "event_type": "ticket.expense_removed",
+  "entity": "ticket_expense",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "expense_id": "00000000-0000-0000-0000-00000000002f",
+    "ticket_id": "00000000-0000-0000-0000-000000000001"
+  }
+}
