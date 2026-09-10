@@ -154,6 +154,7 @@ fn filter_all() -> tickets::TicketFilter {
         client_id: None,
         category: None,
         priority: None,
+        tag_ids: None,
         limit: 100,
         offset: 0,
     }

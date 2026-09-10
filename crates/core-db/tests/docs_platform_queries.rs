@@ -37,19 +37,15 @@ async fn seed_org(app: &sqlx::PgPool, n: u64) -> Seeded {
     )
     .await
     .expect("org insert");
-    orgs::seed_default_roles(&mut *tx, org)
-        .await
-        .expect("roles");
-    orgs::seed_default_board(&mut *tx, org)
-        .await
-        .expect("board");
+    orgs::seed_default_roles(&mut tx, org).await.expect("roles");
+    orgs::seed_default_board(&mut tx, org).await.expect("board");
     sqlx::query("INSERT INTO clients (id, org_id, name) VALUES ($1, $2, 'Acme Co')")
         .bind(client)
         .bind(org)
         .execute(&mut *tx)
         .await
         .expect("client insert");
-    document_layouts::seed_default_document_layouts(&mut *tx, org)
+    document_layouts::seed_default_document_layouts(&mut tx, org)
         .await
         .expect("layout seed");
     tx.commit().await.expect("commit seed");
@@ -96,7 +92,7 @@ async fn standard_layouts_seed_once_and_list_system_first() {
         .any(|f| f.key == "hostname" && f.required));
 
     // Idempotent: re-seeding changes nothing.
-    document_layouts::seed_default_document_layouts(&mut *tx, s.org)
+    document_layouts::seed_default_document_layouts(&mut tx, s.org)
         .await
         .expect("re-seed");
     let again = document_layouts::list_layouts(&mut *tx, s.org)
@@ -170,7 +166,7 @@ async fn documents_carry_client_scope_layout_and_fields() {
     let server = layouts.iter().find(|l| l.slug == "server").expect("server");
 
     let (doc, _) = documents::create_document(
-        &mut *tx,
+        &mut tx,
         s.org,
         fixed_uuid(156),
         Some(s.client),
@@ -242,7 +238,7 @@ async fn links_resolve_labels_and_surface_broken_targets() {
     let author = seed_user(&app, &s, 158).await;
 
     let (doc, _) = documents::create_document(
-        &mut *tx,
+        &mut tx,
         s.org,
         fixed_uuid(159),
         None,
@@ -360,7 +356,7 @@ async fn password_updates_archive_history_and_delete_cascades() {
 
     let rotated: &[u8] = b"second-secret";
     let updated = passwords::update_password(
-        &mut *tx,
+        &mut tx,
         s.org,
         pw.id,
         "Org vault root",

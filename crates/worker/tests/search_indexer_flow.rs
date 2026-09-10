@@ -223,6 +223,8 @@ async fn ticket_events_resolve_to_fresh_upserts_then_delete_when_gone() {
                 site_id: None,
                 contact_id: None,
                 due_at: None,
+                type_id: None,
+                category_id: None,
             },
         )
         .await

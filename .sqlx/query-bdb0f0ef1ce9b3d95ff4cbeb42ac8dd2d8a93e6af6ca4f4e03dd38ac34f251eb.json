@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE pm_runs SET status = 'skipped', detail = jsonb_build_object('reason', $3::text)\n           WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bdb0f0ef1ce9b3d95ff4cbeb42ac8dd2d8a93e6af6ca4f4e03dd38ac34f251eb"
+}

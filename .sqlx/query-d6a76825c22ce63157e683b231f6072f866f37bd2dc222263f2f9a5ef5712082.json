@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tags SET\n             name = COALESCE($3, name),\n             color = CASE WHEN $4::boolean THEN $5 ELSE color END,\n             updated_at = now()\n           WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Bool",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d6a76825c22ce63157e683b231f6072f866f37bd2dc222263f2f9a5ef5712082"
+}

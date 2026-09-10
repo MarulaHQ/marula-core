@@ -177,6 +177,10 @@ async fn settle_job<S: DeliverySink, E: EffectApi>(
     }
     let path: &'static str = match job.kind.as_str() {
         "sla.verdict" => "/api/internal/sla/verdict",
+        // PM schedule generation (Wave 11 lane 9): a claimed slot fires
+        // through core-api's normal ticket-creation path; the pm_runs
+        // ledger makes replays inert.
+        "pm.generate" => "/api/internal/pm/generate",
         "automation.effects" => "/api/internal/effects",
         // Staged import batches (TASKLIST D2 remainder): the runner replays
         // the batch's ObjectStore chunks through core-api's commit path.

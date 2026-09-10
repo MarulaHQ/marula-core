@@ -24,6 +24,7 @@ pub mod custom_fields;
 // Dev-tool surface (TASKLIST DX1–DX2): only reachable behind
 // MERIDIAN_DEV_TOOLS=1 — the CLI refuses and the API router is not mounted
 // without it.
+pub mod costs;
 pub mod demo;
 pub mod dispatch;
 pub mod document_layouts;
@@ -46,6 +47,7 @@ pub mod portal;
 pub mod projects;
 pub mod provenance;
 pub mod queue;
+pub mod recurring;
 pub mod report_defs;
 pub mod report_schedules;
 pub mod scheduling;
@@ -53,7 +55,9 @@ pub mod scheduling_links;
 pub mod search;
 pub mod settings;
 pub mod sla;
+pub mod tags;
 pub mod taxonomy;
+pub mod ticket_links;
 pub mod tickets;
 pub mod time_audit;
 pub mod timers;
@@ -72,6 +76,10 @@ pub enum DbError {
     Migrate(#[from] sqlx::migrate::MigrateError),
     #[error("row not found")]
     NotFound,
+    /// Typed refusal from a guard inside a query module (e.g. mutating an
+    /// already-billed cost line). The API layer maps this to 409.
+    #[error("conflict: {0}")]
+    Conflict(String),
 }
 
 pub type DbResult<T> = Result<T, DbError>;

@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE pm_schedules SET\n             name = COALESCE($3, name),\n             title = COALESCE($4, title),\n             body = CASE WHEN $5::boolean THEN $6 ELSE body END,\n             priority = COALESCE($7, priority),\n             client_id = CASE WHEN $8::boolean THEN $9 ELSE client_id END,\n             site_id = CASE WHEN $10::boolean THEN $11 ELSE site_id END,\n             assignee_id = CASE WHEN $12::boolean THEN $13 ELSE assignee_id END,\n             cadence = COALESCE($14, cadence),\n             time_of_day = COALESCE($15, time_of_day),\n             day_of_week = CASE WHEN $16::boolean THEN $17 ELSE day_of_week END,\n             day_of_month = CASE WHEN $18::boolean THEN $19 ELSE day_of_month END,\n             timezone = COALESCE($20, timezone),\n             enabled = COALESCE($21, enabled),\n             next_run_at = COALESCE($22, next_run_at),\n             updated_at = now()\n           WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Bool",
+        "Text",
+        "Text",
+        "Bool",
+        "Uuid",
+        "Bool",
+        "Uuid",
+        "Bool",
+        "Uuid",
+        "Text",
+        "Time",
+        "Bool",
+        "Int2",
+        "Bool",
+        "Int2",
+        "Text",
+        "Bool",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "189dcbd54f9bd955b0026557bf96a67cee10def7485c1c6a05e95456e72125f2"
+}

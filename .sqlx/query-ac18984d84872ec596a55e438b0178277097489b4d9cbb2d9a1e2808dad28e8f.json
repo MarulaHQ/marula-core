@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE ticket_cost_lines SET invoice_line_id = $3, updated_at = now()\n               WHERE org_id = $1 AND invoice_line_id IS NULL AND id = ANY($2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ac18984d84872ec596a55e438b0178277097489b4d9cbb2d9a1e2808dad28e8f"
+}

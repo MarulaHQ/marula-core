@@ -1,0 +1,24 @@
+{
+  "event_type": "ticket.merged",
+  "entity": "ticket",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "children_relinked": 1,
+    "comments_folded": 4,
+    "conflicts": [
+      "priority"
+    ],
+    "cost_lines_folded": 1,
+    "expenses_folded": 1,
+    "merged_by": "00000000-0000-0000-0000-000000000005",
+    "occurred_at": "2023-11-14T22:13:25Z",
+    "source_id": "00000000-0000-0000-0000-000000000001",
+    "source_number": "MER-1001",
+    "survivor_id": "00000000-0000-0000-0000-00000000002a",
+    "survivor_number": "MER-1002",
+    "time_entries_folded": 2,
+    "time_minutes_folded": 95
+  }
+}

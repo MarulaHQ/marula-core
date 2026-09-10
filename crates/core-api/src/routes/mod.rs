@@ -52,6 +52,7 @@ pub mod calendar;
 pub mod checklists;
 pub mod clients;
 pub mod connector;
+pub mod costs;
 pub mod custom_fields;
 pub mod dev;
 pub mod dispatch;
@@ -74,6 +75,7 @@ pub mod portal_admin;
 pub mod portal_v2;
 pub mod projects;
 pub mod provenance;
+pub mod recurring;
 pub mod report_defs;
 pub mod report_schedules;
 pub mod reports;
@@ -82,7 +84,9 @@ pub mod scheduling_links;
 pub mod search;
 pub mod settings;
 pub mod sla_admin;
+pub mod tags;
 pub mod taxonomy;
+pub mod ticket_links;
 pub mod tickets;
 pub mod time;
 pub mod timers;
@@ -240,6 +244,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // NOT behind the JWT middleware — §4.1: worker effects enter
         // through core-api, never direct DB writes).
         .route(&rp("/internal/sla/verdict"), post(internal::sla_verdict))
+        .route(&rp("/internal/pm/generate"), post(internal::pm_generate))
         .route(&rp("/internal/effects"), post(internal::effects))
         .route(
             &rp("/internal/time/gap-audit/run"),
@@ -1052,6 +1057,13 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // (rides the D2 engine, checkpoint cursors) + cursor-paged pull
         // exports; module owns its own router.
         .merge(connector::routes(gen))
+        // workflow constructs (Wave 11 lane 9, migration 0056): tags,
+        // merge/linking, ticket costs/expenses, and PM schedules — each
+        // module owns its own router.
+        .merge(tags::routes(gen))
+        .merge(ticket_links::routes(gen))
+        .merge(costs::routes(gen))
+        .merge(recurring::routes(gen))
         // dispatch connector (TASKLIST Phase 3, Wave 9 lane 9): scoped
         // machine surface — schedule reads + field-service status pushes;
         // module owns its own router.

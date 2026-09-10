@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE ticket_expenses SET ticket_id = $3, updated_at = now()\n           WHERE org_id = $1 AND ticket_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1c9154578bcbed016694e952327b1c79b0f047755ca30ff8429f97e8d336b2ea"
+}

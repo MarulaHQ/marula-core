@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH child_links AS (\n             SELECT from_ticket_id AS id FROM ticket_links\n             WHERE org_id = $1 AND to_ticket_id = $2 AND link_type = 'parent_child'\n           ), mi_links AS (\n             SELECT from_ticket_id AS id FROM ticket_links\n             WHERE org_id = $1 AND to_ticket_id = $2 AND link_type = 'major_incident'\n           ), fold_ids AS (\n             SELECT id FROM child_links UNION SELECT id FROM mi_links\n           )\n           SELECT\n             (SELECT count(*)::bigint FROM child_links) AS child_count,\n             (SELECT count(*)::bigint FROM child_links c\n                JOIN tickets t ON t.org_id = $1 AND t.id = c.id\n                WHERE t.category <> 'closed' AND t.merged_into_ticket_id IS NULL\n             ) AS child_open_count,\n             (SELECT count(*)::bigint FROM mi_links) AS mi_count,\n             (\n               (SELECT COALESCE(sum(minutes), 0)::bigint FROM time_entries\n                WHERE org_id = $1 AND ticket_id = $2)\n               + (SELECT COALESCE(sum(te.minutes), 0)::bigint FROM time_entries te\n                  JOIN fold_ids f ON te.org_id = $1 AND te.ticket_id = f.id)\n             ) AS time_minutes,\n             (\n               (SELECT COALESCE(sum(quantity * unit_cost_minor), 0)::bigint\n                FROM ticket_cost_lines WHERE org_id = $1 AND ticket_id = $2 AND billable)\n               + (SELECT COALESCE(sum(amount_minor), 0)::bigint FROM ticket_expenses\n                  WHERE org_id = $1 AND ticket_id = $2 AND billable)\n               + (SELECT COALESCE(sum(tcl.quantity * tcl.unit_cost_minor), 0)::bigint\n                  FROM ticket_cost_lines tcl\n                  JOIN fold_ids f ON tcl.org_id = $1 AND tcl.ticket_id = f.id AND tcl.billable)\n               + (SELECT COALESCE(sum(ex.amount_minor), 0)::bigint FROM ticket_expenses ex\n                  JOIN fold_ids f ON ex.org_id = $1 AND ex.ticket_id = f.id AND ex.billable)\n             ) AS billable_cost_minor",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "child_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "child_open_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "mi_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "time_minutes",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "billable_cost_minor",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "002f856df35a801a6d0be92ee49d7c269befd6a6d821e10b07e0b0ddfbdccb72"
+}

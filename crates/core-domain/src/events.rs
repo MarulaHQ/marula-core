@@ -269,6 +269,36 @@ pub mod types {
     pub const PROJECT_VIEW_REMOVED: &str = "project.view_removed";
     pub const PROJECT_TEMPLATE_UPDATED: &str = "project.template_updated";
     pub const PROJECT_TEMPLATE_REMOVED: &str = "project.template_removed";
+    /// Workflow constructs (Wave 11 lane 9, migration 0056): org tag
+    /// taxonomy lifecycle + per-ticket application (`ticket.tags_changed`
+    /// covers apply AND remove; consumers refetch the ticket's tags).
+    pub const TAG_CREATED: &str = "tag.created";
+    pub const TAG_UPDATED: &str = "tag.updated";
+    pub const TAG_DELETED: &str = "tag.deleted";
+    pub const TICKET_TAGS_CHANGED: &str = "ticket.tags_changed";
+    /// Ticket merge/parent-child/major-incident linking. `ticket.merged`
+    /// is emitted ONCE per merge with the fold summary; link changes ride
+    /// the paired linked/unlinked markers.
+    pub const TICKET_MERGED: &str = "ticket.merged";
+    pub const TICKET_LINKED: &str = "ticket.linked";
+    pub const TICKET_UNLINKED: &str = "ticket.unlinked";
+    /// Per-ticket money lines: cost lines (parts/flat/other) and expense
+    /// entries. Added/updated/removed; the invoicing-candidate feed reads
+    /// the billable-unbilled rows, the `invoice_line_id` consumption
+    /// marker keeps "billed once, ever".
+    pub const TICKET_COST_LINE_ADDED: &str = "ticket.cost_line_added";
+    pub const TICKET_COST_LINE_UPDATED: &str = "ticket.cost_line_updated";
+    pub const TICKET_COST_LINE_REMOVED: &str = "ticket.cost_line_removed";
+    pub const TICKET_EXPENSE_RECORDED: &str = "ticket.expense_recorded";
+    pub const TICKET_EXPENSE_UPDATED: &str = "ticket.expense_updated";
+    pub const TICKET_EXPENSE_REMOVED: &str = "ticket.expense_removed";
+    /// Recurring/scheduled tickets (PM schedules): schedule CRUD lifecycle.
+    /// The worker tick emits NOTHING — the `pm_runs` ledger is the run
+    /// record and each generated instance emits the ordinary
+    /// `ticket.created` through its normal write path.
+    pub const PM_SCHEDULE_CREATED: &str = "pm_schedule.created";
+    pub const PM_SCHEDULE_UPDATED: &str = "pm_schedule.updated";
+    pub const PM_SCHEDULE_DELETED: &str = "pm_schedule.deleted";
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -975,6 +1005,148 @@ pub struct AttachmentDeleted {
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub ticket_id: Option<uuid::Uuid>,
     pub object_removed: bool,
+}
+
+// --- workflow constructs (Wave 11 lane 9, migration 0056) --------------------
+
+/// `tag.created` — a tag was added to the org taxonomy.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TagCreated {
+    pub tag: crate::entities::Tag,
+}
+
+/// `tag.updated` — the tag's name/color changed. Refetch the tag.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TagUpdated {
+    pub tag: crate::entities::Tag,
+}
+
+/// `tag.deleted` — the tag was removed; `applied_count` is how many
+/// ticket applications it had at deletion (the join rows went with it).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TagDeleted {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub tag_id: uuid::Uuid,
+    pub name: String,
+    pub applied_count: i64,
+}
+
+/// `ticket.tags_changed` — a tag was applied to or removed from a ticket
+/// (`applied: bool` distinguishes; consumers refetch the ticket's tags).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TicketTagsChanged {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub ticket_id: TicketId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub board_id: BoardId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub tag_id: uuid::Uuid,
+    pub applied: bool,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub changed_by: Option<UserId>,
+}
+
+/// `ticket.linked` / `ticket.unlinked` — a typed edge was created or
+/// removed between two tickets. `link_type` rides as a string to avoid
+/// coupling consumers to the enum across versions (additive policy §2).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TicketLinkChanged {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub from_ticket_id: TicketId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub to_ticket_id: TicketId,
+    /// "parent_child" | "major_incident"
+    pub link_type: String,
+    pub linked: bool,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub changed_by: Option<UserId>,
+}
+
+/// `ticket.merged` — the fold summary. `source_*` names the ticket that
+/// was absorbed (comments, time, costs, expenses, and child links folded
+/// into `survivor_id`); `conflicts` lists the typed conflict keys the
+/// caller resolved (empty when none). The source's row stays queryable
+/// (doctrine #9) but is closed + marked `merged_into_ticket_id`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TicketMerged {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub source_id: TicketId,
+    pub source_number: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub survivor_id: TicketId,
+    pub survivor_number: String,
+    pub comments_folded: i64,
+    pub time_entries_folded: i64,
+    pub time_minutes_folded: i64,
+    pub cost_lines_folded: i64,
+    pub expenses_folded: i64,
+    pub children_relinked: i64,
+    pub conflicts: Vec<String>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub merged_by: Option<UserId>,
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// `ticket.cost_line_added` / `ticket.cost_line_updated` — the applied
+/// line snapshot; consumers refetch the ticket's cost lines.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TicketCostLineAdded {
+    pub line: crate::entities::TicketCostLine,
+}
+
+/// `ticket.cost_line_removed` — the line went away; the payload carries
+/// what it last was so consumers can render history.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TicketCostLineRemoved {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub line_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub ticket_id: TicketId,
+}
+
+/// `ticket.expense_recorded` / `ticket.expense_updated` — the applied
+/// expense snapshot.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TicketExpenseRecorded {
+    pub expense: crate::entities::TicketExpense,
+}
+
+/// `ticket.expense_removed` — the expense entry went away.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TicketExpenseRemoved {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub expense_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub ticket_id: TicketId,
+}
+
+/// `pm_schedule.created` / `pm_schedule.updated` — the applied schedule
+/// snapshot (the worker tick emits nothing; the `pm_runs` ledger is the
+/// run record and each instance emits the ordinary `ticket.created`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PmScheduleChanged {
+    pub schedule: crate::entities::PmSchedule,
+}
+
+/// `pm_schedule.deleted` — the schedule was removed; existing generated
+/// tickets are unaffected (templates are blueprints, not live references).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PmScheduleDeleted {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub schedule_id: uuid::Uuid,
+    pub name: String,
 }
 
 /// Convenience for building the note-kind of a comment event.

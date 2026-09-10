@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO pm_runs (id, org_id, schedule_id, slot_at, status, detail)\n           VALUES ($1, $2, $3, $4, 'generated', '{}'::jsonb)\n           ON CONFLICT (schedule_id, slot_at) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f6d5e3dbe81dca5bfdd3799a75d2ae2ad5a6de60b161e1626c5a255428cde26a"
+}
