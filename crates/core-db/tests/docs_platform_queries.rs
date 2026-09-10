@@ -28,11 +28,21 @@ async fn seed_org(app: &sqlx::PgPool, n: u64) -> Seeded {
     let org = fixed_uuid(n);
     let client = fixed_uuid(n + 1);
     let mut tx = org_tx(app, org).await;
-    orgs::insert_org(&mut *tx, org, "Doc Acme", &format!("docs-platform-{n}"), "DSP")
+    orgs::insert_org(
+        &mut *tx,
+        org,
+        "Doc Acme",
+        &format!("docs-platform-{n}"),
+        "DSP",
+    )
+    .await
+    .expect("org insert");
+    orgs::seed_default_roles(&mut *tx, org)
         .await
-        .expect("org insert");
-    orgs::seed_default_roles(&mut *tx, org).await.expect("roles");
-    orgs::seed_default_board(&mut *tx, org).await.expect("board");
+        .expect("roles");
+    orgs::seed_default_board(&mut *tx, org)
+        .await
+        .expect("board");
     sqlx::query("INSERT INTO clients (id, org_id, name) VALUES ($1, $2, 'Acme Co')")
         .bind(client)
         .bind(org)
@@ -76,7 +86,10 @@ async fn standard_layouts_seed_once_and_list_system_first() {
         .expect("layouts");
     assert!(layouts.len() >= 10, "standard MSP set seeded");
     assert!(layouts.iter().all(|l| l.is_system));
-    let server = layouts.iter().find(|l| l.slug == "server").expect("server layout");
+    let server = layouts
+        .iter()
+        .find(|l| l.slug == "server")
+        .expect("server layout");
     assert!(server
         .fields
         .iter()
@@ -86,7 +99,9 @@ async fn standard_layouts_seed_once_and_list_system_first() {
     document_layouts::seed_default_document_layouts(&mut *tx, s.org)
         .await
         .expect("re-seed");
-    let again = document_layouts::list_layouts(&mut *tx, s.org).await.expect("layouts");
+    let again = document_layouts::list_layouts(&mut *tx, s.org)
+        .await
+        .expect("layouts");
     assert_eq!(layouts.len(), again.len(), "seed is idempotent");
     tx.commit().await.expect("commit");
 }
@@ -149,7 +164,9 @@ async fn documents_carry_client_scope_layout_and_fields() {
     let mut tx = org_tx(&app, s.org).await;
     let author = seed_user(&app, &s, 155).await;
 
-    let layouts = document_layouts::list_layouts(&mut *tx, s.org).await.expect("layouts");
+    let layouts = document_layouts::list_layouts(&mut *tx, s.org)
+        .await
+        .expect("layouts");
     let server = layouts.iter().find(|l| l.slug == "server").expect("server");
 
     let (doc, _) = documents::create_document(
@@ -173,7 +190,10 @@ async fn documents_carry_client_scope_layout_and_fields() {
     let globals = documents::list_documents(
         &mut *tx,
         s.org,
-        &documents::DocumentFilter { client_id: Some(None), ..Default::default() },
+        &documents::DocumentFilter {
+            client_id: Some(None),
+            ..Default::default()
+        },
     )
     .await
     .expect("globals");
@@ -182,7 +202,10 @@ async fn documents_carry_client_scope_layout_and_fields() {
     let scoped = documents::list_documents(
         &mut *tx,
         s.org,
-        &documents::DocumentFilter { client_id: Some(Some(s.client)), ..Default::default() },
+        &documents::DocumentFilter {
+            client_id: Some(Some(s.client)),
+            ..Default::default()
+        },
     )
     .await
     .expect("scoped");
@@ -201,7 +224,12 @@ async fn documents_carry_client_scope_layout_and_fields() {
     .await
     .expect("meta update");
     assert_eq!(after.client_id, None, "moved to org-global");
-    assert_eq!(documents::max_version(&mut *tx, s.org, doc.id).await.expect("max"), Some(1));
+    assert_eq!(
+        documents::max_version(&mut *tx, s.org, doc.id)
+            .await
+            .expect("max"),
+        Some(1)
+    );
     tx.commit().await.expect("commit");
 }
 
@@ -257,8 +285,9 @@ async fn links_resolve_labels_and_surface_broken_targets() {
     .await
     .expect("link");
 
-    let resolved =
-        document_links::list_links(&mut *tx, s.org, LinkKind::Document, doc.id).await.expect("links");
+    let resolved = document_links::list_links(&mut *tx, s.org, LinkKind::Document, doc.id)
+        .await
+        .expect("links");
     assert_eq!(resolved.len(), 1);
     assert_eq!(resolved[0].link.id, link.id);
     assert_eq!(resolved[0].target_label.as_deref(), Some("Router admin"));
@@ -284,17 +313,24 @@ async fn links_resolve_labels_and_surface_broken_targets() {
     let mut tx = org_tx(&app, s.org).await;
 
     // Deleting the target surfaces the link as broken, not dropped.
-    passwords::delete_password(&mut *tx, s.org, pw.id).await.expect("delete");
-    let after =
-        document_links::list_links(&mut *tx, s.org, LinkKind::Document, doc.id).await.expect("links");
+    passwords::delete_password(&mut *tx, s.org, pw.id)
+        .await
+        .expect("delete");
+    let after = document_links::list_links(&mut *tx, s.org, LinkKind::Document, doc.id)
+        .await
+        .expect("links");
     assert_eq!(after.len(), 1, "link survives target deletion");
     assert!(after[0].target_deleted);
 
-    document_links::delete_link(&mut *tx, s.org, link.id).await.expect("unlink");
-    assert!(document_links::list_links(&mut *tx, s.org, LinkKind::Document, doc.id)
+    document_links::delete_link(&mut *tx, s.org, link.id)
         .await
-        .expect("links")
-        .is_empty());
+        .expect("unlink");
+    assert!(
+        document_links::list_links(&mut *tx, s.org, LinkKind::Document, doc.id)
+            .await
+            .expect("links")
+            .is_empty()
+    );
     tx.commit().await.expect("commit");
 }
 
@@ -338,20 +374,28 @@ async fn password_updates_archive_history_and_delete_cascades() {
     .await
     .expect("rotate");
 
-    let history = passwords::list_history(&mut *tx, s.org, pw.id).await.expect("history");
+    let history = passwords::list_history(&mut *tx, s.org, pw.id)
+        .await
+        .expect("history");
     assert_eq!(history.len(), 1, "prior ciphertext archived");
-    let sealed = passwords::get_sealed(&mut *tx, s.org, pw.id).await.expect("sealed");
-    assert_eq!(sealed.secret, rotated, "current ciphertext is the new secret");
+    let sealed = passwords::get_sealed(&mut *tx, s.org, pw.id)
+        .await
+        .expect("sealed");
+    assert_eq!(
+        sealed.secret, rotated,
+        "current ciphertext is the new secret"
+    );
     assert_eq!(updated.expires_at, None, "explicit clear applied");
 
     // Delete cascades the history rows.
-    passwords::delete_password(&mut *tx, s.org, pw.id).await.expect("delete");
-    let left: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM password_history WHERE org_id = $1")
-            .bind(s.org)
-            .fetch_one(&mut *tx)
-            .await
-            .expect("count");
+    passwords::delete_password(&mut *tx, s.org, pw.id)
+        .await
+        .expect("delete");
+    let left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM password_history WHERE org_id = $1")
+        .bind(s.org)
+        .fetch_one(&mut *tx)
+        .await
+        .expect("count");
     assert_eq!(left, 0, "history cascade-deleted with the credential");
     tx.commit().await.expect("commit");
 }
@@ -378,7 +422,9 @@ async fn rls_blocks_cross_org_docs_platform_reads() {
     )
     .await
     .expect("create");
-    let layouts = document_layouts::list_layouts(&mut *tx, s.org).await.expect("layouts");
+    let layouts = document_layouts::list_layouts(&mut *tx, s.org)
+        .await
+        .expect("layouts");
     tx.commit().await.expect("commit");
 
     let other = seed_org(&app, 1685).await;
@@ -387,9 +433,14 @@ async fn rls_blocks_cross_org_docs_platform_reads() {
         passwords::get_password(&mut *tx2, other.org, pw.id).await,
         Err(DbError::NotFound)
     ));
-    let other_layouts =
-        document_layouts::list_layouts(&mut *tx2, other.org).await.expect("layouts");
-    assert!(!other_layouts.iter().any(|l| layouts.iter().any(|mine| mine.id == l.id)),
-        "layouts are org-scoped");
+    let other_layouts = document_layouts::list_layouts(&mut *tx2, other.org)
+        .await
+        .expect("layouts");
+    assert!(
+        !other_layouts
+            .iter()
+            .any(|l| layouts.iter().any(|mine| mine.id == l.id)),
+        "layouts are org-scoped"
+    );
     tx2.commit().await.expect("commit");
 }

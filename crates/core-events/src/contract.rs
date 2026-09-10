@@ -1674,6 +1674,156 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             })
         ),
     },
+    // -- asset taxonomy (Wave 11 lane 5, migration 0054) ------------------
+    // Typed asset instances on the docs-platform; the MCP/connector seam
+    // mirrors an external DMS from these.
+    PublishedEvent {
+        event_type: types::ASSET_CREATED,
+        entity: "asset",
+        variant: "default",
+        shape: untyped_shape!(
+            ["asset_id", "client_id"],
+            serde_json::json!({
+                "asset_id": su(25),
+                "client_id": su(1),
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::ASSET_UPDATED,
+        entity: "asset",
+        variant: "default",
+        shape: untyped_shape!(
+            ["asset_id"],
+            serde_json::json!({
+                "asset_id": su(25),
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::ASSET_DELETED,
+        entity: "asset",
+        variant: "default",
+        shape: untyped_shape!(
+            ["asset_id"],
+            serde_json::json!({
+                "asset_id": su(25),
+            })
+        ),
+    },
+    // -- docs-platform layout + vault + links (lane 7, 0053; registered
+    // by lane 5 — the constants shipped with emission sites but missed
+    // their contract registration, which blocked the conformance suite).
+    PublishedEvent {
+        event_type: types::DOCUMENT_LAYOUT_CREATED,
+        entity: "document_layout",
+        variant: "default",
+        shape: untyped_shape!(
+            ["layout_id", "slug"],
+            serde_json::json!({
+                "layout_id": su(27),
+                "slug": "server",
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::DOCUMENT_LAYOUT_UPDATED,
+        entity: "document_layout",
+        variant: "default",
+        shape: untyped_shape!(
+            ["layout_id", "slug"],
+            serde_json::json!({
+                "layout_id": su(27),
+                "slug": "server",
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::DOCUMENT_LAYOUT_REMOVED,
+        entity: "document_layout",
+        variant: "default",
+        shape: untyped_shape!(
+            ["layout_id", "slug"],
+            serde_json::json!({
+                "layout_id": su(27),
+                "slug": "server",
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PASSWORD_CREATED,
+        entity: "password",
+        variant: "default",
+        shape: untyped_shape!(
+            ["password_id", "client_id", "title"],
+            serde_json::json!({
+                "password_id": su(28),
+                "client_id": su(1),
+                "title": "Router admin",
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PASSWORD_UPDATED,
+        entity: "password",
+        variant: "default",
+        shape: untyped_shape!(
+            ["password_id", "secret_rotated"],
+            serde_json::json!({
+                "password_id": su(28),
+                "secret_rotated": true,
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PASSWORD_DELETED,
+        entity: "password",
+        variant: "default",
+        shape: untyped_shape!(
+            ["password_id", "title"],
+            serde_json::json!({
+                "password_id": su(28),
+                "title": "Router admin",
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PASSWORD_REVEALED,
+        entity: "password",
+        variant: "default",
+        shape: untyped_shape!(
+            ["password_id", "title"],
+            serde_json::json!({
+                "password_id": su(28),
+                "title": "Router admin",
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::LINK_ADDED,
+        entity: "link",
+        variant: "default",
+        shape: untyped_shape!(
+            ["from_kind", "from_id", "to_kind", "to_id"],
+            serde_json::json!({
+                "from_kind": "document",
+                "from_id": su(22),
+                "to_kind": "ticket",
+                "to_id": su(2),
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::LINK_REMOVED,
+        entity: "link",
+        variant: "default",
+        shape: untyped_shape!(
+            ["link_id"],
+            serde_json::json!({
+                "link_id": su(29),
+            })
+        ),
+    },
     // -- contracts & billing ----------------------------------------------
     PublishedEvent {
         event_type: types::CONTRACT_CREATED,

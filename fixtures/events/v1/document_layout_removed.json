@@ -1,0 +1,8 @@
+{
+  "event_type": "document_layout.removed",
+  "entity": "document_layout",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": { "layout_id": "00000000-0000-0000-0000-00000000001b", "slug": "server" }
+}

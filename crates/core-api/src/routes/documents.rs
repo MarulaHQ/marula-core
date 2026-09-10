@@ -1058,7 +1058,7 @@ pub async fn delete_layout(
 
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct CreateLinkRequest {
-    /// One of: document | password | client | ticket | kb_article.
+    /// One of: document | password | client | ticket | kb_article | asset.
     pub to_kind: String,
     pub to_id: Uuid,
 }
@@ -1211,6 +1211,15 @@ pub(crate) async fn link_target_exists(
         LinkKind::KbArticle => Some(
             sqlx::query_scalar(
                 "SELECT EXISTS(SELECT 1 FROM kb_articles WHERE org_id = $1 AND id = $2)",
+            )
+            .bind(org_id)
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?,
+        ),
+        LinkKind::Asset => Some(
+            sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM device_assets WHERE org_id = $1 AND id = $2)",
             )
             .bind(org_id)
             .bind(id)

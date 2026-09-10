@@ -5,7 +5,9 @@
 // linked Portal users. Child-entity creates call the existing plain
 // POST endpoints (they carry no envelope); the portal-user create uses
 // the admin-provisioned password flow (delivered out-of-band) and
-// disable/enable rides PATCH /portal-users/{id}.
+// disable/enable rides PATCH /portal-users/{id}. The Assets tab is the
+// typed asset list (lane 5, migration 0054) — AssetsTab owns it and
+// links rows to the full asset detail page at /assets/[id].
 // Non-purpose: no board-exposure editing here (portal admin surface,
 // TASKLIST Ops backlog); no asset lifecycle fields yet.
 "use client";
@@ -38,11 +40,11 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { api, useAuth, useRequireAuth } from "../../../lib/api";
+import AssetsTab from "./AssetsTab";
 
 type Client = components["schemas"]["Client"];
 type Site = components["schemas"]["Site"];
 type Contact = components["schemas"]["Contact"];
-type DeviceAsset = components["schemas"]["DeviceAsset"];
 type PortalUser = components["schemas"]["PortalUser"];
 type PortalRole = components["schemas"]["PortalRole"];
 
@@ -76,7 +78,6 @@ export default function ClientDetailPage() {
 
   const [sites, setSites] = useState<Site[] | null>(null);
   const [contacts, setContacts] = useState<Contact[] | null>(null);
-  const [assets, setAssets] = useState<DeviceAsset[] | null>(null);
   const [portalUsers, setPortalUsers] = useState<PortalUser[] | null>(null);
 
   const [formError, setFormError] = useState<string | null>(null);
@@ -93,9 +94,6 @@ export default function ClientDetailPage() {
   const [contactEmail, setContactEmail] = useState("");
   const [contactPhone, setContactPhone] = useState("");
   const [contactTitle, setContactTitle] = useState("");
-  const [assetTag, setAssetTag] = useState("");
-  const [assetName, setAssetName] = useState("");
-  const [assetKind, setAssetKind] = useState("");
   const [puEmail, setPuEmail] = useState("");
   const [puName, setPuName] = useState("");
   const [puPassword, setPuPassword] = useState("");
@@ -125,12 +123,7 @@ export default function ClientDetailPage() {
         params: { path: { id: clientId } },
       });
       setContacts(data ?? []);
-    } else if (tab === "assets") {
-      const { data } = await api.api.GET("/api/v1/clients/{id}/assets", {
-        params: { path: { id: clientId } },
-      });
-      setAssets(data ?? []);
-    } else {
+    } else if (tab === "portal") {
       const { data, error } = await api.api.GET("/api/v1/clients/{id}/portal-users", {
         params: { path: { id: clientId } },
       });
@@ -159,9 +152,6 @@ export default function ClientDetailPage() {
     setContactEmail("");
     setContactPhone("");
     setContactTitle("");
-    setAssetTag("");
-    setAssetName("");
-    setAssetKind("");
     setPuEmail("");
     setPuName("");
     setPuPassword("");
@@ -171,14 +161,12 @@ export default function ClientDetailPage() {
   const createLabel =
     tab === "sites" ? "Add site"
     : tab === "contacts" ? "Add contact"
-    : tab === "assets" ? "Add asset"
     : "Provision portal user";
 
   const createDisabled =
     saving ||
     (tab === "sites" && siteName.trim() === "") ||
     (tab === "contacts" && contactName.trim() === "") ||
-    (tab === "assets" && (assetTag.trim() === "" || assetName.trim() === "")) ||
     (tab === "portal" &&
       (puEmail.trim() === "" || puName.trim() === "" || puPassword.trim() === ""));
 
@@ -203,15 +191,6 @@ export default function ClientDetailPage() {
           email: contactEmail.trim() === "" ? null : contactEmail.trim(),
           phone: contactPhone.trim() === "" ? null : contactPhone.trim(),
           title: contactTitle.trim() === "" ? null : contactTitle.trim(),
-        },
-      });
-    } else if (tab === "assets") {
-      result = await api.api.POST("/api/v1/clients/{id}/assets", {
-        params: { path: { id: clientId } },
-        body: {
-          tag: assetTag.trim(),
-          name: assetName.trim(),
-          kind: assetKind.trim() === "" ? null : assetKind.trim(),
         },
       });
     } else {
@@ -308,6 +287,7 @@ export default function ClientDetailPage() {
           </button>
         ))}
         <span className="ml-auto pb-2">
+          {tab !== "assets" ? (
           <Dialog
             open={createOpen}
             onOpenChange={(open) => {
@@ -353,22 +333,6 @@ export default function ClientDetailPage() {
                     <div>
                       <Label htmlFor="contact-title">Title</Label>
                       <Input id="contact-title" value={contactTitle} onChange={(e) => setContactTitle(e.target.value)} placeholder="Optional" />
-                    </div>
-                  </>
-                ) : null}
-                {tab === "assets" ? (
-                  <>
-                    <div>
-                      <Label htmlFor="asset-tag">Asset tag</Label>
-                      <Input id="asset-tag" value={assetTag} onChange={(e) => setAssetTag(e.target.value)} placeholder="EXCH-01" />
-                    </div>
-                    <div>
-                      <Label htmlFor="asset-name">Name</Label>
-                      <Input id="asset-name" value={assetName} onChange={(e) => setAssetName(e.target.value)} />
-                    </div>
-                    <div>
-                      <Label htmlFor="asset-kind">Kind</Label>
-                      <Input id="asset-kind" value={assetKind} onChange={(e) => setAssetKind(e.target.value)} placeholder="server, laptop, network…" />
                     </div>
                   </>
                 ) : null}
@@ -418,6 +382,7 @@ export default function ClientDetailPage() {
               </div>
             </DialogContent>
           </Dialog>
+          ) : null}
         </span>
       </div>
 
@@ -505,39 +470,7 @@ export default function ClientDetailPage() {
       ) : null}
 
       {tab === "assets" ? (
-        <Card>
-          <h2 className="p-4 pb-0 text-sm font-semibold">Assets</h2>
-          {assets === null ? (
-            <div className="p-4"><Spinner /></div>
-          ) : assets.length === 0 ? (
-            <div className="p-4">
-              <EmptyState message="No assets yet. Track the devices and infrastructure you manage for this client." />
-            </div>
-          ) : (
-            <Table>
-              <thead>
-                <tr>
-                  <Th>Tag</Th>
-                  <Th>Name</Th>
-                  <Th>Kind</Th>
-                  <Th>Status</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {assets.map((asset) => (
-                  <Tr key={asset.id}>
-                    <Td className="tabular-nums">{asset.tag}</Td>
-                    <Td>{asset.name}</Td>
-                    <Td>{asset.kind ?? "—"}</Td>
-                    <Td>
-                      <Tag>{asset.status}</Tag>
-                    </Td>
-                  </Tr>
-                ))}
-              </tbody>
-            </Table>
-          )}
-        </Card>
+        <AssetsTab clientId={clientId} />
       ) : null}
 
       {tab === "portal" ? (

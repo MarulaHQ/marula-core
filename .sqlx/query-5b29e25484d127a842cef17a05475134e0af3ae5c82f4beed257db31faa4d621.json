@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO device_assets (id, org_id, client_id, tag, name, kind)\n           VALUES ($1, $2, $3, $4, $5, $6)\n           RETURNING id, org_id, client_id, site_id, tag, name, kind, status,\n                     created_at, updated_at",
+  "query": "SELECT id, org_id, client_id, site_id, tag, name, kind, status,\n                    layout_id, fields, created_at, updated_at\n           FROM device_assets WHERE org_id = $1 AND client_id = $2 ORDER BY tag",
   "describe": {
     "columns": [
       {
@@ -45,11 +45,21 @@
       },
       {
         "ordinal": 8,
+        "name": "layout_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 9,
+        "name": "fields",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 10,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 9,
+        "ordinal": 11,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
@@ -57,11 +67,7 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Uuid",
-        "Uuid",
-        "Text",
-        "Text",
-        "Text"
+        "Uuid"
       ]
     },
     "nullable": [
@@ -73,9 +79,11 @@
       false,
       false,
       false,
+      true,
+      false,
       false,
       false
     ]
   },
-  "hash": "3bb6a6e42930582e5c02708ad19e6d53300956d3a06950646a2861d6410deacd"
+  "hash": "5b29e25484d127a842cef17a05475134e0af3ae5c82f4beed257db31faa4d621"
 }

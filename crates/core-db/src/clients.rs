@@ -372,7 +372,7 @@ where
         r#"INSERT INTO device_assets (id, org_id, client_id, tag, name, kind)
            VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING id, org_id, client_id, site_id, tag, name, kind, status,
-                     created_at, updated_at"#,
+                     layout_id, fields, created_at, updated_at"#,
         id,
         org_id,
         client_id,
@@ -391,6 +391,8 @@ where
         name: row.name,
         kind: row.kind,
         status: row.status,
+        layout_id: row.layout_id,
+        fields: row.fields,
         created_at: row.created_at,
         updated_at: row.updated_at,
     })
@@ -406,7 +408,7 @@ where
 {
     let rows = sqlx::query!(
         r#"SELECT id, org_id, client_id, site_id, tag, name, kind, status,
-                    created_at, updated_at
+                    layout_id, fields, created_at, updated_at
            FROM device_assets WHERE org_id = $1 AND client_id = $2 ORDER BY tag"#,
         org_id,
         client_id
@@ -424,6 +426,8 @@ where
             name: row.name,
             kind: row.kind,
             status: row.status,
+            layout_id: row.layout_id,
+            fields: row.fields,
             created_at: row.created_at,
             updated_at: row.updated_at,
         })

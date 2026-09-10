@@ -31,7 +31,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
-import { FieldsEditor, parseFieldInputs } from "../../documents/page";
+import { FieldsEditor, parseFieldInputs } from "../fields-editor";
 
 type Document = components["schemas"]["Document"];
 type DocumentView = components["schemas"]["DocumentView"];

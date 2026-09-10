@@ -50,8 +50,9 @@ pub struct DocumentLayout {
     pub updated_at: DateTime<Utc>,
 }
 
-/// Either endpoint of a link. Documents and passwords can link FROM;
-/// documents, passwords, clients, tickets, and KB articles can be linked TO.
+/// Either endpoint of a link. Documents, passwords, and assets can link
+/// FROM; documents, passwords, clients, tickets, KB articles, and assets
+/// can be linked TO (asset kind added in migration 0054).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
@@ -61,6 +62,7 @@ pub enum LinkKind {
     Client,
     Ticket,
     KbArticle,
+    Asset,
 }
 
 impl LinkKind {
@@ -71,6 +73,7 @@ impl LinkKind {
             LinkKind::Client => "client",
             LinkKind::Ticket => "ticket",
             LinkKind::KbArticle => "kb_article",
+            LinkKind::Asset => "asset",
         }
     }
 
@@ -81,6 +84,7 @@ impl LinkKind {
             "client" => LinkKind::Client,
             "ticket" => LinkKind::Ticket,
             "kb_article" => LinkKind::KbArticle,
+            "asset" => LinkKind::Asset,
             _ => return None,
         })
     }

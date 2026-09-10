@@ -225,7 +225,9 @@
 }
 
 .m-select-content {
-  z-index: 50;
+  /* above .m-dialog-overlay (60): selects are used inside dialogs
+     (documents fields, asset create) and must layer over the scrim */
+  z-index: 70;
   min-width: var(--radix-select-trigger-width);
   background: var(--m-overlay-surface);
   border: 1px solid var(--m-border);

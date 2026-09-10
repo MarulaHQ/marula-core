@@ -1,6 +1,6 @@
 //! Client hierarchy: company → site → contact, plus devices/assets.
 
-use crate::ids::{ClientId, ContactId, DeviceAssetId, OrgId, SiteId, UserId};
+use crate::ids::{ClientId, ContactId, DeviceAssetId, DocumentLayoutId, OrgId, SiteId, UserId};
 use chrono::{DateTime, Utc};
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -75,8 +75,17 @@ pub struct DeviceAsset {
     /// Human asset tag, e.g. "EXCH-01".
     pub tag: String,
     pub name: String,
+    /// Free-text connector compatibility column; typed classification
+    /// lives in `layout_id` + `fields` (asset taxonomy, migration 0054).
     pub kind: String,
     pub status: String,
+    /// The typed layout this asset instantiates; NULL = untyped.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub layout_id: Option<DocumentLayoutId>,
+    /// Custom-field values validated against the layout's schema
+    /// (docs-platform v1 shape; app-validated).
+    #[serde(default)]
+    pub fields: serde_json::Value,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

@@ -208,6 +208,15 @@ pub mod types {
     pub const PASSWORD_REVEALED: &str = "password.revealed";
     pub const LINK_ADDED: &str = "link.added";
     pub const LINK_REMOVED: &str = "link.removed";
+    /// Asset taxonomy on the docs-platform (Wave 11 lane 5, migration
+    /// 0054): typed asset instances ride `device_assets` +
+    /// `document_layouts`. Payloads ride the untyped additive pattern (the
+    /// row itself is the read model); `asset.updated`/`asset.deleted`
+    /// re-index or drop the instance for the MCP/connector seam that
+    /// mirrors an external DMS.
+    pub const ASSET_CREATED: &str = "asset.created";
+    pub const ASSET_UPDATED: &str = "asset.updated";
+    pub const ASSET_DELETED: &str = "asset.deleted";
     /// Contracts + recurring billing rules (TASKLIST Phase 3): contract
     /// CRUD lifecycle. Billing previews are read-only and emit nothing;
     /// invoice runs are Wave 9.

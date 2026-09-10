@@ -40,6 +40,7 @@ pub mod agent_platform;
 pub mod alerts;
 pub mod api_keys;
 pub mod appointment_requests;
+pub mod assets;
 pub mod attachments;
 pub mod audit;
 pub mod availability;
@@ -678,6 +679,26 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/passwords/{id}/links"),
             get(passwords::list_links).post(passwords::add_link),
         )
+        // asset taxonomy on the docs-platform (Wave 11 lane 5, 0054):
+        // typed asset instances (device_assets + document_layouts),
+        // resource REST for external-DMS parity, instant-first
+        // mutations, `asset.*` contract events.
+        .route(&rp("/assets"), get(assets::list).post(assets::create))
+        .route(
+            &rp("/assets/integration-links"),
+            get(assets::integration_links),
+        )
+        .route(
+            &rp("/assets/{id}"),
+            get(assets::get_one)
+                .patch(assets::update)
+                .delete(assets::remove),
+        )
+        .route(
+            &rp("/assets/{id}/links"),
+            get(assets::list_links).post(assets::add_link),
+        )
+        .route(&rp("/assets/{id}/vault"), get(assets::list_vault))
         // contracts + recurring billing rules (Wave 8b billing lane):
         // contract CRUD plus READ-ONLY rule-evaluation previews — no
         // invoice persistence (Wave 9).

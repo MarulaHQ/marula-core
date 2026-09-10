@@ -403,6 +403,118 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/assets — org-wide, filterable (resource REST for external-DMS
+         *     parity; the client-scoped tab narrows with `?client_id=`).
+         */
+        get: operations["assets_list"];
+        put?: never;
+        /** POST /api/assets — instant-first (IF1/IF2). */
+        post: operations["assets_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assets/integration-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/assets/integration-links — per-connector link state as data
+         *     (QBO/Xero and friends): linked/unlinked + last-touch timestamps. No
+         *     live sync runs here; the `ConfigSourceLink` seam (ADR 0003) attaches
+         *     per-asset state when it lands.
+         */
+        get: operations["assets_integration_links"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assets/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/assets/{id} */
+        get: operations["assets_get"];
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/assets/{id} — the audit trail keeps the events; link rows
+         *     survive and surface as broken targets (docs-platform semantics: never
+         *     cascade-deleted). Mirrors the vault's delete shape (`deleted: true`),
+         *     which intentionally rides no instant-first envelope.
+         */
+        delete: operations["assets_delete"];
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/assets/{id} — instant-first (IF1/IF2); absent = keep. A
+         *     layout change re-validates the effective fields against the NEW schema.
+         */
+        patch: operations["assets_update"];
+        trace?: never;
+    };
+    "/api/v1/assets/{id}/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/assets/{id}/links — the related-items panel. */
+        get: operations["assets_list_links"];
+        put?: never;
+        /** POST /api/assets/{id}/links */
+        post: operations["assets_add_link"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assets/{id}/vault": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/assets/{id}/vault — the asset's vault entries: password rows
+         *     LINKED to this asset (password→asset). Strict posture: metadata only
+         *     (title/username/url/expiry) under `passwords:view`; secrets exist only
+         *     behind the audited `/passwords/{id}/reveal` endpoint, which requires
+         *     `passwords:edit` — the UI must render role-gated reveal, never a dead
+         *     button. No ciphertext ever appears in this response.
+         */
+        get: operations["assets_list_vault"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/attachments/{id}": {
         parameters: {
             query?: never;
@@ -5522,6 +5634,13 @@ export interface components {
         ArticleMutationResponse: components["schemas"]["KbArticle"] & {
             mutation: components["schemas"]["MutationMeta"];
         };
+        /**
+         * @description Instant-first mutation response (IF2): asset fields at the top level
+         *     plus the additive `mutation` metadata.
+         */
+        AssetMutationResponse: components["schemas"]["DeviceAsset"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
         AssignGroupRequest: {
             /**
              * Format: uuid
@@ -6583,9 +6702,31 @@ export interface components {
             status?: null | components["schemas"]["KbArticleStatus"];
             title: string;
         };
-        CreateAssetRequest: {
-            kind?: string | null;
+        CreateAssetLinkRequest: {
+            /** Format: uuid */
+            to_id: string;
+            /** @description One of: document | password | client | ticket | kb_article | asset. */
+            to_kind: string;
+        };
+        CreateAssetRequest: components["schemas"]["MutationParams"] & {
+            /** Format: uuid */
+            client_id: string;
+            fields?: unknown;
+            /**
+             * @description Free-text connector-compat column (typed classification rides
+             *     `layout_id`).
+             */
+            kind?: string;
+            /**
+             * Format: uuid
+             * @description Typed layout; when set, `fields` is validated against its schema.
+             */
+            layout_id?: string | null;
             name: string;
+            /** Format: uuid */
+            site_id?: string | null;
+            status?: string;
+            /** @description Human asset tag, e.g. "EXCH-01". */
             tag: string;
         };
         CreateAvailabilityRequest: {
@@ -6781,7 +6922,7 @@ export interface components {
         CreateLinkRequest: {
             /** Format: uuid */
             to_id: string;
-            /** @description One of: document | password | client | ticket | kb_article. */
+            /** @description One of: document | password | client | ticket | kb_article | asset. */
             to_kind: string;
         };
         CreateOnCallRequest: {
@@ -7239,9 +7380,23 @@ export interface components {
             client_id: string;
             /** Format: date-time */
             created_at: string;
+            /**
+             * @description Custom-field values validated against the layout's schema
+             *     (docs-platform v1 shape; app-validated).
+             */
+            fields?: unknown;
             /** Format: uuid */
             id: string;
+            /**
+             * @description Free-text connector compatibility column; typed classification
+             *     lives in `layout_id` + `fields` (asset taxonomy, migration 0054).
+             */
             kind: string;
+            /**
+             * Format: uuid
+             * @description The typed layout this asset instantiates; NULL = untyped.
+             */
+            layout_id?: string | null;
             name: string;
             /** Format: uuid */
             org_id: string;
@@ -7947,6 +8102,14 @@ export interface components {
             /** Format: date */
             start_date?: string | null;
         };
+        /** @description Per-connector link state as data (linked/unlinked + last touch). */
+        IntegrationLinkStatus: {
+            connector_type: string;
+            /** Format: date-time */
+            linked_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
         /**
          * @description The one-time setup token an admin delivers to the invitee (shown once;
          *     only its sha-256 is stored).
@@ -8240,11 +8403,12 @@ export interface components {
             authorize_url: string;
         };
         /**
-         * @description Either endpoint of a link. Documents and passwords can link FROM;
-         *     documents, passwords, clients, tickets, and KB articles can be linked TO.
+         * @description Either endpoint of a link. Documents, passwords, and assets can link
+         *     FROM; documents, passwords, clients, tickets, KB articles, and assets
+         *     can be linked TO (asset kind added in migration 0054).
          * @enum {string}
          */
-        LinkKind: "document" | "password" | "client" | "ticket" | "kb_article";
+        LinkKind: "document" | "password" | "client" | "ticket" | "kb_article" | "asset";
         ListEntriesQuery: {
             /** Format: int64 */
             limit?: number;
@@ -11224,6 +11388,15 @@ export interface components {
             status?: null | components["schemas"]["KbArticleStatus"];
             title?: string | null;
         };
+        UpdateAssetRequest: components["schemas"]["MutationParams"] & {
+            fields?: unknown;
+            /** Format: uuid */
+            layout_id?: string | null;
+            name?: string | null;
+            /** Format: uuid */
+            site_id?: string | null;
+            status?: string | null;
+        };
         UpdateCalendarRequest: {
             holidays?: unknown;
             maintenance?: unknown;
@@ -11410,6 +11583,19 @@ export interface components {
             key: string;
             /** @description JSON payload typed by the declaration's kind. */
             value: unknown;
+        };
+        /**
+         * @description A vault entry as the asset detail page sees it: metadata only —
+         *     reveal rides the audited `/passwords/{id}/reveal` endpoint.
+         */
+        VaultEntryView: {
+            /** Format: date-time */
+            expires_at?: string | null;
+            /** Format: uuid */
+            id: string;
+            title: string;
+            url?: string | null;
+            username: string;
         };
         VerdictResponse: {
             /**
@@ -12309,6 +12495,275 @@ export interface operations {
             };
             /** @description target slot already booked */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    assets_list: {
+        parameters: {
+            query?: {
+                client_id?: string | null;
+                layout_id?: string | null;
+                /** @description Substring over tag, name, and custom fields. */
+                q?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceAsset"][];
+                };
+            };
+        };
+    };
+    assets_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAssetRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssetMutationResponse"];
+                };
+            };
+            /** @description idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description fields rejected by the layout schema */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    assets_integration_links: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationLinkStatus"][];
+                };
+            };
+        };
+    };
+    assets_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceAsset"];
+                };
+            };
+            /** @description asset not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    assets_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description asset not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    assets_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAssetRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssetMutationResponse"];
+                };
+            };
+            /** @description asset not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description fields rejected by the layout schema */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    assets_list_links: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResolvedLink"][];
+                };
+            };
+        };
+    };
+    assets_add_link: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAssetLinkRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResolvedLink"][];
+                };
+            };
+            /** @description asset or link target not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description link already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    assets_list_vault: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaultEntryView"][];
+                };
+            };
+            /** @description asset not visible in scope */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
