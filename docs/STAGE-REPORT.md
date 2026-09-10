@@ -257,12 +257,29 @@ lane merge. Known integration lessons: lanes branched before each other's
 merges type-break on widened structs (`RecordSpec.provenance`, tri-state
 `TicketPatch.body`) — resolved at merge with the canonical patterns.
 
-### Known gaps carried forward (see TASKLIST "UI debt" block)
+### Known gaps carried forward (see TASKLIST "UI buildout backlog")
 
-1. Staff UI missing for: projects, clients CRM, contracts, documents, imports,
-   KB authoring, alerts, R3 definitions, R4 schedules (backend all live).
+1. Staff UI landed for projects, clients CRM, contracts, board admin (Wave 10);
+   documents, import wizard, KB authoring, alerts, R3 definitions, R4 schedules
+   ride the Wave 11 money-docs/ops close-out lanes (in flight).
 2. Invoice documents print-to-PDF via browser only (no server PDF binary).
 3. Portal quote approval deferred until the quotes lane exists.
+4. Org-users management UI lands with the Wave 11 close-out (backend live:
+   directory, invite flow with one-time setup tokens, activate/deactivate,
+   role assignment).
+
+### DB access scoping (doctrine, 2026-09-09)
+
+After the RLS-scope incident (70+ handlers 500ing/returning empty under RLS),
+all route-level DB access is org-bound: handlers acquire a transaction,
+`core_db::set_org_and_user(&mut tx, org, user)` sets `app.org_id`/`app.user_id`
+(is_local), queries ride `&mut *tx`, then commit. Raw-pool queries against
+RLS-protected tables are FORBIDDEN — fresh connections hide rows (NULL scope)
+and previously-scoped connections fail casting the `''` placeholder. Session
+creation and a few auth resolvers are the only exceptions (SECURITY DEFINER
+bridges: `app_resolve_login`, `app_create_session`, `app_create_portal_session`,
+`app_resolve_session`). Pattern reference: `crates/core-api/src/routes/notifications.rs`
+CI grep gate for new pool-reads: tracked in TASKLIST (RLS-scope audit).
 
 ### Waves 10–11 (2026-09-04 → 09-09, interim)
 Wave 10 landed: nav pass (grouped nav + active states, global header) + workspace-core UIs (clients/projects/contracts/board admin). QA findings fixed: systemic RLS-scope 500s (~70 handlers moved to org-bound txs), search index seeding, SLA none-mode, register slug UX tracked. Wave 11 fired (8 lanes): vision-driven UI quality pass, org-users backend, ticket taxonomy, scheduling links, assets UX, money+docs UI, ops UI, workflow constructs (tags/merge/costs/PM tickets). Typography changed by owner decision: JetBrains Mono headings via shadcn preset b3J8o4J600 (theme.md + BUILD-PROMPT updated).
