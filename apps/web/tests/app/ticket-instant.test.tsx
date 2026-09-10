@@ -2,7 +2,7 @@
 // reconciling from the IF2 envelope, If-Match version carry, typed 409
 // reverts, and offline queue → in-order replay (IF1/IF5/IF6).
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AuthProvider } from "../../lib/api";
 import TicketWorkspacePage from "../../app/tickets/[id]/page";
 import { OutboxDock } from "../../components/instant/outbox-dock";
@@ -198,7 +198,8 @@ describe("/tickets/[id] — optimistic writes with authoritative reconcile", () 
     render(page());
     expect(await screen.findByText("Broken printer", {}, { timeout: 5000 })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Working" }));
+    fireEvent.click(screen.getByTestId("ticket-status-change"));
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("button", { name: "Working" }));
     await waitFor(() => {
       expect(mock.callsTo("POST", `/api/v1/tickets/${TICKET_ID}/status`)).toHaveLength(1);
     });
@@ -211,9 +212,9 @@ describe("/tickets/[id] — optimistic writes with authoritative reconcile", () 
     expect(typeof body.idempotency_key).toBe("string");
     expect(body.version).toBeUndefined();
 
-    // Read-your-write: the pill reflects the applied snapshot.
+    // Read-your-write: the status bar reflects the applied snapshot.
     await waitFor(() => {
-      expect(screen.getAllByText("Working").length).toBeGreaterThanOrEqual(2);
+      expect(screen.getByTestId("ticket-status-text").textContent).toBe("Working");
     });
   });
 
@@ -222,11 +223,13 @@ describe("/tickets/[id] — optimistic writes with authoritative reconcile", () 
     render(page());
     await screen.findByText("Broken printer", {}, { timeout: 5000 });
 
-    fireEvent.click(screen.getByRole("button", { name: "Working" }));
+    fireEvent.click(screen.getByTestId("ticket-status-change"));
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("button", { name: "Working" }));
     await waitFor(() => {
       expect(mock.callsTo("POST", `/api/v1/tickets/${TICKET_ID}/status`)).toHaveLength(1);
     });
-    fireEvent.click(screen.getByRole("button", { name: "New" }));
+    fireEvent.click(screen.getByTestId("ticket-status-change"));
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("button", { name: "New" }));
     await waitFor(() => {
       expect(mock.callsTo("POST", `/api/v1/tickets/${TICKET_ID}/status`)).toHaveLength(2);
     });
@@ -240,7 +243,8 @@ describe("/tickets/[id] — optimistic writes with authoritative reconcile", () 
     await screen.findByText("Broken printer", {}, { timeout: 5000 });
 
     // Land on Working (seq 4), then flip the route to a typed 409.
-    fireEvent.click(screen.getByRole("button", { name: "Working" }));
+    fireEvent.click(screen.getByTestId("ticket-status-change"));
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("button", { name: "Working" }));
     await waitFor(() => {
       expect(mock.callsTo("POST", `/api/v1/tickets/${TICKET_ID}/status`)).toHaveLength(1);
     });
@@ -254,17 +258,17 @@ describe("/tickets/[id] — optimistic writes with authoritative reconcile", () 
       };
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "New" }));
+    fireEvent.click(screen.getByTestId("ticket-status-change"));
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("button", { name: "New" }));
     // The optimistic render flipped, then the typed rejection reverted it.
     await waitFor(() => {
       expect(
         screen.getAllByRole("alert").map((el) => el.textContent ?? "").join("\n"),
       ).toContain("That status change is not allowed by this board's workflow");
     });
-    // Pill and button row agree on the authoritative (unchanged) status.
+    // Status bar agrees on the authoritative (unchanged) status.
     await waitFor(() => {
-      const pill = screen.getAllByText("Working");
-      expect(pill.length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByTestId("ticket-status-text").textContent).toBe("Working");
     });
   });
 });
@@ -274,8 +278,9 @@ describe("/tickets/[id] — checklist writes through the IF1/IF2 envelope", () =
     const mock = setupApi();
     render(page());
     await screen.findByText("Broken printer", {}, { timeout: 5000 });
+    fireEvent.click(screen.getByTestId("detail-tab-tasks"));
 
-    fireEvent.change(screen.getByPlaceholderText("Add checklist item…"), {
+    fireEvent.change(screen.getByPlaceholderText("Add task…"), {
       target: { value: "Replace toner" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
@@ -293,7 +298,7 @@ describe("/tickets/[id] — checklist writes through the IF1/IF2 envelope", () =
     expect(await screen.findByText("Replace toner", {}, { timeout: 5000 })).toBeInTheDocument();
 
     // The next write on the created item echoes its observed seq.
-    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByTestId(`tab-task-check-${CHECKLIST_ITEM_ID}`));
     await waitFor(() => {
       expect(
         mock.callsTo("POST", `/api/v1/tickets/${TICKET_ID}/checklist/${CHECKLIST_ITEM_ID}`),
@@ -327,10 +332,11 @@ describe("/tickets/[id] — offline queue and in-order replay (IF6)", () => {
       return base?.(input, init) as Promise<Response>;
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Working" }));
+    fireEvent.click(screen.getByTestId("ticket-status-change"));
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("button", { name: "Working" }));
     // Optimistic render survives offline; the dock surfaces the queue.
     expect(await screen.findByText("1 offline change pending", {}, { timeout: 5000 })).toBeInTheDocument();
-    expect(screen.getAllByText("Working").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByTestId("ticket-status-text").textContent).toBe("Working");
 
     // The queue is durable: it survives reloads via localStorage.
     expect(window.localStorage.getItem("meridian-instant-outbox")).not.toBeNull();

@@ -1,12 +1,25 @@
-// /tickets/[id] — the ticket workspace.
+// /tickets/[id] — the ticket workspace (Wave 11 lane 6 QA close-out).
 //
-// Purpose: three-pane workbench per design/mockups/ticket-workspace-light.png
-// — ticket list (left), detail (center), activity (comments + checklist +
-// timer controls, right) — composed with @meridian/layout so pane geometry
-// persists per user. Data flows through the IF4/IF5 instant layer: the
-// detail and my-work read models hydrate once and live through WS deltas,
-// and every write renders optimistically then reconciles from the IF2
-// read-your-write envelope (or queues durably offline, IF6).
+// Purpose: three-pane workbench (list / detail / activity) composed with
+// @meridian/layout so pane geometry persists per user. The DETAIL pane is
+// now pod-based: a compact status bar (color + text, transitions happen
+// FROM the bar) at the top, a pinned original request, a rearrangeable pod
+// strip (client+contact, next steps, tasks, scheduling, classification —
+// admin-configurable per RBAC level, per-user hide/order), and a tab strip
+// (original request / notes / tasks / details / related). The ACTIVITY
+// pane is the unified timeline (notes + key events + time, filterable by
+// kind and visibility). Notes compose line-by-line with an authoring-time
+// visibility selector; close/validation walks merge → time validation →
+// explicit next-status confirmation → optional client email; scheduling
+// links mint + track from the scheduling pod.
+//
+// Data flows through the IF4/IF5 instant layer: the detail and my-work
+// read models hydrate once and live through WS deltas; every write renders
+// optimistically then reconciles from the IF2 read-your-write envelope
+// (or queues durably offline, IF6). Emails in/out have no per-ticket read
+// endpoint (typed gap in the timeline); N-A task states are per-user
+// panel-state (no API column); the classification display awaits the
+// type/category read fields. Each gap is surfaced honestly, never faked.
 // Non-purpose: no board editing and no admin actions here.
 "use client";
 
@@ -15,19 +28,16 @@ import { snapshotOf } from "@meridian/sdk";
 import {
   Button,
   EmptyState,
-  Input,
-  Label,
   Spinner,
   StatusTag,
   Table,
   Td,
   Th,
-  Textarea,
   Tr,
 } from "@meridian/ui";
 import { PanelLayout, usePanelLayout } from "@meridian/layout";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { TicketCustomFields } from "../../../components/ticket-custom-fields";
 import { TicketUndo } from "../../../components/ticket-undo";
@@ -43,100 +53,47 @@ import {
   MY_WORK_KEY,
   ticketModelKey,
   type TicketDetailModel,
+  type TicketComment,
 } from "../../../lib/instant/read-models";
 import {
   useInstantChannels,
   useInstantCollection,
   useInstantWrite,
 } from "../../../lib/use-instant";
+import {
+  orderedPods,
+  podVisibleFor,
+  loadPodState,
+  saveAdminConfig,
+  saveUserState,
+  rbacLevelFor,
+  type PodUserState,
+  type PodVisibilityConfig,
+  type PodId,
+} from "../../../components/ticket-workspace/pod-state";
+import {
+  PodAdminSettings,
+  PodUserControls,
+  canConfigurePods,
+} from "../../../components/ticket-workspace/pod-settings";
+import { TicketStatusBar } from "../../../components/ticket-status-bar";
+import { ClientContactPod } from "../../../components/ticket-workspace/client-contact-pod";
+import { NextStepsPod } from "../../../components/ticket-workspace/next-steps-pod";
+import { TasksPanel } from "../../../components/ticket-workspace/tasks-panel";
+import { NotesComposer } from "../../../components/ticket-workspace/notes-composer";
+import { TicketTimeline } from "../../../components/ticket-workspace/timeline";
+import { SchedulingPod } from "../../../components/ticket-workspace/scheduling-pod";
+import { CloseFlow } from "../../../components/ticket-workspace/close-flow";
+import { DetailTabs, OriginalRequest, DETAIL_TABS, type DetailTabId } from "../../../components/ticket-workspace/detail-tabs";
 
-type MyWorkItem = components["schemas"]["MyWorkItem"];
-type TicketComment = components["schemas"]["TicketComment"];
 type BoardStatus = components["schemas"]["BoardStatus"];
 type BoardTransitionsResponse = components["schemas"]["BoardTransitionsResponse"];
-type TicketSlaStatus = components["schemas"]["TicketSlaStatus"];
 type Attachment = components["schemas"]["Attachment"];
+type OrgUser = components["schemas"]["OrgUser"];
 
 const PANE_LIST = "pane-list" as const;
 const PANE_DETAIL = "pane-detail" as const;
 const PANE_ACTIVITY = "pane-activity" as const;
-
-// Semantic-category groups in lifecycle order. Colors are industry-standard
-// PSA semantics expressed ONLY through the Workbench status tokens (amber
-// for waiting, green for closed; red stays reserved for breaches) — light
-// and dark parity come from the shared token set.
-const CATEGORY_GROUPS: {
-  category: NonNullable<BoardStatus["category"]>;
-  label: string;
-  tone: "neutral" | "warning" | "success";
-}[] = [
-  { category: "open", label: "Open", tone: "neutral" },
-  { category: "in_progress", label: "In Progress", tone: "neutral" },
-  { category: "waiting", label: "Waiting", tone: "warning" },
-  { category: "closed", label: "Closed", tone: "success" },
-];
-
-/** Paperclip glyph: inline SVG on currentColor so both themes track tokens. */
-function PaperclipIcon(): ReactNode {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-    </svg>
-  );
-}
-
-function categoryTone(category: string): "success" | "warning" | "neutral" {
-  if (category === "closed") return "success";
-  if (category === "waiting") return "warning";
-  return "neutral";
-}
-
-/// SLA badge state: tone follows industry-standard PSA semantics — amber
-/// when the clock is running low, red only for an actual breach. All
-/// colors come from the shared Workbench status tokens.
-function slaBadge(sla: TicketSlaStatus): { tone: "neutral" | "warning" | "danger"; label: string } | null {
-  if (sla.breached) return { tone: "danger", label: "SLA breached" };
-  const mins = sla.minutes_remaining;
-  if (mins === null || mins === undefined) return null;
-  if (mins < 0) return { tone: "danger", label: `SLA over ${formatMins(-mins)}` };
-  const label = `${sla.paused ? "SLA paused · " : ""}${formatMins(mins)} left`;
-  // Inside the last business hour (or already paused with little left)
-  // the badge turns amber.
-  if (mins <= 60 && !sla.paused) return { tone: "warning", label };
-  return { tone: "neutral", label };
-}
-
-function formatMins(mins: number): string {
-  if (mins >= 60) {
-    const h = Math.floor(mins / 60);
-    const m = mins % 60;
-    return m === 0 ? `${h}h` : `${h}h ${m}m`;
-  }
-  return `${mins}m`;
-}
-
-/// Client mirror of the server's transition verdict (core-domain `workflow`):
-/// explicit matrix wins; otherwise the semantic floor governs — any→any
-/// except identity and closed→open. The API remains authoritative; this only
-/// disables buttons the server would reject anyway.
-function transitionAllowed(
-  statuses: BoardStatus[],
-  workflow: BoardTransitionsResponse,
-  fromId: string,
-  toId: string,
-): boolean {
-  if (fromId === toId) return false;
-  if ((workflow.mode ?? "floor") === "explicit") {
-    return (workflow.edges ?? []).some(
-      (e) => e.from_status_id === fromId && e.to_status_id === toId,
-    );
-  }
-  const catOf = new Map(statuses.map((s) => [s.id, s.category]));
-  const fromCat = catOf.get(fromId);
-  const toCat = catOf.get(toId);
-  if (fromCat === undefined || toCat === undefined) return false;
-  return !(fromCat === "closed" && toCat === "open");
-}
 
 export default function TicketWorkspacePage() {
   const auth = useRequireAuth();
@@ -154,9 +111,9 @@ export default function TicketWorkspacePage() {
       children: [
         { kind: "pane", id: PANE_LIST, tabs: [{ id: "tickets", title: "Tickets" }], activeTabId: "tickets", minWidthPx: 260 },
         { kind: "pane", id: PANE_DETAIL, tabs: [{ id: "detail", title: "Detail" }], activeTabId: "detail", minWidthPx: 380 },
-        { kind: "pane", id: PANE_ACTIVITY, tabs: [{ id: "activity", title: "Activity" }], activeTabId: "activity", minWidthPx: 320 },
+        { kind: "pane", id: PANE_ACTIVITY, tabs: [{ id: "activity", title: "Timeline" }], activeTabId: "activity", minWidthPx: 320 },
       ],
-      sizes: [0.28, 0.42, 0.3],
+      sizes: [0.26, 0.46, 0.28],
     },
   });
 
@@ -194,12 +151,62 @@ export default function TicketWorkspacePage() {
   const statuses = model?.statuses ?? [];
   const workflow = model?.workflow ?? { mode: "floor" as const, edges: [] };
 
-  // Comment composer state.
-  const [commentDraft, setCommentDraft] = useState("");
-  const [checklistDraft, setChecklistDraft] = useState("");
-  // Attachments (2.14): files staged in the composer; already-stored
-  // attachments come from the detail read model, grouped per comment.
-  const [stagedFiles, setStagedFiles] = useState<File[]>([]);
+  // --- org directory (author names for notes/timeline) -----------------------
+  const [namesByUser, setNamesByUser] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    if (auth.status !== "authed") return;
+    let cancelled = false;
+    void (async () => {
+      const { data } = await api.api.GET("/api/v1/org/users", { params: { query: { limit: 200 } } });
+      if (cancelled || data === undefined) return;
+      const map = new Map<string, string>();
+      for (const u of data.users) map.set(u.id, u.display_name);
+      setNamesByUser(map);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.status]);
+
+  // --- pod state (admin + per-user) -------------------------------------------
+  const rbac = rbacLevelFor(auth.me?.permissions ?? []);
+  const [podAdmin, setPodAdmin] = useState<PodVisibilityConfig>({});
+  const [podUser, setPodUser] = useState<PodUserState>({ hidden: [], order: [] });
+  const podStateLoaded = useRef(false);
+  useEffect(() => {
+    if (auth.status !== "authed" || auth.me === null) return;
+    if (podStateLoaded.current) return;
+    podStateLoaded.current = true;
+    void loadPodState(auth.me.org_id, auth.me.user_id).then(({ admin, user }) => {
+      setPodAdmin(admin);
+      setPodUser(user);
+    });
+  }, [auth.status, auth.me]);
+
+  const onPodAdminChange = useCallback(
+    (next: PodVisibilityConfig) => {
+      setPodAdmin(next);
+      if (auth.me !== null) void saveAdminConfig(auth.me.org_id, auth.me.user_id, next);
+    },
+    [auth.me],
+  );
+  const onPodUserChange = useCallback(
+    (next: PodUserState) => {
+      setPodUser(next);
+      if (auth.me !== null) void saveUserState(auth.me.org_id, auth.me.user_id, next);
+    },
+    [auth.me],
+  );
+
+  const visiblePods = orderedPods(podUser.order).filter(
+    (pod) => podVisibleFor(pod, rbac, podAdmin, podUser.hidden),
+  );
+
+  // --- detail tabs --------------------------------------------------------------
+  const [activeTab, setActiveTab] = useState<DetailTabId>("original");
+
+  // --- write paths ----------------------------------------------------------------
+  const [commentDraftsBusy, setCommentDraftsBusy] = useState(false);
 
   async function changeStatus(statusId: string) {
     if (ticket === null) return;
@@ -230,6 +237,52 @@ export default function TicketWorkspacePage() {
     setError(null);
   }
 
+  async function patchTicket(
+    describe: string,
+    body: Record<string, unknown>,
+    optimistic: (m: TicketDetailModel) => TicketDetailModel,
+  ): Promise<void> {
+    if (ticket === null) return;
+    const before = ticket;
+    const result = await mutate({
+      describe,
+      entityId: ticket.id,
+      method: "PATCH",
+      path: `/api/v1/tickets/${ticket.id}`,
+      buildBody: (base) => ({ ...body, ...base }),
+      optimistic: () => {
+        patchDetail(optimistic);
+      },
+      captureBefore: () => before,
+      revert: () => {
+        patchDetail((m) => ({ ...m, ticket: m.ticket === null ? m.ticket : { ...m.ticket, ...before } }));
+      },
+    });
+    if (result.status === "rejected") {
+      throw new Error(result.message ?? "Change rejected");
+    }
+  }
+
+  async function saveCustomField(fieldId: string, value: string): Promise<void> {
+    if (ticket === null) return;
+    await patchTicket(
+      "Set next steps",
+      { custom_fields: [{ field_id: fieldId, value }] },
+      (m) => ({
+        ...m,
+        ticket:
+          m.ticket === null
+            ? m.ticket
+            : {
+                ...m.ticket,
+                custom_fields: m.ticket.custom_fields.some((v) => v.field_id === fieldId)
+                  ? m.ticket.custom_fields.map((v) => (v.field_id === fieldId ? { ...v, value } : v))
+                  : [...m.ticket.custom_fields, { field_id: fieldId, name: "Next steps", kind: "text", required: false, sort_order: 0, value }],
+              },
+      }),
+    );
+  }
+
   async function startTimer() {
     await api.api.POST("/api/v1/timers/start", { body: { ticket_id: ticketId } });
   }
@@ -243,37 +296,28 @@ export default function TicketWorkspacePage() {
     patchModel(updater);
   }
 
-  async function postComment() {
+  async function postComment(body: string, kind: TicketComment["kind"], attachmentIds: string[]): Promise<void> {
     if (ticket === null) return;
-    const body = commentDraft.trim();
-    if (body === "") return;
     try {
-      // Composer flow (2.14): upload bytes first, then link the returned
-      // attachment ids in the comment create — one atomic note.
-      const uploaded: string[] = [];
-      for (const file of stagedFiles) {
-        uploaded.push((await uploadAttachment(ticketId, file)).id);
-      }
       const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const optimistic: TicketComment = {
         id: tempId,
         ticket_id: ticketId,
         author_id: auth.me?.user_id ?? "",
-        author_name: auth.me?.display_name ?? "",
         body,
-        kind: "internal",
+        kind,
         created_at: new Date().toISOString(),
-        attachment_ids: uploaded,
+        attachment_ids: attachmentIds,
       } as unknown as TicketComment;
       const result = await mutate({
-        describe: `Comment on ${ticket.number}`,
+        describe: `Note on ${ticket.number}`,
         entityId: tempId,
         method: "POST",
         path: `/api/v1/tickets/${ticketId}/comments`,
         buildBody: (base) => ({
           body,
-          kind: "internal",
-          attachment_ids: uploaded,
+          kind,
+          attachment_ids: attachmentIds,
           ...base,
         }),
         optimistic: () => {
@@ -288,13 +332,9 @@ export default function TicketWorkspacePage() {
         },
       });
       if (result.status === "rejected") {
-        setError(result.message ?? "Could not post comment");
-        return;
+        throw new Error(result.message ?? "Could not post note");
       }
       if (result.status === "queued") {
-        setError(null);
-        setCommentDraft("");
-        setStagedFiles([]);
         return;
       }
       // Accepted: swap the optimistic row for the applied comment, and
@@ -311,10 +351,8 @@ export default function TicketWorkspacePage() {
         ),
       }));
       setError(null);
-      setCommentDraft("");
-      setStagedFiles([]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not post comment");
+      throw e instanceof Error ? e : new Error("Could not post note");
     }
   }
 
@@ -336,7 +374,9 @@ export default function TicketWorkspacePage() {
         title={`${attachment.filename} · ${sizeKb} KB`}
         onClick={() => void downloadAttachment(attachment.id, attachment.filename)}
       >
-        <PaperclipIcon />
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+        </svg>
         <span className="truncate" style={{ maxWidth: 220 }}>
           {attachment.filename}
         </span>
@@ -345,9 +385,7 @@ export default function TicketWorkspacePage() {
     );
   }
 
-  async function addChecklistItem() {
-    const text = checklistDraft.trim();
-    if (text === "") return;
+  async function addChecklistItem(text: string) {
     const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const result = await mutate({
       describe: "Add checklist item",
@@ -395,7 +433,6 @@ export default function TicketWorkspacePage() {
       setError(result.message ?? "Could not add checklist item");
       return;
     }
-    setChecklistDraft("");
     if (result.status === "accepted" && result.mutation !== null) {
       // The checklist envelope carries the applied item in `mutation.after`.
       const { after } = snapshotOf(result.mutation);
@@ -482,6 +519,43 @@ export default function TicketWorkspacePage() {
     }
   }
 
+  // --- close flow ----------------------------------------------------------------
+  const [closeOpen, setCloseOpen] = useState(false);
+  const [nextStepsDraft, setNextStepsDraft] = useState<string>("");
+  useEffect(() => {
+    const v = ticket?.custom_fields.find((f) => f.name.toLowerCase() === "next steps");
+    setNextStepsDraft(v != null && v.value != null ? String(v.value) : "");
+  }, [ticket?.custom_fields]);
+
+  // Close-email recipients: the ticket's client and contact names pulled
+  // from the main records (intelligent pull — contact preferred, client
+  // fallback), fetched only while the close flow may need them.
+  const [clientName, setClientName] = useState<string | null>(null);
+  const [contactName, setContactName] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setClientName(null);
+    setContactName(null);
+    const clientId = ticket?.client_id ?? null;
+    if (clientId === null) return;
+    void (async () => {
+      const { data } = await api.api.GET("/api/v1/clients/{id}", { params: { path: { id: clientId } } });
+      if (cancelled) return;
+      if (data !== undefined && data !== null) setClientName(data.name);
+      const { data: contacts } = await api.api.GET("/api/v1/clients/{id}/contacts", {
+        params: { path: { id: clientId } },
+      });
+      if (cancelled || contacts === undefined) return;
+      const contactId = ticket?.contact_id ?? null;
+      const match = contactId !== null ? contacts.find((c) => c.id === contactId) : undefined;
+      if (match !== undefined) setContactName(match.name);
+      else if (contacts.length === 1 && contacts[0] !== undefined) setContactName(contacts[0].name);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ticket?.client_id, ticket?.contact_id]);
+
   if (auth.status !== "authed") {
     return (
       <main className="flex min-h-full items-center justify-center">
@@ -490,9 +564,222 @@ export default function TicketWorkspacePage() {
     );
   }
 
+  const checklistItems = model?.checklist?.items ?? [];
+
+  const renderNotesPane = (): ReactNode => (
+    <div className="grid content-start gap-3 p-3">
+      <NotesComposer
+        busy={commentDraftsBusy}
+        onPost={async (body, kind, attachmentIds) => {
+          setCommentDraftsBusy(true);
+          try {
+            await postComment(body, kind, attachmentIds);
+          } finally {
+            setCommentDraftsBusy(false);
+          }
+        }}
+        onUpload={(file) => uploadAttachment(ticketId, file).then((r) => r.id)}
+      />
+      <ul className="grid gap-2">
+        {(model?.comments ?? []).length === 0 && (
+          <li className="text-xs" style={{ color: "var(--m-text-muted)" }}>
+            No notes yet.
+          </li>
+        )}
+        {(model?.comments ?? []).map((c) => (
+          <article key={c.id} className="grid gap-1 rounded-[2px] border p-2 text-xs" style={{ borderColor: "var(--m-border)" }}>
+            <header className="flex flex-wrap items-center gap-2">
+              <StatusTag tone={c.kind === "client_visible" ? "success" : c.kind === "in_house_update" ? "warning" : "neutral"}>
+                {c.kind === "client_visible" ? "Client-visible" : c.kind === "in_house_update" ? "In-house" : "Internal"}
+              </StatusTag>
+              <span className="font-medium">{namesByUser.get(c.author_id ?? "") ?? "Unknown author"}</span>
+              <time className="ml-auto" style={{ color: "var(--m-text-muted)" }}>
+                {new Date(c.created_at).toLocaleString()}
+              </time>
+            </header>
+            <div className="grid gap-0.5">
+              {c.body.split("\n").map((line, idx) => (
+                <p key={idx} className="whitespace-pre-wrap" style={{ color: line.startsWith("- ") ? undefined : undefined }}>
+                  {line}
+                </p>
+              ))}
+            </div>
+            {attachmentsFor(c.id).length > 0 && (
+              <footer className="flex flex-wrap gap-1">
+                {attachmentsFor(c.id).map((a) => paperclipRow(a))}
+              </footer>
+            )}
+          </article>
+        ))}
+      </ul>
+enn   </div>
+  );
+
+  const renderTasksTab = (): ReactNode => (
+    <div className="p-3">
+    <TasksPanel
+      testPrefix="tab-"
+      ticketId={ticketId}
+      userId={auth.me?.user_id ?? "anonymous"}
+      items={checklistItems}
+      enforcementActive={model?.checklist?.enforcement_active ?? false}
+      blockingCount={model?.checklist?.blocking.length ?? 0}
+      onToggle={toggleChecklistItem}
+      onAdd={addChecklistItem}
+    />
+    </div>
+  );
+
+  const renderDetailsTab = (): ReactNode => (
+    <div className="grid content-start gap-4 p-3">
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
+        <dt style={{ color: "var(--m-text-muted)" }}>Priority</dt>
+        <dd className="uppercase">{ticket?.priority}</dd>
+        <dt style={{ color: "var(--m-text-muted)" }}>Assignee</dt>
+        <dd>{ticket?.assignee_id == null ? "Unassigned" : namesByUser.get(ticket.assignee_id) ?? ticket.assignee_id.slice(0, 8)}</dd>
+        <dt style={{ color: "var(--m-text-muted)" }}>Created</dt>
+        <dd>{ticket ? new Date(ticket.created_at ?? Date.now()).toLocaleString() : null}</dd>
+        {ticket?.resolved_at != null && (
+          <>
+            <dt style={{ color: "var(--m-text-muted)" }}>Resolved</dt>
+            <dd>{new Date(ticket.resolved_at).toLocaleString()}</dd>
+          </>
+        )}
+      </dl>
+      {ticket !== null && (
+        <TicketCustomFields
+          ticketId={ticket.id}
+          boardId={ticket.board_id}
+          values={ticket.custom_fields ?? []}
+          onChanged={() => void refresh()}
+        />
+      )}
+      <div className="grid gap-1 text-xs">
+        <dt className="font-medium">Classification</dt>
+        <dd style={{ color: "var(--m-text-muted)" }} data-testid="classification-gap">
+          Type/category read-back is not exposed on the ticket read yet — manage trees in Settings → Taxonomy.
+        </dd>
+      </div>
+      {ticket !== null && <TicketUndo ticketId={ticket.id} onChanged={() => void refresh()} />}
+    </div>
+  );
+
+  const renderRelatedTab = (): ReactNode => (
+    <div className="grid content-start gap-3 p-3">
+      <section className="grid gap-1">
+        <h2 className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>Attachments</h2>
+        {(model?.attachments ?? []).length === 0 && (
+          <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>No attachments.</p>
+        )}
+        <div className="flex flex-wrap gap-1">
+          {(model?.attachments ?? []).map((a) => paperclipRow(a))}
+        </div>
+      </section>
+      <section className="grid gap-1">
+        <h2 className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>Links &amp; tags</h2>
+        <p className="text-xs" style={{ color: "var(--m-text-muted)" }} data-testid="related-gap">
+          Tag/merge/link surfaces ride the Wave 11 close-out lane — the endpoints exist on the typed SDK.
+        </p>
+      </section>
+    </div>
+  );
+
+  const renderPod = (podId: PodId): ReactNode => {
+    if (ticket === null) return null;
+    switch (podId) {
+      case "client-contact":
+        return (
+          <ClientContactPod
+            key="client-contact"
+            clientId={ticket.client_id ?? null}
+            contactId={ticket.contact_id ?? null}
+            onChange={async (patch) => {
+              await patchTicket(
+                "Change client/contact",
+                patch,
+                (m) =>
+                  m.ticket === null
+                    ? m
+                    : { ...m, ticket: { ...m.ticket, ...patch } as typeof m.ticket },
+              );
+            }}
+            onClientChanged={() => {
+              void refresh();
+            }}
+          />
+        );
+      case "next-steps":
+        return (
+          <NextStepsPod
+            key="next-steps"
+            boardId={ticket.board_id}
+            values={ticket.custom_fields ?? []}
+            canManageBoards={auth.me?.permissions.includes("special:manage_boards") ?? false}
+            onSaveValue={saveCustomField}
+            onDefinitionCreated={() => {
+              void refresh();
+            }}
+          />
+        );
+      case "task-lists":
+        return (
+          <section
+            key="task-lists"
+            className="rounded-[2px] border p-3"
+            style={{ borderColor: "var(--m-border)" }}
+            data-testid="pod-tasks-inline"
+            aria-label="Tasks"
+          >
+            <TasksPanel
+              testPrefix="pod-"
+              ticketId={ticketId}
+              userId={auth.me?.user_id ?? "anonymous"}
+              items={checklistItems}
+              enforcementActive={model?.checklist?.enforcement_active ?? false}
+              blockingCount={model?.checklist?.blocking.length ?? 0}
+              onToggle={toggleChecklistItem}
+              onAdd={addChecklistItem}
+            />
+          </section>
+        );
+      case "scheduling":
+        return <SchedulingPod key="scheduling" ticketId={ticket.id} ticketTitle={ticket.title} />;
+      case "taxonomy":
+        return (
+          <section
+            key="taxonomy"
+            className="grid content-start gap-2 rounded-[2px] border p-3"
+            style={{ borderColor: "var(--m-border)" }}
+            data-testid="pod-taxonomy"
+            aria-label="Classification"
+          >
+            <h2 className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
+              Classification
+            </h2>
+            <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>
+              This ticket's type/category read-back is not on the ticket view yet; the org's tree lives in Settings → Taxonomy.
+            </p>
+          </section>
+        );
+    }
+  };
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-end gap-2 px-3 py-1.5">
+        {canConfigurePods(auth.me?.permissions ?? []) && (
+          <PodAdminSettings
+            level={rbac}
+            config={podAdmin}
+            onConfigure={onPodAdminChange}
+            onReset={onPodAdminChange.bind(null, {})}
+          />
+        )}
+        <PodUserControls
+          visiblePods={visiblePods.map((p) => ({ id: p.id, title: p.title, rearrangeable: p.rearrangeable }))}
+          userState={podUser}
+          onChange={onPodUserChange}
+        />
         <button
           type="button"
           onClick={() => {
@@ -517,217 +804,76 @@ export default function TicketWorkspacePage() {
             }
             if (pane.id === PANE_DETAIL && ticket !== null) {
               return (
-                <div className="grid content-start gap-4 p-4">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs" style={{ color: "var(--m-text-muted)" }}>
-                      {ticket.number}
-                    </span>
-                    <StatusTag tone={categoryTone(ticket.category)}>
-                      {statuses.find((s) => s.id === ticket.status_id)?.name ?? ticket.category}
-                    </StatusTag>
-                    {(() => {
-                      const badge = model?.sla == null ? null : slaBadge(model.sla);
-                      return badge !== null ? (
-                        <StatusTag tone={badge.tone}>{badge.label}</StatusTag>
-                      ) : null;
-                    })()}
-                  </div>
-                  <h1 className="text-base font-semibold">{ticket.title}</h1>
-                  {ticket.body !== null && (
-                    <p className="whitespace-pre-wrap text-sm" style={{ color: "var(--m-text-secondary)" }}>
-                      {ticket.body}
-                    </p>
-                  )}
-                  <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
-                    <dt style={{ color: "var(--m-text-muted)" }}>Priority</dt>
-                    <dd className="uppercase">{ticket.priority}</dd>
-                    <dt style={{ color: "var(--m-text-muted)" }}>Assignee</dt>
-                    <dd>{ticket.assignee_id == null ? "Unassigned" : ticket.assignee_id.slice(0, 8)}</dd>
-                    <dt style={{ color: "var(--m-text-muted)" }}>Created</dt>
-                    <dd>{new Date(ticket.created_at ?? Date.now()).toLocaleString()}</dd>
-                    {ticket.resolved_at != null && (
-                      <>
-                        <dt style={{ color: "var(--m-text-muted)" }}>Resolved</dt>
-                        <dd>{new Date(ticket.resolved_at).toLocaleString()}</dd>
-                      </>
-                    )}
-                  </dl>
-
-                  {/* Custom fields (TASKLIST 2.17): definitions for this
-                      board with kind-appropriate inputs; server verdicts
-                      re-snapshot the detail model (never the page). */}
-                  <TicketCustomFields
-                    ticketId={ticket.id}
-                    boardId={ticket.board_id}
-                    values={ticket.custom_fields ?? []}
-                    onChanged={() => void refresh()}
+                <div className="grid content-start">
+                  <TicketStatusBar
+                    number={ticket.number}
+                    title={ticket.title}
+                    statusId={ticket.status_id}
+                    statuses={statuses}
+                    workflow={workflow}
+                    sla={model?.sla ?? null}
+                    onChangeStatus={(id) => void changeStatus(id)}
                   />
-
-                  <fieldset className="grid gap-3">
-                    <legend className="mb-1 text-xs font-medium">Move to status</legend>
-                    {CATEGORY_GROUPS.map(({ category, label, tone }) => {
-                      const group = statuses.filter((s) => s.category === category);
-                      if (group.length === 0) return null;
-                      return (
-                        <div key={category} className="grid gap-1">
-                          <StatusTag tone={tone}>{label}</StatusTag>
-                          <div className="flex flex-wrap gap-1">
-                            {group.map((s) => {
-                              const current = s.id === ticket.status_id;
-                              const allowed =
-                                current ||
-                                (ticket.status_id !== null &&
-                                  transitionAllowed(
-                                    statuses,
-                                    workflow,
-                                    ticket.status_id,
-                                    s.id,
-                                  ));
-                              return (
-                                <Button
-                                  key={s.id}
-                                  size="sm"
-                                  variant={current ? "secondary" : "ghost"}
-                                  disabled={!allowed}
-                                  title={
-                                    allowed
-                                      ? undefined
-                                      : "This board's workflow does not allow that transition"
-                                  }
-                                  onClick={() => void changeStatus(s.id)}
-                                >
-                                  {s.name}
-                                </Button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </fieldset>
-
-                  {error !== null && (
-                    <p className="text-xs" style={{ color: "var(--m-status-danger-fg)" }} role="alert">
-                      {error}
-                    </p>
-                  )}
-
-                  {/* IF7 undo (Wave 9 close-out): Ctrl/Cmd+Z steps the
-                      record back one applied write; closed records offer
-                      per-field reverts only. */}
-                  <TicketUndo ticketId={ticket.id} onChanged={() => void refresh()} />
-
-                  <div className="flex gap-2">
-                    <Button variant="primary" size="sm" onClick={() => void startTimer()}>
+                  <div className="flex justify-end gap-2 px-3 pt-2">
+                    <Button size="sm" variant="primary" data-testid="validate-close" onClick={() => setCloseOpen(true)}>
+                      Validate for close
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => void startTimer()}>
                       Start timer
                     </Button>
-                    <Button size="sm" onClick={() => void stopTimer()}>
+                    <Button size="sm" variant="ghost" onClick={() => void stopTimer()}>
                       Stop timer
                     </Button>
                   </div>
+                  <div className="grid gap-3 p-3">
+                    <OriginalRequest ticket={ticket} />
+                    <DetailTabs active={activeTab} onChange={setActiveTab} />
+                    <div role="tabpanel" data-testid={`detail-panel-${activeTab}`} className="grid gap-3">
+                      {activeTab === "notes" && renderNotesPane()}
+                      {activeTab === "tasks" && renderTasksTab()}
+                      {activeTab === "details" && renderDetailsTab()}
+                      {activeTab === "related" && renderRelatedTab()}
+                      {activeTab === "original" && (
+                        <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>
+                          The original request is pinned above and always visible.
+                        </p>
+                      )}
+                    </div>
+                    <div className="grid gap-3" data-testid="pod-strip">
+                      {visiblePods.map((p) => renderPod(p.id))}
+                    </div>
+                    {error !== null && (
+                      <p className="text-xs" style={{ color: "var(--m-status-danger-fg)" }} role="alert">
+                        {error}
+                      </p>
+                    )}
+                  </div>
+                  <CloseFlow
+                    open={closeOpen}
+                    onCloseDialog={() => setCloseOpen(false)}
+                    ticketId={ticket.id}
+                    ticketNumber={String(ticket.number)}
+                    ticketTitle={ticket.title}
+                    userId={auth.me?.user_id ?? "anonymous"}
+                    checklist={checklistItems}
+                    nextSteps={nextStepsDraft}
+                    clientName={null}
+                    contactName={null}
+                    statuses={statuses}
+                    workflow={workflow}
+                    statusId={ticket.status_id}
+                    onPostNote={async (body, kind) => {
+                      await postComment(body, kind, []);
+                    }}
+                    onChangeStatus={changeStatus}
+                  />
                 </div>
               );
             }
             if (pane.id === PANE_ACTIVITY && ticket !== null) {
               return (
-                <div className="grid content-start gap-4 p-4">
-                  <section className="grid gap-2">
-                    <Label>Comments</Label>
-                    {(model?.comments ?? []).length === 0 && (
-                      <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>
-                        No comments yet.
-                      </p>
-                    )}
-                    {(model?.comments ?? []).map((c) => (
-                      <article key={c.id} className="rounded-[2px] border p-2 text-xs" style={{ borderColor: "var(--m-border)" }}>
-                        <header className="mb-1 flex justify-between">
-                          <StatusTag tone="neutral">{c.kind}</StatusTag>
-                          <time style={{ color: "var(--m-text-muted)" }}>
-                            {new Date(c.created_at).toLocaleString()}
-                          </time>
-                        </header>
-                        <p className="whitespace-pre-wrap">{c.body}</p>
-                        {attachmentsFor(c.id).length > 0 && (
-                          <footer className="mt-1 flex flex-wrap gap-1">
-                            {attachmentsFor(c.id).map((a) => paperclipRow(a))}
-                          </footer>
-                        )}
-                      </article>
-                    ))}
-                    <Textarea
-                      rows={3}
-                      value={commentDraft}
-                      onChange={(e) => setCommentDraft(e.target.value)}
-                      placeholder="Add a note…"
-                    />
-                    <div className="flex items-center gap-2">
-                      <label
-                        className="flex cursor-pointer items-center gap-1 rounded-[2px] border px-2 py-1 text-xs"
-                        style={{ borderColor: "var(--m-border)", color: "var(--m-text-muted)" }}
-                        title="Attach files (PDF, images, Office, zip, text)"
-                      >
-                        <PaperclipIcon />
-                        Attach
-                        <input
-                          type="file"
-                          multiple
-                          className="hidden"
-                          onChange={(e) => {
-                            setStagedFiles((prev) => [...prev, ...Array.from(e.target.files ?? [])]);
-                            e.target.value = "";
-                          }}
-                        />
-                      </label>
-                      {stagedFiles.map((f, i) => (
-                        <button
-                          key={`${f.name}-${i}`}
-                          type="button"
-                          className="flex items-center gap-1 rounded-[2px] px-1 text-xs"
-                          style={{ color: "var(--m-text-muted)" }}
-                          title="Remove"
-                          onClick={() => setStagedFiles((prev) => prev.filter((_, idx) => idx !== i))}
-                        >
-                          <PaperclipIcon /> {f.name.length > 24 ? `${f.name.slice(0, 21)}…` : f.name} ✕
-                        </button>
-                      ))}
-                    </div>
-                    <Button size="sm" variant="primary" onClick={() => void postComment()}>
-                      Comment
-                    </Button>
-                  </section>
-
-                  <section className="grid gap-2">
-                    <Label>Pre-close checklist</Label>
-                    {model?.checklist?.enforcement_active && model.checklist.blocking.length > 0 ? (
-                      <p className="text-xs" style={{ color: "var(--m-warning)" }}>
-                        {model.checklist.blocking.length} item
-                        {model.checklist.blocking.length === 1 ? "" : "s"} must be checked before this
-                        ticket can close.
-                      </p>
-                    ) : null}
-                    {(model?.checklist?.items ?? []).map((item) => (
-                      <label key={item.id} className="flex items-center gap-2 text-xs">
-                        <input
-                          type="checkbox"
-                          checked={item.checked}
-                          onChange={(e) => void toggleChecklistItem(item.id, e.target.checked)}
-                        />
-                        <span style={{ color: item.checked ? "var(--m-text-muted)" : undefined }}>
-                          {item.text}
-                        </span>
-                      </label>
-                    ))}
-                    <div className="flex gap-2">
-                      <Input
-                        value={checklistDraft}
-                        onChange={(e) => setChecklistDraft(e.target.value)}
-                        placeholder="Add checklist item…"
-                      />
-                      <Button size="sm" onClick={() => void addChecklistItem()}>
-                        Add
-                      </Button>
-                    </div>
-                  </section>
+                <div className="grid content-start gap-3 p-3">
+                  <TicketTimeline ticketId={ticket.id} comments={model?.comments ?? []} namesByUser={namesByUser} />
                 </div>
               );
             }

@@ -7865,6 +7865,22 @@ export interface components {
             site_id?: string | null;
             title: string;
         };
+        CreateSchedulingLinkRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * Format: date-time
+             * @description Absolute expiry (lifecycle signal); absent = stays valid until
+             *     used or revoked.
+             */
+            expires_at?: string | null;
+            label?: string | null;
+            /** Format: uuid */
+            meeting_type_id: string;
+            /**
+             * Format: uuid
+             * @description Bookings made through this link land back on this ticket.
+             */
+            ticket_id?: string | null;
+        };
         CreateSiteRequest: {
             address?: string | null;
             city?: string | null;
@@ -22218,7 +22234,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateLinkRequest"];
+                "application/json": components["schemas"]["CreateSchedulingLinkRequest"];
             };
         };
         responses: {

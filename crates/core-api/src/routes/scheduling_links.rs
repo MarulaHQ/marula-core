@@ -650,7 +650,7 @@ pub async fn update_meeting_type(
 // --- links --------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
-pub struct CreateLinkRequest {
+pub struct CreateSchedulingLinkRequest {
     #[schema(value_type = uuid::Uuid)]
     pub meeting_type_id: Uuid,
     pub label: Option<String>,
@@ -710,12 +710,12 @@ pub async fn list_links(
 /// POST /api/scheduling-links — mint a shareable link (token returned
 /// once). A replay (same key + same body) replays the SAME token.
 #[utoipa::path(operation_id = "scheduling_links_create", post, path = "/api/scheduling-links", tag = "scheduling", security(("bearer" = [])),
-    request_body = CreateLinkRequest,
+    request_body = CreateSchedulingLinkRequest,
     responses((status = 201, body = CreatedLink), (status = 404, description = "meeting type not found")))]
 pub async fn create_link(
     State(state): State<AppState>,
     extensions: Extensions,
-    Json(req): Json<CreateLinkRequest>,
+    Json(req): Json<CreateSchedulingLinkRequest>,
 ) -> ApiResult<(axum::http::StatusCode, Json<CreatedLink>)> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, admin(Action::Edit))?;
