@@ -2535,6 +2535,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/invoice-candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/invoice-candidates — every billable, not-yet-billed cost line
+         *     and expense in the org, oldest first. The invoicing run consumes rows
+         *     by writing `invoice_line_id` through the costs module's marker.
+         */
+        get: operations["invoice_candidates_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/invoices": {
         parameters: {
             query?: never;
@@ -3364,6 +3385,69 @@ export interface paths {
          *     decrypted secret.
          */
         post: operations["passwords_reveal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/pm-schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/pm-schedules — every schedule, next-run ordered. */
+        get: operations["pm_schedules_list"];
+        put?: never;
+        /** POST /api/pm-schedules — create a recurring-ticket template. */
+        post: operations["pm_schedules_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/pm-schedules/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/pm-schedules/{id} */
+        get: operations["pm_schedules_get"];
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/pm-schedules/{id} — removes the schedule. Existing
+         *     generated tickets are unaffected (templates are blueprints).
+         */
+        delete: operations["pm_schedules_delete"];
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/pm-schedules/{id} — edit template/cadence/enabled. A
+         *     cadence edit re-materializes `next_run_at` from the new shape.
+         */
+        patch: operations["pm_schedules_update"];
+        trace?: never;
+    };
+    "/api/v1/pm-schedules/{id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/pm-schedules/{id}/runs — the append-only run ledger (the run
+         *     record; the worker emits nothing).
+         */
+        get: operations["pm_schedules_runs"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4721,6 +4805,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/tags — the org's tag taxonomy with application counts. */
+        get: operations["tags_list"];
+        put?: never;
+        /** POST /api/tags — create a tag. */
+        post: operations["tags_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tags/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** DELETE /api/tags/{id} — removes the tag and every ticket application. */
+        delete: operations["tags_delete"];
+        options?: never;
+        head?: never;
+        /** PATCH /api/tags/{id} — rename / recolor. */
+        patch: operations["tags_update"];
+        trace?: never;
+    };
     "/api/v1/taxonomy/categories": {
         parameters: {
             query?: never;
@@ -5058,6 +5178,78 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tickets/{id}/cost-lines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/tickets/{id}/cost-lines */
+        get: operations["tickets_list_cost_lines"];
+        put?: never;
+        /** POST /api/tickets/{id}/cost-lines — add a money line (parts/flat/other). */
+        post: operations["tickets_create_cost_line"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{id}/cost-lines/{line_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** DELETE /api/tickets/{id}/cost-lines/{line_id} — remove an unbilled line. */
+        delete: operations["tickets_remove_cost_line"];
+        options?: never;
+        head?: never;
+        /** PATCH /api/tickets/{id}/cost-lines/{line_id} — edit an unbilled line. */
+        patch: operations["tickets_update_cost_line"];
+        trace?: never;
+    };
+    "/api/v1/tickets/{id}/expenses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/tickets/{id}/expenses — the ticket's expense entries. */
+        get: operations["tickets_list_expenses"];
+        put?: never;
+        /** POST /api/tickets/{id}/expenses — record an expense entry. */
+        post: operations["tickets_create_expense"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{id}/expenses/{expense_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** DELETE /api/tickets/{id}/expenses/{expense_id} — remove an unbilled expense. */
+        delete: operations["tickets_remove_expense"];
+        options?: never;
+        head?: never;
+        /** PATCH /api/tickets/{id}/expenses/{expense_id} — edit an unbilled expense. */
+        patch: operations["tickets_update_expense"];
+        trace?: never;
+    };
     "/api/v1/tickets/{id}/fields/{field_id}": {
         parameters: {
             query?: never;
@@ -5078,6 +5270,63 @@ export interface paths {
          *     (422) to empty a REQUIRED definition; emits `ticket.field_cleared`.
          */
         delete: operations["fields_clear_ticket_value"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{id}/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/tickets/{id}/links — outgoing + incoming edges + the rollup. */
+        get: operations["tickets_list_links"];
+        put?: never;
+        /** POST /api/tickets/{id}/links — link this ticket (from) to another (to). */
+        post: operations["tickets_create_link"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{id}/links/{link_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** DELETE /api/tickets/{id}/links/{link_id} — remove one edge. */
+        delete: operations["tickets_remove_link"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{id}/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/tickets/{id}/merge — merge THIS ticket into `survivor_id`.
+         *     Children, comments, time entries, cost lines, and expenses fold into
+         *     the survivor; the source is closed on its own board and marked
+         *     `merged_into_ticket_id` (its row stays queryable — doctrine #9).
+         */
+        post: operations["tickets_merge"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -5131,6 +5380,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tickets/{id}/rollup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/tickets/{id}/rollup — children/members + folded time + billable money. */
+        get: operations["tickets_rollup"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tickets/{id}/sla": {
         parameters: {
             query?: never;
@@ -5173,6 +5439,41 @@ export interface paths {
          */
         post: operations["tickets_change_status"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{id}/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/tickets/{id}/tags — the ticket's applied tags. */
+        get: operations["tickets_list_tags"];
+        put?: never;
+        /** POST /api/tickets/{id}/tags — apply a tag to a ticket (idempotent). */
+        post: operations["tickets_apply_tag"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{id}/tags/{tag_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** DELETE /api/tickets/{id}/tags/{tag_id} — remove one applied tag. */
+        delete: operations["tickets_remove_tag"];
         options?: never;
         head?: never;
         patch?: never;
@@ -5743,6 +6044,10 @@ export interface components {
             /** Format: date-time */
             revoked_at?: string | null;
             scopes: string[];
+        };
+        ApplyTagRequest: components["schemas"]["MutationParams"] & {
+            /** Format: uuid */
+            tag_id: string;
         };
         /**
          * @description A booked slot on one user's calendar, optionally tied to a ticket and
@@ -6360,6 +6665,33 @@ export interface components {
             provider: string;
             updated_at: string | null;
         };
+        /**
+         * @description The typed cadence of a schedule row (the stored slug's Rust shape).
+         * @enum {string}
+         */
+        Cadence: "daily" | "weekly" | "monthly";
+        /**
+         * @description The typed cadence + wall-clock shape (same columns as report
+         *     schedules; the DB CHECKs pin the same consistency rules).
+         */
+        CadenceSpec: {
+            /** @description "daily" | "weekly" | "monthly" */
+            cadence: string;
+            /**
+             * Format: int32
+             * @description 1–28; monthly only.
+             */
+            day_of_month?: number | null;
+            /**
+             * Format: int32
+             * @description 0 = Monday .. 6 = Sunday; weekly only.
+             */
+            day_of_week?: number | null;
+            /** @description Local wall-clock fire time in `timezone` (HH:MM:SS). */
+            time_of_day: string;
+            /** @description IANA zone the wall clock reads in. */
+            timezone?: string;
+        };
         /** @description Absolute UTC time-off punching holes in availability. */
         CalendarExclusion: {
             /** Format: date-time */
@@ -6878,6 +7210,15 @@ export interface components {
          * @enum {string}
          */
         ContractType: "recurring" | "time_and_materials" | "retainer" | "fixed_fee";
+        /**
+         * @description One money line on a ticket: `parts`, `flat`, or `other`.
+         * @enum {string}
+         */
+        CostLineKind: "parts" | "flat" | "other";
+        CostLineMutationResponse: {
+            line: components["schemas"]["TicketCostLine"];
+            mutation: components["schemas"]["MutationMeta"];
+        };
         CreateAlertSourceRequest: components["schemas"]["MutationParams"] & {
             /**
              * Format: uuid
@@ -7082,6 +7423,16 @@ export interface components {
             rates?: components["schemas"]["RateSpec"][];
             status?: null | components["schemas"]["ContractStatus"];
         };
+        CreateCostLineRequest: components["schemas"]["MutationParams"] & {
+            billable?: boolean;
+            currency: string;
+            description: string;
+            kind: components["schemas"]["CostLineKind"];
+            /** Format: double */
+            quantity?: number;
+            /** Format: int64 */
+            unit_cost_minor: number;
+        };
         CreateDocumentRequest: components["schemas"]["MutationParams"] & {
             body?: string | null;
             change_summary?: string | null;
@@ -7106,6 +7457,13 @@ export interface components {
             starts_at: string;
             /** Format: uuid */
             user_id?: string | null;
+        };
+        CreateExpenseRequest: components["schemas"]["MutationParams"] & {
+            /** Format: int64 */
+            amount_minor: number;
+            billable?: boolean;
+            currency: string;
+            description: string;
         };
         CreateFieldDefRequest: {
             kind: components["schemas"]["FieldKindWire"];
@@ -7329,6 +7687,21 @@ export interface components {
             /** @description Domain event type, e.g. "ticket.created". */
             trigger_event: string;
         };
+        CreateScheduleRequest: components["schemas"]["MutationParams"] & components["schemas"]["CadenceSpec"] & {
+            /** Format: uuid */
+            assignee_id?: string | null;
+            /** Format: uuid */
+            board_id: string;
+            body?: string | null;
+            /** Format: uuid */
+            client_id?: string | null;
+            name: string;
+            /** @description "p1" | "p2" | "p3" | "p4" (defaults p3) */
+            priority?: string;
+            /** Format: uuid */
+            site_id?: string | null;
+            title: string;
+        };
         CreateSiteRequest: {
             address?: string | null;
             city?: string | null;
@@ -7352,6 +7725,10 @@ export interface components {
             name: string;
             /** Format: int32 */
             sort_order: number;
+        };
+        CreateTagRequest: components["schemas"]["MutationParams"] & {
+            color?: string | null;
+            name: string;
         };
         CreateTaskRequest: components["schemas"]["MutationParams"] & {
             /** Format: uuid */
@@ -7944,6 +8321,10 @@ export interface components {
             /** @description 'risk' | 'breach' | 'escalate' — bound to existing notification kinds. */
             trigger_kind: string;
         };
+        ExpenseMutationResponse: {
+            expense: components["schemas"]["TicketExpense"];
+            mutation: components["schemas"]["MutationMeta"];
+        };
         /** @description The org-data export envelope, `bundle_version` 1. */
         ExportBundle: {
             /**
@@ -8214,6 +8595,12 @@ export interface components {
          */
         FieldKindWire: "text" | "number" | "date" | "select" | "multiselect" | "bool" | "url" | "user";
         /**
+         * @description Per-field resolution: which side's value wins when the tickets
+         *     disagree. `"survivor"` (the default) keeps the survivor's value.
+         * @enum {string}
+         */
+        FieldResolution: "survivor" | "source";
+        /**
          * @description Filter operators supported by the v1 compiled reports. Operand typing is
          *     enforced through [`ValueType`] matches in the builder, so e.g. a bool
          *     operand can never reach a timestamp column. The serde encoding is the
@@ -8439,6 +8826,20 @@ export interface components {
             total_paid_minor: number;
             /** Format: date-time */
             updated_at: string;
+        };
+        InvoiceCandidateView: {
+            /** Format: int64 */
+            amount_minor: number;
+            /** Format: uuid */
+            client_id?: string | null;
+            currency: string;
+            description: string;
+            /** Format: uuid */
+            line_id: string;
+            /** @description "cost" | "expense" */
+            source: string;
+            /** Format: uuid */
+            ticket_id: string;
         };
         /** @description The invoice aggregate: document, lines, and payment receipts. */
         InvoiceDetail: components["schemas"]["Invoice"] & {
@@ -8667,6 +9068,11 @@ export interface components {
          * @enum {string}
          */
         LinkKind: "document" | "password" | "client" | "ticket" | "kb_article" | "asset";
+        LinksView: {
+            from: Record<string, never>[];
+            rollup: components["schemas"]["TicketRollup"];
+            to: Record<string, never>[];
+        };
         ListEntriesQuery: {
             /** Format: int64 */
             limit?: number;
@@ -9127,6 +9533,47 @@ export interface components {
         MeetingTypeMutation: {
             meeting_type: components["schemas"]["MeetingType"];
             mutation: components["schemas"]["MutationMeta"];
+        };
+        MergeConflictEntry: {
+            /** @description "board" | "title" | "priority" | "client" | "assignee" */
+            field: string;
+            resolution: components["schemas"]["FieldResolution"];
+            source_value: Record<string, never> | null;
+            survivor_value: Record<string, never> | null;
+        };
+        MergeFoldSummary: {
+            /** Format: int64 */
+            children_relinked: number;
+            /** Format: int64 */
+            comments_folded: number;
+            /** Format: int64 */
+            cost_lines_folded: number;
+            /** Format: int64 */
+            expenses_folded: number;
+            /** Format: int64 */
+            time_entries_folded: number;
+            /** Format: int64 */
+            time_minutes_folded: number;
+        };
+        MergeRequest: components["schemas"]["MutationParams"] & {
+            resolve?: components["schemas"]["MergeResolutions"];
+            /** Format: uuid */
+            survivor_id: string;
+        };
+        MergeResolutions: {
+            assignee?: null | components["schemas"]["FieldResolution"];
+            board?: null | components["schemas"]["FieldResolution"];
+            client?: null | components["schemas"]["FieldResolution"];
+            priority?: null | components["schemas"]["FieldResolution"];
+            title?: null | components["schemas"]["FieldResolution"];
+        };
+        MergeResponse: {
+            conflicts: components["schemas"]["MergeConflictEntry"][];
+            fold: components["schemas"]["MergeFoldSummary"];
+            /** Format: uuid */
+            source_id: string;
+            /** Format: uuid */
+            survivor_id: string;
         };
         MfaTokenRequest: {
             mfa_token: string;
@@ -9647,6 +10094,72 @@ export interface components {
          * @enum {string}
          */
         PhaseStatus: "pending" | "active" | "completed" | "cancelled";
+        /** @description One append-only PM run ledger row. */
+        PmRun: {
+            /** Format: date-time */
+            created_at: string;
+            detail: unknown;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            schedule_id: string;
+            /** Format: date-time */
+            slot_at: string;
+            /** @description "generated" | "skipped" */
+            status: string;
+            /** Format: uuid */
+            ticket_id?: string | null;
+        };
+        /**
+         * @description A recurring/scheduled ticket (PM schedule): a ticket template plus the
+         *     typed cadence (same shape as report schedules). The worker claims due
+         *     rows; core-api generates the instance and advances the cadence.
+         */
+        PmSchedule: {
+            /** Format: uuid */
+            assignee_id?: string | null;
+            /** Format: uuid */
+            board_id: string;
+            body?: string | null;
+            cadence: components["schemas"]["Cadence"];
+            /** Format: uuid */
+            client_id?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by: string;
+            /**
+             * Format: int32
+             * @description 1–28; monthly only.
+             */
+            day_of_month?: number | null;
+            /**
+             * Format: int32
+             * @description 0 = Monday .. 6 = Sunday; weekly only.
+             */
+            day_of_week?: number | null;
+            enabled: boolean;
+            /** Format: uuid */
+            id: string;
+            last_error?: string | null;
+            /** Format: date-time */
+            last_run_at?: string | null;
+            name: string;
+            /** Format: date-time */
+            next_run_at: string;
+            /** Format: uuid */
+            org_id: string;
+            priority: components["schemas"]["Priority"];
+            /** Format: uuid */
+            site_id?: string | null;
+            time_of_day: string;
+            timezone: string;
+            title: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
         PolicyView: {
             /** Format: uuid */
             calendar_id?: string | null;
@@ -10820,6 +11333,10 @@ export interface components {
              */
             limit?: number | null;
         };
+        ScheduleMutationResponse: {
+            mutation: components["schemas"]["MutationMeta"];
+            schedule: components["schemas"]["PmSchedule"];
+        };
         /**
          * @description A free-form admin-defined group/department — a pure availability
          *     pool ("Service Desk"). Deliberately NOT the org chart: no reporting
@@ -11202,6 +11719,31 @@ export interface components {
         };
         /** @description POST /api/dispatch/travel-drafts/{id}/submit body. */
         SubmitTravelDraftRequest: components["schemas"]["MutationParams"];
+        /** @description An org-wide tag: a flat named label with an optional display color. */
+        Tag: {
+            color?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        TagMutationResponse: {
+            mutation: components["schemas"]["MutationMeta"];
+            tag: components["schemas"]["TagView"];
+        };
+        /** @description One tag + how many tickets currently carry it. */
+        TagView: {
+            /** Format: int64 */
+            applied_count: number;
+            tag: components["schemas"]["Tag"];
+        };
         /**
          * @description One target-board status option inside a `board_move_status_conflict`
          *     409 — everything the client needs to render the pick list.
@@ -11376,6 +11918,13 @@ export interface components {
             due_at?: string | null;
             /** Format: uuid */
             id: string;
+            /**
+             * Format: uuid
+             * @description Merge marker (Wave 11 lane 9): the survivor this ticket folded
+             *     into, when it was absorbed by a merge. The row stays queryable
+             *     (doctrine #9) but is closed and never re-opened.
+             */
+            merged_into_ticket_id?: string | null;
             number: components["schemas"]["TicketNumber"];
             /** Format: uuid */
             org_id: string;
@@ -11439,6 +11988,33 @@ export interface components {
         TicketCommentMutationResponse: components["schemas"]["TicketComment"] & {
             mutation: components["schemas"]["MutationMeta"];
         };
+        TicketCostLine: {
+            billable: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            currency: string;
+            description: string;
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: uuid
+             * @description Set once this line became an invoice line ("billed once, ever").
+             */
+            invoice_line_id?: string | null;
+            kind: components["schemas"]["CostLineKind"];
+            /** Format: uuid */
+            org_id: string;
+            /** Format: double */
+            quantity: number;
+            /** Format: uuid */
+            ticket_id: string;
+            /** Format: int64 */
+            unit_cost_minor: number;
+            /** Format: date-time */
+            updated_at: string;
+        };
         /** @description One stored ticket value with its definition context. */
         TicketCustomFieldValue: {
             /** Format: uuid */
@@ -11450,6 +12026,30 @@ export interface components {
             sort_order: number;
             value: unknown;
         };
+        /** @description One expense entry on a ticket. */
+        TicketExpense: {
+            /** Format: int64 */
+            amount_minor: number;
+            billable: boolean;
+            /** Format: date-time */
+            created_at: string;
+            currency: string;
+            description: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            incurred_at: string;
+            /** Format: uuid */
+            incurred_by?: string | null;
+            /** Format: uuid */
+            invoice_line_id?: string | null;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            ticket_id: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
         /**
          * @description One value assignment on a ticket create/patch: raw JSON validated against
          *     its definition server-side.
@@ -11459,6 +12059,16 @@ export interface components {
             field_id: string;
             value: unknown;
         };
+        /**
+         * @description A typed edge between two tickets.
+         *
+         *     - `ParentChild`: `from_ticket_id` is the CHILD, `to_ticket_id` the
+         *       parent — child work rolls up to the parent.
+         *     - `MajorIncident`: `from_ticket_id` is a MEMBER, `to_ticket_id` the
+         *       major incident it folded into.
+         * @enum {string}
+         */
+        TicketLinkType: "parent_child" | "major_incident";
         TicketListQuery: {
             /** Format: uuid */
             assignee_id?: string | null;
@@ -11472,6 +12082,11 @@ export interface components {
             /** Format: int64 */
             offset?: number;
             priority?: null | components["schemas"]["Priority"];
+            /**
+             * @description Comma-separated tag ids (Wave 11 lane 9): AND semantics — tickets
+             *     must carry every listed tag.
+             */
+            tags?: string | null;
         };
         /**
          * @description Skills-matched staffing for one unassigned ticket. Tickets with no
@@ -11504,6 +12119,33 @@ export interface components {
         TicketRevertResponse: components["schemas"]["TicketWithFields"] & {
             mutation: components["schemas"]["MutationMeta"];
             revert: components["schemas"]["RevertDetail"];
+        };
+        /**
+         * @description Rollup over the children/members pointing at one ticket, plus the
+         *     ticket's own billable money lines.
+         */
+        TicketRollup: {
+            /**
+             * Format: int64
+             * @description Summed minor-unit total of billable cost lines + expenses.
+             */
+            billable_cost_minor: number;
+            /** Format: int64 */
+            child_count: number;
+            /**
+             * Format: int64
+             * @description Open (not closed, not merged) children still carrying work.
+             */
+            child_open_count: number;
+            /** Format: int64 */
+            major_incident_member_count: number;
+            /** Format: uuid */
+            ticket_id: string;
+            /**
+             * Format: int64
+             * @description Summed minutes of folded-in time (own + children/members).
+             */
+            time_minutes: number;
         };
         /** @description The full-replace mutation envelope (IF2). */
         TicketSkillsMutationResponse: components["schemas"]["TicketSkillsView"] & {
@@ -11853,6 +12495,14 @@ export interface components {
             /** Format: int32 */
             position?: number | null;
         };
+        UpdateCostLineRequest: components["schemas"]["MutationParams"] & {
+            billable?: boolean | null;
+            description?: string | null;
+            /** Format: double */
+            quantity?: number | null;
+            /** Format: int64 */
+            unit_cost_minor?: number | null;
+        };
         UpdateDocumentRequest: components["schemas"]["MutationParams"] & {
             body?: string | null;
             change_summary?: string | null;
@@ -11869,6 +12519,12 @@ export interface components {
              */
             layout_id?: string | null;
             title?: string | null;
+        };
+        UpdateExpenseRequest: components["schemas"]["MutationParams"] & {
+            /** Format: int64 */
+            amount_minor?: number | null;
+            billable?: boolean | null;
+            description?: string | null;
         };
         UpdateFieldDefRequest: {
             name?: string | null;
@@ -11957,6 +12613,21 @@ export interface components {
             name?: string | null;
             trigger_event?: string | null;
         };
+        UpdateScheduleRequest: components["schemas"]["MutationParams"] & {
+            /** Format: uuid */
+            assignee_id?: string | null;
+            /** @description Some → set (null clears); absent → no change. */
+            body?: string | null;
+            cadence?: null | components["schemas"]["CadenceSpec"];
+            /** Format: uuid */
+            client_id?: string | null;
+            enabled?: boolean | null;
+            name?: string | null;
+            priority?: string | null;
+            /** Format: uuid */
+            site_id?: string | null;
+            title?: string | null;
+        };
         UpdateSettingRequest: {
             key: string;
             /** @description Must satisfy the declaration's kind or the request is rejected 422. */
@@ -11968,6 +12639,11 @@ export interface components {
             name?: string | null;
             /** Format: int32 */
             sort_order?: number | null;
+        };
+        UpdateTagRequest: components["schemas"]["MutationParams"] & {
+            /** @description Some → set (null clears); absent → no change. */
+            color?: string | null;
+            name?: string | null;
         };
         UpdateTaxonomyNodeRequest: components["schemas"]["MutationParams"] & {
             description?: string | null;
@@ -16805,6 +17481,25 @@ export interface operations {
             };
         };
     };
+    invoice_candidates_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvoiceCandidateView"][];
+                };
+            };
+        };
+    };
     invoices_list: {
         parameters: {
             query?: {
@@ -18412,6 +19107,199 @@ export interface operations {
                 content?: never;
             };
             /** @description entry not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    pm_schedules_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PmSchedule"][];
+                };
+            };
+        };
+    };
+    pm_schedules_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateScheduleRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleMutationResponse"];
+                };
+            };
+            /** @description board not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description duplicate schedule name or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid cadence shape */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    pm_schedules_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PmSchedule"];
+                };
+            };
+            /** @description schedule not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    pm_schedules_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description schedule not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    pm_schedules_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateScheduleRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleMutationResponse"];
+                };
+            };
+            /** @description schedule not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict or duplicate name */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid cadence shape */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    pm_schedules_runs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PmRun"][];
+                };
+            };
+            /** @description schedule not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -21208,6 +22096,122 @@ export interface operations {
             };
         };
     };
+    tags_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagView"][];
+                };
+            };
+        };
+    };
+    tags_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTagRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagMutationResponse"];
+                };
+            };
+            /** @description duplicate tag name or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tags_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description tag not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tags_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateTagRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagMutationResponse"];
+                };
+            };
+            /** @description tag not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict or duplicate name */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     taxonomy_list_categories: {
         parameters: {
             query?: {
@@ -21528,6 +22532,11 @@ export interface operations {
                 client_id?: string | null;
                 category?: null | components["schemas"]["TicketStatusCategory"];
                 priority?: null | components["schemas"]["Priority"];
+                /**
+                 * @description Comma-separated tag ids (Wave 11 lane 9): AND semantics — tickets
+                 *     must carry every listed tag.
+                 */
+                tags?: string | null;
                 limit?: number;
                 offset?: number;
             };
@@ -21904,6 +22913,292 @@ export interface operations {
             };
         };
     };
+    tickets_list_cost_lines: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketCostLine"][];
+                };
+            };
+        };
+    };
+    tickets_create_cost_line: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCostLineRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketCostLine"];
+                };
+            };
+            /** @description ticket not found in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid quantity/currency */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tickets_remove_cost_line: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description line not found in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description already billed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tickets_update_cost_line: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateCostLineRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CostLineMutationResponse"];
+                };
+            };
+            /** @description line not found in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description already billed, version conflict, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tickets_list_expenses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketExpense"][];
+                };
+            };
+        };
+    };
+    tickets_create_expense: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateExpenseRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExpenseMutationResponse"];
+                };
+            };
+            /** @description ticket not found in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid amount/currency */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tickets_remove_expense: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                expense_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description expense not found in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description already billed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tickets_update_expense: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                expense_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateExpenseRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExpenseMutationResponse"];
+                };
+            };
+            /** @description expense not found in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description already billed, version conflict, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     fields_set_ticket_value: {
         parameters: {
             query?: never;
@@ -21956,6 +23251,141 @@ export interface operations {
                 content?: never;
             };
             /** @description field is required and cannot be emptied */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tickets_list_links: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinksView"];
+                };
+            };
+        };
+    };
+    tickets_create_link: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLinkRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description ticket not found in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description duplicate link or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tickets_remove_link: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                link_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description link not found in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tickets_merge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MergeRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MergeResponse"];
+                };
+            };
+            /** @description ticket not found in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description typed merge conflict (self_merge, already_merged, closed_survivor, board_mismatch) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description idempotency key reused */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -22049,6 +23479,27 @@ export interface operations {
             };
         };
     };
+    tickets_rollup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketRollup"];
+                };
+            };
+        };
+    };
     tickets_sla_status: {
         parameters: {
             query?: never;
@@ -22109,6 +23560,95 @@ export interface operations {
             };
             /** @description invalid transition */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tickets_list_tags: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tag"][];
+                };
+            };
+        };
+    };
+    tickets_apply_tag: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyTagRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description ticket or tag not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tickets_remove_tag: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                tag_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description ticket or tag not in scope */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
