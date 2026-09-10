@@ -213,7 +213,10 @@ pub async fn undo_stack(
 
     let steps = core_db::undo::record_stack(&mut *tx, org_id, "ticket", id, limit).await?;
     let current_version = steps.first().map(|s| s.seq).unwrap_or(0);
-    let fields = core_db::undo::field_stack(&mut *tx, org_id, "ticket", id, limit).await?;
+    // Fields ride the writes that survived the steps limit — the limit is a
+    // WRITE bound, not a row bound (field rows scale with schema width).
+    let step_seqs: Vec<i64> = steps.iter().map(|s| s.seq).collect();
+    let fields = core_db::undo::field_stack(&mut *tx, org_id, "ticket", id, &step_seqs).await?;
     tx.commit().await.map_err(ApiError::from)?;
 
     Ok(Json(UndoStackResponse {

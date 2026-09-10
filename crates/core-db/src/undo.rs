@@ -88,23 +88,28 @@ pub async fn field_stack<'e, E>(
     org_id: Uuid,
     entity: &str,
     entity_id: Uuid,
-    limit: i64,
+    seqs: &[i64],
 ) -> DbResult<Vec<UndoFieldRow>>
 where
     E: sqlx::PgExecutor<'e>,
 {
+    // The limit bounds TRAIL WRITES (the steps query); field rows ride the
+    // writes that survived it. A row-count limit here breaks silently when
+    // the serialized entity grows one field per write per schema column —
+    // oldest writes fall off first (Wave 11 gate regression: 19 fields/write
+    // x 3 writes overflowed the default 50 and dropped the CREATE row).
     let rows = sqlx::query_as::<_, UndoFieldRow>(
         r#"SELECT id, org_id, entity, entity_id, seq, op, field, prior, new_value,
                   changed, actor_id, actor_kind, created_at
            FROM ops.v1_field_undo_stack
            WHERE org_id = $1 AND entity = $2 AND entity_id = $3
-           ORDER BY seq DESC, field
-           LIMIT $4"#,
+             AND seq = ANY($4)
+           ORDER BY seq DESC, field"#,
     )
     .bind(org_id)
     .bind(entity)
     .bind(entity_id)
-    .bind(limit.clamp(1, 200))
+    .bind(seqs)
     .fetch_all(executor)
     .await?;
     Ok(rows)

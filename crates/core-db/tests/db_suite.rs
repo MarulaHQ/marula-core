@@ -6895,8 +6895,10 @@ async fn undo_views_expose_record_and_field_history_with_rls_isolation() {
         assert!(steps[2].before.is_none());
         assert!(!steps[2].restorable, "creates are not value-restorable");
 
-        // Field view: one row per (write, field), prior/new side by side.
-        let fields = core_db::undo::field_stack(&mut *tx, org_a, "ticket", entity_id, 200)
+        // Field view: one row per (write, field), prior/new side by side —
+        // riding the writes that survived the steps limit.
+        let step_seqs: Vec<i64> = steps.iter().map(|s| s.seq).collect();
+        let fields = core_db::undo::field_stack(&mut *tx, org_a, "ticket", entity_id, &step_seqs)
             .await
             .expect("org A field stack");
         let title_seq2 = fields
