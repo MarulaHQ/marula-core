@@ -45,8 +45,8 @@ for pattern in $targets; do
 done
 
 # graphify daily backups — keep the two most recent
-keep=$(ls -1d "$ROOT"/graphify-out/2026-* 2>/dev/null | sort | tail -2)
-for dir in $(ls -1d "$ROOT"/graphify-out/2026-* 2>/dev/null); do
+keep=$(ls -1d "$ROOT"/graphify-out/2026-*(N) 2>/dev/null | sort | tail -2)
+for dir in $(ls -1d "$ROOT"/graphify-out/2026-*(N) 2>/dev/null); do
   case "$keep" in *"$dir"*) ;; *)
     size=$(du -sh "$dir" 2>/dev/null | cut -f1)
     echo "  $size  $dir (old graphify backup)"
