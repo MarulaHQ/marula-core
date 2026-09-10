@@ -77,6 +77,7 @@ pub mod report_defs;
 pub mod report_schedules;
 pub mod reports;
 pub mod scheduling;
+pub mod scheduling_links;
 pub mod search;
 pub mod settings;
 pub mod sla_admin;
@@ -322,7 +323,11 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         )
         // Alert ingestor (Wave 9): HMAC-signed machine surface; the source
         // ref resolves org + secret inside the handler (no JWT middleware).
-        .merge(alerts::public_routes(gen));
+        .merge(alerts::public_routes(gen))
+        // Scheduling links (Wave 11 lane 4): unauthenticated, token-
+        // scoped public booking surface; the handler resolves the org
+        // scope itself (alerts pattern).
+        .merge(scheduling_links::public_routes(gen));
 
     let protected = Router::new()
         .route(&rp("/me"), get(auth_handlers::me))
@@ -907,6 +912,46 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/calendar-exclusions/{id}"),
             axum::routing::delete(availability::delete_exclusion),
+        )
+        // scheduling links (Wave 11 lane 4): free-form groups, meeting
+        // types, and shareable booking links (public token surface above)
+        .route(
+            &rp("/scheduling-groups"),
+            get(scheduling_links::list_groups).post(scheduling_links::create_group),
+        )
+        .route(
+            &rp("/scheduling-groups/{id}"),
+            get(scheduling_links::get_group)
+                .patch(scheduling_links::update_group)
+                .delete(scheduling_links::delete_group),
+        )
+        .route(
+            &rp("/scheduling-groups/{id}/members"),
+            post(scheduling_links::add_group_member),
+        )
+        .route(
+            &rp("/scheduling-groups/{id}/members/{user_id}"),
+            axum::routing::delete(scheduling_links::remove_group_member),
+        )
+        .route(
+            &rp("/meeting-types"),
+            get(scheduling_links::list_meeting_types).post(scheduling_links::create_meeting_type),
+        )
+        .route(
+            &rp("/meeting-types/{id}"),
+            axum::routing::patch(scheduling_links::update_meeting_type),
+        )
+        .route(
+            &rp("/scheduling-links"),
+            get(scheduling_links::list_links).post(scheduling_links::create_link),
+        )
+        .route(
+            &rp("/scheduling-links/{id}/revoke"),
+            post(scheduling_links::revoke_link),
+        )
+        .route(
+            &rp("/scheduling-links/{id}/bookings"),
+            get(scheduling_links::list_link_bookings),
         )
         // projects line (TASKLIST Phase 3): projects → phases → tasks,
         // dependencies, saved views, templates, and the milestone

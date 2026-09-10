@@ -354,7 +354,8 @@ use core_domain::events::{
     NotificationCreated, OnCallChanged, ProjectCreated, ProjectMilestoneCompleted,
     ProjectPhaseCompleted, ProjectPhaseCreated, ProjectPhaseUpdated, ProjectTaskCompleted,
     ProjectTaskCreated, ProjectTaskUpdated, ProjectTemplateRemoved, ProjectTemplateUpdated,
-    ProjectUpdated, ProjectViewRemoved, ProjectViewUpdated, SiteCreated, SiteUpdated,
+    ProjectUpdated, ProjectViewRemoved, ProjectViewUpdated, SchedulingLinkCreated,
+    SchedulingLinkRevoked, SchedulingLinkScheduled, SchedulingLinkViewed, SiteCreated, SiteUpdated,
     TicketAssigned, TicketBoardMoved, TicketChecklistUpdated, TicketCommentAdded, TicketCreated,
     TicketReverted, TicketStatusChanged, TimeEntryCreated, TimerPaused, TimerStarted, TimerStopped,
     TravelDraftSubmitted, UserActivated, UserDeactivated, UserInvited, UserRoleChanged,
@@ -1533,6 +1534,63 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             }
         ),
     },
+    // -- scheduling links (Wave 11 lane 4) -------------------------------------
+    // (The raw token never appears in any event — only its SHA-256 hash
+    // is stored; `scheduling_link.scheduled` co-emits the standard
+    // `appointment.created`.)
+    PublishedEvent {
+        event_type: types::SCHEDULING_LINK_CREATED,
+        entity: "scheduling_link",
+        variant: "default",
+        shape: typed_shape!(
+            SchedulingLinkCreated,
+            SchedulingLinkCreated {
+                link: sample_scheduling_link(core_domain::entities::SchedulingLinkStatus::Active),
+                created_by: su(5),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::SCHEDULING_LINK_VIEWED,
+        entity: "scheduling_link",
+        variant: "default",
+        shape: typed_shape!(
+            SchedulingLinkViewed,
+            SchedulingLinkViewed {
+                link_id: su(47),
+                viewed_at: st(13),
+                view_count: 1,
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::SCHEDULING_LINK_SCHEDULED,
+        entity: "scheduling_link",
+        variant: "default",
+        shape: typed_shape!(
+            SchedulingLinkScheduled,
+            SchedulingLinkScheduled {
+                link_id: su(45),
+                appointment_id: su(19),
+                booker_name: Some("Dana Fischer".into()),
+                booker_email: Some("dana@northwind.example".into()),
+                scheduled_at: st(15),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::SCHEDULING_LINK_REVOKED,
+        entity: "scheduling_link",
+        variant: "default",
+        shape: typed_shape!(
+            SchedulingLinkRevoked,
+            SchedulingLinkRevoked {
+                link_id: su(45),
+                revoked_by: su(5),
+                revoked_at: st(16),
+            }
+        ),
+    },
     PublishedEvent {
         event_type: types::AVAILABILITY_UPDATED,
         entity: "availability",
@@ -2210,6 +2268,7 @@ fn sample_appointment(status: AppointmentStatus) -> Appointment {
         status,
         travel_minutes: 35,
         notes: None,
+        scheduling_link_id: None,
         created_at: st(7),
         updated_at: st(7),
     }
@@ -2235,6 +2294,27 @@ fn sample_appointment_request(
         decided_by: None,
         decided_at: None,
         appointment_id: None,
+        created_at: st(9),
+        updated_at: st(9),
+    }
+}
+
+fn sample_scheduling_link(
+    status: core_domain::entities::SchedulingLinkStatus,
+) -> core_domain::entities::SchedulingLink {
+    core_domain::entities::SchedulingLink {
+        id: su(47),
+        org_id: su(0),
+        meeting_type_id: su(48),
+        label: Some("Quarterly review — 45 minutes".into()),
+        ticket_id: Some(su(80)),
+        status,
+        expires_at: Some(st(17)),
+        first_viewed_at: None,
+        view_count: 0,
+        scheduled_at: None,
+        scheduled_appointment_id: None,
+        created_by: Some(su(5)),
         created_at: st(9),
         updated_at: st(9),
     }

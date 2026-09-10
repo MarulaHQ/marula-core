@@ -323,7 +323,7 @@ pub async fn update(
             req.username.trim(),
             req.url.trim(),
             new_secret.as_deref(),
-new_notes.as_ref().map(|n| n.as_deref()),
+            new_notes.as_ref().map(|n| n.as_deref()),
             req.expires_at,
             user_id,
         )

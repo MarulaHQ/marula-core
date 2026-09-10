@@ -174,6 +174,7 @@ pub async fn create_appointment(
         status: AppointmentStatus::Scheduled,
         travel_minutes: req.travel_minutes,
         notes: req.notes.clone(),
+        scheduling_link_id: None,
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };

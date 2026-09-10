@@ -1,0 +1,14 @@
+{
+  "event_type": "scheduling_link.scheduled",
+  "entity": "scheduling_link",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "appointment_id": "00000000-0000-0000-0000-000000000013",
+    "booker_email": "dana@northwind.example",
+    "booker_name": "Dana Fischer",
+    "link_id": "00000000-0000-0000-0000-00000000002d",
+    "scheduled_at": "2023-11-14T22:13:35Z"
+  }
+}

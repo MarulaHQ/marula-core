@@ -558,6 +558,7 @@ pub async fn assign(
             status: AppointmentStatus::Scheduled,
             travel_minutes: req.travel_minutes,
             notes: None,
+            scheduling_link_id: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };

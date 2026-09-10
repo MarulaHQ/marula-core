@@ -1,0 +1,12 @@
+{
+  "event_type": "scheduling_link.viewed",
+  "entity": "scheduling_link",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "link_id": "00000000-0000-0000-0000-00000000002f",
+    "view_count": 1,
+    "viewed_at": "2023-11-14T22:13:33Z"
+  }
+}

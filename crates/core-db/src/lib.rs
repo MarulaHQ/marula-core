@@ -48,6 +48,7 @@ pub mod queue;
 pub mod report_defs;
 pub mod report_schedules;
 pub mod scheduling;
+pub mod scheduling_links;
 pub mod search;
 pub mod settings;
 pub mod sla;
