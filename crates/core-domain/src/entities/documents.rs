@@ -3,7 +3,7 @@
 //! diffable snapshots. Restores create NEW versions; history is never
 //! rewritten.
 
-use crate::ids::{DocumentId, DocumentVersionId, OrgId, UserId};
+use crate::ids::{ClientId, DocumentId, DocumentLayoutId, DocumentVersionId, OrgId, UserId};
 use chrono::{DateTime, Utc};
 
 /// A document's living handle. No content lives here — content is only
@@ -15,6 +15,16 @@ pub struct Document {
     pub id: DocumentId,
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub org_id: OrgId,
+    /// NULL = org-global document; set = client-scoped (docs-platform v1,
+    /// migration 0053).
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub client_id: Option<ClientId>,
+    /// The typed layout this document instantiates; NULL = untyped.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub layout_id: Option<DocumentLayoutId>,
+    /// Custom-field values validated against the layout's schema.
+    #[serde(default)]
+    pub fields: serde_json::Value,
     pub title: String,
     /// The newest version number in the document's history.
     pub current_version: i32,

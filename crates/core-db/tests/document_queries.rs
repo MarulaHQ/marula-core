@@ -63,6 +63,9 @@ async fn create_document_appends_version_one_in_one_transaction() {
         &mut tx,
         s.org,
         fixed_uuid(141),
+        None,
+        None,
+        &serde_json::Value::Null,
         "Onboarding runbook",
         "# Day one\n1. laptop",
         "Initial version",
@@ -92,10 +95,20 @@ async fn edits_append_gap_free_and_leave_history_untouched() {
     let author = seed_user(&app, &s, 144).await;
     let doc_id = fixed_uuid(145);
 
-    let (_, v1) =
-        documents::create_document(&mut tx, s.org, doc_id, "Runbook", "v1 body", "", author)
-            .await
-            .expect("create");
+    let (_, v1) = documents::create_document(
+        &mut tx,
+        s.org,
+        doc_id,
+        None,
+        None,
+        &serde_json::Value::Null,
+        "Runbook",
+        "v1 body",
+        "",
+        author,
+    )
+    .await
+    .expect("create");
     let v1_created_at = v1.created_at;
 
     for expected in [2, 3, 4] {
@@ -160,9 +173,20 @@ async fn restore_provenance_is_stored_on_the_appended_row() {
     let author = seed_user(&app, &s, 147).await;
     let doc_id = fixed_uuid(148);
 
-    documents::create_document(&mut tx, s.org, doc_id, "Policy", "strict", "", author)
-        .await
-        .expect("create");
+    documents::create_document(
+        &mut tx,
+        s.org,
+        doc_id,
+        None,
+        None,
+        &serde_json::Value::Null,
+        "Policy",
+        "strict",
+        "",
+        author,
+    )
+    .await
+    .expect("create");
     documents::insert_version(
         &mut *tx,
         s.org,
@@ -209,9 +233,20 @@ async fn version_numbers_are_unique_per_document() {
     let author = seed_user(&app, &s, 1491).await;
     let doc_id = fixed_uuid(1492);
 
-    documents::create_document(&mut tx, s.org, doc_id, "Doc", "one", "", author)
-        .await
-        .expect("create");
+    documents::create_document(
+        &mut tx,
+        s.org,
+        doc_id,
+        None,
+        None,
+        &serde_json::Value::Null,
+        "Doc",
+        "one",
+        "",
+        author,
+    )
+    .await
+    .expect("create");
     let dupe = documents::insert_version(
         &mut *tx,
         s.org,
@@ -239,6 +274,9 @@ async fn rls_blocks_cross_org_document_reads() {
         &mut tx,
         s.org,
         fixed_uuid(1494),
+        None,
+        None,
+        &serde_json::Value::Null,
         "Private plan",
         "hidden",
         "",

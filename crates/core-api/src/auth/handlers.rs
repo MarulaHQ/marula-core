@@ -155,6 +155,7 @@ pub async fn register(
     let role_ids = core_db::orgs::seed_default_roles(&mut tx, org_id).await?;
     core_db::orgs::seed_default_board(&mut tx, org_id).await?;
     core_db::orgs::seed_default_sla_policy(&mut *tx, org_id).await?;
+    core_db::document_layouts::seed_default_document_layouts(&mut tx, org_id).await?;
 
     core_db::users::create_user(
         &mut *tx,

@@ -67,6 +67,7 @@ pub mod notifications;
 pub mod oidc;
 pub mod openapi;
 pub mod org_users;
+pub mod passwords;
 pub mod portal;
 pub mod portal_admin;
 pub mod portal_v2;
@@ -609,6 +610,40 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             get(documents::get_version),
         )
         .route(&rp("/documents/{id}/restore"), post(documents::restore))
+        // docs-platform v1 (Wave 11 lane 7, 0053): typed document
+        // layouts, cross-entity links, and the password vault.
+        .route(
+            &rp("/documents/layouts"),
+            get(documents::list_layouts).post(documents::create_layout),
+        )
+        .route(
+            &rp("/documents/layouts/{id}"),
+            axum::routing::patch(documents::update_layout).delete(documents::delete_layout),
+        )
+        .route(
+            &rp("/documents/{id}/links"),
+            get(documents::list_links).post(documents::add_link),
+        )
+        .route(
+            &rp("/documents/links/{id}"),
+            axum::routing::delete(documents::delete_link),
+        )
+        .route(
+            &rp("/passwords"),
+            get(passwords::list).post(passwords::create),
+        )
+        .route(
+            &rp("/passwords/{id}"),
+            get(passwords::get_one)
+                .patch(passwords::update)
+                .delete(passwords::delete),
+        )
+        .route(&rp("/passwords/{id}/reveal"), post(passwords::reveal))
+        .route(&rp("/passwords/{id}/history"), get(passwords::history))
+        .route(
+            &rp("/passwords/{id}/links"),
+            get(passwords::list_links).post(passwords::add_link),
+        )
         // contracts + recurring billing rules (Wave 8b billing lane):
         // contract CRUD plus READ-ONLY rule-evaluation previews — no
         // invoice persistence (Wave 9).

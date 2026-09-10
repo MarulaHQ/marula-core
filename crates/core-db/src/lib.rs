@@ -25,6 +25,8 @@ pub mod custom_fields;
 // without it.
 pub mod demo;
 pub mod dispatch;
+pub mod document_layouts;
+pub mod document_links;
 pub mod documents;
 pub mod emails;
 pub mod export;
@@ -38,6 +40,7 @@ pub mod oidc;
 pub mod org_users;
 pub mod orgs;
 pub mod outbox;
+pub mod passwords;
 pub mod portal;
 pub mod projects;
 pub mod provenance;
