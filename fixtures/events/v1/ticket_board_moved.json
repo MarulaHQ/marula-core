@@ -1,0 +1,20 @@
+{
+  "event_type": "ticket.board_moved",
+  "entity": "ticket",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "from_board_id": "00000000-0000-0000-0000-000000000002",
+    "from_category": "open",
+    "from_status": "triage",
+    "moved_by": "00000000-0000-0000-0000-000000000005",
+    "number": "MER-1001",
+    "occurred_at": "2023-11-14T22:13:23Z",
+    "sla_reset": false,
+    "ticket_id": "00000000-0000-0000-0000-000000000001",
+    "to_board_id": "00000000-0000-0000-0000-000000000006",
+    "to_category": "open",
+    "to_status": "intake"
+  }
+}

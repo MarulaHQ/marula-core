@@ -28,7 +28,8 @@ use core_domain::entities::manifest::{
     CustomizationManifest, ManifestApiKey, ManifestAutomationRule, ManifestBoard,
     ManifestBoardStatus, ManifestCustomField, ManifestEscalationStep, ManifestReportDefinition,
     ManifestSections, ManifestSetting, ManifestSla, ManifestSlaCalendar, ManifestSlaPolicy,
-    ManifestTransition, ManifestWebhook,
+    ManifestTaxonomy, ManifestTaxonomyCategory, ManifestTaxonomyType, ManifestTransition,
+    ManifestWebhook,
 };
 use core_domain::status::TicketStatusCategory;
 use sqlx::PgConnection;
@@ -60,6 +61,7 @@ pub async fn load_customization_manifest(
         settings: load_org_settings(&mut *conn, org_id).await?,
         sla: load_sla(&mut *conn, org_id).await?,
         report_definitions: load_report_definitions(&mut *conn, org_id).await?,
+        taxonomy: load_taxonomy(&mut *conn, org_id).await?,
     };
     Ok(CustomizationManifest {
         manifest_version: MANIFEST_VERSION,
@@ -444,4 +446,66 @@ async fn load_report_definitions(
         .collect();
     out.sort_by(|a, b| (&a.name, a.id).cmp(&(&b.name, b.id)));
     Ok(out)
+}
+
+// --- ticket taxonomy (Wave 11 lane 3) ---------------------------------------------
+
+/// Both classification trees, retired rows INCLUDED: tickets keep their
+/// references after retirement, so the preflight must see the full
+/// surface. Deterministic order: types by (name, id); categories by
+/// (parent name, sort_order, name, id) — the parent's NAME is the stable
+/// semantic group key, so a re-import into a fresh org (new ids) still
+/// compares equal; ids only break ties.
+async fn load_taxonomy(conn: &mut PgConnection, org_id: Uuid) -> DbResult<ManifestTaxonomy> {
+    let types = sqlx::query!(
+        r#"SELECT id, name, description, is_retired, sort_order
+           FROM ticket_types WHERE org_id = $1"#,
+        org_id
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut types: Vec<ManifestTaxonomyType> = types
+        .into_iter()
+        .map(|r| ManifestTaxonomyType {
+            id: r.id,
+            name: r.name,
+            description: r.description,
+            is_retired: r.is_retired,
+            sort_order: r.sort_order,
+        })
+        .collect();
+    types.sort_by(|a, b| (&a.name, a.id).cmp(&(&b.name, b.id)));
+
+    let categories = sqlx::query!(
+        r#"SELECT c.id, c.parent_id, c.name, c.description, c.is_retired, c.sort_order,
+                  p.name AS "parent_name?"
+           FROM ticket_categories c
+           LEFT JOIN ticket_categories p ON p.id = c.parent_id
+           WHERE c.org_id = $1"#,
+        org_id
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut categorized: Vec<(String, ManifestTaxonomyCategory)> = categories
+        .into_iter()
+        .map(|r| {
+            (
+                r.parent_name.unwrap_or_default(),
+                ManifestTaxonomyCategory {
+                    id: r.id,
+                    parent_id: r.parent_id,
+                    name: r.name,
+                    description: r.description,
+                    is_retired: r.is_retired,
+                    sort_order: r.sort_order,
+                },
+            )
+        })
+        .collect();
+    categorized.sort_by(|a, b| {
+        (&a.0, a.1.sort_order, &a.1.name, a.1.id).cmp(&(&b.0, b.1.sort_order, &b.1.name, b.1.id))
+    });
+    let categories = categorized.into_iter().map(|(_, c)| c).collect();
+
+    Ok(ManifestTaxonomy { types, categories })
 }

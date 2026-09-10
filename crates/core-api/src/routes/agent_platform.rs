@@ -1308,6 +1308,9 @@ async fn apply_ticket_proposal(
             site_id: req.site_id,
             contact_id: req.contact_id,
             due_at: req.due_at,
+
+            type_id: None,
+            category_id: None,
         },
     )
     .await?;

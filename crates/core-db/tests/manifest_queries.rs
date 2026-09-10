@@ -78,6 +78,11 @@ async fn seed_base(db: &TestDb, n: u64) -> Base {
     let policy_id = core_db::orgs::seed_default_sla_policy(&mut *tx, org)
         .await
         .expect("sla policy");
+    // Standard taxonomy baseline (Wave 11 lane 3): mirrors the shared
+    // org-creation seeding so the manifest section documents itself.
+    core_db::orgs::seed_default_taxonomy(&mut tx, org)
+        .await
+        .expect("taxonomy");
     let user = fixed_uuid(n + 10);
     core_db::users::create_user(
         &mut *tx,
@@ -443,6 +448,66 @@ async fn seed_full_org(db: &TestDb, n: u64) -> Base {
         .expect("report definition");
     }
 
+    // ticket taxonomy (Wave 11 lane 3): custom rows in deliberately
+    // NON-canonical insert order; one standard type RETIRED (flag, not
+    // delete) so retired inclusion is exercised.
+    let custom_type = Uuid::now_v7();
+    core_db::taxonomy::insert_node(
+        &mut tx,
+        base.org,
+        custom_type,
+        core_db::taxonomy::TaxonomyTable::Type,
+        None,
+        "Custom Project",
+        None,
+        99,
+    )
+    .await
+    .expect("custom type");
+    let euc = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM ticket_categories WHERE org_id = $1 AND name = 'End-User Computing' AND parent_id IS NULL",
+    )
+    .bind(base.org)
+    .fetch_one(&mut *tx)
+    .await
+    .expect("euc root");
+    let routers = Uuid::now_v7();
+    core_db::taxonomy::insert_node(
+        &mut tx,
+        base.org,
+        routers,
+        core_db::taxonomy::TaxonomyTable::Category,
+        Some(euc),
+        "Routers & Switches",
+        None,
+        50,
+    )
+    .await
+    .expect("custom subcategory");
+    core_db::taxonomy::retire_node(
+        &mut tx,
+        base.org,
+        core_db::taxonomy::TaxonomyTable::Category,
+        routers,
+    )
+    .await
+    .expect("retire subcategory");
+    let change_type = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM ticket_types WHERE org_id = $1 AND name = 'Change'",
+    )
+    .bind(base.org)
+    .fetch_one(&mut *tx)
+    .await
+    .expect("change type");
+    core_db::taxonomy::retire_node(
+        &mut tx,
+        base.org,
+        core_db::taxonomy::TaxonomyTable::Type,
+        change_type,
+    )
+    .await
+    .expect("retire");
+
     tx.commit().await.expect("commit full org");
     base
 }
@@ -639,6 +704,46 @@ async fn full_org_manifest_covers_every_section() {
     assert_eq!(defs[1]["name"], "Weekly Tickets by Status");
     assert_eq!(defs[1]["scope"], "org");
     assert_eq!(defs[1]["spec"]["group_by"], json!(["status_name"]));
+
+    // ticket taxonomy (Wave 11 lane 3): seeded standard set + custom rows,
+    // retired rows INCLUDED, deterministic order (types by name).
+    let taxonomy = &m["sections"]["taxonomy"];
+    let types = taxonomy["types"].as_array().unwrap();
+    assert_eq!(
+        types.len(),
+        5,
+        "4 standard types + 1 custom, retired rows included"
+    );
+    let type_names: Vec<&str> = types.iter().map(|t| t["name"].as_str().unwrap()).collect();
+    assert_eq!(
+        type_names,
+        vec![
+            "Change",
+            "Custom Project",
+            "Incident",
+            "Problem",
+            "Service Request"
+        ],
+        "types ordered by name; the RETIRED standard type still exports"
+    );
+    assert!(
+        types
+            .iter()
+            .any(|t| t["name"] == "Change" && t["is_retired"] == true),
+        "retirement is a flag, not a deletion"
+    );
+    let categories = taxonomy["categories"].as_array().unwrap();
+    assert_eq!(
+        categories.len(),
+        38,
+        "8 standard roots + 29 standard subcategories + 1 custom subcategory"
+    );
+    assert!(
+        categories
+            .iter()
+            .any(|c| c["name"] == "Routers & Switches" && c["is_retired"] == true),
+        "the retired subcategory exports with its reference intact"
+    );
 }
 
 #[tokio::test]
@@ -774,6 +879,16 @@ async fn empty_org_manifest_sections_are_empty() {
         "the embedded fallback calendar exports"
     );
     assert_eq!(policies[0]["escalation_steps"], json!([]));
+
+    // Taxonomy (Wave 11 lane 3): the shared standard seed exports for a
+    // fresh org — the defaults-first classification baseline.
+    let taxonomy = &sections["taxonomy"];
+    assert_eq!(taxonomy["types"].as_array().unwrap().len(), 4);
+    assert_eq!(
+        taxonomy["categories"].as_array().unwrap().len(),
+        37,
+        "8 roots + 29 subcategories, the standard accepted set"
+    );
 }
 
 #[tokio::test]

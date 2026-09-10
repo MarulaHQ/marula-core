@@ -2268,6 +2268,9 @@ async fn commit_update(
                     site_id: None,
                     contact_id: None,
                     due_at: Some(ticket.due_at),
+
+                    type_id: None,
+                    category_id: None,
                 },
             )
             .await?;

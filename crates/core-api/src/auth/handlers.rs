@@ -155,6 +155,9 @@ pub async fn register(
     let role_ids = core_db::orgs::seed_default_roles(&mut tx, org_id).await?;
     core_db::orgs::seed_default_board(&mut tx, org_id).await?;
     core_db::orgs::seed_default_sla_policy(&mut *tx, org_id).await?;
+    // Standard type/category/subcategory taxonomy (Wave 11 lane 3) — the
+    // defaults-first baseline so pickers work with zero configuration.
+    core_db::orgs::seed_default_taxonomy(&mut tx, org_id).await?;
 
     core_db::users::create_user(
         &mut *tx,

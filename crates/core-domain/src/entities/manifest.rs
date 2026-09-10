@@ -81,6 +81,48 @@ pub struct ManifestSections {
     /// preflight (U6) can flag any definition whose `kind`/spec columns
     /// reference deprecated view or column constructs (policy §5).
     pub report_definitions: Vec<ManifestReportDefinition>,
+    /// Ticket type/category/subcategory trees (Wave 11 lane 3).
+    /// Classification-only (§5): exported so the preflight sees the full
+    /// classification surface; retired rows INCLUDED (tickets may still
+    /// reference them). Categories are flat — `parent_id` reconstructs
+    /// the exactly-two-level tree.
+    pub taxonomy: ManifestTaxonomy,
+}
+
+/// The two classification trees of one org.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ManifestTaxonomy {
+    pub types: Vec<ManifestTaxonomyType>,
+    pub categories: Vec<ManifestTaxonomyCategory>,
+}
+
+/// One ticket type (flat list).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ManifestTaxonomyType {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub id: uuid::Uuid,
+    pub name: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>, nullable = true))]
+    pub description: Option<String>,
+    pub is_retired: bool,
+    pub sort_order: i32,
+}
+
+/// One category (root when `parent_id` is null) or subcategory.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ManifestTaxonomyCategory {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>, nullable = true))]
+    pub parent_id: Option<uuid::Uuid>,
+    pub name: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>, nullable = true))]
+    pub description: Option<String>,
+    pub is_retired: bool,
+    pub sort_order: i32,
 }
 
 /// SLA configuration sections.

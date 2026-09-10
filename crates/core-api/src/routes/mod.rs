@@ -79,6 +79,7 @@ pub mod scheduling;
 pub mod search;
 pub mod settings;
 pub mod sla_admin;
+pub mod taxonomy;
 pub mod tickets;
 pub mod time;
 pub mod timers;
@@ -382,6 +383,39 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/org/users/{id}/role"),
             axum::routing::patch(org_users::set_role),
         )
+        // ticket taxonomy (Wave 11 lane 3): classification-only trees,
+        // full org CRUD (soft retire), instant-first envelope, audited.
+        .route(
+            &rp("/taxonomy/types"),
+            get(taxonomy::list_types).post(taxonomy::create_type),
+        )
+        .route(
+            &rp("/taxonomy/types/{id}"),
+            axum::routing::patch(taxonomy::update_type),
+        )
+        .route(
+            &rp("/taxonomy/types/{id}/retire"),
+            post(taxonomy::retire_type),
+        )
+        .route(
+            &rp("/taxonomy/categories"),
+            get(taxonomy::list_categories).post(taxonomy::create_category),
+        )
+        .route(
+            &rp("/taxonomy/categories/{id}"),
+            axum::routing::patch(taxonomy::update_category),
+        )
+        .route(
+            &rp("/taxonomy/categories/{id}/reparent"),
+            post(taxonomy::reparent_category),
+        )
+        .route(
+            &rp("/taxonomy/categories/{id}/retire"),
+            post(taxonomy::retire_category),
+        )
+        // board moves: status remapped through the semantic categories,
+        // SLA preserved by default, audited, ticket.board_moved.
+        .route(&rp("/tickets/{id}/move-board"), post(taxonomy::move_board))
         // clients
         .route(&rp("/clients"), get(clients::list).post(clients::create))
         .route(&rp("/clients/{id}"), get(clients::get_one))

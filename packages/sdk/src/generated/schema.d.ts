@@ -4204,6 +4204,154 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/taxonomy/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/taxonomy/categories — the two-level category tree, flat and
+         *     ordered (roots and subcategories interleaved by sort order; `parent_id`
+         *     reconstructs the tree).
+         */
+        get: operations["taxonomy_list_categories"];
+        put?: never;
+        /**
+         * POST /api/taxonomy/categories — create a root category, or a
+         *     subcategory when `parent_id` names a root of this org.
+         */
+        post: operations["taxonomy_create_category"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/taxonomy/categories/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/taxonomy/categories/{id} — rename / edit description /
+         *     re-sort (root or subcategory).
+         */
+        patch: operations["taxonomy_update_category"];
+        trace?: never;
+    };
+    "/api/v1/taxonomy/categories/{id}/reparent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/taxonomy/categories/{id}/reparent — move a SUBCATEGORY under
+         *     a different root. Roots cannot be reparented (that would grow a third
+         *     level or orphan children).
+         */
+        post: operations["taxonomy_reparent_category"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/taxonomy/categories/{id}/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/taxonomy/categories/{id}/retire — soft-retire a root or
+         *     subcategory. Idempotent like the type surface.
+         */
+        post: operations["taxonomy_retire_category"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/taxonomy/types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/taxonomy/types — the org's ticket types; active-only unless
+         *     `include_retired`.
+         */
+        get: operations["taxonomy_list_types"];
+        put?: never;
+        /** POST /api/taxonomy/types — create a ticket type. */
+        post: operations["taxonomy_create_type"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/taxonomy/types/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/taxonomy/types/{id} — rename / edit description / re-sort.
+         *     Behavior-neutral: nothing keys off these trees.
+         */
+        patch: operations["taxonomy_update_type"];
+        trace?: never;
+    };
+    "/api/v1/taxonomy/types/{id}/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/taxonomy/types/{id}/retire — soft-retire: pickers hide the
+         *     node, existing tickets keep their reference. Idempotent: retiring an
+         *     already-retired node returns its current state.
+         */
+        post: operations["taxonomy_retire_type"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tickets": {
         parameters: {
             query?: never;
@@ -4413,6 +4561,30 @@ export interface paths {
          *     (422) to empty a REQUIRED definition; emits `ticket.field_cleared`.
          */
         delete: operations["fields_clear_ticket_value"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{id}/move-board": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/tickets/{id}/move-board — move a ticket to another board with
+         *     the status remapped through the SEMANTIC categories (typed 409 listing
+         *     the target statuses when the current category has no counterpart). SLA
+         *     state is preserved by default; `reset_sla` re-initializes the clocks.
+         *     Audited, emits `ticket.board_moved`, all in one transaction. Instant-
+         *     first (IF1/IF2): idempotency-keyed, version-gated, read-your-write.
+         */
+        post: operations["tickets_move_board"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -6581,6 +6753,18 @@ export interface components {
             sort_order?: number;
             title: string;
         };
+        CreateTaxonomyNodeRequest: components["schemas"]["MutationParams"] & {
+            description?: string | null;
+            name: string;
+            /**
+             * Format: uuid
+             * @description Subcategory parent (categories only): must be a ROOT category of
+             *     this org — the tree is exactly two levels deep.
+             */
+            parent_id?: string | null;
+            /** Format: int32 */
+            sort_order?: number;
+        };
         CreateTemplateRequest: {
             description?: string | null;
             name: string;
@@ -7761,6 +7945,13 @@ export interface components {
              */
             offset?: number | null;
         };
+        ListTaxonomyQuery: {
+            /**
+             * @description Include retired nodes (admin editors + the manifest want them;
+             *     pickers default to false).
+             */
+            include_retired?: boolean;
+        };
         ListTravelDraftsQuery: {
             /**
              * Format: int64
@@ -7980,6 +8171,14 @@ export interface components {
             settings: components["schemas"]["ManifestSetting"][];
             /** @description SLA configuration: calendars and policies with escalation ladders. */
             sla: components["schemas"]["ManifestSla"];
+            /**
+             * @description Ticket type/category/subcategory trees (Wave 11 lane 3).
+             *     Classification-only (§5): exported so the preflight sees the full
+             *     classification surface; retired rows INCLUDED (tickets may still
+             *     reference them). Categories are flat — `parent_id` reconstructs
+             *     the exactly-two-level tree.
+             */
+            taxonomy: components["schemas"]["ManifestTaxonomy"];
             /** @description Webhook subscriptions with event-type filters, never secrets. */
             webhooks: components["schemas"]["ManifestWebhook"][];
         };
@@ -8021,6 +8220,33 @@ export interface components {
             name: string;
             /** @description Targets document keyed by priority string. */
             targets: Record<string, never>;
+        };
+        /** @description The two classification trees of one org. */
+        ManifestTaxonomy: {
+            categories: components["schemas"]["ManifestTaxonomyCategory"][];
+            types: components["schemas"]["ManifestTaxonomyType"][];
+        };
+        /** @description One category (root when `parent_id` is null) or subcategory. */
+        ManifestTaxonomyCategory: {
+            description?: string | null;
+            /** Format: uuid */
+            id: string;
+            is_retired: boolean;
+            name: string;
+            /** Format: uuid */
+            parent_id?: string | null;
+            /** Format: int32 */
+            sort_order: number;
+        };
+        /** @description One ticket type (flat list). */
+        ManifestTaxonomyType: {
+            description?: string | null;
+            /** Format: uuid */
+            id: string;
+            is_retired: boolean;
+            name: string;
+            /** Format: int32 */
+            sort_order: number;
         };
         /** @description One allowed status change, `from` → `to`, both ids from the SAME board. */
         ManifestTransition: {
@@ -8101,6 +8327,24 @@ export interface components {
             ends_at: string;
             /** Format: date-time */
             starts_at: string;
+        };
+        MoveBoardRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * @description Default false: the existing SLA clock state is PRESERVED verbatim
+             *     (board membership is classification, not a lifecycle event). true =
+             *     re-initialize the clocks under the org's default policy anchored at
+             *     the move moment.
+             */
+            reset_sla?: boolean;
+            /**
+             * Format: uuid
+             * @description Pin the target status explicitly (the retry path after a
+             *     `board_move_status_conflict`). Must be a status of the target
+             *     board; omitted = remap through the semantic categories.
+             */
+            status_id?: string | null;
+            /** Format: uuid */
+            target_board_id: string;
         };
         /** @description One move in a batch: the booking's new user and slot. */
         MoveSpec: {
@@ -8444,6 +8688,8 @@ export interface components {
             assignee_id?: string | null;
             body?: string | null;
             /** Format: uuid */
+            category_id?: string | null;
+            /** Format: uuid */
             client_id?: string | null;
             /** Format: uuid */
             contact_id?: string | null;
@@ -8458,6 +8704,14 @@ export interface components {
             /** Format: uuid */
             site_id?: string | null;
             title?: string | null;
+            /**
+             * Format: uuid
+             * @description Classification (Wave 11 lane 3): `"type_id": null` clears,
+             *     an id sets (the node must exist in this org and not be retired),
+             *     an absent member leaves it untouched. Purely descriptive: behavior
+             *     binds to the semantic categories, never these trees.
+             */
+            type_id?: string | null;
         };
         /**
          * @description PATCH /api/dispatch/travel-drafts/{id} body — every member optional;
@@ -9379,6 +9633,13 @@ export interface components {
         RegistryResponse: {
             settings: components["schemas"]["DeclarationView"][];
         };
+        ReparentCategoryRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * Format: uuid
+             * @description New root category (must be a root of this org).
+             */
+            parent_id: string;
+        };
         ReplaceLadderRequest: {
             steps: components["schemas"]["LadderStepSpec"][];
         };
@@ -9519,6 +9780,7 @@ export interface components {
              */
             version: number;
         };
+        RetireTaxonomyNodeRequest: components["schemas"]["MutationParams"];
         /** @description What the revert restored. */
         RevertDetail: {
             /** @description Record fields whose values were restored. */
@@ -9930,6 +10192,16 @@ export interface components {
         };
         /** @description POST /api/dispatch/travel-drafts/{id}/submit body. */
         SubmitTravelDraftRequest: components["schemas"]["MutationParams"];
+        /**
+         * @description One target-board status option inside a `board_move_status_conflict`
+         *     409 — everything the client needs to render the pick list.
+         */
+        TargetStatusOption: {
+            category: components["schemas"]["TicketStatusCategory"];
+            /** Format: uuid */
+            id: string;
+            name: string;
+        };
         TaskListQuery: {
             /** Format: uuid */
             assignee_id?: string | null;
@@ -9952,6 +10224,38 @@ export interface components {
          * @enum {string}
          */
         TaskStatus: "pending" | "in_progress" | "blocked" | "completed" | "cancelled";
+        /**
+         * @description Instant-first mutation response (IF2): the node plus read-your-write
+         *     metadata.
+         */
+        TaxonomyMutationResponse: components["schemas"]["TaxonomyNodeView"] & {
+            mutation: components["schemas"]["MutationMeta"];
+            /**
+             * Format: int64
+             * @description How many tickets still reference the node (informational —
+             *     retirement does not require zero references).
+             */
+            ticket_references: number;
+        };
+        /**
+         * @description One taxonomy node (type or category). `parent_id` is null for types and
+         *     root categories; subcategories carry their parent.
+         */
+        TaxonomyNodeView: {
+            created_at: string;
+            description?: string | null;
+            /** Format: uuid */
+            id: string;
+            is_retired: boolean;
+            name: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            parent_id?: string | null;
+            /** Format: int32 */
+            sort_order: number;
+            updated_at: string;
+        };
         TeamRangeQuery: {
             /**
              * Format: date-time
@@ -10077,6 +10381,10 @@ export interface components {
             title: string;
             /** Format: date-time */
             updated_at: string;
+        };
+        /** @description Same additive envelope as the status endpoint (plain ticket body). */
+        TicketBoardMoveResponse: components["schemas"]["Ticket"] & {
+            mutation: components["schemas"]["MutationMeta"];
         };
         /**
          * @description Same additive envelope for checklist writes: the full checklist view at
@@ -10607,6 +10915,12 @@ export interface components {
             name?: string | null;
             /** Format: int32 */
             sort_order?: number | null;
+        };
+        UpdateTaxonomyNodeRequest: components["schemas"]["MutationParams"] & {
+            description?: string | null;
+            name: string;
+            /** Format: int32 */
+            sort_order?: number;
         };
         /** @description PUT /api/imports/templates/{id} request — all fields optional. */
         UpdateTemplateRequest: {
@@ -18591,6 +18905,318 @@ export interface operations {
             };
         };
     };
+    taxonomy_list_categories: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Include retired nodes (admin editors + the manifest want them;
+                 *     pickers default to false).
+                 */
+                include_retired?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaxonomyNodeView"][];
+                };
+            };
+        };
+    };
+    taxonomy_create_category: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTaxonomyNodeRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaxonomyMutationResponse"];
+                };
+            };
+            /** @description parent category not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description duplicate sibling name or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    taxonomy_update_category: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateTaxonomyNodeRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaxonomyMutationResponse"];
+                };
+            };
+            /** @description node not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description duplicate sibling name, version conflict, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    taxonomy_reparent_category: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReparentCategoryRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaxonomyMutationResponse"];
+                };
+            };
+            /** @description node or new parent not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    taxonomy_retire_category: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetireTaxonomyNodeRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaxonomyMutationResponse"];
+                };
+            };
+            /** @description node not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    taxonomy_list_types: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Include retired nodes (admin editors + the manifest want them;
+                 *     pickers default to false).
+                 */
+                include_retired?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaxonomyNodeView"][];
+                };
+            };
+        };
+    };
+    taxonomy_create_type: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTaxonomyNodeRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaxonomyMutationResponse"];
+                };
+            };
+            /** @description duplicate name or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    taxonomy_update_type: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateTaxonomyNodeRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaxonomyMutationResponse"];
+                };
+            };
+            /** @description node not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description duplicate name, version conflict, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    taxonomy_retire_type: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetireTaxonomyNodeRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaxonomyMutationResponse"];
+                };
+            };
+            /** @description node not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     tickets_list: {
         parameters: {
             query?: {
@@ -19027,6 +19653,52 @@ export interface operations {
                 content?: never;
             };
             /** @description field is required and cannot be emptied */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tickets_move_board: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveBoardRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketBoardMoveResponse"];
+                };
+            };
+            /** @description ticket or target board not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description no matching semantic status on the target board, version conflict, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation error */
             422: {
                 headers: {
                     [name: string]: unknown;

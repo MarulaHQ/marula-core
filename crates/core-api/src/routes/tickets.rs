@@ -86,6 +86,14 @@ pub struct PatchTicketRequest {
     /// Custom-field values to upsert. Partial semantics: only listed fields
     /// change, each validated against its definition.
     pub custom_fields: Option<Vec<TicketFieldInput>>,
+    /// Classification (Wave 11 lane 3): `"type_id": null` clears,
+    /// an id sets (the node must exist in this org and not be retired),
+    /// an absent member leaves it untouched. Purely descriptive: behavior
+    /// binds to the semantic categories, never these trees.
+    #[serde(default, deserialize_with = "deserialize_optional_uuid")]
+    pub type_id: Option<Option<Uuid>>,
+    #[serde(default, deserialize_with = "deserialize_optional_uuid")]
+    pub category_id: Option<Option<Uuid>>,
     /// Instant-first autosave parameters (IF1): idempotency key + entity
     /// version. Absent in legacy clients — purely additive.
     #[serde(flatten, default)]
@@ -201,6 +209,15 @@ pub struct TicketSlaStatus {
 
 fn default_limit() -> i64 {
     50
+}
+
+/// Distinguishes `"type_id": null` (clear) from an absent member — the
+/// classification patch contract (Wave 11 lane 3).
+fn deserialize_optional_uuid<'de, D>(deserializer: D) -> Result<Option<Option<Uuid>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Some(Option::<Uuid>::deserialize(deserializer)?))
 }
 
 /// GET /api/tickets — filtered, priority-ordered list; each row carries its
@@ -581,6 +598,31 @@ pub async fn patch(
         let before = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id)
             .await
             .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        // Classification validation (Wave 11 lane 3): the node must exist
+        // in this org and not be retired; clearing is always legal. A
+        // retired node already ON the ticket stays (retirement never
+        // rewrites tickets) — it just cannot be newly assigned.
+        for (label, node_id) in [("type_id", req.type_id), ("category_id", req.category_id)] {
+            if let Some(Some(node_id)) = node_id {
+                let node = core_db::taxonomy::get_node(
+                    &mut ctx.tx,
+                    org_id,
+                    if label == "type_id" {
+                        core_db::taxonomy::TaxonomyTable::Type
+                    } else {
+                        core_db::taxonomy::TaxonomyTable::Category
+                    },
+                    node_id,
+                )
+                .await
+                .map_err(|e| instant::mutation_scope_err(e.into()))?;
+                if node.is_retired {
+                    return Err(ApiError::Validation(format!(
+                        "{label} refers to a retired taxonomy node"
+                    )));
+                }
+            }
+        }
         authorize_board_op(
             &mut ctx.tx,
             &authed.principal,
@@ -610,6 +652,8 @@ pub async fn patch(
                 site_id: req.site_id,
                 contact_id: req.contact_id,
                 due_at: req.due_at,
+                type_id: req.type_id,
+                category_id: req.category_id,
             },
         )
         .await?;

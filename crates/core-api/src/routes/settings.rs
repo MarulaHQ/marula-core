@@ -184,7 +184,7 @@ pub async fn org_values_get(
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
-    let values = effective_values(&mut *tx, org_id, SettingScope::Org, org_id).await?;
+    let values = effective_values(&mut tx, org_id, SettingScope::Org, org_id).await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(values))
 }
@@ -274,7 +274,7 @@ pub async fn user_values_get(
     core_db::set_org_and_user(&mut tx, org_id, user_id)
         .await
         .map_err(ApiError::from)?;
-    let values = effective_values(&mut *tx, org_id, SettingScope::User, user_id).await?;
+    let values = effective_values(&mut tx, org_id, SettingScope::User, user_id).await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(values))
 }

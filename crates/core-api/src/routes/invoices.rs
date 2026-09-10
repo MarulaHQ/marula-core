@@ -710,7 +710,7 @@ pub async fn get_invoice(
     )
     .await
     .map_err(ApiError::from)?;
-    let detail = load_detail(&mut *tx, authed.principal.user.org_id, id).await?;
+    let detail = load_detail(&mut tx, authed.principal.user.org_id, id).await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(detail))
 }
@@ -740,7 +740,7 @@ pub async fn get_document(
     let client = core_db::clients::get_client(&mut *tx, org_id, invoice.client_id)
         .await
         .map_err(ApiError::from)?;
-    let html = render_invoice_html(&mut *tx, org_id, &invoice, &lines, &client.name).await;
+    let html = render_invoice_html(&mut tx, org_id, &invoice, &lines, &client.name).await;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(axum::response::Html(html))
 }
