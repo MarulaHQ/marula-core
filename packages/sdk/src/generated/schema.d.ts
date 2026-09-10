@@ -1780,6 +1780,109 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/credit-notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/credit-notes — newest first, client/status filters. */
+        get: operations["credit_notes_list"];
+        put?: never;
+        /**
+         * POST /api/credit-notes — issue a client credit through the
+         *     instant-first write path.
+         */
+        post: operations["credit_notes_issue"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/credit-notes/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/credit-notes/{id} — the credit plus its application ledger. */
+        get: operations["credit_notes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/credit-notes/{id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/credit-notes/{id}/apply — allocate part of the remaining
+         *     credit onto an issued invoice. The allocation inserts a real payment
+         *     receipt (provider `credit_note`) through the same apply path as
+         *     ordinary payments, then moves the credit's counter in the SAME
+         *     transaction (both compare-and-set: over-allocation is impossible).
+         */
+        post: operations["credit_notes_apply"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/credit-notes/{id}/refund": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/credit-notes/{id}/refund — pay part of the remaining credit
+         *     back to the client. v1 approves the refund locally (none-mode
+         *     provider, exactly like charges); the amount may never exceed the
+         *     remaining credit.
+         */
+        post: operations["credit_notes_refund"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/credit-notes/{id}/void": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/credit-notes/{id}/void — withdraw a note that has moved
+         *     nothing. Terminal.
+         */
+        post: operations["credit_notes_void"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/dispatch-connector/appointments/{id}/status": {
         parameters: {
             query?: never;
@@ -2631,6 +2734,30 @@ export interface paths {
          *     in the write trail. Instant-first gated (IF1/IF2).
          */
         post: operations["invoices_dunning_transition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/invoices/{id}/dunning/statement": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/invoices/{id}/dunning/statement — generate an account
+         *     statement (the client's OPEN invoices with outstanding balances) and
+         *     queue it to the client's contacts through the outbound ledger
+         *     (`MailTransport`; none-mode stays queued like every other leg). The
+         *     statement rides the dunning path but is a document delivery, not a
+         *     dunning-state change. Instant-first gated (IF1).
+         */
+        post: operations["invoices_dunning_statement"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4358,6 +4485,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/report-schedules/{id}/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/report-schedules/{id}/deliveries — the delivery ledger for
+         *     one schedule (R4 history surface). Worker-written data: rows are
+         *     append-only run records, never mutated, newest slot first. A missing
+         *     schedule is a bare 404.
+         */
+        get: operations["report_schedules_deliveries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/{kind}": {
         parameters: {
             query?: never;
@@ -6044,6 +6193,20 @@ export interface components {
             /** Format: date-time */
             revoked_at?: string | null;
             scopes: string[];
+        };
+        /** @description POST /api/credit-notes/{id}/apply body. */
+        ApplyCreditNoteRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * Format: int64
+             * @description Allocation amount, minor units; must not exceed the credit's
+             *     remaining value.
+             */
+            amount_minor: number;
+            /**
+             * Format: uuid
+             * @description The invoice receiving the allocation (same client + currency).
+             */
+            invoice_id: string;
         };
         ApplyTagRequest: components["schemas"]["MutationParams"] & {
             /** Format: uuid */
@@ -7860,6 +8023,108 @@ export interface components {
             mutation: components["schemas"]["MutationMeta"];
             token: string;
         };
+        /**
+         * @description The credit document. `issued_against_invoice_id` is the issuing
+         *     context (may be `None` for a free-standing client credit);
+         *     applications may target any issued invoice of the same client and
+         *     currency.
+         */
+        CreditNote: {
+            /**
+             * Format: int64
+             * @description Sum moved onto invoices, minor units.
+             */
+            applied_minor: number;
+            /** Format: uuid */
+            client_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** @description ISO 4217 code; every amount on the credit uses it. */
+            currency: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            issued_against_invoice_id?: string | null;
+            /** @description Human credit-note number, unique per org (e.g. "CRN-000012"). */
+            number: string;
+            /** Format: uuid */
+            org_id: string;
+            reason?: string | null;
+            /**
+             * Format: int64
+             * @description Sum refunded back out, minor units.
+             */
+            refunded_minor: number;
+            status: components["schemas"]["CreditNoteStatus"];
+            /**
+             * Format: int64
+             * @description Credit face value, minor units (> 0).
+             */
+            total_minor: number;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /**
+         * @description Apply/refund response: the credit plus the affected invoice (and the
+         *     receipt for applies) so the client reconciles both sides in one shot.
+         */
+        CreditNoteAllocationResponse: components["schemas"]["CreditNote"] & {
+            invoice?: null | components["schemas"]["Invoice"];
+            mutation: components["schemas"]["MutationMeta"];
+            payment?: null | components["schemas"]["InvoicePayment"];
+        };
+        /**
+         * @description One allocation of credit-note value onto an invoice. The money move
+         *     itself is the paired invoice payment receipt (provider `credit_note`);
+         *     this row is the credit-side ledger.
+         */
+        CreditNoteApplication: {
+            /** Format: int64 */
+            amount_minor: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** Format: uuid */
+            credit_note_id: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            invoice_id: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            payment_id?: string | null;
+        };
+        /** @description The credit document plus its allocation ledger (GET /{id}). */
+        CreditNoteDetail: components["schemas"]["CreditNote"] & {
+            applications: components["schemas"]["CreditNoteApplication"][];
+            /**
+             * Format: int64
+             * @description Still-available credit, minor units.
+             */
+            remaining_minor: number;
+        };
+        /** @description GET /api/credit-notes query. */
+        CreditNoteListQuery: {
+            /** Format: uuid */
+            client_id?: string | null;
+            /** @description Exact status: `issued` | `void`. */
+            status?: string | null;
+        };
+        /** @description Instant-first mutation response (IF2) for credit-note mutations. */
+        CreditNoteMutationResponse: components["schemas"]["CreditNote"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        /**
+         * @description Document lifecycle of a credit note. `applied` / `refunded` /
+         *     `partially applied` are DERIVED from the counters, never stored —
+         *     allocation moves continuously; only a void is a state.
+         * @enum {string}
+         */
+        CreditNoteStatus: "issued" | "void";
         /** @description The customization manifest envelope, `manifest_version` 1. */
         CustomizationManifest: {
             /**
@@ -7984,6 +8249,19 @@ export interface components {
              * @description HTTP status when a response arrived; null for transport failures.
              */
             response_status?: number | null;
+        };
+        /** @description GET /api/report-schedules/{id}/deliveries query. */
+        DeliveryListQuery: {
+            /**
+             * Format: int64
+             * @description Page size, clamped to [1, 200].
+             */
+            limit?: number | null;
+            /**
+             * Format: int64
+             * @description Row offset for paging.
+             */
+            offset?: number | null;
         };
         DeliveryPage: {
             deliveries: components["schemas"]["DeliveryAttemptView"][];
@@ -8960,6 +9238,28 @@ export interface components {
          * @enum {string}
          */
         InvoiceStatus: "draft" | "issued" | "paid" | "void";
+        /** @description POST /api/credit-notes body. */
+        IssueCreditNoteRequest: components["schemas"]["MutationParams"] & {
+            /** Format: uuid */
+            client_id: string;
+            /**
+             * @description ISO 4217 code — required for free-standing credits; when
+             *     `invoice_id` is set it must match the invoice's currency.
+             */
+            currency?: string | null;
+            /**
+             * Format: uuid
+             * @description The invoice the credit is raised against (issuing context). When
+             *     set, the credit's currency is the invoice's.
+             */
+            invoice_id?: string | null;
+            reason?: string | null;
+            /**
+             * Format: int64
+             * @description Credit face value, minor units (> 0).
+             */
+            total_minor: number;
+        };
         /** @description One issued invoice: the document plus its lines. */
         IssuedInvoice: {
             invoice: components["schemas"]["Invoice"];
@@ -11038,6 +11338,16 @@ export interface components {
              */
             session_id: string;
         };
+        /** @description POST /api/credit-notes/{id}/refund body. */
+        RefundCreditNoteRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * Format: int64
+             * @description Refund amount, minor units; must not exceed the credit's
+             *     remaining value.
+             */
+            amount_minor: number;
+            notes?: string | null;
+        };
         RegenerateRecoveryRequest: {
             code: string;
             password: string;
@@ -11104,6 +11414,37 @@ export interface components {
             scope: components["schemas"]["DefinitionScope"];
             spec: components["schemas"]["ReportSpec"];
             updated_at: string;
+        };
+        /**
+         * @description GET /api/report-schedules/{id}/deliveries envelope — offset-paged
+         *     delivery history, newest slot first.
+         */
+        ReportDeliveryPage: {
+            deliveries: components["schemas"]["ReportDeliveryView"][];
+            /**
+             * Format: int64
+             * @description Total ledger rows for the schedule (org-scoped).
+             */
+            total: number;
+        };
+        /**
+         * @description One delivery-history row (R4): the claimed slot, the outcome status
+         *     (`delivered|partial|failed|skipped`), the per-recipient outcome
+         *     detail, and when the ledger row landed.
+         */
+        ReportDeliveryView: {
+            /**
+             * @description Per-recipient outcome counters
+             *     (`{"delivered": n, "disabled": n, "quiet_deferred": n, "failed": [..]}`).
+             */
+            detail: unknown;
+            /** Format: uuid */
+            id: string;
+            recorded_at: string;
+            /** @description The claimed slot this run discharged. */
+            slot_at: string;
+            /** @description `delivered` | `partial` | `failed` | `skipped`. */
+            status: string;
         };
         /** @description JSON envelope for a report page. */
         ReportPage: {
@@ -11467,6 +11808,27 @@ export interface components {
          * @enum {string}
          */
         SegmentEnd: "stopped" | "paused" | "switched";
+        /** @description POST /api/invoices/{id}/dunning/statement body. */
+        SendStatementRequest: components["schemas"]["MutationParams"];
+        /** @description POST /api/invoices/{id}/dunning/statement response. */
+        SendStatementResponse: {
+            /** Format: uuid */
+            client_id: string;
+            currency: string;
+            /** @description Open invoices on the statement (number, due date, outstanding). */
+            open_invoices: components["schemas"]["StatementLine"][];
+            /**
+             * @description Addresses the statement email was queued to (client contacts
+             *     with an address). The message rides the outbound ledger; in
+             *     none-mode transport it stays queued like every other leg.
+             */
+            queued_to: string[];
+            /**
+             * Format: int64
+             * @description Sum outstanding across the statement, minor units.
+             */
+            total_outstanding_minor: number;
+        };
         SessionInfo: {
             chain_root: boolean;
             /** Format: date-time */
@@ -11706,6 +12068,15 @@ export interface components {
         StartTimerRequest: components["schemas"]["MutationParams"] & {
             /** Format: uuid */
             ticket_id: string;
+        };
+        /** @description One open invoice on the statement. */
+        StatementLine: {
+            due_on: string;
+            number: string;
+            /** Format: int64 */
+            outstanding_minor: number;
+            /** Format: int64 */
+            total_minor: number;
         };
         StopTimerRequest: components["schemas"]["MutationParams"] & {
             billable?: boolean | null;
@@ -12747,6 +13118,8 @@ export interface components {
          * @enum {string}
          */
         VizHint: "bar" | "line" | "pie" | "table";
+        /** @description POST /api/credit-notes/{id}/void body. */
+        VoidCreditNoteRequest: components["schemas"]["MutationParams"];
         VoidInvoiceRequest: components["schemas"]["MutationParams"];
         WebauthnBeginResponse: {
             /** @description Opaque ceremony binding — pass back to finish. */
@@ -16077,6 +16450,232 @@ export interface operations {
             };
         };
     };
+    credit_notes_list: {
+        parameters: {
+            query?: {
+                client_id?: string | null;
+                /** @description Exact status: `issued` | `void`. */
+                status?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreditNote"][];
+                };
+            };
+        };
+    };
+    credit_notes_issue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IssueCreditNoteRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreditNoteMutationResponse"];
+                };
+            };
+            /** @description client or invoice not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    credit_notes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreditNoteDetail"];
+                };
+            };
+            /** @description not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    credit_notes_apply: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyCreditNoteRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreditNoteAllocationResponse"];
+                };
+            };
+            /** @description credit note or invoice not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description not enough remaining credit, invoice not payable, version conflict, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    credit_notes_refund: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RefundCreditNoteRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreditNoteAllocationResponse"];
+                };
+            };
+            /** @description credit note not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description not enough remaining credit, version conflict, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    credit_notes_void: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VoidCreditNoteRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreditNoteMutationResponse"];
+                };
+            };
+            /** @description credit note not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description already void, has allocations, version conflict, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     dispatch_connector_push_status: {
         parameters: {
             query?: never;
@@ -17623,6 +18222,52 @@ export interface operations {
                 content?: never;
             };
             /** @description backwards or same-state transition */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    invoices_dunning_statement: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendStatementRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SendStatementResponse"];
+                };
+            };
+            /** @description invoice not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invoice not issuable or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description no contact emails on the client to deliver to */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -21261,6 +21906,39 @@ export interface operations {
             };
             /** @description version conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    report_schedules_deliveries: {
+        parameters: {
+            query?: {
+                /** @description Page size, clamped to [1, 200]. */
+                limit?: number | null;
+                /** @description Row offset for paging. */
+                offset?: number | null;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportDeliveryPage"];
+                };
+            };
+            /** @description not in scope */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

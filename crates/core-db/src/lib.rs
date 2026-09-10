@@ -25,6 +25,7 @@ pub mod custom_fields;
 // MERIDIAN_DEV_TOOLS=1 — the CLI refuses and the API router is not mounted
 // without it.
 pub mod costs;
+pub mod credit_notes;
 pub mod demo;
 pub mod dispatch;
 pub mod document_layouts;

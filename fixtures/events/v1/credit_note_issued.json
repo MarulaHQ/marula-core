@@ -1,0 +1,16 @@
+{
+  "event_type": "credit_note.issued",
+  "entity": "credit_note",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "client_id": "00000000-0000-0000-0000-000000000003",
+    "credit_note_id": "00000000-0000-0000-0000-000000000021",
+    "currency": "USD",
+    "invoice_id": "00000000-0000-0000-0000-000000000020",
+    "number": "CRN-000012",
+    "reason": "Goodwill credit",
+    "total_minor": 25000
+  }
+}

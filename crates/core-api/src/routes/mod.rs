@@ -53,6 +53,7 @@ pub mod checklists;
 pub mod clients;
 pub mod connector;
 pub mod costs;
+pub mod credit_notes;
 pub mod custom_fields;
 pub mod dev;
 pub mod dispatch;
@@ -745,6 +746,20 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/invoices/{id}/dunning"),
             post(invoices::transition_dunning),
         )
+        .route(
+            &rp("/invoices/{id}/dunning/statement"),
+            post(invoices::send_statement),
+        )
+        // credit notes (TASKLIST Money+docs backend gap): issue, apply
+        // against invoices, refund, void. Mutations instant-first.
+        .route(
+            &rp("/credit-notes"),
+            get(credit_notes::list).post(credit_notes::issue),
+        )
+        .route(&rp("/credit-notes/{id}"), get(credit_notes::get_one))
+        .route(&rp("/credit-notes/{id}/apply"), post(credit_notes::apply))
+        .route(&rp("/credit-notes/{id}/refund"), post(credit_notes::refund))
+        .route(&rp("/credit-notes/{id}/void"), post(credit_notes::void))
         // import framework (TASKLIST D2): org-admin gated CSV/JSON mapper.
         // The two payload-heavy posts raise axum's default body cap like
         // attachments do; chunk/batch ids flow through the path.

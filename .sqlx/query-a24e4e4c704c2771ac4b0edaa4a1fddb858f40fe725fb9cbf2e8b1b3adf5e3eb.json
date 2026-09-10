@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO credit_notes (id, org_id, number, client_id, issued_against_invoice_id,\n                                     status, currency, total_minor, applied_minor,\n                                     refunded_minor, reason, created_by)\n           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 0, $9, $10)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a24e4e4c704c2771ac4b0edaa4a1fddb858f40fe725fb9cbf2e8b1b3adf5e3eb"
+}

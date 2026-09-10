@@ -166,6 +166,39 @@ pub struct DunningTransitionRequest {
     pub instant: instant::MutationParams,
 }
 
+/// POST /api/invoices/{id}/dunning/statement body.
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct SendStatementRequest {
+    /// Instant-first autosave parameters (IF1): idempotency key.
+    #[serde(flatten, default)]
+    pub instant: instant::MutationParams,
+}
+
+/// POST /api/invoices/{id}/dunning/statement response.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SendStatementResponse {
+    pub client_id: Uuid,
+    pub currency: String,
+    /// Open invoices on the statement (number, due date, outstanding).
+    pub open_invoices: Vec<StatementLine>,
+    /// Sum outstanding across the statement, minor units.
+    pub total_outstanding_minor: i64,
+    /// Addresses the statement email was queued to (client contacts
+    /// with an address). The message rides the outbound ledger; in
+    /// none-mode transport it stays queued like every other leg.
+    pub queued_to: Vec<String>,
+}
+
+/// One open invoice on the statement.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct StatementLine {
+    pub number: String,
+    #[schema(value_type = String)]
+    pub due_on: chrono::NaiveDate,
+    pub total_minor: i64,
+    pub outstanding_minor: i64,
+}
+
 /// Instant-first mutation response (IF2) for invoice mutations.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct InvoiceMutationResponse {
@@ -1259,4 +1292,226 @@ pub async fn transition_dunning(
     .await?;
 
     Ok(Json(outcome.into_response()?))
+}
+
+// --- handlers: dunning statement ----------------------------------------------
+
+/// POST /api/invoices/{id}/dunning/statement — generate an account
+/// statement (the client's OPEN invoices with outstanding balances) and
+/// queue it to the client's contacts through the outbound ledger
+/// (`MailTransport`; none-mode stays queued like every other leg). The
+/// statement rides the dunning path but is a document delivery, not a
+/// dunning-state change. Instant-first gated (IF1).
+#[utoipa::path(operation_id = "invoices_dunning_statement", post, path = "/api/invoices/{id}/dunning/statement", tag = "billing", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    request_body = SendStatementRequest,
+    responses((status = 200, body = SendStatementResponse),
+              (status = 404, description = "invoice not visible in scope"),
+              (status = 409, description = "invoice not issuable or idempotency key reused"),
+              (status = 422, description = "no contact emails on the client to deliver to")))]
+pub async fn send_statement(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    Json(req): Json<SendStatementRequest>,
+) -> ApiResult<Json<SendStatementResponse>> {
+    use crate::email::{enqueue_outbound, OutboundEnqueue};
+
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, commercial(Action::Edit))?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    let key = req.instant.idempotency_key.clone();
+    let mail = std::sync::Arc::clone(&state.mail);
+
+    let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        if let InstantClaim::Replay(stored) = instant::claim(
+            &mut ctx,
+            instant::ClaimSpec {
+                entity: "invoice_statement",
+                entity_id: Some(id),
+                key: key.as_deref(),
+                fingerprint: &fingerprint,
+            },
+        )
+        .await?
+        {
+            return Ok((ctx, MutationOutcome::Replayed(stored)));
+        }
+        let invoice = core_db::invoices::get_invoice(&mut *ctx.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(ApiError::from(e)))?;
+        if invoice.status != InvoiceStatus::Issued {
+            return Err(ApiError::Conflict(format!(
+                "statements are generated from the dunning path of issued invoices; this one is {}",
+                invoice.status.as_str()
+            )));
+        }
+        // The statement covers the client's whole open account, not just
+        // the triggering invoice (PSA-standard statement semantics).
+        let open = core_db::invoices::list_invoices(
+            &mut *ctx.tx,
+            org_id,
+            &core_db::invoices::InvoiceFilters {
+                client_id: Some(invoice.client_id),
+                contract_id: None,
+                status: Some("issued".into()),
+                dunning_state: None,
+            },
+            200,
+        )
+        .await?
+        .into_iter()
+        .filter(|i| i.total_minor > i.total_paid_minor)
+        .collect::<Vec<_>>();
+        if open.is_empty() {
+            return Err(ApiError::Conflict(
+                "the client has no open invoices; nothing to state".into(),
+            ));
+        }
+        let lines: Vec<StatementLine> = open
+            .iter()
+            .map(|i| StatementLine {
+                number: i.number.clone(),
+                due_on: i.due_on,
+                total_minor: i.total_minor,
+                outstanding_minor: i.total_minor - i.total_paid_minor,
+            })
+            .collect();
+        let total_outstanding_minor: i64 = lines.iter().map(|l| l.outstanding_minor).sum();
+
+        // Delivery targets: the client's contacts with an email address.
+        let contacts = core_db::clients::list_contacts(&mut *ctx.tx, org_id, invoice.client_id)
+            .await?;
+        let mut queued_to: Vec<String> = Vec::new();
+        for email in contacts.into_iter().filter_map(|c| c.email) {
+            let normalized = email.trim().to_ascii_lowercase();
+            if !normalized.is_empty() && !queued_to.contains(&normalized) {
+                queued_to.push(normalized);
+            }
+        }
+        if queued_to.is_empty() {
+            return Err(ApiError::Validation(
+                "the client has no contacts with an email address; add one before sending the statement"
+                    .into(),
+            ));
+        }
+
+        let client = core_db::clients::get_client(&mut *ctx.tx, org_id, invoice.client_id).await?;
+        let mut invoice_lines = Vec::with_capacity(lines.len());
+        for line in &lines {
+            invoice_lines.push(format!(
+                "{} · due {} · total {} · outstanding {}",
+                line.number,
+                line.due_on,
+                format_minor(line.total_minor),
+                format_minor(line.outstanding_minor),
+            ));
+        }
+        enqueue_outbound(
+            &mut ctx.tx,
+            OutboundEnqueue {
+                mail: &mail,
+                org_id,
+                to_addresses: queued_to.clone(),
+                kind: &core_mail::outbound::OutboundKind::InvoiceStatement {
+                    client_name: client.name,
+                    currency: invoice.currency.clone(),
+                    total_outstanding_minor,
+                    invoice_lines,
+                },
+                in_reply_to: None,
+                references: vec![],
+                ticket_id: None,
+            },
+        )
+        .await?;
+
+        core_db::audit::insert(
+            &mut *ctx.tx,
+            &core_domain::entities::AuditEvent {
+                id: Uuid::now_v7(),
+                org_id,
+                actor: core_domain::entities::Actor::Human(user_id),
+                action: "billing.statement_sent".to_string(),
+                entity_type: Some("invoice".to_string()),
+                entity_id: Some(id.to_string()),
+                detail: serde_json::json!({
+                    "client_id": invoice.client_id,
+                    "open_invoices": lines.len(),
+                    "total_outstanding_minor": total_outstanding_minor,
+                    "queued_to": queued_to,
+                }),
+                ip: None,
+                occurred_at: chrono::Utc::now(),
+            },
+        )
+        .await?;
+
+        let write_seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: "invoice_statement",
+                entity_id: id,
+                version: req.instant.version,
+            },
+        )
+        .await?;
+        let payload = StatementPayload {
+            response: &SendStatementResponse {
+                client_id: invoice.client_id,
+                currency: invoice.currency.clone(),
+                open_invoices: lines,
+                total_outstanding_minor,
+                queued_to: queued_to.clone(),
+            },
+        };
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: "invoice_statement",
+                entity_id: id,
+                op: "statement_sent",
+                seq: write_seq,
+                before: None,
+                after: serde_json::to_value(&payload).unwrap_or(Value::Null),
+                updated_at: chrono::Utc::now(),
+                key: key.as_deref(),
+                payload: &payload,
+                provenance: Default::default(),
+            },
+        )
+        .await?;
+        Ok((
+            ctx,
+            MutationOutcome::Applied(StatementMutation {
+                response: payload.response.clone(),
+                mutation,
+            }),
+        ))
+    })
+    .await?;
+
+    let applied = outcome.into_response()?;
+    Ok(Json(applied.response))
+}
+
+/// The stored statement payload (mutation metadata merges in on record).
+/// The response flattens so a replay deserializes into
+/// [`StatementMutation`] (flattened response fields + `mutation`)
+/// byte-identically.
+#[derive(Debug, Serialize)]
+struct StatementPayload<'a> {
+    #[serde(flatten)]
+    response: &'a SendStatementResponse,
+}
+
+/// The applied statement result carried through the mutation outcome
+/// (flattened response + mutation metadata).
+#[derive(Debug, Serialize, Deserialize)]
+struct StatementMutation {
+    #[serde(flatten)]
+    response: SendStatementResponse,
+    mutation: instant::MutationMeta,
 }

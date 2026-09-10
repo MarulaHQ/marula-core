@@ -24,6 +24,19 @@ pub enum OutboundKind {
         ticket_title: String,
         excerpt: String,
     },
+    /// Account statement on the dunning path (TASKLIST backend-gaps
+    /// lane): the client's open invoices with outstanding balances.
+    /// Body rides the outbound ledger; none-mode stays queued like
+    /// every other leg.
+    InvoiceStatement {
+        client_name: String,
+        currency: String,
+        total_outstanding_minor: i64,
+        /// One `"INV-… · due YYYY-MM-DD · total · outstanding"` line per
+        /// open invoice (pre-rendered by core-api, which owns the money
+        /// formatting).
+        invoice_lines: Vec<String>,
+    },
 }
 
 impl OutboundKind {
@@ -41,6 +54,9 @@ impl OutboundKind {
                 ticket_title,
                 ..
             } => format!("Re: [{ticket_number}] {ticket_title}"),
+            OutboundKind::InvoiceStatement { client_name, .. } => {
+                format!("Account statement — {client_name}")
+            }
         }
     }
 
@@ -65,8 +81,34 @@ impl OutboundKind {
                 "New reply on ticket {ticket_number}:\n\n{excerpt}\n\n\
                  Reply to this email to respond."
             ),
+            OutboundKind::InvoiceStatement {
+                currency,
+                total_outstanding_minor,
+                invoice_lines,
+                ..
+            } => {
+                let total = format_minor(*total_outstanding_minor);
+                let mut body = String::from("Your current account statement:\n\n");
+                for line in invoice_lines {
+                    body.push_str(line);
+                    body.push('\n');
+                }
+                body.push_str(&format!(
+                    "\nTotal outstanding: {total} {currency}\n\n\
+                     If you have already sent payment, please disregard this notice."
+                ));
+                body
+            }
         }
     }
+}
+
+/// Minor units rendered with an assumed two-decimal exponent (the
+/// currency code is rendered alongside by the caller's lines and total).
+fn format_minor(minor: i64) -> String {
+    let sign = if minor < 0 { "-" } else { "" };
+    let abs = minor.unsigned_abs();
+    format!("{sign}{}.{:02}", abs / 100, abs % 100)
 }
 
 /// Backoff before attempt number `attempts` (1-based count of attempts

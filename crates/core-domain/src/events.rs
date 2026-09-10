@@ -239,6 +239,13 @@ pub mod types {
     pub const INVOICE_VOIDED: &str = "invoice.voided";
     pub const INVOICE_PAYMENT_RECORDED: &str = "invoice.payment_recorded";
     pub const INVOICE_DUNNING_CHANGED: &str = "invoice.dunning_changed";
+    /// Credit notes (TASKLIST Money+docs backend gap): the credit
+    /// document lifecycle — issued, allocated onto an invoice (the
+    /// allocation ALSO emits invoice.payment_recorded with provider
+    /// `credit_note`), refunded back out.
+    pub const CREDIT_NOTE_ISSUED: &str = "credit_note.issued";
+    pub const CREDIT_NOTE_APPLIED: &str = "credit_note.applied";
+    pub const CREDIT_NOTE_REFUNDED: &str = "credit_note.refunded";
     /// Dispatch v2 (TASKLIST Phase 3, Wave 9 lane 9): a field-service
     /// status push landed against an appointment (connector or staff);
     /// the `dispatch_status_updates` ledger is the ground truth.
@@ -1222,6 +1229,57 @@ pub struct InvoiceVoided {
 pub struct InvoicePaymentRecorded {
     pub payment: crate::entities::InvoicePayment,
     pub invoice_status: String,
+}
+
+/// credit_note.issued — a client credit document was created. `invoice_id`
+/// names the issuing context when the credit was raised against one
+/// specific invoice (otherwise a free-standing client credit).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct CreditNoteIssued {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub credit_note_id: uuid::Uuid,
+    pub number: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub client_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub invoice_id: Option<uuid::Uuid>,
+    pub currency: String,
+    pub total_minor: i64,
+    pub reason: Option<String>,
+}
+
+/// credit_note.applied — part of a credit note's value moved onto an
+/// invoice. The invoice-side receipt co-emits `invoice.payment_recorded`
+/// (provider `credit_note`); this payload carries the credit-side
+/// counters AFTER the allocation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct CreditNoteApplied {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub credit_note_id: uuid::Uuid,
+    pub credit_note_number: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub invoice_id: uuid::Uuid,
+    pub amount_minor: i64,
+    pub currency: String,
+    pub applied_minor: i64,
+    pub remaining_minor: i64,
+}
+
+/// credit_note.refunded — part of a credit note's value was paid back to
+/// the client (none-mode provider approves locally; no external PSP
+/// refund in v1). Counters are AFTER the refund.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct CreditNoteRefunded {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub credit_note_id: uuid::Uuid,
+    pub credit_note_number: String,
+    pub amount_minor: i64,
+    pub currency: String,
+    pub refunded_minor: i64,
+    pub remaining_minor: i64,
 }
 
 /// invoice.dunning_changed — a forward-only collections-posture move

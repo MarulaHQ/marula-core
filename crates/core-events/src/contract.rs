@@ -426,19 +426,20 @@ use core_domain::events::{
     BoardMembershipRemoved, BoardMembershipUpdated, BoardStatusAdded, BoardStatusRemoved,
     BoardStatusUpdated, BoardTransitionsUpdated, CalendarExclusionChanged, ClientCreated,
     ClientUpdated, ContactCreated, ContactUpdated, ContractCreated, ContractRemoved,
-    ContractUpdated, DispatchQueueUpdated, DispatchStatusUpdated, ImportBatchFinished,
-    ImportBatchStarted, InvoiceCreated, InvoiceDunningChanged, InvoicePaymentRecorded,
-    InvoiceRunCompleted, InvoiceVoided, MigrationPushSessionFinished, MigrationPushSessionStarted,
-    NotificationCreated, OnCallChanged, PmScheduleChanged, PmScheduleDeleted, ProjectCreated,
-    ProjectMilestoneCompleted, ProjectPhaseCompleted, ProjectPhaseCreated, ProjectPhaseUpdated,
-    ProjectTaskCompleted, ProjectTaskCreated, ProjectTaskUpdated, ProjectTemplateRemoved,
-    ProjectTemplateUpdated, ProjectUpdated, ProjectViewRemoved, ProjectViewUpdated,
-    SchedulingLinkCreated, SchedulingLinkRevoked, SchedulingLinkScheduled, SchedulingLinkViewed,
-    SiteCreated, SiteUpdated, TagCreated, TagDeleted, TagUpdated, TicketAssigned, TicketBoardMoved,
-    TicketChecklistUpdated, TicketCommentAdded, TicketCostLineAdded, TicketCostLineRemoved,
-    TicketCreated, TicketExpenseRecorded, TicketExpenseRemoved, TicketLinkChanged, TicketMerged,
-    TicketReverted, TicketStatusChanged, TicketTagsChanged, TimeEntryCreated, TimerPaused,
-    TimerStarted, TimerStopped, TravelDraftSubmitted, UserActivated, UserDeactivated, UserInvited,
+    ContractUpdated, CreditNoteApplied, CreditNoteIssued, CreditNoteRefunded, DispatchQueueUpdated,
+    DispatchStatusUpdated, ImportBatchFinished, ImportBatchStarted, InvoiceCreated,
+    InvoiceDunningChanged, InvoicePaymentRecorded, InvoiceRunCompleted, InvoiceVoided,
+    MigrationPushSessionFinished, MigrationPushSessionStarted, NotificationCreated, OnCallChanged,
+    PmScheduleChanged, PmScheduleDeleted, ProjectCreated, ProjectMilestoneCompleted,
+    ProjectPhaseCompleted, ProjectPhaseCreated, ProjectPhaseUpdated, ProjectTaskCompleted,
+    ProjectTaskCreated, ProjectTaskUpdated, ProjectTemplateRemoved, ProjectTemplateUpdated,
+    ProjectUpdated, ProjectViewRemoved, ProjectViewUpdated, SchedulingLinkCreated,
+    SchedulingLinkRevoked, SchedulingLinkScheduled, SchedulingLinkViewed, SiteCreated, SiteUpdated,
+    TagCreated, TagDeleted, TagUpdated, TicketAssigned, TicketBoardMoved, TicketChecklistUpdated,
+    TicketCommentAdded, TicketCostLineAdded, TicketCostLineRemoved, TicketCreated,
+    TicketExpenseRecorded, TicketExpenseRemoved, TicketLinkChanged, TicketMerged, TicketReverted,
+    TicketStatusChanged, TicketTagsChanged, TimeEntryCreated, TimerPaused, TimerStarted,
+    TimerStopped, TravelDraftSubmitted, UserActivated, UserDeactivated, UserInvited,
     UserRoleChanged,
 };
 use core_domain::money::{CurrencyCode, Money};
@@ -2061,6 +2062,57 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             }
         ),
     },
+    // -- credit notes (Wave 11 backend-gaps lane) ---------------------------
+    PublishedEvent {
+        event_type: types::CREDIT_NOTE_ISSUED,
+        entity: "credit_note",
+        variant: "default",
+        shape: typed_shape!(
+            CreditNoteIssued,
+            CreditNoteIssued {
+                credit_note_id: su(33),
+                number: "CRN-000012".into(),
+                client_id: su(3),
+                invoice_id: Some(su(32)),
+                currency: "USD".into(),
+                total_minor: 25_000,
+                reason: Some("Goodwill credit".into()),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::CREDIT_NOTE_APPLIED,
+        entity: "credit_note",
+        variant: "default",
+        shape: typed_shape!(
+            CreditNoteApplied,
+            CreditNoteApplied {
+                credit_note_id: su(33),
+                credit_note_number: "CRN-000012".into(),
+                invoice_id: su(32),
+                amount_minor: 10_000,
+                currency: "USD".into(),
+                applied_minor: 10_000,
+                remaining_minor: 15_000,
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::CREDIT_NOTE_REFUNDED,
+        entity: "credit_note",
+        variant: "default",
+        shape: typed_shape!(
+            CreditNoteRefunded,
+            CreditNoteRefunded {
+                credit_note_id: su(33),
+                credit_note_number: "CRN-000012".into(),
+                amount_minor: 5_000,
+                currency: "USD".into(),
+                refunded_minor: 5_000,
+                remaining_minor: 10_000,
+            }
+        ),
+    },
     // -- projects ----------------------------------------------------------
     PublishedEvent {
         event_type: types::PROJECT_CREATED,
@@ -2755,20 +2807,9 @@ pub static RESERVED_EVENT_TYPES: &[&str] = &[
     types::ORG_CREATED,
     types::USER_CREATED,
     types::TIME_ENTRY_UPDATED,
-    // Wave 11 lane 7 (docs-platform) declared these emission-site types on
-    // main without landing their contract entries + goldens; reserved here
-    // so the registry invariant holds until the owning lane publishes them
-    // properly (each needs a fixture + shape registration, not a silent
-    // passthrough).
-    types::DOCUMENT_LAYOUT_CREATED,
-    types::DOCUMENT_LAYOUT_UPDATED,
-    types::DOCUMENT_LAYOUT_REMOVED,
-    types::PASSWORD_CREATED,
-    types::PASSWORD_UPDATED,
-    types::PASSWORD_DELETED,
-    types::PASSWORD_REVEALED,
-    types::LINK_ADDED,
-    types::LINK_REMOVED,
+    // Wave 11 lane 7 (docs-platform) emission-site types are PUBLISHED
+    // now (typed shapes + goldens registered; the lane-9 temporary
+    // reservations were dropped 2026-09-10 by the backend-gaps lane).
 ];
 
 /// A retired event type (policy §2: "retired event types keep emitting

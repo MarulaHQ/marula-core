@@ -199,6 +199,42 @@ pub struct ReportScheduleMutationResponse {
     pub mutation: instant::MutationMeta,
 }
 
+/// One delivery-history row (R4): the claimed slot, the outcome status
+/// (`delivered|partial|failed|skipped`), the per-recipient outcome
+/// detail, and when the ledger row landed.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ReportDeliveryView {
+    pub id: Uuid,
+    /// The claimed slot this run discharged.
+    #[schema(value_type = String)]
+    pub slot_at: DateTime<Utc>,
+    /// `delivered` | `partial` | `failed` | `skipped`.
+    pub status: String,
+    /// Per-recipient outcome counters
+    /// (`{"delivered": n, "disabled": n, "quiet_deferred": n, "failed": [..]}`).
+    pub detail: Value,
+    #[schema(value_type = String)]
+    pub recorded_at: DateTime<Utc>,
+}
+
+/// GET /api/report-schedules/{id}/deliveries envelope — offset-paged
+/// delivery history, newest slot first.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ReportDeliveryPage {
+    pub deliveries: Vec<ReportDeliveryView>,
+    /// Total ledger rows for the schedule (org-scoped).
+    pub total: i64,
+}
+
+/// GET /api/report-schedules/{id}/deliveries query.
+#[derive(Debug, Deserialize, utoipa::IntoParams, ToSchema)]
+pub struct DeliveryListQuery {
+    /// Page size, clamped to [1, 200].
+    pub limit: Option<i64>,
+    /// Row offset for paging.
+    pub offset: Option<i64>,
+}
+
 // --- router ---------------------------------------------------------------------
 
 /// The report-schedules slice of the `/api` surface, built per generation
@@ -210,6 +246,10 @@ pub fn routes(gen: ApiGeneration) -> Router<AppState> {
         .route(
             &format!("{base}/report-schedules/{{id}}"),
             get(get_one).put(update).delete(remove),
+        )
+        .route(
+            &format!("{base}/report-schedules/{{id}}/deliveries"),
+            get(deliveries),
         )
 }
 
@@ -653,10 +693,64 @@ pub async fn remove(
     Ok(Json(outcome.into_response()?))
 }
 
+/// GET /api/report-schedules/{id}/deliveries — the delivery ledger for
+/// one schedule (R4 history surface). Worker-written data: rows are
+/// append-only run records, never mutated, newest slot first. A missing
+/// schedule is a bare 404.
+#[utoipa::path(
+    operation_id = "report_schedules_deliveries",
+    get,
+    path = "/api/report-schedules/{id}/deliveries",
+    tag = "reports",
+    security(("bearer" = [])),
+    params(("id" = Uuid, Path), DeliveryListQuery),
+    responses(
+        (status = 200, body = ReportDeliveryPage),
+        (status = 404, description = "not in scope")
+    )
+)]
+pub async fn deliveries(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    Query(q): Query<DeliveryListQuery>,
+) -> ApiResult<Json<ReportDeliveryPage>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_admin(&authed.principal, Action::View)?;
+    let org_id = authed.principal.user.org_id;
+    let limit = q.limit.unwrap_or(50).clamp(1, 200);
+    let offset = q.offset.unwrap_or(0).max(0);
+    // RLS-scoped read (pool carries no app.org_id GUC): schedule
+    // existence check and ledger rows share one org-bound tx.
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    core_db::report_schedules::get(&mut *tx, org_id, id)
+        .await
+        .map_err(|e| match e {
+            core_db::DbError::NotFound => ApiError::NotFound,
+            other => ApiError::from(other),
+        })?;
+    let (rows, total) =
+        core_db::report_schedules::list_deliveries_page(&mut tx, org_id, id, limit, offset).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    let deliveries = rows
+        .into_iter()
+        .map(|r| ReportDeliveryView {
+            id: r.id,
+            slot_at: r.slot_at,
+            status: r.status,
+            detail: r.detail,
+            recorded_at: r.created_at,
+        })
+        .collect();
+    Ok(Json(ReportDeliveryPage { deliveries, total }))
+}
+
 // --- helpers ----------------------------------------------------------------------
 
 const ENTITY: &str = "report_schedule";
-
 /// Recipient cap per schedule — a digest list, not a mailing list.
 const MAX_RECIPIENTS: usize = 50;
 

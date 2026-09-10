@@ -381,3 +381,49 @@ pub async fn list_deliveries(
         .map(|r| (r.slot_at, r.status, r.detail))
         .collect())
 }
+
+/// One ledger row for the delivery-history read endpoint (R4): slot,
+/// status, and the per-recipient outcome detail.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct DeliveryRow {
+    pub id: Uuid,
+    pub slot_at: DateTime<Utc>,
+    pub status: String,
+    pub detail: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Paged delivery history for one schedule, newest slot first, with the
+/// org-scoped total for the pager. The ledger is append-only (at-least-once
+/// retries append rows — they are history, not a mutable log).
+pub async fn list_deliveries_page(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    schedule_id: Uuid,
+    limit: i64,
+    offset: i64,
+) -> DbResult<(Vec<DeliveryRow>, i64)> {
+    let rows = sqlx::query_as!(
+        DeliveryRow,
+        r#"SELECT id, slot_at, status, detail, created_at
+           FROM report_deliveries
+           WHERE org_id = $1 AND schedule_id = $2
+           ORDER BY slot_at DESC, id DESC
+           LIMIT $3 OFFSET $4"#,
+        org_id,
+        schedule_id,
+        limit,
+        offset,
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    let total: i64 = sqlx::query_scalar!(
+        r#"SELECT count(*) AS "total!" FROM report_deliveries
+           WHERE org_id = $1 AND schedule_id = $2"#,
+        org_id,
+        schedule_id,
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    Ok((rows, total))
+}

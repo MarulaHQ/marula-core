@@ -1,5 +1,8 @@
 //! core-api binary entry: config, tracing, pool, migrations, serve.
-//! Runs migrations on boot (checksummed history in `_sqlx_migrations`).
+//! Startup migrations run only with RUN_MIGRATIONS=1 (checksummed history
+//! in `_sqlx_migrations`); compose's `migrate` one-shot as the schema
+//! owner is the normal path — the RLS role cannot CREATE TABLE on fresh
+//! installs (TASKLIST backend-gaps lane).
 
 use anyhow::Context;
 
@@ -15,13 +18,25 @@ async fn main() -> anyhow::Result<()> {
     let pool = core_db::connect(&config.database_url)
         .await
         .context("connecting to Postgres")?;
-    core_db::run_migrations(&pool)
-        .await
-        .context("running migrations")?;
-    core_db::assert_rls_coverage(&pool)
-        .await
-        .context("RLS coverage check")?;
-    tracing::info!("migrations applied; RLS coverage verified");
+    // Startup migrations are OPT-IN (TASKLIST backend-gaps lane, 2026-09-10):
+    // running them as `meridian_app` fails on fresh installs — Postgres 17
+    // denies even `CREATE TABLE IF NOT EXISTS _sqlx_migrations` to the RLS
+    // role (0001 grants USAGE on public only). Compose runs the `migrate`
+    // one-shot as the OWNER before the API starts; native dev sets
+    // RUN_MIGRATIONS=1 (or lets the migrate one-shot run first).
+    if std::env::var("RUN_MIGRATIONS").as_deref() == Ok("1") {
+        core_db::run_migrations(&pool)
+            .await
+            .context("running migrations")?;
+        core_db::assert_rls_coverage(&pool)
+            .await
+            .context("RLS coverage check")?;
+        tracing::info!("migrations applied; RLS coverage verified");
+    } else {
+        tracing::info!(
+            "RUN_MIGRATIONS not set; skipping startup migrations (compose `migrate` one-shot or RUN_MIGRATIONS=1 owns them)"
+        );
+    }
 
     let state = core_api::state::AppState {
         pool,

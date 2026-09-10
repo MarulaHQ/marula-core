@@ -746,3 +746,109 @@ async fn listing_is_cursor_paged_with_previews() {
         "exhausted page carries no cursor"
     );
 }
+
+// --- delivery history (R4 backend gap, backend-gaps lane) -----------------------
+
+/// GET /{id}/deliveries surfaces the worker-written `report_deliveries`
+/// ledger (0038) — paged, newest slot first, org-scoped total, bare 404
+/// for a schedule outside scope.
+#[tokio::test]
+async fn delivery_history_reads_the_ledger_paged() {
+    let state = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let slug = format!("rsched-deliv-{}", Uuid::now_v7().simple());
+    let token = register_org(&app, &slug).await;
+    let bearer = [auth(&token)];
+    let owner_id = me_id(&app, &token).await;
+    let definition = create_definition(&app, &token, "Ledger digest").await;
+
+    let schedule_id: Uuid = {
+        let response = send(
+            &app,
+            axum::http::Method::POST,
+            "/api/v1/report-schedules",
+            &bearer,
+            Some(schedule_body(
+                "Ledger schedule",
+                &definition,
+                std::slice::from_ref(&owner_id),
+                json!({}),
+            )),
+        )
+        .await;
+        assert_eq!(response.status(), 200);
+        let body = body_json(response).await;
+        body["id"].as_str().unwrap().parse().unwrap()
+    };
+
+    // Seed the ledger directly (the worker owns these writes).
+    let org = org_id_of(&state, &slug).await;
+    let mut conn = state.pool.acquire().await.expect("pool conn");
+    for n in 0..7i64 {
+        core_db::report_schedules::record_delivery(
+            &mut conn,
+            &core_db::report_schedules::DeliveryRecord {
+                id: Uuid::now_v7(),
+                org_id: org,
+                schedule_id,
+                slot_at: chrono::DateTime::from_timestamp(1_700_000_000 + n * 86_400, 0)
+                    .expect("slot"),
+                status: if n % 3 == 0 { "failed" } else { "delivered" }.into(),
+                detail: serde_json::json!({ "delivered": 1 }),
+            },
+        )
+        .await
+        .expect("seed delivery row");
+    }
+
+    // Page 1 (limit 3) + page 2 (offset 3) — newest first, total present.
+    let response = send(
+        &app,
+        axum::http::Method::GET,
+        &format!("/api/v1/report-schedules/{schedule_id}/deliveries?limit=3"),
+        &bearer,
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), 200, "history read must succeed");
+    let page = body_json(response).await;
+    assert_eq!(page["total"], 7);
+    let rows = page["deliveries"].as_array().expect("deliveries list");
+    assert_eq!(rows.len(), 3);
+    assert!(
+        rows.windows(2)
+            .all(|w| w[0]["slot_at"].as_str().unwrap() >= w[1]["slot_at"].as_str().unwrap()),
+        "newest slot first"
+    );
+    assert!(rows[0]["status"].is_string());
+    assert!(rows[0]["detail"].is_object());
+
+    let response = send(
+        &app,
+        axum::http::Method::GET,
+        &format!("/api/v1/report-schedules/{schedule_id}/deliveries?limit=5&offset=3"),
+        &bearer,
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let page2 = body_json(response).await;
+    let rows2 = page2["deliveries"].as_array().expect("deliveries list");
+    assert_eq!(rows2.len(), 4);
+    assert_ne!(
+        rows2[0]["id"], page["deliveries"][0]["id"],
+        "pages do not overlap"
+    );
+    assert_eq!(page2["total"], 7);
+
+    // A schedule outside scope is a bare 404 (RLS), not an empty list.
+    let response = send(
+        &app,
+        axum::http::Method::GET,
+        &format!("/api/v1/report-schedules/{}/deliveries", Uuid::now_v7()),
+        &bearer,
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), 404);
+}
