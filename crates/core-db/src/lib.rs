@@ -48,6 +48,7 @@ pub mod scheduling;
 pub mod search;
 pub mod settings;
 pub mod sla;
+pub mod taxonomy;
 pub mod tickets;
 pub mod time_audit;
 pub mod timers;

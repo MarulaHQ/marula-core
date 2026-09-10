@@ -241,3 +241,52 @@ where
     .await?;
     Ok(id)
 }
+
+/// Seeds the standard accepted type/category/subcategory taxonomy (Wave 11
+/// lane 3) — the identical set migration 0048 backfilled for existing orgs,
+/// so every org starts with the client-agnostic IT/MSP baseline. The
+/// canonical data lives in `taxonomy::STANDARD_TAXONOMY` (single Rust
+/// source of truth; the migration carries its own SQL copy by necessity).
+pub async fn seed_default_taxonomy(conn: &mut PgConnection, org_id: Uuid) -> DbResult<()> {
+    for (name, ord) in crate::taxonomy::STANDARD_TYPES {
+        sqlx::query!(
+            r#"INSERT INTO ticket_types (id, org_id, name, sort_order)
+               VALUES ($1, $2, $3, $4)"#,
+            Uuid::now_v7(),
+            org_id,
+            name,
+            ord,
+        )
+        .execute(&mut *conn)
+        .await?;
+    }
+    // Roots first, then children join their root by name.
+    for (name, ord) in crate::taxonomy::STANDARD_CATEGORY_ROOTS {
+        sqlx::query!(
+            r#"INSERT INTO ticket_categories (id, org_id, parent_id, name, sort_order)
+               VALUES ($1, $2, NULL, $3, $4)"#,
+            Uuid::now_v7(),
+            org_id,
+            name,
+            ord,
+        )
+        .execute(&mut *conn)
+        .await?;
+    }
+    for (root_name, name, ord) in crate::taxonomy::STANDARD_SUBCATEGORIES {
+        sqlx::query!(
+            r#"INSERT INTO ticket_categories (id, org_id, parent_id, name, sort_order)
+               SELECT $1, $2, c.id, $3, $4
+               FROM ticket_categories c
+               WHERE c.org_id = $2 AND c.parent_id IS NULL AND c.name = $5"#,
+            Uuid::now_v7(),
+            org_id,
+            name,
+            ord,
+            root_name,
+        )
+        .execute(&mut *conn)
+        .await?;
+    }
+    Ok(())
+}

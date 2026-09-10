@@ -255,6 +255,10 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     )
     .await?;
 
+    // Standard taxonomy baseline (Wave 11 lane 3): the demo org gets the
+    // same client-agnostic IT/MSP trees a registered org would.
+    crate::orgs::seed_default_taxonomy(&mut *tx, DEMO_ORG_ID).await?;
+
     // --- builtin roles (fixed ids, shared permission sets) ----------------
     let mut role_ids: Vec<(String, Uuid)> = Vec::new();
     for (index, (name, builtin, permissions, is_system)) in
