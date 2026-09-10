@@ -612,7 +612,7 @@ export default function TicketWorkspacePage() {
           </article>
         ))}
       </ul>
-enn   </div>
+</div>
   );
 
   const renderTasksTab = (): ReactNode => (

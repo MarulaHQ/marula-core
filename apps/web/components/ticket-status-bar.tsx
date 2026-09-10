@@ -186,7 +186,19 @@ export function TicketStatusBar({
               if (group.length === 0) return null;
               return (
                 <div key={category} className="grid gap-1">
-                  <StatusTag tone={groupTone}>{label}</StatusTag>
+                  <p
+                    className="text-[10px] font-semibold uppercase tracking-wide"
+                    style={{
+                      color:
+                        groupTone === "success"
+                          ? "var(--m-status-success-fg)"
+                          : groupTone === "warning"
+                            ? "var(--m-status-warning-fg)"
+                            : "var(--m-text-muted)",
+                    }}
+                  >
+                    {label}
+                  </p>
                   <div className="flex flex-wrap gap-1">
                     {group.map((s) => {
                       const isActive = s.id === statusId;

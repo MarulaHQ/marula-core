@@ -140,7 +140,9 @@ export default function PublicBookingPage(): ReactNode {
   if (state === "error") {
     return (
       <PublicShell>
-        <StatusTag tone="warning">Unavailable</StatusTag>
+        <div className="flex">
+          <StatusTag tone="warning">Unavailable</StatusTag>
+        </div>
         <p className="text-sm" style={{ color: "var(--m-text-secondary)" }}>
           {errorText}
         </p>
@@ -151,7 +153,9 @@ export default function PublicBookingPage(): ReactNode {
   if (state === "booked" || (view !== null && view.is_expired)) {
     return (
       <PublicShell>
-        <StatusTag tone="success">Booked</StatusTag>
+        <div className="flex">
+          <StatusTag tone="success">Booked</StatusTag>
+        </div>
         <p className="text-sm" style={{ color: "var(--m-text-secondary)" }}>
           {state === "booked"
             ? "Your meeting is booked. A confirmation is on its way, and it is linked to your ticket."
