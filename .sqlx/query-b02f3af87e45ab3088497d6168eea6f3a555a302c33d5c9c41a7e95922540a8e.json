@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tickets SET\n             board_id = $3,\n             status_id = $4,\n             category = (SELECT category FROM board_statuses WHERE id = $4),\n             resolved_at = CASE\n               WHEN (SELECT category FROM board_statuses WHERE id = $4) = 'closed'\n                 AND resolved_at IS NULL THEN now()\n               ELSE resolved_at END,\n             updated_at = now()\n           WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b02f3af87e45ab3088497d6168eea6f3a555a302c33d5c9c41a7e95922540a8e"
+}
