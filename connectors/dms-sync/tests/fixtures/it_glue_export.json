@@ -1,0 +1,117 @@
+{
+  "organizations.json": {
+    "data": [
+      { "id": "101", "type": "organizations", "attributes": { "name": "Acme Corp" } },
+      { "id": "102", "type": "organizations", "attributes": { "name": "Globex Industries" } }
+    ]
+  },
+  "flexible_asset_types.json": {
+    "data": [
+      {
+        "id": "55",
+        "type": "flexible_asset_types",
+        "attributes": {
+          "name": "Runbook",
+          "icon": "book",
+          "description": "Operational runbook",
+          "traits": {
+            "data": [
+              { "id": "t1", "type": "flexible_asset_kind", "attributes": { "key": "summary", "name": "Summary", "kind": "Text", "required": true } },
+              { "id": "t2", "type": "flexible_asset_kind", "attributes": { "key": "owner_email", "name": "Owner email", "kind": "Email", "required": false } },
+              { "id": "t3", "type": "flexible_asset_kind", "attributes": { "key": "last_reviewed", "name": "Last reviewed", "kind": "Date", "required": false } }
+            ]
+          }
+        }
+      },
+      {
+        "id": "56",
+        "type": "flexible_asset_types",
+        "attributes": {
+          "name": "Passwords",
+          "icon": "lock",
+          "description": "Credential records",
+          "traits": {
+            "data": [
+              { "id": "t4", "type": "flexible_asset_kind", "attributes": { "key": "username", "name": "Username", "kind": "Text", "required": false } },
+              { "id": "t5", "type": "flexible_asset_kind", "attributes": { "key": "password", "name": "Password", "kind": "Text", "required": true } },
+              { "id": "t6", "type": "flexible_asset_kind", "attributes": { "key": "url", "name": "URL", "kind": "URL", "required": false } }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "flexible_assets.json": {
+    "data": [
+      {
+        "id": "201",
+        "type": "flexible_assets",
+        "attributes": {
+          "name": "Exchange runbook",
+          "flexible_asset_type_id": { "data": { "id": "55", "type": "flexible_asset_types" } },
+          "organization_id": { "data": { "id": "101", "type": "organizations" } },
+          "traits": {
+            "summary": "How to fail over Exchange",
+            "owner_email": "ops@acme.test",
+            "last_reviewed": "2026-08-01"
+          }
+        }
+      },
+      {
+        "id": "202",
+        "type": "flexible_assets",
+        "attributes": {
+          "name": "Firewall console",
+          "flexible_asset_type_id": { "data": { "id": "56", "type": "flexible_asset_types" } },
+          "organization_id": { "data": { "id": "101", "type": "organizations" } },
+          "traits": {
+            "username": "admin",
+            "password": "s3cr3t-vault-material",
+            "url": "https://fw.acme.test"
+          }
+        }
+      },
+      {
+        "id": "203",
+        "type": "flexible_assets",
+        "attributes": {
+          "name": "DR plan",
+          "flexible_asset_type_id": { "data": { "id": "55", "type": "flexible_asset_types" } },
+          "organization_id": { "data": { "id": "102", "type": "organizations" } },
+          "traits": {
+            "summary": "Disaster recovery checklist"
+          }
+        }
+      }
+    ]
+  },
+  "configurations.json": {
+    "data": [
+      {
+        "id": "301",
+        "type": "configurations",
+        "attributes": {
+          "name": "EXCH-01",
+          "hostname": "exch01.acme.test",
+          "primary_ip": "10.0.0.5",
+          "mac_address": "aa:bb:cc:dd:ee:01",
+          "serial_number": "SN-EXCH-001",
+          "operating_system": "Windows Server 2022",
+          "organization_id": { "data": { "id": "101", "type": "organizations" } },
+          "configuration_type_id": { "data": { "id": "771", "type": "configuration_types", "attributes": { "name": "Server" } } }
+        }
+      },
+      {
+        "id": "302",
+        "type": "configurations",
+        "attributes": {
+          "name": "FW-EDGE",
+          "hostname": "fw01.acme.test",
+          "primary_ip": "203.0.113.9",
+          "organization_id": { "data": { "id": "102", "type": "organizations" } },
+          "configuration_type_id": { "data": { "id": "772", "type": "configuration_types", "attributes": { "name": "Firewall" } } }
+        }
+      }
+    ]
+  }
+}
