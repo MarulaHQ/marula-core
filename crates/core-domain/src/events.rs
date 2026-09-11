@@ -1744,6 +1744,8 @@ pub struct ConfigItemMergeUndone {
     pub merge_id: CiMergeId,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub undone_by: Option<UserId>,
+    pub occurred_at: DateTime<Utc>,
+}
 
 // --- client workflow overrides (Wave 12 lane 5, migration 0063) --------------
 
