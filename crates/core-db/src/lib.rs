@@ -69,6 +69,7 @@ pub mod timers;
 pub mod undo;
 pub mod users;
 pub mod webhooks;
+pub mod workflow_overrides;
 
 use sqlx::{postgres::PgPoolOptions, PgPool, Postgres, Transaction};
 use uuid::Uuid;

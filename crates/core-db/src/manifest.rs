@@ -26,10 +26,10 @@
 use crate::{DbError, DbResult};
 use core_domain::entities::manifest::{
     CustomizationManifest, ManifestApiKey, ManifestAutomationRule, ManifestBoard,
-    ManifestBoardStatus, ManifestCustomField, ManifestEscalationStep, ManifestReportDefinition,
-    ManifestSections, ManifestSetting, ManifestSla, ManifestSlaCalendar, ManifestSlaPolicy,
-    ManifestTaxonomy, ManifestTaxonomyCategory, ManifestTaxonomyType, ManifestTransition,
-    ManifestWebhook,
+    ManifestBoardStatus, ManifestClientWorkflowOverride, ManifestCustomField,
+    ManifestEscalationStep, ManifestReportDefinition, ManifestSections, ManifestSetting,
+    ManifestSla, ManifestSlaCalendar, ManifestSlaPolicy, ManifestTaxonomy,
+    ManifestTaxonomyCategory, ManifestTaxonomyType, ManifestTransition, ManifestWebhook,
 };
 use core_domain::status::TicketStatusCategory;
 use sqlx::PgConnection;
@@ -62,6 +62,7 @@ pub async fn load_customization_manifest(
         sla: load_sla(&mut *conn, org_id).await?,
         report_definitions: load_report_definitions(&mut *conn, org_id).await?,
         taxonomy: load_taxonomy(&mut *conn, org_id).await?,
+        client_workflow_overrides: load_client_workflow_overrides(&mut *conn, org_id).await?,
     };
     Ok(CustomizationManifest {
         manifest_version: MANIFEST_VERSION,
@@ -508,4 +509,41 @@ async fn load_taxonomy(conn: &mut PgConnection, org_id: Uuid) -> DbResult<Manife
     let categories = categorized.into_iter().map(|(_, c)| c).collect();
 
     Ok(ManifestTaxonomy { types, categories })
+}
+
+// --- client workflow overrides (Wave 12 lane 5) -------------------------------------
+
+/// Every client-scoped override of the org workflow defaults, rows verbatim.
+/// Customizations-as-data (§4.5/§5): the override registry is the closed key
+/// set and the preflight must see which client references which construct.
+/// Deterministic order: (client_name, override_key, client_id) — the client's
+/// NAME is the stable semantic group key, so a re-import into a fresh org
+/// (new ids) still compares equal; ids only break ties.
+async fn load_client_workflow_overrides(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+) -> DbResult<Vec<ManifestClientWorkflowOverride>> {
+    let rows = sqlx::query!(
+        r#"SELECT o.client_id, c.name AS "client_name!", o.override_key, o.state, o.value
+           FROM client_workflow_overrides o
+           JOIN clients c ON c.org_id = o.org_id AND c.id = o.client_id
+           WHERE o.org_id = $1"#,
+        org_id
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut out: Vec<ManifestClientWorkflowOverride> = rows
+        .into_iter()
+        .map(|r| ManifestClientWorkflowOverride {
+            client_id: r.client_id,
+            client_name: r.client_name,
+            key: r.override_key,
+            state: r.state,
+            value: r.value,
+        })
+        .collect();
+    out.sort_by(|a, b| {
+        (&a.client_name, &a.key, a.client_id).cmp(&(&b.client_name, &b.key, b.client_id))
+    });
+    Ok(out)
 }

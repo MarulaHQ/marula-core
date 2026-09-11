@@ -239,6 +239,14 @@ pub const APPEARANCE_THEME: &str = "appearance.theme";
 pub const ONBOARDING_WIZARD_COMPLETED: &str = "onboarding.wizard_completed";
 pub const AI_COMPLETION_PROVIDER: &str = "ai.completion_provider";
 pub const AI_COMPLETION_MODEL: &str = "ai.completion_model";
+/// Org default for firing notifications on client ticket activity. A client
+/// may override it through the per-client workflow-override registry
+/// (`core_domain::workflow_overrides`), including an explicit disable.
+pub const NOTIFICATIONS_CLIENT_EVENTS: &str = "notifications.client_events";
+/// Org default for running automation rules against client tickets. A client
+/// may override it through the per-client workflow-override registry,
+/// including an explicit disable.
+pub const AUTOMATIONS_CLIENT_RULES: &str = "automations.client_rules";
 
 pub const TIMEZONE_OPTIONS: &[&str] = &[
     "UTC",
@@ -372,6 +380,30 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> =
                 label: "AI completion model",
                 description: "Model identifier to invoke on the active completion provider.",
             },
+            SettingDeclaration {
+                key: NOTIFICATIONS_CLIENT_EVENTS,
+                kind: SettingKind::Boolean,
+                default: SettingValue::Boolean(true),
+                scope: SettingScope::Org,
+                section: SettingSection::General,
+                visibility: SettingVisibility::Ui,
+                label: "Notify on client ticket activity",
+                description: "Org default for firing notifications on client ticket activity. \
+                             A client may override this through its workflow overrides, \
+                             including an explicit disable.",
+            },
+            SettingDeclaration {
+                key: AUTOMATIONS_CLIENT_RULES,
+                kind: SettingKind::Boolean,
+                default: SettingValue::Boolean(true),
+                scope: SettingScope::Org,
+                section: SettingSection::General,
+                visibility: SettingVisibility::Ui,
+                label: "Run automations for client tickets",
+                description: "Org default for running automation rules against a client's \
+                             tickets. A client may override this through its workflow \
+                             overrides, including an explicit disable.",
+            },
         ]
     });
 
@@ -429,7 +461,7 @@ mod tests {
             Some(SettingValue::Text("light".into()))
         );
         assert_eq!(declarations_for(SettingScope::User).len(), 1);
-        assert_eq!(declarations_for(SettingScope::Org).len(), 6);
+        assert_eq!(declarations_for(SettingScope::Org).len(), 8);
     }
 
     #[test]

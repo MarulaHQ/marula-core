@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT o.client_id, c.name AS \"client_name!\", o.override_key, o.state, o.value\n           FROM client_workflow_overrides o\n           JOIN clients c ON c.org_id = o.org_id AND c.id = o.client_id\n           WHERE o.org_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "client_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "client_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "override_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "state",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "value",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "68b7ce4c6fe5e4d5dbc4933309263064f8136b8db1ad3fcff588320833bf4b6f"
+}

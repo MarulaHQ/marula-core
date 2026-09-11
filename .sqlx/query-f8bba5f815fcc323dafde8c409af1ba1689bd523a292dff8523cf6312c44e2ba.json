@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, board_id, name, category, is_entry\n           FROM board_statuses\n           WHERE org_id = $1 AND board_id = $2 AND is_entry\n           ORDER BY sort_order, name LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "board_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "category",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "is_entry",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "f8bba5f815fcc323dafde8c409af1ba1689bd523a292dff8523cf6312c44e2ba"
+}

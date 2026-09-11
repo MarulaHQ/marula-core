@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO client_workflow_overrides\n             (id, org_id, client_id, override_key, state, value, updated_by)\n           VALUES ($1, $2, $3, $4, $5, $6, $7)\n           ON CONFLICT (org_id, client_id, override_key)\n           DO UPDATE SET state = EXCLUDED.state,\n                         value = EXCLUDED.value,\n                         updated_by = EXCLUDED.updated_by,\n                         updated_at = now()\n           RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a5b02f78a2abae38146b14f5e48b795d782837f6007f35035ea8557d10fc8468"
+}

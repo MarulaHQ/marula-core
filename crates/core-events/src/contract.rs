@@ -512,7 +512,8 @@ use core_domain::events::{
     BoardFavoriteToggled, BoardGroupCreated, BoardGroupRemoved, BoardGroupUpdated,
     BoardMembershipRemoved, BoardMembershipUpdated, BoardStatusAdded, BoardStatusRemoved,
     BoardStatusUpdated, BoardTransitionsUpdated, CalendarExclusionChanged, CatalogItemArchived,
-    CatalogItemCreated, CatalogItemUpdated, ClientCreated, ClientUpdated, ConfigItemCreated,
+    CatalogItemCreated, CatalogItemUpdated, ClientCreated, ClientUpdated,
+    ClientWorkflowOverrideCleared, ClientWorkflowOverrideSet, ConfigItemCreated,
     ConfigItemMergeUndone, ConfigItemMerged, ConfigItemUpdated, ContactCreated, ContactUpdated,
     ContractCreated, ContractRemoved, ContractUpdated, CreditNoteApplied, CreditNoteIssued,
     CreditNoteRefunded, DispatchQueueUpdated, DispatchStatusUpdated, ImportBatchFinished,
@@ -831,6 +832,37 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             ClientUpdated {
                 client_id: su(3),
                 name: "Acme Manufacturing Co.".into(),
+            }
+        ),
+    },
+    // -- client workflow overrides (Wave 12 lane 5, migration 0063) --------
+    PublishedEvent {
+        event_type: types::CLIENT_WORKFLOW_OVERRIDE_SET,
+        entity: "client",
+        variant: "default",
+        shape: typed_shape!(
+            ClientWorkflowOverrideSet,
+            ClientWorkflowOverrideSet {
+                client_id: su(3),
+                key: "sla.policy".into(),
+                state: "set".into(),
+                value: Some(serde_json::Value::String(su(30).to_string())),
+                changed_by: Some(su(4)),
+                occurred_at: st(2),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::CLIENT_WORKFLOW_OVERRIDE_CLEARED,
+        entity: "client",
+        variant: "default",
+        shape: typed_shape!(
+            ClientWorkflowOverrideCleared,
+            ClientWorkflowOverrideCleared {
+                client_id: su(3),
+                key: "sla.policy".into(),
+                cleared_by: Some(su(4)),
+                occurred_at: st(3),
             }
         ),
     },

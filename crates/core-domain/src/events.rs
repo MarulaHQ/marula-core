@@ -23,6 +23,14 @@ pub mod types {
     pub const USER_ROLE_CHANGED: &str = "user.role_changed";
     pub const CLIENT_CREATED: &str = "client.created";
     pub const CLIENT_UPDATED: &str = "client.updated";
+    /// A client workflow override was set or explicitly disabled (Wave 12
+    /// lane 5). `state: "set"|"disabled"` distinguishes an override value
+    /// from an explicit deny; absent rows inherit the org default and emit
+    /// nothing.
+    pub const CLIENT_WORKFLOW_OVERRIDE_SET: &str = "client.workflow_override_set";
+    /// A client workflow override row was cleared: the client inherits the
+    /// org default again (this is NOT the same as an explicit disable).
+    pub const CLIENT_WORKFLOW_OVERRIDE_CLEARED: &str = "client.workflow_override_cleared";
     pub const SITE_CREATED: &str = "site.created";
     /// A site row was updated in place (import framework, TASKLIST D2).
     pub const SITE_UPDATED: &str = "site.updated";
@@ -1736,6 +1744,39 @@ pub struct ConfigItemMergeUndone {
     pub merge_id: CiMergeId,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub undone_by: Option<UserId>,
+
+// --- client workflow overrides (Wave 12 lane 5, migration 0063) --------------
+
+/// `client.workflow_override_set` — a client override was written as `set`
+/// (value replaces the org default) or `disabled` (explicit deny wins over an
+/// org-enabled default). `value` is the typed payload (uuid string for
+/// reference constructs, boolean for toggles) and is `null` when `disabled`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ClientWorkflowOverrideSet {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub client_id: uuid::Uuid,
+    /// Registry key from `core_domain::workflow_overrides` (closed set).
+    pub key: String,
+    /// "set" | "disabled".
+    pub state: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>, nullable = true))]
+    pub value: Option<serde_json::Value>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub changed_by: Option<uuid::Uuid>,
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// `client.workflow_override_cleared` — the override row was removed, so the
+/// client inherits the org default again. Distinct from an explicit disable.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ClientWorkflowOverrideCleared {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub client_id: uuid::Uuid,
+    pub key: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub cleared_by: Option<uuid::Uuid>,
     pub occurred_at: DateTime<Utc>,
 }
 

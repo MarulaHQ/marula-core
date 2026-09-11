@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM client_workflow_overrides\n           WHERE org_id = $1 AND client_id = $2 AND override_key = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0c78b6f6227a94ae61ba1ddf46c2599b2bf1b04c4d920fbf9927c8504c4df7ca"
+}

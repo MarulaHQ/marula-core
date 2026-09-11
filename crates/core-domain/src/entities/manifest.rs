@@ -87,6 +87,13 @@ pub struct ManifestSections {
     /// reference them). Categories are flat — `parent_id` reconstructs
     /// the exactly-two-level tree.
     pub taxonomy: ManifestTaxonomy,
+    /// Per-client workflow overrides (Wave 12 lane 5): every client-scoped
+    /// override of the org workflow defaults, rows verbatim. The override
+    /// registry (`core_domain::workflow_overrides`) is the closed key set;
+    /// the preflight must see which constructs each client's rows reference
+    /// so a migration touching those constructs transforms the rows in the
+    /// same transaction (§4.5).
+    pub client_workflow_overrides: Vec<ManifestClientWorkflowOverride>,
 }
 
 /// The two classification trees of one org.
@@ -123,6 +130,26 @@ pub struct ManifestTaxonomyCategory {
     pub description: Option<String>,
     pub is_retired: bool,
     pub sort_order: i32,
+}
+
+/// One per-client workflow override row, verbatim. `state` is
+/// `set` (value overrides the org default) or `disabled` (explicit deny);
+/// an absent row means the client inherits and exports nothing.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ManifestClientWorkflowOverride {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub client_id: uuid::Uuid,
+    /// Stable semantic sort key (ids only break ties across re-imports).
+    pub client_name: String,
+    /// Registry key from `core_domain::workflow_overrides` (closed set).
+    pub key: String,
+    /// "set" | "disabled".
+    pub state: String,
+    /// The typed payload (uuid string for reference kinds, boolean for
+    /// toggles); `null` when `disabled`.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>, nullable = true))]
+    pub value: Option<serde_json::Value>,
 }
 
 /// SLA configuration sections.

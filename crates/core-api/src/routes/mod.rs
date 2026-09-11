@@ -98,6 +98,7 @@ pub mod timers;
 pub mod undo;
 pub mod webhook_admin;
 pub mod webhooks;
+pub mod workflow_overrides;
 
 use crate::auth::handlers as auth_handlers;
 use crate::auth::mfa_handlers as mfa;
@@ -1095,6 +1096,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // feed write path), interfaces, curation, and the audited/undoable
         // merge queue; module owns its own router.
         .merge(config_items::routes(gen))
+        .merge(workflow_overrides::routes(gen))
         // dispatch connector (TASKLIST Phase 3, Wave 9 lane 9): scoped
         // machine surface — schedule reads + field-service status pushes;
         // module owns its own router.

@@ -30,6 +30,7 @@ pub mod status;
 pub mod time_audit;
 pub mod webhooks;
 pub mod workflow;
+pub mod workflow_overrides;
 
 pub use completion::{
     CompletionError, CompletionMessage, CompletionProvider, CompletionRequest, CompletionResponse,
