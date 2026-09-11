@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM search_embeddings WHERE org_id = $1 AND entity_kind = $2 AND entity_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "59f33d8c8628037a3abe1ff96f99856c9aab9372b26966475d9aa64e8f8ca929"
+}

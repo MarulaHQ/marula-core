@@ -865,6 +865,11 @@ pub struct IndexResult {
 }
 
 /// POST /internal/search/upsert — idempotent row upserts (replays safe).
+/// When the org has an embedding-capable provider configured, the batch's
+/// vectors are computed BEFORE the write transaction opens (no HTTP while
+/// holding a DB tx) and stored alongside; any provider failure leaves the
+/// vectors unset and the lexical legs unchanged — indexing never fails
+/// because AI is down, and no wrong-width vector is ever stored.
 pub async fn upsert(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -881,11 +886,18 @@ pub async fn upsert(
                 .ok_or_else(|| ApiError::Validation("unknown entity_kind".into()))?,
         );
     }
-    // The caller is a process, not a user; the org binding is what matters
-    // for RLS, so org_id doubles as the principal id here.
+    // Vector leg: one provider resolution + one batch call for the whole
+    // request; None mode short-circuits to None without any network.
+    let provider = crate::ai::resolve_org_completion_provider(&state, req.org_id).await;
+    let texts: Vec<String> = req
+        .entries
+        .iter()
+        .map(|entry| crate::ai::search_embed_text(&entry.title, &entry.body))
+        .collect();
+    let embeddings = crate::ai::embed_batch(&provider, texts).await;
     let applied = org_tx::with_org_tx(&state, req.org_id, req.org_id, |mut ctx| async move {
         let mut applied = 0_usize;
-        for (entry, kind) in req.entries.iter().zip(kinds) {
+        for (index, (entry, kind)) in req.entries.iter().zip(kinds).enumerate() {
             core_db::search::upsert_row(
                 &mut *ctx.tx,
                 ctx.org_id,
@@ -896,12 +908,35 @@ pub async fn upsert(
                 &entry.body,
             )
             .await?;
+            if let Some(vectors) = &embeddings {
+                if let Some(vector) = vectors.get(index) {
+                    core_db::search::upsert_embedding(
+                        &mut *ctx.tx,
+                        ctx.org_id,
+                        kind,
+                        entry.entity_id,
+                        &provider_model(&provider),
+                        vector,
+                    )
+                    .await?;
+                }
+            }
             applied += 1;
         }
         Ok((ctx, applied))
     })
     .await?;
     Ok(Json(IndexResult { applied }))
+}
+
+/// Model name of the resolved provider (provenance for stored vectors).
+fn provider_model(provider: &crate::ai::OrgCompletionProvider) -> String {
+    match provider {
+        crate::ai::OrgCompletionProvider::Embeddings(embeddings) => {
+            embeddings.model_name().to_string()
+        }
+        crate::ai::OrgCompletionProvider::None(_) => String::new(),
+    }
 }
 
 /// POST /internal/search/delete — removals when source entities vanish.
@@ -925,12 +960,42 @@ pub async fn delete(
         let mut applied = 0_usize;
         for (entry, kind) in req.entries.iter().zip(kinds) {
             core_db::search::delete_row(&mut *ctx.tx, ctx.org_id, kind, entry.entity_id).await?;
+            // The vector side table keeps step with the FTS row it mirrors.
+            core_db::search::delete_embedding(&mut *ctx.tx, ctx.org_id, kind, entry.entity_id)
+                .await?;
             applied += 1;
         }
         Ok((ctx, applied))
     })
     .await?;
     Ok(Json(IndexResult { applied }))
+}
+
+// --- vector backfill (§4.5; Wave 12 vector-search lane) ----------------------
+
+#[derive(Debug, Deserialize)]
+pub struct SearchBackfillRequest {
+    pub org_id: Uuid,
+    /// Provider batches to process this call (each batch is
+    /// `EMBEDDING_BATCH` rows); the endpoint is idempotent and re-runnable.
+    #[serde(default)]
+    pub max_batches: Option<i64>,
+}
+
+/// POST /internal/search/backfill — idempotent sweep embedding existing
+/// `search_index` rows (migration 0062 backfill). Only rows whose vector is
+/// missing, was produced by a different model, or whose content hash moved
+/// on are embedded, so re-running is free. None mode reports a typed reason
+/// and embeds nothing.
+pub async fn search_backfill(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<SearchBackfillRequest>,
+) -> ApiResult<Json<crate::ai::BackfillReport>> {
+    guard(&state, &headers)?;
+    let max_batches = req.max_batches.unwrap_or(40).clamp(1, 200);
+    let report = crate::ai::backfill_org_embeddings(&state, req.org_id, max_batches).await?;
+    Ok(Json(report))
 }
 
 // --- async import-batch runner (TASKLIST D2 remainder) -----------------------

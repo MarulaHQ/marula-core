@@ -23,6 +23,7 @@ pub mod notes;
 pub mod notifications;
 pub mod policy;
 pub mod scheduling;
+pub mod search;
 pub mod settings;
 pub mod sla_engine;
 pub mod status;
@@ -32,7 +33,8 @@ pub mod workflow;
 
 pub use completion::{
     CompletionError, CompletionMessage, CompletionProvider, CompletionRequest, CompletionResponse,
-    CompletionUsage, MessageRole, NoneCompletionProvider,
+    CompletionUsage, EmbeddingRequest, EmbeddingResponse, MessageRole, NoneCompletionProvider,
+    SEARCH_EMBEDDING_DIM,
 };
 pub use entities::*;
 pub use error::DomainError;

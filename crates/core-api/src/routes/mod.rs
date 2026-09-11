@@ -161,7 +161,8 @@ pub fn build_router(state: AppState) -> Router {
     // §2 lists exactly four stable boundaries; this is none of them).
     let internal = Router::new()
         .route("/internal/search/upsert", post(internal::upsert))
-        .route("/internal/search/delete", post(internal::delete));
+        .route("/internal/search/delete", post(internal::delete))
+        .route("/internal/search/backfill", post(internal::search_backfill));
 
     let docs = openapi::scalar_router();
 

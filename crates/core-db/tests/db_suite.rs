@@ -7019,3 +7019,415 @@ async fn undo_views_limit_and_order_delegately() {
         .expect("clamped stack");
     assert_eq!(clamped.len(), 3);
 }
+
+// --- vector search leg (§4.5; migration 0062) ---------------------------------
+
+fn embedding(seed: f32) -> Vec<f32> {
+    vec![seed; core_domain::SEARCH_EMBEDDING_DIM]
+}
+
+#[tokio::test]
+async fn search_vector_migration_shape_extension_table_and_rls() {
+    let db = test_db().await;
+
+    // The pgvector extension is installed (dev/prod run pgvector/pgvector:pg17;
+    // migration 0062 enables it explicitly for stock-PG-with-extension too).
+    let ext: Option<String> =
+        sqlx::query_scalar("SELECT extname FROM pg_extension WHERE extname = 'vector'")
+            .fetch_one(&db.admin)
+            .await
+            .expect("pg_extension probe");
+    assert_eq!(ext.as_deref(), Some("vector"), "pgvector must be installed");
+
+    // Column shape: fixed-width vector(768), matching SEARCH_EMBEDDING_DIM.
+    let typ: String = sqlx::query_scalar(
+        "SELECT format_type(atttypid, atttypmod) FROM pg_attribute \
+         WHERE attrelid = 'search_embeddings'::regclass AND attname = 'embedding'",
+    )
+    .fetch_one(&db.admin)
+    .await
+    .expect("embedding column");
+    assert_eq!(typ, "vector(768)");
+
+    // RLS is ON with exactly the org policy, like its sibling tables.
+    let rls: bool = sqlx::query_scalar(
+        "SELECT relrowsecurity FROM pg_class WHERE relname = 'search_embeddings'",
+    )
+    .fetch_one(&db.admin)
+    .await
+    .expect("relrowsecurity");
+    assert!(rls, "search_embeddings must enforce RLS");
+    let policy: String = sqlx::query_scalar(
+        "SELECT polname FROM pg_policy WHERE polrelid = 'search_embeddings'::regclass",
+    )
+    .fetch_one(&db.admin)
+    .await
+    .expect("policy");
+    assert_eq!(policy, "search_embeddings_org");
+}
+
+#[tokio::test]
+async fn search_vector_rls_isolates_orgs_and_default_denies() {
+    let db = test_db().await;
+    let a = seed_org(&db.app, 600).await;
+    let b = seed_org(&db.app, 601).await;
+    let (org_a, org_b) = (a.org, b.org);
+    let (ticket_a, ticket_b) = (fixed_uuid(602), fixed_uuid(603));
+
+    // Seed two orgs' index rows + vectors as the owner role.
+    for (org, entity, seed) in [(org_a, ticket_a, 0.1_f32), (org_b, ticket_b, 0.2_f32)] {
+        let mut tx = org_tx(&db.app, org).await;
+        idx_upsert(
+            &mut tx,
+            org,
+            search::SearchKind::Ticket,
+            entity,
+            None,
+            "Unit",
+            "test",
+        )
+        .await;
+        search::upsert_embedding(
+            &mut *tx,
+            org,
+            search::SearchKind::Ticket,
+            entity,
+            "test-model",
+            &embedding(seed),
+        )
+        .await
+        .expect("vector upsert");
+        tx.commit().await.expect("commit");
+    }
+
+    // Org-scoped app tx sees exactly its own vectors.
+    let mut tx = org_tx(&db.app, org_a).await;
+    let seen: Vec<Uuid> =
+        sqlx::query_scalar("SELECT entity_id FROM search_embeddings ORDER BY entity_id")
+            .fetch_all(&mut *tx)
+            .await
+            .expect("org-scoped read");
+    assert_eq!(seen, vec![ticket_a], "org A must not see org B's vectors");
+
+    // The no-scope state default-denies (true empty, not an error).
+    let unscoped = db.fresh_app_pool().await;
+    let none: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM search_embeddings")
+        .fetch_one(&unscoped)
+        .await
+        .expect("unscoped default-deny count");
+    assert_eq!(none, 0, "no app.org_id ⇒ default deny, zero rows");
+}
+
+#[tokio::test]
+async fn search_embedding_upsert_is_idempotent_and_backfill_excludes_current() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 602).await;
+    let entity = fixed_uuid(604);
+    let mut tx = org_tx(&db.app, s.org).await;
+
+    idx_upsert(
+        &mut tx,
+        s.org,
+        search::SearchKind::Ticket,
+        entity,
+        None,
+        "VPN drops",
+        "tunnel flaps hourly",
+    )
+    .await;
+
+    // Backfill sweep 1: the row needs an embedding.
+    let model = "bge-base-test";
+    let targets = search::rows_needing_embedding(&mut *tx, s.org, model, 10)
+        .await
+        .expect("sweep 1");
+    assert_eq!(targets.len(), 1, "unembedded row is a sweep target");
+    assert_eq!(targets[0].title, "VPN drops");
+
+    // Embed it; the sweep is empty afterwards.
+    search::upsert_embedding(
+        &mut *tx,
+        s.org,
+        search::SearchKind::Ticket,
+        entity,
+        model,
+        &embedding(0.5),
+    )
+    .await
+    .expect("embed");
+    let targets = search::rows_needing_embedding(&mut *tx, s.org, model, 10)
+        .await
+        .expect("sweep 2");
+    assert!(
+        targets.is_empty(),
+        "embedded row with matching hash is excluded"
+    );
+
+    // Replaying the same vector changes nothing (exactly-once).
+    search::upsert_embedding(
+        &mut *tx,
+        s.org,
+        search::SearchKind::Ticket,
+        entity,
+        model,
+        &embedding(0.5),
+    )
+    .await
+    .expect("replay");
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM search_embeddings WHERE org_id = $1")
+        .bind(s.org)
+        .fetch_one(&mut *tx)
+        .await
+        .expect("count");
+    assert_eq!(
+        count, 1,
+        "vector upserts are exactly-once per (org,kind,entity)"
+    );
+
+    // Content moved on ⇒ the hash predicate re-targets the row.
+    idx_upsert(
+        &mut tx,
+        s.org,
+        search::SearchKind::Ticket,
+        entity,
+        None,
+        "VPN drops",
+        "tunnel flaps twice hourly",
+    )
+    .await;
+    let targets = search::rows_needing_embedding(&mut *tx, s.org, model, 10)
+        .await
+        .expect("sweep 3");
+    assert_eq!(targets.len(), 1, "stale content hash re-embeds");
+
+    // A different model also re-targets (provenance change).
+    search::upsert_embedding(
+        &mut *tx,
+        s.org,
+        search::SearchKind::Ticket,
+        entity,
+        "other-model",
+        &embedding(0.6),
+    )
+    .await
+    .expect("other model");
+    let targets = search::rows_needing_embedding(&mut *tx, s.org, model, 10)
+        .await
+        .expect("sweep 4");
+    assert_eq!(targets.len(), 1, "model change re-embeds");
+
+    tx.commit().await.expect("commit");
+}
+
+#[tokio::test]
+async fn search_hybrid_fuses_fts_and_vector_legs_by_rrf() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 605).await;
+    // `both`   matches the FTS query AND is the vector query's nearest hit.
+    // `lexical` only matches FTS. `semantic` only the vector leg.
+    let (both, lexical, semantic) = (fixed_uuid(605), fixed_uuid(606), fixed_uuid(607));
+    let mut tx = org_tx(&db.app, s.org).await;
+
+    idx_upsert(
+        &mut tx,
+        s.org,
+        search::SearchKind::Ticket,
+        both,
+        None,
+        "Mail relay outage",
+        "smtp failing",
+    )
+    .await;
+    idx_upsert(
+        &mut tx,
+        s.org,
+        search::SearchKind::Ticket,
+        lexical,
+        None,
+        "Mail relay down",
+        "smtp bouncing",
+    )
+    .await;
+    idx_upsert(
+        &mut tx,
+        s.org,
+        search::SearchKind::Ticket,
+        semantic,
+        None,
+        "Unrelated ticket",
+        "network switch config",
+    )
+    .await;
+
+    // Vectors: unit-ish basis vectors; the query sits nearest to `both`
+    // (distance 0), then `semantic` (orthogonal), while `lexical` sits far.
+    let mut near = embedding(0.0);
+    near[0] = 1.0;
+    search::upsert_embedding(
+        &mut *tx,
+        s.org,
+        search::SearchKind::Ticket,
+        both,
+        "bge-base-test",
+        &near,
+    )
+    .await
+    .expect("embed both");
+    let mut orthogonal = embedding(0.0);
+    orthogonal[1] = 1.0;
+    search::upsert_embedding(
+        &mut *tx,
+        s.org,
+        search::SearchKind::Ticket,
+        semantic,
+        "bge-base-test",
+        &orthogonal,
+    )
+    .await
+    .expect("embed");
+    let mut far = embedding(0.0);
+    far[767] = 1.0;
+    search::upsert_embedding(
+        &mut *tx,
+        s.org,
+        search::SearchKind::Ticket,
+        lexical,
+        "bge-base-test",
+        &far,
+    )
+    .await
+    .expect("embed");
+
+    let hits = search::search_hybrid_page(
+        &mut tx,
+        s.org,
+        &["ticket".to_string()],
+        "relay",
+        false,
+        &near,
+        10,
+        0,
+    )
+    .await
+    .expect("hybrid page");
+
+    let ids: Vec<Uuid> = hits.iter().map(|h| h.entity_id).collect();
+    assert_eq!(
+        ids.first(),
+        Some(&both),
+        "double-leg hit outranks both single legs"
+    );
+    assert!(
+        ids.contains(&lexical) && ids.contains(&semantic),
+        "union of both legs, not intersection"
+    );
+
+    // Legacy path is untouched: same query, no vector ⇒ FTS-only results.
+    let legacy = search::search_page(
+        &mut *tx,
+        s.org,
+        &["ticket".to_string()],
+        "relay",
+        false,
+        10,
+        0,
+    )
+    .await
+    .expect("legacy page");
+    let legacy_ids: Vec<Uuid> = legacy.iter().map(|h| h.entity_id).collect();
+    assert_eq!(legacy_ids.len(), 2, "only the two lexical matches");
+    assert!(legacy_ids.contains(&both) && legacy_ids.contains(&lexical));
+    assert!(
+        !legacy_ids.contains(&semantic),
+        "the vector-only hit stays out of the FTS path"
+    );
+
+    // The union count powers hybrid pagination metadata.
+    let total =
+        search::search_hybrid_count(&mut *tx, s.org, &["ticket".to_string()], "relay", false)
+            .await
+            .expect("hybrid count");
+    assert_eq!(total, 3, "lexical matches ∪ embedded rows of the kind");
+    tx.commit().await.expect("commit");
+}
+
+#[tokio::test]
+async fn search_hybrid_vector_leg_respects_kind_allow_list() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 608).await;
+    let (ticket, client) = (fixed_uuid(609), fixed_uuid(610));
+    let mut tx = org_tx(&db.app, s.org).await;
+
+    idx_upsert(
+        &mut tx,
+        s.org,
+        search::SearchKind::Ticket,
+        ticket,
+        None,
+        "Firewall upgrade",
+        "tonight",
+    )
+    .await;
+    idx_upsert(
+        &mut tx,
+        s.org,
+        search::SearchKind::Client,
+        client,
+        None,
+        "Firewall client",
+        "",
+    )
+    .await;
+    search::upsert_embedding(
+        &mut *tx,
+        s.org,
+        search::SearchKind::Ticket,
+        ticket,
+        "bge-base-test",
+        &embedding(0.3),
+    )
+    .await
+    .expect("embed");
+    search::upsert_embedding(
+        &mut *tx,
+        s.org,
+        search::SearchKind::Client,
+        client,
+        "bge-base-test",
+        &embedding(0.3),
+    )
+    .await
+    .expect("embed");
+
+    // A caller permitted to see tickets only gets ticket vectors only —
+    // the kind allow-list rides the vector leg exactly like the FTS leg.
+    let hits = search::search_hybrid_page(
+        &mut tx,
+        s.org,
+        &["ticket".to_string()],
+        "unmatched-token",
+        false,
+        &embedding(0.3),
+        10,
+        0,
+    )
+    .await
+    .expect("hybrid page");
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].entity_kind, "ticket");
+
+    let total = search::search_hybrid_count(
+        &mut *tx,
+        s.org,
+        &["ticket".to_string()],
+        "unmatched-token",
+        false,
+    )
+    .await
+    .expect("count");
+    assert_eq!(
+        total, 1,
+        "vector candidates outside the allow-list never count"
+    );
+    tx.commit().await.expect("commit");
+}

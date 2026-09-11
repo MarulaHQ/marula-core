@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.entity_kind, s.entity_id, s.title, s.body\n           FROM search_index s\n           LEFT JOIN search_embeddings e\n             ON e.org_id = s.org_id\n            AND e.entity_kind = s.entity_kind\n            AND e.entity_id = s.entity_id\n           WHERE s.org_id = $1\n             AND (\n                   e.id IS NULL\n                OR e.model <> $2\n                OR e.content_hash <> md5(s.title || E'\\x1f' || s.body)\n              )\n           ORDER BY s.indexed_at, s.entity_id\n           LIMIT $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "entity_kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "entity_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "body",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "0794ff354b23f5d8bae746167836a27e11977379fda3e7e11e3668b8fdfca54c"
+}

@@ -63,6 +63,35 @@ pub struct CompletionUsage {
     pub total_tokens: u32,
 }
 
+/// Fixed width of the unified-search embedding vectors (migration 0062
+/// stores `vector(768)`): the bundled bge-base-class default, nomic-embed-
+/// text's native width, and the OpenAI text-embedding-3 truncated width.
+/// A provider that cannot produce this width leaves the vector leg dark —
+/// search degrades to FTS, never stores a wrong-width vector.
+pub const SEARCH_EMBEDDING_DIM: usize = 768;
+
+/// A request sent to a [`CompletionProvider::embed`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EmbeddingRequest {
+    /// Texts to embed; one vector is returned per input, in order.
+    pub inputs: Vec<String>,
+    /// Optional model identifier requested by the caller (or the provider
+    /// default configured for the org).
+    pub model: Option<String>,
+}
+
+/// A response produced by [`CompletionProvider::embed`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EmbeddingResponse {
+    /// One vector per input, in input order. Implementations must return
+    /// exactly [`SEARCH_EMBEDDING_DIM`] floats per input.
+    pub embeddings: Vec<Vec<f32>>,
+    /// The concrete model that produced the vectors.
+    pub model: String,
+    /// Token counts, if provided by the provider.
+    pub usage: Option<CompletionUsage>,
+}
+
 /// A response produced by a [`CompletionProvider`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -113,6 +142,24 @@ pub trait CompletionProvider: Send + Sync {
         &self,
         req: &CompletionRequest,
     ) -> impl std::future::Future<Output = Result<CompletionResponse, CompletionError>> + Send;
+
+    /// Embeds a batch of texts — one [`SEARCH_EMBEDDING_DIM`]-wide vector
+    /// per input, in order — for the hybrid search vector leg (§4.5). The
+    /// default is the none mode: providers that cannot embed leave the
+    /// vector leg dark and search degrades to the lexical legs; callers
+    /// treat every `Err` the same way and never fail a search because AI is
+    /// unconfigured or down. Implementations must never log input text or
+    /// key material.
+    fn embed(
+        &self,
+        _req: &EmbeddingRequest,
+    ) -> impl std::future::Future<Output = Result<EmbeddingResponse, CompletionError>> + Send {
+        async {
+            Err(CompletionError::Unavailable {
+                reason: "embedding capability is unconfigured (none mode default)".to_string(),
+            })
+        }
+    }
 }
 
 /// Built-in none-mode provider: always returns a typed [`CompletionError::Unavailable`].
@@ -150,7 +197,7 @@ mod tests {
             }],
             model: None,
             temperature: None,
-            max_tokens: None,
+            max_tokens: Some(10),
         };
         let err = provider.complete(&req).await.unwrap_err();
         match err {
@@ -159,6 +206,30 @@ mod tests {
             }
             other => panic!("expected Unavailable error, got {:?}", other),
         }
+    }
+
+    #[tokio::test]
+    async fn embed_defaults_to_typed_unavailable_without_any_impl() {
+        // Any provider — even one written before the vector leg existed —
+        // gets a usable none-mode embed for free: the vector leg degrades,
+        // search never breaks, and no wrong-width vector can ever be stored.
+        let provider = NoneCompletionProvider;
+        let req = EmbeddingRequest {
+            inputs: vec!["Mail relay down".to_string()],
+            model: None,
+        };
+        match provider.embed(&req).await {
+            Err(CompletionError::Unavailable { reason }) => {
+                assert!(reason.contains("embedding"));
+            }
+            other => panic!("expected default Unavailable, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn search_embedding_dim_is_stable() {
+        assert_eq!(SEARCH_EMBEDDING_DIM, 768);
+        assert_eq!(crate::completion::SEARCH_EMBEDDING_DIM, 768);
     }
 
     #[test]

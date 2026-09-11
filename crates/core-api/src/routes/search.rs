@@ -2,14 +2,16 @@
 //! per-entity FTS index (tickets, comments, clients, sites, contacts).
 //!
 //! Purpose: ranked, RLS-scoped, permission-filtered results via
-//! `websearch_to_tsquery` with a trigram ILIKE leg for partial tokens.
-//! Per-kind visibility derives from the principal's module permissions:
+//! `websearch_to_tsquery` with a trigram ILIKE leg for partial tokens, and
+//! — when the org has an embedding-capable provider configured — the
+//! pgvector leg fused in by reciprocal rank fusion (§4.5). Per-kind
+//! visibility derives from the principal's module permissions:
 //! `tickets:view` unlocks ticket/comment hits, `clients:view` unlocks
 //! client/site/contact hits — a caller missing both gets 403.
 //!
 //! Non-purpose: no client-portal comment filtering (portal users search in
-//! a later stage), no vector ranking (Stage 3 adds pgvector + RRF fusion
-//! behind this same response contract), and no writes of any kind.
+//! a later stage), no embedding generation (core-api's ai module resolves
+//! the org provider), and no writes of any kind.
 
 use crate::auth::middleware::{authed, require_permission};
 use crate::error::{ApiError, ApiResult};
@@ -163,6 +165,12 @@ pub async fn search(
     let limit = q.limit.clamp(1, 50);
     let offset = q.offset.max(0);
 
+    // Vector leg (§4.5): embed the query through the org's BYOK provider.
+    // None mode / provider failure ⇒ None ⇒ the legacy lexical path runs
+    // byte-identically; search never 5xxs because AI is unconfigured or down.
+    let query_embedding =
+        crate::ai::embed_search_query(&state, authed.principal.user.org_id, &trimmed).await;
+
     // RLS-scoped read (pool carries no app.org_id GUC): one tx around
     // both queries.
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
@@ -173,24 +181,49 @@ pub async fn search(
     )
     .await
     .map_err(ApiError::from)?;
-    let hits = core_db::search::search_page(
-        &mut *tx,
-        authed.principal.user.org_id,
-        &kinds,
-        &trimmed,
-        trigram,
-        limit,
-        offset,
-    )
-    .await?;
-    let total = core_db::search::search_count(
-        &mut *tx,
-        authed.principal.user.org_id,
-        &kinds,
-        &trimmed,
-        trigram,
-    )
-    .await?;
+    let (hits, total) = match &query_embedding {
+        Some(embedding) => (
+            core_db::search::search_hybrid_page(
+                &mut tx,
+                authed.principal.user.org_id,
+                &kinds,
+                &trimmed,
+                trigram,
+                embedding,
+                limit,
+                offset,
+            )
+            .await?,
+            core_db::search::search_hybrid_count(
+                &mut *tx,
+                authed.principal.user.org_id,
+                &kinds,
+                &trimmed,
+                trigram,
+            )
+            .await?,
+        ),
+        None => (
+            core_db::search::search_page(
+                &mut *tx,
+                authed.principal.user.org_id,
+                &kinds,
+                &trimmed,
+                trigram,
+                limit,
+                offset,
+            )
+            .await?,
+            core_db::search::search_count(
+                &mut *tx,
+                authed.principal.user.org_id,
+                &kinds,
+                &trimmed,
+                trigram,
+            )
+            .await?,
+        ),
+    };
     tx.commit().await.map_err(ApiError::from)?;
 
     Ok(Json(SearchResponse {

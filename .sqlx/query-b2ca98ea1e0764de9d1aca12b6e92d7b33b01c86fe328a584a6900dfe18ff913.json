@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT entity_kind, entity_id\n           FROM search_embeddings\n           WHERE org_id = $1\n             AND entity_kind = ANY($2)\n           ORDER BY embedding <=> $3::text::vector, entity_kind, entity_id\n           LIMIT $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "entity_kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "entity_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "b2ca98ea1e0764de9d1aca12b6e92d7b33b01c86fe328a584a6900dfe18ff913"
+}
