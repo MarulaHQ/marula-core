@@ -19,6 +19,7 @@ pub mod byok;
 pub mod catalog;
 pub mod checklists;
 pub mod clients;
+pub mod config_identity;
 pub mod connector;
 pub mod contracts;
 pub mod custom_fields;

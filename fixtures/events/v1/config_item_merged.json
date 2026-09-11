@@ -1,0 +1,18 @@
+{
+  "event_type": "config_item.merged",
+  "entity": "config_item",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "auto": true,
+    "candidate_id": "00000000-0000-0000-0000-00000000003f",
+    "confidence": 0.95,
+    "merged_by": "00000000-0000-0000-0000-000000000005",
+    "merged_config_item_id": "00000000-0000-0000-0000-00000000003e",
+    "occurred_at": "2023-11-14T22:13:23Z",
+    "org_id": "00000000-0000-0000-0000-000000000002",
+    "primary_config_item_id": "00000000-0000-0000-0000-00000000003c",
+    "reason": "serial match SN-9911"
+  }
+}

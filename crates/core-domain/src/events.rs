@@ -331,6 +331,14 @@ pub mod types {
     pub const PM_SCHEDULE_CREATED: &str = "pm_schedule.created";
     pub const PM_SCHEDULE_UPDATED: &str = "pm_schedule.updated";
     pub const PM_SCHEDULE_DELETED: &str = "pm_schedule.deleted";
+    /// Configuration identity (ADR 0003, Wave 12 lane 3). The canonical
+    /// item IS a `device_assets` row; `config_item.*` covers its CI
+    /// lifecycle — feed syncs, human curation, and the audited/undoable
+    /// merge queue.
+    pub const CONFIG_ITEM_CREATED: &str = "config_item.created";
+    pub const CONFIG_ITEM_UPDATED: &str = "config_item.updated";
+    pub const CONFIG_ITEM_MERGED: &str = "config_item.merged";
+    pub const CONFIG_ITEM_MERGE_UNDONE: &str = "config_item.merge_undone";
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1647,6 +1655,88 @@ pub struct TravelDraftSubmitted {
     pub distance: f64,
     pub distance_unit: String,
     pub vehicle: String,
+}
+
+// ---- configuration identity (ADR 0003, Wave 12 lane 3) ---------------------
+
+/// `config_item.created` — a fresh canonical item (feed-created or manual);
+/// `source_link` carries the feeder binding when the create was a sync.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ConfigItemCreated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub config_item_id: DeviceAssetId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub org_id: OrgId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub client_id: ClientId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub source_link_id: ConfigSourceLinkId,
+    /// "feed" | "manual"
+    pub origin: String,
+    pub source_system: String,
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// `config_item.updated` — feed sync updates, curation, and adoption of an
+/// existing item through its source link.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ConfigItemUpdated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub config_item_id: DeviceAssetId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub org_id: OrgId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub source_link_id: ConfigSourceLinkId,
+    /// "feed_sync" | "adopted_existing" | "curated" | "accept_observed"
+    pub change: String,
+    /// Field keys written by THIS change (empty for pure link touches).
+    #[serde(default)]
+    pub fields_changed: Vec<String>,
+    /// Observed values that now contradict a curated value (CI5).
+    #[serde(default)]
+    pub contradictions: Vec<String>,
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// `config_item.merged` — one audited merge; undo rides
+/// `config_item.merge_undone`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ConfigItemMerged {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub primary_config_item_id: DeviceAssetId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub merged_config_item_id: DeviceAssetId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub org_id: OrgId,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub candidate_id: Option<CiMergeCandidateId>,
+    pub confidence: Option<f64>,
+    pub reason: String,
+    pub auto: bool,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub merged_by: Option<UserId>,
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// `config_item.merge_undone` — a split restored the absorbed item from
+/// the merge audit row's moved packet.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ConfigItemMergeUndone {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub primary_config_item_id: DeviceAssetId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub restored_config_item_id: DeviceAssetId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub org_id: OrgId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub merge_id: CiMergeId,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub undone_by: Option<UserId>,
+    pub occurred_at: DateTime<Utc>,
 }
 
 #[cfg(test)]

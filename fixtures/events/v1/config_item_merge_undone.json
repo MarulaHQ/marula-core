@@ -1,0 +1,15 @@
+{
+  "event_type": "config_item.merge_undone",
+  "entity": "config_item",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "merge_id": "00000000-0000-0000-0000-000000000040",
+    "occurred_at": "2023-11-14T22:13:23Z",
+    "org_id": "00000000-0000-0000-0000-000000000002",
+    "primary_config_item_id": "00000000-0000-0000-0000-00000000003c",
+    "restored_config_item_id": "00000000-0000-0000-0000-00000000003e",
+    "undone_by": "00000000-0000-0000-0000-000000000005"
+  }
+}

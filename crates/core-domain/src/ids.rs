@@ -32,6 +32,16 @@ pub type ApiKeyId = Uuid;
 pub type PortalUserId = Uuid;
 pub type DocumentLayoutId = Uuid;
 pub type DocumentLinkId = Uuid;
+/// ADR 0003 configuration identity: the feeder's per-source record link.
+pub type ConfigSourceLinkId = Uuid;
+/// A network interface (MAC/IPs/VLANs) attribute of a config item.
+pub type CiInterfaceId = Uuid;
+/// A reviewable ambiguous-match candidate in the CI merge queue.
+pub type CiMergeCandidateId = Uuid;
+/// An audited, undoable CI merge (the split substrate).
+pub type CiMergeId = Uuid;
+/// A per-type/per-source field precedence override.
+pub type CiFieldPrecedenceId = Uuid;
 pub type PasswordId = Uuid;
 pub type PasswordHistoryId = Uuid;
 pub type ContractId = Uuid;

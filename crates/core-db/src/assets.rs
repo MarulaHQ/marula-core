@@ -9,10 +9,14 @@ use core_domain::entities::DeviceAsset;
 use sqlx::{Postgres, Row};
 use uuid::Uuid;
 
-const ASSET_COLUMNS: &str = "id, org_id, client_id, site_id, tag, name, kind, status, \
-     layout_id, fields, created_at, updated_at";
+pub(crate) const ASSET_COLUMNS: &str = "id, org_id, client_id, site_id, tag, name, kind, status, \
+     layout_id, fields, ownership, rental_vendor, rental_start, rental_end, rental_cost_minor, \
+     rental_currency, rental_cycle, purchase_date, purchase_cost_minor, purchase_currency, \
+     depreciation_method, useful_life_months, salvage_value_minor, depreciation_rate_bps, \
+     identity_keys, observed_fields, curated_fields, field_sources, merged_into_id, \
+     created_at, updated_at";
 
-fn row_to_asset(row: sqlx::postgres::PgRow) -> DeviceAsset {
+pub(crate) fn row_to_asset(row: sqlx::postgres::PgRow) -> DeviceAsset {
     DeviceAsset {
         id: row.get("id"),
         org_id: row.get("org_id"),
@@ -24,6 +28,25 @@ fn row_to_asset(row: sqlx::postgres::PgRow) -> DeviceAsset {
         status: row.get("status"),
         layout_id: row.get("layout_id"),
         fields: row.get("fields"),
+        ownership: row.get("ownership"),
+        rental_vendor: row.get("rental_vendor"),
+        rental_start: row.get("rental_start"),
+        rental_end: row.get("rental_end"),
+        rental_cost_minor: row.get("rental_cost_minor"),
+        rental_currency: row.get("rental_currency"),
+        rental_cycle: row.get("rental_cycle"),
+        purchase_date: row.get("purchase_date"),
+        purchase_cost_minor: row.get("purchase_cost_minor"),
+        purchase_currency: row.get("purchase_currency"),
+        depreciation_method: row.get("depreciation_method"),
+        useful_life_months: row.get("useful_life_months"),
+        salvage_value_minor: row.get("salvage_value_minor"),
+        depreciation_rate_bps: row.get("depreciation_rate_bps"),
+        identity_keys: row.get("identity_keys"),
+        observed_fields: row.get("observed_fields"),
+        curated_fields: row.get("curated_fields"),
+        field_sources: row.get("field_sources"),
+        merged_into_id: row.get("merged_into_id"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     }
@@ -172,4 +195,95 @@ where
         return Err(DbError::NotFound);
     }
     Ok(())
+}
+
+// ---- inventory lifecycle (migration 0061) ----------------------------------
+
+/// Rental tracking + depreciation inputs, patch semantics: absent = keep.
+#[derive(Debug, Clone, Default)]
+pub struct AssetLifecyclePatch {
+    pub ownership: Option<String>,
+    pub rental_vendor: Option<String>,
+    pub rental_start: Option<chrono::NaiveDate>,
+    pub rental_end: Option<chrono::NaiveDate>,
+    pub rental_cost_minor: Option<i64>,
+    pub rental_currency: Option<String>,
+    pub rental_cycle: Option<String>,
+    pub purchase_date: Option<chrono::NaiveDate>,
+    pub purchase_cost_minor: Option<i64>,
+    pub purchase_currency: Option<String>,
+    pub depreciation_method: Option<String>,
+    pub useful_life_months: Option<i32>,
+    pub salvage_value_minor: Option<i64>,
+    pub depreciation_rate_bps: Option<i32>,
+}
+
+impl AssetLifecyclePatch {
+    pub fn is_empty(&self) -> bool {
+        self.ownership.is_none()
+            && self.rental_vendor.is_none()
+            && self.rental_start.is_none()
+            && self.rental_end.is_none()
+            && self.rental_cost_minor.is_none()
+            && self.rental_currency.is_none()
+            && self.rental_cycle.is_none()
+            && self.purchase_date.is_none()
+            && self.purchase_cost_minor.is_none()
+            && self.purchase_currency.is_none()
+            && self.depreciation_method.is_none()
+            && self.useful_life_months.is_none()
+            && self.salvage_value_minor.is_none()
+            && self.depreciation_rate_bps.is_none()
+    }
+}
+
+pub async fn update_asset_lifecycle<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    id: Uuid,
+    p: &AssetLifecyclePatch,
+) -> DbResult<DeviceAsset>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query(&format!(
+        r#"UPDATE device_assets SET
+             ownership = COALESCE($3, ownership),
+             rental_vendor = COALESCE($4, rental_vendor),
+             rental_start = COALESCE($5, rental_start),
+             rental_end = COALESCE($6, rental_end),
+             rental_cost_minor = COALESCE($7, rental_cost_minor),
+             rental_currency = COALESCE($8, rental_currency),
+             rental_cycle = COALESCE($9, rental_cycle),
+             purchase_date = COALESCE($10, purchase_date),
+             purchase_cost_minor = COALESCE($11, purchase_cost_minor),
+             purchase_currency = COALESCE($12, purchase_currency),
+             depreciation_method = COALESCE($13, depreciation_method),
+             useful_life_months = COALESCE($14, useful_life_months),
+             salvage_value_minor = COALESCE($15, salvage_value_minor),
+             depreciation_rate_bps = COALESCE($16, depreciation_rate_bps),
+             updated_at = now()
+           WHERE org_id = $1 AND id = $2
+           RETURNING {ASSET_COLUMNS}"#
+    ))
+    .bind(org_id)
+    .bind(id)
+    .bind(p.ownership.as_deref())
+    .bind(p.rental_vendor.as_deref())
+    .bind(p.rental_start)
+    .bind(p.rental_end)
+    .bind(p.rental_cost_minor)
+    .bind(p.rental_currency.as_deref())
+    .bind(p.rental_cycle.as_deref())
+    .bind(p.purchase_date)
+    .bind(p.purchase_cost_minor)
+    .bind(p.purchase_currency.as_deref())
+    .bind(p.depreciation_method.as_deref())
+    .bind(p.useful_life_months)
+    .bind(p.salvage_value_minor)
+    .bind(p.depreciation_rate_bps)
+    .fetch_optional(executor)
+    .await?
+    .ok_or(DbError::NotFound)?;
+    Ok(row_to_asset(row))
 }

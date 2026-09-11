@@ -24,6 +24,7 @@ use axum::{
     http::Extensions,
     Json,
 };
+use core_db::assets::AssetLifecyclePatch;
 use core_db::document_layouts::get_layout;
 use core_domain::entities::{DeviceAsset, LinkKind};
 use core_domain::events::types;
@@ -76,9 +77,72 @@ pub struct CreateAssetRequest {
     pub layout_id: Option<Uuid>,
     #[serde(default)]
     pub fields: Option<Value>,
+    /// Inventory lifecycle inputs (rental tracking + depreciation,
+    /// migration 0061); all optional, absent = SQL default.
+    #[serde(default)]
+    pub lifecycle: Option<AssetLifecycleInput>,
     /// Instant-first mutation parameters (IF1).
     #[serde(flatten, default)]
     pub instant: instant::MutationParams,
+}
+
+/// Rental tracking + depreciation inputs on an asset (money is integer
+/// minor units + currency code per ADR 0002; no conversion happens here).
+#[derive(Debug, Default, Clone, Deserialize, Serialize, ToSchema)]
+pub struct AssetLifecycleInput {
+    /// owned | leased | rented
+    #[serde(default)]
+    pub ownership: Option<String>,
+    #[serde(default)]
+    pub rental_vendor: Option<String>,
+    #[serde(default)]
+    pub rental_start: Option<chrono::NaiveDate>,
+    #[serde(default)]
+    pub rental_end: Option<chrono::NaiveDate>,
+    #[serde(default)]
+    pub rental_cost_minor: Option<i64>,
+    #[serde(default)]
+    pub rental_currency: Option<String>,
+    /// monthly | quarterly | annual
+    #[serde(default)]
+    pub rental_cycle: Option<String>,
+    #[serde(default)]
+    pub purchase_date: Option<chrono::NaiveDate>,
+    #[serde(default)]
+    pub purchase_cost_minor: Option<i64>,
+    #[serde(default)]
+    pub purchase_currency: Option<String>,
+    /// none | straight_line | declining_balance
+    #[serde(default)]
+    pub depreciation_method: Option<String>,
+    #[serde(default)]
+    pub useful_life_months: Option<i32>,
+    #[serde(default)]
+    pub salvage_value_minor: Option<i64>,
+    /// basis points for declining_balance (1..9999)
+    #[serde(default)]
+    pub depreciation_rate_bps: Option<i32>,
+}
+
+impl From<AssetLifecycleInput> for AssetLifecyclePatch {
+    fn from(v: AssetLifecycleInput) -> Self {
+        AssetLifecyclePatch {
+            ownership: v.ownership,
+            rental_vendor: v.rental_vendor,
+            rental_start: v.rental_start,
+            rental_end: v.rental_end,
+            rental_cost_minor: v.rental_cost_minor,
+            rental_currency: v.rental_currency,
+            rental_cycle: v.rental_cycle,
+            purchase_date: v.purchase_date,
+            purchase_cost_minor: v.purchase_cost_minor,
+            purchase_currency: v.purchase_currency,
+            depreciation_method: v.depreciation_method,
+            useful_life_months: v.useful_life_months,
+            salvage_value_minor: v.salvage_value_minor,
+            depreciation_rate_bps: v.depreciation_rate_bps,
+        }
+    }
 }
 
 fn default_kind() -> String {
@@ -101,6 +165,10 @@ pub struct UpdateAssetRequest {
     pub layout_id: Option<Uuid>,
     #[serde(default)]
     pub fields: Option<Value>,
+    /// Inventory lifecycle inputs (rental tracking + depreciation);
+    /// absent = keep (patch semantics).
+    #[serde(default)]
+    pub lifecycle: Option<AssetLifecycleInput>,
     /// Instant-first mutation parameters (IF1).
     #[serde(flatten, default)]
     pub instant: instant::MutationParams,
@@ -212,6 +280,7 @@ pub async fn create(
         req.status,
         req.layout_id,
     );
+    let req_lifecycle = req.lifecycle.clone();
 
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         if let InstantClaim::Replay(stored) = instant::claim(
@@ -228,7 +297,7 @@ pub async fn create(
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
         let id = Uuid::now_v7();
-        let asset = core_db::assets::create_asset(
+        let mut asset = core_db::assets::create_asset(
             &mut *ctx.tx,
             org_id,
             id,
@@ -242,6 +311,15 @@ pub async fn create(
             &fields,
         )
         .await?;
+        if let Some(lifecycle) = &req_lifecycle {
+            asset = core_db::assets::update_asset_lifecycle(
+                &mut *ctx.tx,
+                org_id,
+                id,
+                &AssetLifecyclePatch::from(lifecycle.clone()),
+            )
+            .await?;
+        }
         let write_seq = instant::entity_seq(
             &mut ctx,
             instant::SeqSpec {
@@ -359,6 +437,18 @@ pub async fn update(
             req.fields.as_ref(),
         )
         .await?;
+        let asset = match &req.lifecycle {
+            Some(lifecycle) => {
+                core_db::assets::update_asset_lifecycle(
+                    &mut *ctx.tx,
+                    org_id,
+                    id,
+                    &AssetLifecyclePatch::from(lifecycle.clone()),
+                )
+                .await?
+            }
+            None => asset,
+        };
         let write_seq = instant::entity_seq(
             &mut ctx,
             instant::SeqSpec {

@@ -52,6 +52,7 @@ pub mod calendar;
 pub mod catalog;
 pub mod checklists;
 pub mod clients;
+pub mod config_items;
 pub mod connector;
 pub mod costs;
 pub mod credit_notes;
@@ -1088,6 +1089,11 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .merge(catalog::routes(gen))
         .merge(quotes::routes(gen))
         .merge(pipeline::routes(gen))
+        // configuration identity (ADR 0003, Wave 12 lane 3, migration
+        // 0061): CI facets of the asset surface — source links (the only
+        // feed write path), interfaces, curation, and the audited/undoable
+        // merge queue; module owns its own router.
+        .merge(config_items::routes(gen))
         // dispatch connector (TASKLIST Phase 3, Wave 9 lane 9): scoped
         // machine surface — schedule reads + field-service status pushes;
         // module owns its own router.

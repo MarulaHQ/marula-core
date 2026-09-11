@@ -513,7 +513,8 @@ use core_domain::events::{
     BoardMembershipRemoved, BoardMembershipUpdated, BoardStatusAdded, BoardStatusRemoved,
     BoardStatusUpdated, BoardTransitionsUpdated, CalendarExclusionChanged, CatalogItemArchived,
     CatalogItemCreated, CatalogItemUpdated, ClientCreated, ClientUpdated, ContactCreated,
-    ContactUpdated, ContractCreated, ContractRemoved, ContractUpdated, CreditNoteApplied,
+    ContactUpdated, ConfigItemCreated, ConfigItemMergeUndone, ConfigItemMerged,
+    ConfigItemUpdated, ContractCreated, ContractRemoved, ContractUpdated, CreditNoteApplied,
     CreditNoteIssued, CreditNoteRefunded, DispatchQueueUpdated, DispatchStatusUpdated,
     ImportBatchFinished, ImportBatchStarted, InvoiceCreated, InvoiceDunningChanged,
     InvoicePaymentRecorded, InvoiceRunCompleted, InvoiceVoided, MigrationPushSessionFinished,
@@ -3003,6 +3004,77 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
                 outcome: "collapsed".into(),
                 ticket_id: Some(su(1)),
                 alert_count: 7,
+                occurred_at: st(3),
+            }
+        ),
+    },
+    // Configuration identity (ADR 0003, Wave 12 lane 3): feed syncs,
+    // curation, and the audited/undoable merge queue.
+    PublishedEvent {
+        event_type: types::CONFIG_ITEM_CREATED,
+        entity: "config_item",
+        variant: "default",
+        shape: typed_shape!(
+            ConfigItemCreated,
+            ConfigItemCreated {
+                config_item_id: su(60),
+                org_id: su(2),
+                client_id: su(3),
+                source_link_id: su(61),
+                origin: "feed".into(),
+                source_system: "ninjaone".into(),
+                occurred_at: st(3),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::CONFIG_ITEM_UPDATED,
+        entity: "config_item",
+        variant: "default",
+        shape: typed_shape!(
+            ConfigItemUpdated,
+            ConfigItemUpdated {
+                config_item_id: su(60),
+                org_id: su(2),
+                source_link_id: su(61),
+                change: "feed_sync".into(),
+                fields_changed: vec!["ip_address".into()],
+                contradictions: vec![],
+                occurred_at: st(3),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::CONFIG_ITEM_MERGED,
+        entity: "config_item",
+        variant: "default",
+        shape: typed_shape!(
+            ConfigItemMerged,
+            ConfigItemMerged {
+                primary_config_item_id: su(60),
+                merged_config_item_id: su(62),
+                org_id: su(2),
+                candidate_id: Some(su(63)),
+                confidence: Some(0.95),
+                reason: "serial match SN-9911".into(),
+                auto: true,
+                merged_by: Some(su(5)),
+                occurred_at: st(3),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::CONFIG_ITEM_MERGE_UNDONE,
+        entity: "config_item",
+        variant: "default",
+        shape: typed_shape!(
+            ConfigItemMergeUndone,
+            ConfigItemMergeUndone {
+                primary_config_item_id: su(60),
+                restored_config_item_id: su(62),
+                org_id: su(2),
+                merge_id: su(64),
+                undone_by: Some(su(5)),
                 occurred_at: st(3),
             }
         ),

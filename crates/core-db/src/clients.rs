@@ -1,5 +1,6 @@
 //! Client → site → contact hierarchy queries.
 
+use crate::assets::ASSET_COLUMNS;
 use crate::{DbError, DbResult};
 use core_domain::entities::{Client, Contact, DeviceAsset, Site};
 use sqlx::Postgres;
@@ -368,34 +369,20 @@ pub async fn create_asset<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let row = sqlx::query!(
+    let row = sqlx::query(&format!(
         r#"INSERT INTO device_assets (id, org_id, client_id, tag, name, kind)
            VALUES ($1, $2, $3, $4, $5, $6)
-           RETURNING id, org_id, client_id, site_id, tag, name, kind, status,
-                     layout_id, fields, created_at, updated_at"#,
-        id,
-        org_id,
-        client_id,
-        tag,
-        name,
-        kind
-    )
+           RETURNING {ASSET_COLUMNS}"#
+    ))
+    .bind(id)
+    .bind(org_id)
+    .bind(client_id)
+    .bind(tag)
+    .bind(name)
+    .bind(kind)
     .fetch_one(executor)
     .await?;
-    Ok(DeviceAsset {
-        id: row.id,
-        org_id: row.org_id,
-        client_id: row.client_id,
-        site_id: row.site_id,
-        tag: row.tag,
-        name: row.name,
-        kind: row.kind,
-        status: row.status,
-        layout_id: row.layout_id,
-        fields: row.fields,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-    })
+    Ok(crate::assets::row_to_asset(row))
 }
 
 pub async fn list_assets<'e, E>(
@@ -406,32 +393,15 @@ pub async fn list_assets<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let rows = sqlx::query!(
-        r#"SELECT id, org_id, client_id, site_id, tag, name, kind, status,
-                    layout_id, fields, created_at, updated_at
-           FROM device_assets WHERE org_id = $1 AND client_id = $2 ORDER BY tag"#,
-        org_id,
-        client_id
-    )
+    let rows = sqlx::query(&format!(
+        r#"SELECT {ASSET_COLUMNS}
+           FROM device_assets WHERE org_id = $1 AND client_id = $2 ORDER BY tag"#
+    ))
+    .bind(org_id)
+    .bind(client_id)
     .fetch_all(executor)
     .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| DeviceAsset {
-            id: row.id,
-            org_id: row.org_id,
-            client_id: row.client_id,
-            site_id: row.site_id,
-            tag: row.tag,
-            name: row.name,
-            kind: row.kind,
-            status: row.status,
-            layout_id: row.layout_id,
-            fields: row.fields,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-        })
-        .collect())
+    Ok(rows.into_iter().map(crate::assets::row_to_asset).collect())
 }
 
 // --- updates (import framework ConflictPolicy::Update path, TASKLIST D2) ---

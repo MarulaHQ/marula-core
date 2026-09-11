@@ -46,6 +46,11 @@ pub struct DocumentLayout {
     pub icon: String,
     pub fields: Vec<LayoutField>,
     pub is_system: bool,
+    /// CI6: the behavior-bearing semantic class this type is bound to
+    /// (ADR 0003, migration 0061). Renaming the layout never changes
+    /// behavior; identity keys and field schema read this class.
+    #[serde(default)]
+    pub semantic_class: Option<crate::entities::CiSemanticClass>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

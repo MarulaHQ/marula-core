@@ -4,7 +4,7 @@
 //! integrations, and the external-DMS seam rely on their presence.
 
 use crate::{DbError, DbResult};
-use core_domain::entities::{DocumentLayout, LayoutField};
+use core_domain::entities::{CiSemanticClass, DocumentLayout, LayoutField};
 use sqlx::Postgres;
 use uuid::Uuid;
 
@@ -19,13 +19,54 @@ fn row(r: sqlx::postgres::PgRow) -> DocumentLayout {
         icon: r.get("icon"),
         fields: serde_json::from_value(r.get::<serde_json::Value, _>("fields")).unwrap_or_default(),
         is_system: r.get("is_system"),
+        semantic_class: r
+            .get::<Option<String>, _>("semantic_class")
+            .and_then(|s| CiSemanticClass::parse(&s)),
         created_at: r.get("created_at"),
         updated_at: r.get("updated_at"),
     }
 }
 
 const COLS: &str =
-    "id, org_id, slug, name, description, icon, fields, is_system, created_at, updated_at";
+    "id, org_id, slug, name, description, icon, fields, is_system, semantic_class, created_at, updated_at";
+
+/// The CI6 semantic class a standard layout binds to, by slug. Renaming a
+/// layout never changes behavior because behavior reads the class.
+pub fn default_semantic_class_for_slug(slug: &str) -> Option<CiSemanticClass> {
+    match slug {
+        "server" => Some(CiSemanticClass::Server),
+        "workstation" => Some(CiSemanticClass::Workstation),
+        "firewall" | "network-device" => Some(CiSemanticClass::NetworkAppliance),
+        "vm" | "virtual-machine" => Some(CiSemanticClass::Vm),
+        "printer" => Some(CiSemanticClass::Printer),
+        "iot" => Some(CiSemanticClass::Iot),
+        _ => None,
+    }
+}
+
+/// Binds a layout (CI type) to a semantic class (CI6). `None` clears it.
+pub async fn set_layout_semantic_class<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    id: Uuid,
+    class: Option<CiSemanticClass>,
+) -> DbResult<DocumentLayout>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    sqlx::query(&format!(
+        "UPDATE document_layouts SET semantic_class = $3, updated_at = now()
+         WHERE org_id = $1 AND id = $2
+         RETURNING {COLS}"
+    ))
+    .bind(org_id)
+    .bind(id)
+    .bind(class.map(|c| c.as_str()))
+    .fetch_optional(executor)
+    .await?
+    .map(row)
+    .ok_or(DbError::NotFound)
+}
 
 pub async fn list_layouts<'e, E>(executor: E, org_id: Uuid) -> DbResult<Vec<DocumentLayout>>
 where
@@ -152,8 +193,8 @@ pub async fn seed_default_document_layouts(
 ) -> DbResult<()> {
     for (slug, name, description, icon, fields) in standard_layouts() {
         sqlx::query(
-            "INSERT INTO document_layouts (id, org_id, slug, name, description, icon, fields, is_system)
-             VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, true)
+            "INSERT INTO document_layouts (id, org_id, slug, name, description, icon, fields, is_system, semantic_class)
+             VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, true, $7)
              ON CONFLICT (org_id, slug) DO NOTHING",
         )
         .bind(org_id)
@@ -162,6 +203,7 @@ pub async fn seed_default_document_layouts(
         .bind(description)
         .bind(icon)
         .bind(serde_json::from_str::<serde_json::Value>(&fields).unwrap_or_default())
+        .bind(default_semantic_class_for_slug(slug).map(|c| c.as_str()))
         .execute(&mut *conn)
         .await?;
     }
