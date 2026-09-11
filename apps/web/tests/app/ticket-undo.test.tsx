@@ -111,7 +111,9 @@ describe("TicketUndo (IF7)", () => {
     await waitFor(() => expect(revertCalls.length).toBe(1));
     expect(revertCalls[0]?.body.seq).toBe(14);
     expect(revertCalls[0]?.body.idempotency_key).toBeTruthy();
-    expect(onChanged).toBe(1);
+    // onChanged fires after the handler's refresh() settles — a tick after
+    // the revert POST the waitFor above observes — so await it.
+    await waitFor(() => expect(onChanged).toBe(1));
     await screen.findByText(/Stepped back write #14/);
     cleanup();
   });

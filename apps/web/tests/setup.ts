@@ -2,8 +2,15 @@
 // Radix primitives rely on as packages/ui (ResizeObserver, scrollIntoView,
 // pointer capture, matchMedia).
 import "@testing-library/jest-dom/vitest";
-import { vi } from "vitest";
+import { afterEach, vi } from "vitest";
+import { cleanup } from "@testing-library/react";
 import { routedFetch } from "./helpers/fetch-router";
+
+// Auto-unmount between tests. Manual end-of-test cleanup() calls never run
+// when an assertion throws mid-test, so one failing test leaked its DOM into
+// the next render (duplicate buttons/labels — the workflow-page flake in
+// full suite runs). Double cleanup is a no-op.
+afterEach(() => cleanup());
 
 // Install the routed fetch BEFORE any app module imports @meridian/sdk —
 // openapi-fetch captures the default fetch at client construction.

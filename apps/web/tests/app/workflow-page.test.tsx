@@ -116,7 +116,10 @@ describe("/settings/workflow integration", () => {
       </AuthProvider>,
     );
     expect(await screen.findByText(/Read-only/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Status 1 name/i)).toBeDisabled();
+    // Await the statuses commit too: the read-only banner renders before the
+    // statuses fetch settles, so a synchronous query here races it in full
+    // suite runs (leaked DOM then duplicated buttons downstream).
+    expect(await screen.findByLabelText(/Status 1 name/i)).toBeDisabled();
     expect(screen.queryByRole("button", { name: "Save statuses" })).not.toBeInTheDocument();
     cleanup();
   });
