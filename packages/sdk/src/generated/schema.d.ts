@@ -1759,6 +1759,280 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/config-items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/config-items — active items only (merged tombstones excluded). */
+        get: operations["config_items_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config-items/feed-upsert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/config-items/feed-upsert — CI2: the single feeder write path
+         *     (lane 8's seam). Never blind-inserts: existing (source_system,
+         *     external_id) links resolve to their own item; identity keys resolve the
+         *     deterministic case; ambiguity queues reviewable candidates and only
+         *     auto-merges at/above the org threshold.
+         */
+        post: operations["config_items_feed_upsert"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config-items/interfaces/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** DELETE /api/config-items/interfaces/{id} */
+        delete: operations["config_items_delete_interface"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config-items/merge-candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/config-items/merge-candidates — the review queue. */
+        get: operations["config_items_list_candidates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config-items/merge-candidates/{id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/config-items/merge-candidates/{id}/accept — fold the candidate
+         *     into the primary with the candidate's evidence attached.
+         */
+        post: operations["config_items_accept_candidate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config-items/merge-candidates/{id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/config-items/merge-candidates/{id}/reject — keep both items. */
+        post: operations["config_items_reject_candidate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config-items/merges/{id}/split": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/config-items/merges/{id}/split — undo a merge (IF7): links,
+         *     interfaces, and field tiers ride back from the audit row's packet.
+         */
+        post: operations["config_items_split"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config-items/precedence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/config-items/precedence — org overrides (shipped ADR defaults
+         *     resolve in Rust when no row matches).
+         */
+        get: operations["config_items_list_precedence"];
+        /**
+         * PUT /api/config-items/precedence — a per-type/per-source precedence
+         *     override (CI5). Upserts by (layout, field, source).
+         */
+        put: operations["config_items_upsert_precedence"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config-items/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/config-items/settings — the org's auto-merge threshold. */
+        get: operations["config_items_get_settings"];
+        /**
+         * PUT /api/config-items/settings — the org's auto-merge confidence
+         *     threshold (CI4).
+         */
+        put: operations["config_items_put_settings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config-items/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/config-items/{id} — the CI with its source links + interfaces. */
+        get: operations["config_items_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/config-items/{id} — human curation (CI5): curated values are
+         *     sticky forever; feeds never auto-overwrite them afterwards.
+         */
+        patch: operations["config_items_curate"];
+        trace?: never;
+    };
+    "/api/v1/config-items/{id}/accept-observed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/config-items/{id}/accept-observed — CI5 one-click "accept the
+         *     new value": promotes the observed value into the sticky curated tier.
+         */
+        post: operations["config_items_accept_observed"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config-items/{id}/interfaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/config-items/{id}/interfaces — record a NIC (ADR 0003
+         *     lifecycle rule: NICs are attributes, not their own CIs).
+         */
+        post: operations["config_items_add_interface"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config-items/{id}/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/config-items/{id}/merge — an explicit human merge (the queue's
+         *     accept path rides this too). Audited + undoable (split).
+         */
+        post: operations["config_items_merge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config-items/{id}/merges": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/config-items/{id}/merges — the item's merge audit trail. */
+        get: operations["config_items_list_merges"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/contracts": {
         parameters: {
             query?: never;
@@ -6246,6 +6520,9 @@ export interface components {
             /** @description The one-time setup token from the invite response. */
             token: string;
         };
+        AcceptObservedRequest: components["schemas"]["MutationParams"] & {
+            field_key: string;
+        };
         /**
          * @description Who performed the audited action. Append-only provenance record.
          *     Portal variants carry the client-side tier so audit trails distinguish
@@ -6626,6 +6903,40 @@ export interface components {
         /** @description Instant-first mutation response (IF2). */
         ArticleMutationResponse: components["schemas"]["KbArticle"] & {
             mutation: components["schemas"]["MutationMeta"];
+        };
+        /**
+         * @description Rental tracking + depreciation inputs on an asset (money is integer
+         *     minor units + currency code per ADR 0002; no conversion happens here).
+         */
+        AssetLifecycleInput: {
+            /** @description none | straight_line | declining_balance */
+            depreciation_method?: string | null;
+            /**
+             * Format: int32
+             * @description basis points for declining_balance (1..9999)
+             */
+            depreciation_rate_bps?: number | null;
+            /** @description owned | leased | rented */
+            ownership?: string | null;
+            /** Format: int64 */
+            purchase_cost_minor?: number | null;
+            purchase_currency?: string | null;
+            /** Format: date */
+            purchase_date?: string | null;
+            /** Format: int64 */
+            rental_cost_minor?: number | null;
+            rental_currency?: string | null;
+            /** @description monthly | quarterly | annual */
+            rental_cycle?: string | null;
+            /** Format: date */
+            rental_end?: string | null;
+            /** Format: date */
+            rental_start?: string | null;
+            rental_vendor?: string | null;
+            /** Format: int64 */
+            salvage_value_minor?: number | null;
+            /** Format: int32 */
+            useful_life_months?: number | null;
         };
         /**
          * @description Instant-first mutation response (IF2): asset fields at the top level
@@ -7207,6 +7518,10 @@ export interface components {
              */
             user_id?: string | null;
         };
+        CandidateView: components["schemas"]["CiMergeCandidate"] & {
+            candidate_tag: string;
+            primary_tag: string;
+        };
         CapabilityGrantList: {
             grants: components["schemas"]["CapabilityGrantView"][];
         };
@@ -7418,6 +7733,114 @@ export interface components {
             /** Format: int32 */
             would_update: number;
         };
+        /** @description A per-type/per-source precedence override (CI5). */
+        CiFieldPrecedence: {
+            /** Format: date-time */
+            created_at: string;
+            field_key: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            layout_id?: string | null;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: int32 */
+            priority: number;
+            semantic_class?: null | components["schemas"]["CiSemanticClass"];
+            source_system: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /** @description A NIC attribute of a config item (ADR 0003 lifecycle rule). */
+        CiInterface: {
+            /** Format: uuid */
+            config_item_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            ips?: string[];
+            is_primary?: boolean;
+            /** @description Normalized lower colon form, e.g. `aa:bb:cc:dd:ee:ff`. */
+            mac?: string | null;
+            name?: string | null;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            source_link_id?: string | null;
+            /** Format: date-time */
+            updated_at: string;
+            vlans?: string[];
+        };
+        /** @description An audited, undoable merge (the split substrate). */
+        CiMerge: {
+            /** Format: uuid */
+            candidate_id?: string | null;
+            /** Format: double */
+            confidence?: number | null;
+            evidence?: unknown;
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            merged_at: string;
+            /** Format: uuid */
+            merged_by?: string | null;
+            /** Format: uuid */
+            merged_config_item_id: string;
+            moved?: unknown;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            primary_config_item_id: string;
+            reason: string;
+            status: string;
+            /** Format: date-time */
+            undone_at?: string | null;
+            /** Format: uuid */
+            undone_by?: string | null;
+        };
+        /**
+         * @description A reviewable ambiguous match (ADR 0003): visible evidence, one-click
+         *     accept/reject, auto-merge only above the org threshold.
+         */
+        CiMergeCandidate: {
+            /** Format: uuid */
+            candidate_config_item_id: string;
+            /** Format: double */
+            confidence: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            decided_at?: string | null;
+            /** Format: uuid */
+            decided_by?: string | null;
+            evidence?: unknown;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            primary_config_item_id: string;
+            reason: string;
+            status: components["schemas"]["CiMergeStatus"];
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /**
+         * @description CI4: lifecycle of a reviewable merge candidate.
+         * @enum {string}
+         */
+        CiMergeStatus: "pending" | "auto_merged" | "accepted" | "rejected";
+        /**
+         * @description CI6: a semantic class is the behavior-bearing identity of a CI type.
+         *     Layouts (types) are org-configurable and renameable; the class is not.
+         * @enum {string}
+         */
+        CiSemanticClass: "workstation" | "server" | "vm" | "network_appliance" | "printer" | "iot";
+        CiSettingsView: {
+            /** Format: double */
+            auto_merge_threshold: number;
+        };
         Client: {
             /** Format: date-time */
             created_at: string;
@@ -7450,6 +7873,38 @@ export interface components {
             /** Format: int64 */
             chunk_index: number;
             committed_at: string;
+        };
+        /** @description Instant-first mutation response (IF2). */
+        ConfigItemMutationResponse: components["schemas"]["DeviceAsset"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        ConfigItemView: components["schemas"]["DeviceAsset"] & {
+            interfaces?: components["schemas"]["CiInterface"][];
+            /** @description The layout's CI6 semantic class (None = untyped). */
+            semantic_class?: string | null;
+            source_links?: components["schemas"]["ConfigSourceLink"][];
+        };
+        /**
+         * @description A feeder's per-source record link (ADR 0003). 0..N per config item; the
+         *     unique key is `(org, source_system, external_id)`.
+         */
+        ConfigSourceLink: {
+            /** Format: uuid */
+            config_item_id: string;
+            /** Format: date-time */
+            created_at: string;
+            external_id: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            last_seen_at: string;
+            /** Format: uuid */
+            org_id: string;
+            payload_ref?: string | null;
+            source_guid?: string | null;
+            source_system: string;
+            /** Format: date-time */
+            updated_at: string;
         };
         ConflictCheckRequest: {
             /** Format: date-time */
@@ -7815,6 +8270,7 @@ export interface components {
              * @description Typed layout; when set, `fields` is validated against its schema.
              */
             layout_id?: string | null;
+            lifecycle?: null | components["schemas"]["AssetLifecycleInput"];
             name: string;
             /** Format: uuid */
             site_id?: string | null;
@@ -8034,6 +8490,14 @@ export interface components {
             name: string;
             /** @description Source-system label this template belongs to (e.g. "connectwise"). */
             source_system: string;
+        };
+        CreateInterfaceRequest: {
+            ips?: string[];
+            is_primary?: boolean;
+            /** @description Normalized to lower colon form server-side. */
+            mac?: string | null;
+            name?: string | null;
+            vlans?: string[];
         };
         CreateInvoiceRunRequest: components["schemas"]["MutationParams"] & {
             /**
@@ -8556,6 +9020,10 @@ export interface components {
          * @enum {string}
          */
         CreditNoteStatus: "issued" | "void";
+        CurateFieldsRequest: components["schemas"]["MutationParams"] & {
+            /** @description Per-field human values; a `null` value un-curates the field. */
+            fields: unknown;
+        };
         /** @description The customization manifest envelope, `manifest_version` 1. */
         CustomizationManifest: {
             /**
@@ -8746,13 +9214,24 @@ export interface components {
             client_id: string;
             /** Format: date-time */
             created_at: string;
+            /** @description CI5: human-set tier; sticky forever, never auto-overwritten. */
+            curated_fields?: unknown;
+            /** @description none | straight_line | declining_balance. */
+            depreciation_method?: string;
+            /** Format: int32 */
+            depreciation_rate_bps?: number | null;
+            /** @description CI5: per observed field `{source_system, source_link_id, observed_at}`. */
+            field_sources?: unknown;
             /**
              * @description Custom-field values validated against the layout's schema
-             *     (docs-platform v1 shape; app-validated).
+             *     (docs-platform v1 shape; app-validated). The EFFECTIVE view:
+             *     curated wins over observed (CI5, migration 0061).
              */
             fields?: unknown;
             /** Format: uuid */
             id: string;
+            /** @description CI3 deterministic identity keys (source GUID, serial, MACs, ...). */
+            identity_keys?: unknown;
             /**
              * @description Free-text connector compatibility column; typed classification
              *     lives in `layout_id` + `fields` (asset taxonomy, migration 0054).
@@ -8763,9 +9242,35 @@ export interface components {
              * @description The typed layout this asset instantiates; NULL = untyped.
              */
             layout_id?: string | null;
+            /**
+             * Format: uuid
+             * @description CI4: non-NULL means this row was absorbed by the target (tombstone).
+             */
+            merged_into_id?: string | null;
             name: string;
+            /** @description CI5: feed-written tier; churns silently with its source. */
+            observed_fields?: unknown;
             /** Format: uuid */
             org_id: string;
+            /** @description owned | leased | rented. */
+            ownership?: string;
+            /** Format: int64 */
+            purchase_cost_minor?: number | null;
+            purchase_currency?: string | null;
+            /** Format: date */
+            purchase_date?: string | null;
+            /** Format: int64 */
+            rental_cost_minor?: number | null;
+            rental_currency?: string | null;
+            /** @description monthly | quarterly | annual. */
+            rental_cycle?: string | null;
+            /** Format: date */
+            rental_end?: string | null;
+            /** Format: date */
+            rental_start?: string | null;
+            rental_vendor?: string | null;
+            /** Format: int64 */
+            salvage_value_minor?: number | null;
             /** Format: uuid */
             site_id?: string | null;
             status: string;
@@ -8773,6 +9278,8 @@ export interface components {
             tag: string;
             /** Format: date-time */
             updated_at: string;
+            /** Format: int32 */
+            useful_life_months?: number | null;
         };
         /**
          * @description One booking block on the dispatch board: the appointment plus the
@@ -8902,6 +9409,7 @@ export interface components {
             name: string;
             /** Format: uuid */
             org_id: string;
+            semantic_class?: null | components["schemas"]["CiSemanticClass"];
             /** @description Stable per-org handle (unique). */
             slug: string;
             /** Format: date-time */
@@ -9299,6 +9807,45 @@ export interface components {
             due_on: string;
             label: string;
             notes?: string | null;
+        };
+        /** @description The feeder upsert input — lane 8's seam (NinjaOne / IT Glue / Auvik). */
+        FeedUpsertRequest: components["schemas"]["MutationParams"] & {
+            /** Format: uuid */
+            client_id: string;
+            external_id: string;
+            /** @description CI3 deterministic identity signals (source GUID, serial, MACs, ...). */
+            identity_keys?: unknown;
+            /** Format: uuid */
+            layout_id?: string | null;
+            name: string;
+            /** @description CI5 observed tier: feed-written, churns with its source. */
+            observed_fields?: unknown;
+            payload_ref?: string | null;
+            source_guid?: string | null;
+            source_system: string;
+            /** @description Display defaults for a freshly created canonical item. */
+            tag: string;
+        };
+        /**
+         * @description Instant-first mutation response (IF2): item fields flattened at the top
+         *     level plus the additive feed-sync evidence and `mutation` metadata.
+         */
+        FeedUpsertResponse: components["schemas"]["DeviceAsset"] & {
+            /** @description Auto-merged at/above the org confidence threshold. */
+            auto_merged?: boolean;
+            /** @description Observed values that contradict a curated value (never applied). */
+            contradictions?: string[];
+            /** @description A fresh canonical row was created by THIS sync (no twin risk). */
+            created_item?: boolean;
+            mutation: components["schemas"]["MutationMeta"];
+            /** @description Reviewable candidates queued for a human (visible evidence). */
+            queued_candidates?: components["schemas"]["CiMergeCandidate"][];
+            /**
+             * @description An existing item was deterministically resolved through identity
+             *     keys; no second row exists for this source record.
+             */
+            resolved_existing?: boolean;
+            source_link?: components["schemas"]["ConfigSourceLink"];
         };
         /**
          * @description Wire view of one field definition; choice kinds carry their closed
@@ -9830,6 +10377,22 @@ export interface components {
             rollup: components["schemas"]["TicketRollup"];
             to: Record<string, never>[];
         };
+        ListCandidatesQuery: {
+            /** @description pending | auto_merged | accepted | rejected */
+            status?: string | null;
+        };
+        ListConfigItemsQuery: {
+            /** Format: uuid */
+            client_id?: string | null;
+            /** Format: uuid */
+            layout_id?: string | null;
+            q?: string | null;
+            /**
+             * @description CI6 semantic class filter (workstation | server | vm |
+             *     network_appliance | printer | iot).
+             */
+            semantic_class?: string | null;
+        };
         ListEntriesQuery: {
             /** Format: int64 */
             limit?: number;
@@ -10313,9 +10876,14 @@ export interface components {
             time_minutes_folded: number;
         };
         MergeRequest: components["schemas"]["MutationParams"] & {
-            resolve?: components["schemas"]["MergeResolutions"];
             /** Format: uuid */
-            survivor_id: string;
+            candidate_id?: string | null;
+            /**
+             * Format: uuid
+             * @description The item to absorb into `{id}`.
+             */
+            merged_config_item_id: string;
+            reason?: string | null;
         };
         MergeResolutions: {
             assignee?: null | components["schemas"]["FieldResolution"];
@@ -13532,6 +14100,7 @@ export interface components {
             fields?: unknown;
             /** Format: uuid */
             layout_id?: string | null;
+            lifecycle?: null | components["schemas"]["AssetLifecycleInput"];
             name?: string | null;
             /** Format: uuid */
             site_id?: string | null;
@@ -13742,6 +14311,13 @@ export interface components {
             /** @description Must satisfy the declaration's kind or the request is rejected 422. */
             value: unknown;
         };
+        UpdateSettingsRequest: {
+            /**
+             * Format: double
+             * @description Auto-merge only at/above this confidence (0..1).
+             */
+            auto_merge_threshold: number;
+        };
         /** @description PATCH /api/pipeline/stages/{id} body. */
         UpdateStageRequest: components["schemas"]["MutationParams"] & {
             active?: boolean | null;
@@ -13791,6 +14367,15 @@ export interface components {
             role: components["schemas"]["BoardRole"];
             /** Format: uuid */
             user_id: string;
+        };
+        UpsertPrecedenceRequest: {
+            field_key: string;
+            /** Format: uuid */
+            layout_id?: string | null;
+            /** Format: int32 */
+            priority: number;
+            semantic_class?: string | null;
+            source_system: string;
         };
         UpsertProviderRequest: {
             client_id: string;
@@ -17164,6 +17749,515 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Site"];
+                };
+            };
+        };
+    };
+    config_items_list: {
+        parameters: {
+            query?: {
+                client_id?: string | null;
+                layout_id?: string | null;
+                /**
+                 * @description CI6 semantic class filter (workstation | server | vm |
+                 *     network_appliance | printer | iot).
+                 */
+                semantic_class?: string | null;
+                q?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigItemView"][];
+                };
+            };
+        };
+    };
+    config_items_feed_upsert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedUpsertRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedUpsertResponse"];
+                };
+            };
+            /** @description idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description source system / external id validation */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    config_items_delete_interface: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    config_items_list_candidates: {
+        parameters: {
+            query?: {
+                /** @description pending | auto_merged | accepted | rejected */
+                status?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CandidateView"][];
+                };
+            };
+        };
+    };
+    config_items_accept_candidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CiMerge"];
+                };
+            };
+            /** @description candidate not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description candidate already decided */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    config_items_reject_candidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CiMergeCandidate"];
+                };
+            };
+            /** @description candidate not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description candidate already decided */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    config_items_split: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CiMerge"];
+                };
+            };
+            /** @description merge not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description merge already undone */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    config_items_list_precedence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CiFieldPrecedence"][];
+                };
+            };
+        };
+    };
+    config_items_upsert_precedence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertPrecedenceRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CiFieldPrecedence"];
+                };
+            };
+            /** @description unknown semantic class */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    config_items_get_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CiSettingsView"];
+                };
+            };
+        };
+    };
+    config_items_put_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSettingsRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CiSettingsView"];
+                };
+            };
+            /** @description threshold out of range */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    config_items_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigItemView"];
+                };
+            };
+            /** @description config item not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    config_items_curate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CurateFieldsRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigItemMutationResponse"];
+                };
+            };
+            /** @description config item not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    config_items_accept_observed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcceptObservedRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigItemMutationResponse"];
+                };
+            };
+            /** @description config item not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description no observed value for that field / version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    config_items_add_interface: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateInterfaceRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CiInterface"][];
+                };
+            };
+            /** @description config item not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    config_items_merge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MergeRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CiMerge"];
+                };
+            };
+            /** @description config item not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description cannot merge an item into itself / already merged */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    config_items_list_merges: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CiMerge"][];
                 };
             };
         };
