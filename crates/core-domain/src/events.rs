@@ -246,6 +246,31 @@ pub mod types {
     pub const CREDIT_NOTE_ISSUED: &str = "credit_note.issued";
     pub const CREDIT_NOTE_APPLIED: &str = "credit_note.applied";
     pub const CREDIT_NOTE_REFUNDED: &str = "credit_note.refunded";
+    /// Quote builder + catalog + sales pipeline (TASKLIST Phase 3, Wave 12
+    /// lane 2). Catalog lifecycle is create/update/archive (archival is a
+    /// flag, never a delete). The quote lifecycle is data
+    /// (`draft` → `sent` → `accepted` | `declined` | `expired`); only a
+    /// draft is editable. `quote.converted` fires when the accepted quote
+    /// was materialized through the convert-to-invoice seam (contract +
+    /// draft invoice via the existing invoicing persistence). Pipeline
+    /// stage moves append an audited transition ledger row —
+    /// `pipeline.deal_stage_changed` is the consumer signal, the ledger is
+    /// ground truth.
+    pub const CATALOG_ITEM_CREATED: &str = "catalog.item_created";
+    pub const CATALOG_ITEM_UPDATED: &str = "catalog.item_updated";
+    pub const CATALOG_ITEM_ARCHIVED: &str = "catalog.item_archived";
+    pub const QUOTE_CREATED: &str = "quote.created";
+    pub const QUOTE_UPDATED: &str = "quote.updated";
+    pub const QUOTE_SENT: &str = "quote.sent";
+    pub const QUOTE_ACCEPTED: &str = "quote.accepted";
+    pub const QUOTE_DECLINED: &str = "quote.declined";
+    pub const QUOTE_EXPIRED: &str = "quote.expired";
+    pub const QUOTE_CONVERTED: &str = "quote.converted";
+    pub const PIPELINE_STAGE_CREATED: &str = "pipeline.stage_created";
+    pub const PIPELINE_STAGE_UPDATED: &str = "pipeline.stage_updated";
+    pub const PIPELINE_DEAL_CREATED: &str = "pipeline.deal_created";
+    pub const PIPELINE_DEAL_UPDATED: &str = "pipeline.deal_updated";
+    pub const PIPELINE_DEAL_STAGE_CHANGED: &str = "pipeline.deal_stage_changed";
     /// Dispatch v2 (TASKLIST Phase 3, Wave 9 lane 9): a field-service
     /// status push landed against an appointment (connector or staff);
     /// the `dispatch_status_updates` ledger is the ground truth.
@@ -1295,6 +1320,180 @@ pub struct InvoiceDunningChanged {
     pub to_state: String,
     pub note: Option<String>,
     pub changed_at: DateTime<Utc>,
+}
+
+/// catalog.item_created — a product/service catalog item was created.
+/// The payload carries the full item snapshot (money is minor units).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct CatalogItemCreated {
+    pub item: crate::entities::CatalogItem,
+}
+
+/// catalog.item_updated — a catalog item changed (any field including
+/// `active`). The snapshot is AFTER the write.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct CatalogItemUpdated {
+    pub item: crate::entities::CatalogItem,
+}
+
+/// catalog.item_archived — a catalog item was archived (`active = false`).
+/// Archival is a flag: quote history is never rewritten, and the item
+/// stays readable.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct CatalogItemArchived {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub item_id: uuid::Uuid,
+    pub name: String,
+}
+
+/// quote.created — a numbered quote document was created in draft with
+/// its initial lines (lines excluded from the payload; consumers refetch).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct QuoteCreated {
+    pub quote: crate::entities::Quote,
+}
+
+/// quote.updated — a draft quote's header or lines were edited; the
+/// roll-ups are recomputed. After the write.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct QuoteUpdated {
+    pub quote: crate::entities::Quote,
+}
+
+/// quote.sent — the draft was locked and sent to the client. Sending is
+/// the immutability boundary: only lifecycle legs write past it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct QuoteSent {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub quote_id: uuid::Uuid,
+    pub number: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub client_id: uuid::Uuid,
+    pub currency: String,
+    pub total_minor: i64,
+    #[cfg_attr(feature = "openapi", schema(value_type = String))]
+    pub valid_until: chrono::NaiveDate,
+    pub sent_at: DateTime<Utc>,
+}
+
+/// quote.accepted — the client accepted the quote. Terminal; the quote is
+/// now convertible through the convert-to-invoice seam while valid.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct QuoteAccepted {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub quote_id: uuid::Uuid,
+    pub number: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub client_id: uuid::Uuid,
+    pub currency: String,
+    pub total_minor: i64,
+    pub decided_at: DateTime<Utc>,
+}
+
+/// quote.declined — the client declined the quote. Terminal.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct QuoteDeclined {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub quote_id: uuid::Uuid,
+    pub number: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub client_id: uuid::Uuid,
+    pub decided_at: DateTime<Utc>,
+}
+
+/// quote.expired — the quote was explicitly expired past its validity
+/// window (expiry is also derivable from `valid_until` for consumers).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct QuoteExpired {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub quote_id: uuid::Uuid,
+    pub number: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub client_id: uuid::Uuid,
+    pub decided_at: DateTime<Utc>,
+}
+
+/// quote.converted — the convert-to-invoice seam materialized an accepted
+/// quote into what native invoicing consumes: a fixed-fee contract (one
+/// scheduled fee per quote line) plus a DRAFT invoice built through the
+/// existing invoice persistence. Both ids are always set.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct QuoteConverted {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub quote_id: uuid::Uuid,
+    pub quote_number: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub client_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub contract_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub invoice_id: uuid::Uuid,
+    pub currency: String,
+    pub total_minor: i64,
+    pub converted_at: DateTime<Utc>,
+}
+
+/// pipeline.stage_created — a pipeline stage was created.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PipelineStageCreated {
+    pub stage: crate::entities::PipelineStage,
+}
+
+/// pipeline.stage_updated — a stage's name/position/kind/active changed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PipelineStageUpdated {
+    pub stage: crate::entities::PipelineStage,
+}
+
+/// pipeline.deal_created — an opportunity was created and placed on its
+/// initial stage (the placement transition row co-commits).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PipelineDealCreated {
+    pub deal: crate::entities::PipelineDeal,
+}
+
+/// pipeline.deal_updated — a deal's editable fields changed (not its
+/// stage; that fires `pipeline.deal_stage_changed`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PipelineDealUpdated {
+    pub deal: crate::entities::PipelineDeal,
+}
+
+/// pipeline.deal_stage_changed — a deal moved between stages. The
+/// immutable transition ledger row is ground truth; this payload carries
+/// the AFTER posture (`status` mirrors the target stage's kind — landing
+/// on a won/lost stage closes the deal).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PipelineDealStageChanged {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub deal_id: uuid::Uuid,
+    pub name: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub from_stage_id: Option<uuid::Uuid>,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub to_stage_id: uuid::Uuid,
+    pub to_stage_type: crate::entities::StageType,
+    pub status: crate::entities::DealStatus,
+    pub amount_minor: i64,
+    pub currency: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub actor_id: Option<uuid::Uuid>,
+    pub occurred_at: DateTime<Utc>,
 }
 
 /// appointment_request.created — a client portal user asked for a slot on

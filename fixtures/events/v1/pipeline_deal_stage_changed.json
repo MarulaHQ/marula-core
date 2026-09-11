@@ -1,0 +1,19 @@
+{
+  "event_type": "pipeline.deal_stage_changed",
+  "entity": "pipeline_deal",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "actor_id": "00000000-0000-0000-0000-000000000004",
+    "amount_minor": 27000,
+    "currency": "USD",
+    "deal_id": "00000000-0000-0000-0000-00000000002a",
+    "from_stage_id": "00000000-0000-0000-0000-000000000029",
+    "name": "Workstation rollout",
+    "occurred_at": "2023-11-14T22:13:25Z",
+    "status": "won",
+    "to_stage_id": "00000000-0000-0000-0000-00000000002b",
+    "to_stage_type": "won"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "event_type": "quote.updated",
+  "entity": "quote",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "quote": {
+      "client_id": "00000000-0000-0000-0000-000000000003",
+      "converted_at": null,
+      "converted_contract_id": null,
+      "converted_invoice_id": null,
+      "created_at": "2023-11-14T22:13:22Z",
+      "created_by": "00000000-0000-0000-0000-000000000004",
+      "currency": "USD",
+      "decided_at": null,
+      "id": "00000000-0000-0000-0000-000000000028",
+      "issued_on": "2024-01-01",
+      "notes": null,
+      "number": "Q-000012",
+      "org_id": "00000000-0000-0000-0000-000000000002",
+      "sent_at": null,
+      "status": "draft",
+      "subtotal_minor": 25000,
+      "tax_minor": 2000,
+      "tax_rate_bps": 800,
+      "terms": "Net 30 from acceptance",
+      "total_minor": 27000,
+      "updated_at": "2023-11-14T22:13:22Z",
+      "valid_until": "2024-01-28"
+    }
+  }
+}

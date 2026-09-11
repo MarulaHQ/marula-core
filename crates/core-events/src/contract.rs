@@ -247,6 +247,92 @@ fn sample_invoice_payment() -> InvoicePayment {
     }
 }
 
+/// Representative catalog item for catalog samples (Wave 12 lane 2).
+fn sample_catalog_item() -> CatalogItem {
+    CatalogItem {
+        id: su(37),
+        org_id: su(2),
+        name: "Managed workstation".into(),
+        sku: Some("WS-MGD".into()),
+        description: None,
+        unit: "month".into(),
+        currency: "USD".into(),
+        unit_price_minor: 9_900,
+        cost_minor: 4_000,
+        taxable: true,
+        category: Some("Managed services".into()),
+        group_name: None,
+        active: true,
+        created_by: Some(su(4)),
+        created_at: st(1),
+        updated_at: st(1),
+    }
+}
+
+/// Representative draft quote for quote-builder samples.
+fn sample_quote() -> Quote {
+    Quote {
+        id: su(40),
+        org_id: su(2),
+        number: "Q-000012".into(),
+        client_id: su(3),
+        status: QuoteStatus::Draft,
+        currency: "USD".into(),
+        issued_on: sd(1),
+        valid_until: sd(28),
+        notes: None,
+        terms: Some("Net 30 from acceptance".into()),
+        subtotal_minor: 25_000,
+        tax_rate_bps: 800,
+        tax_minor: 2_000,
+        total_minor: 27_000,
+        sent_at: None,
+        decided_at: None,
+        converted_contract_id: None,
+        converted_invoice_id: None,
+        converted_at: None,
+        created_by: Some(su(4)),
+        created_at: st(2),
+        updated_at: st(2),
+    }
+}
+
+/// Representative pipeline stage for sales-pipeline samples.
+fn sample_pipeline_stage() -> PipelineStage {
+    PipelineStage {
+        id: su(41),
+        org_id: su(2),
+        name: "Proposal sent".into(),
+        position: 2,
+        stage_type: StageType::Open,
+        active: true,
+        created_at: st(1),
+        updated_at: st(1),
+    }
+}
+
+/// Representative open deal for sales-pipeline samples.
+fn sample_pipeline_deal() -> PipelineDeal {
+    PipelineDeal {
+        id: su(42),
+        org_id: su(2),
+        client_id: su(3),
+        quote_id: Some(su(40)),
+        stage_id: su(41),
+        name: "Workstation rollout".into(),
+        amount_minor: 27_000,
+        currency: "USD".into(),
+        status: DealStatus::Open,
+        expected_close_on: Some(sd(28)),
+        owner_user_id: Some(su(4)),
+        notes: None,
+        closed_at: None,
+        created_by: Some(su(4)),
+        created_at: st(2),
+        updated_at: st(2),
+    }
+}
+
 /// Representative org tag for the workflow-construct samples.
 fn sample_tag() -> Tag {
     Tag {
@@ -413,9 +499,10 @@ macro_rules! untyped_shape {
 
 use core_domain::entities::{
     Appointment, AppointmentKind, AppointmentStatus, BillingFrequency, BillingMethod, BoardGroup,
-    BoardStatus, ChecklistItem, Contract, ContractStatus, ContractType, CostLineKind, DunningState,
-    Invoice, InvoicePayment, InvoiceRun, InvoiceStatus, NotificationKind, NotificationPreference,
-    PhaseStatus, PmSchedule, Project, ProjectPhase, ProjectStatus, ProjectTask, Tag, TaskStatus,
+    BoardStatus, CatalogItem, ChecklistItem, Contract, ContractStatus, ContractType, CostLineKind,
+    DealStatus, DunningState, Invoice, InvoicePayment, InvoiceRun, InvoiceStatus, NotificationKind,
+    NotificationPreference, PhaseStatus, PipelineDeal, PipelineStage, PmSchedule, Project,
+    ProjectPhase, ProjectStatus, ProjectTask, Quote, QuoteStatus, StageType, Tag, TaskStatus,
     TicketComment, TicketCostLine, TicketExpense, TicketLinkType, TimeEntry,
 };
 use core_domain::events::{
@@ -424,16 +511,19 @@ use core_domain::events::{
     AppointmentUpdated, AttachmentAdded, AttachmentDeleted, AttachmentLinked, AvailabilityChanged,
     BoardFavoriteToggled, BoardGroupCreated, BoardGroupRemoved, BoardGroupUpdated,
     BoardMembershipRemoved, BoardMembershipUpdated, BoardStatusAdded, BoardStatusRemoved,
-    BoardStatusUpdated, BoardTransitionsUpdated, CalendarExclusionChanged, ClientCreated,
-    ClientUpdated, ContactCreated, ContactUpdated, ContractCreated, ContractRemoved,
-    ContractUpdated, CreditNoteApplied, CreditNoteIssued, CreditNoteRefunded, DispatchQueueUpdated,
-    DispatchStatusUpdated, ImportBatchFinished, ImportBatchStarted, InvoiceCreated,
-    InvoiceDunningChanged, InvoicePaymentRecorded, InvoiceRunCompleted, InvoiceVoided,
-    MigrationPushSessionFinished, MigrationPushSessionStarted, NotificationCreated, OnCallChanged,
+    BoardStatusUpdated, BoardTransitionsUpdated, CalendarExclusionChanged, CatalogItemArchived,
+    CatalogItemCreated, CatalogItemUpdated, ClientCreated, ClientUpdated, ContactCreated,
+    ContactUpdated, ContractCreated, ContractRemoved, ContractUpdated, CreditNoteApplied,
+    CreditNoteIssued, CreditNoteRefunded, DispatchQueueUpdated, DispatchStatusUpdated,
+    ImportBatchFinished, ImportBatchStarted, InvoiceCreated, InvoiceDunningChanged,
+    InvoicePaymentRecorded, InvoiceRunCompleted, InvoiceVoided, MigrationPushSessionFinished,
+    MigrationPushSessionStarted, NotificationCreated, OnCallChanged, PipelineDealCreated,
+    PipelineDealStageChanged, PipelineDealUpdated, PipelineStageCreated, PipelineStageUpdated,
     PmScheduleChanged, PmScheduleDeleted, ProjectCreated, ProjectMilestoneCompleted,
     ProjectPhaseCompleted, ProjectPhaseCreated, ProjectPhaseUpdated, ProjectTaskCompleted,
     ProjectTaskCreated, ProjectTaskUpdated, ProjectTemplateRemoved, ProjectTemplateUpdated,
-    ProjectUpdated, ProjectViewRemoved, ProjectViewUpdated, SchedulingLinkCreated,
+    ProjectUpdated, ProjectViewRemoved, ProjectViewUpdated, QuoteAccepted, QuoteConverted,
+    QuoteCreated, QuoteDeclined, QuoteExpired, QuoteSent, QuoteUpdated, SchedulingLinkCreated,
     SchedulingLinkRevoked, SchedulingLinkScheduled, SchedulingLinkViewed, SiteCreated, SiteUpdated,
     TagCreated, TagDeleted, TagUpdated, TicketAssigned, TicketBoardMoved, TicketChecklistUpdated,
     TicketCommentAdded, TicketCostLineAdded, TicketCostLineRemoved, TicketCreated,
@@ -2110,6 +2200,206 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
                 currency: "USD".into(),
                 refunded_minor: 5_000,
                 remaining_minor: 10_000,
+            }
+        ),
+    },
+    // -- catalog / quotes / sales pipeline (Wave 12 lane 2) -----------------
+    PublishedEvent {
+        event_type: types::CATALOG_ITEM_CREATED,
+        entity: "catalog_item",
+        variant: "default",
+        shape: typed_shape!(
+            CatalogItemCreated,
+            CatalogItemCreated {
+                item: sample_catalog_item(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::CATALOG_ITEM_UPDATED,
+        entity: "catalog_item",
+        variant: "default",
+        shape: typed_shape!(
+            CatalogItemUpdated,
+            CatalogItemUpdated {
+                item: sample_catalog_item(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::CATALOG_ITEM_ARCHIVED,
+        entity: "catalog_item",
+        variant: "default",
+        shape: typed_shape!(
+            CatalogItemArchived,
+            CatalogItemArchived {
+                item_id: su(37),
+                name: "Managed workstation".into(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::QUOTE_CREATED,
+        entity: "quote",
+        variant: "default",
+        shape: typed_shape!(
+            QuoteCreated,
+            QuoteCreated {
+                quote: sample_quote(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::QUOTE_UPDATED,
+        entity: "quote",
+        variant: "default",
+        shape: typed_shape!(
+            QuoteUpdated,
+            QuoteUpdated {
+                quote: sample_quote(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::QUOTE_SENT,
+        entity: "quote",
+        variant: "default",
+        shape: typed_shape!(
+            QuoteSent,
+            QuoteSent {
+                quote_id: su(40),
+                number: "Q-000012".into(),
+                client_id: su(3),
+                currency: "USD".into(),
+                total_minor: 27_000,
+                valid_until: sd(28),
+                sent_at: st(3),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::QUOTE_ACCEPTED,
+        entity: "quote",
+        variant: "default",
+        shape: typed_shape!(
+            QuoteAccepted,
+            QuoteAccepted {
+                quote_id: su(40),
+                number: "Q-000012".into(),
+                client_id: su(3),
+                currency: "USD".into(),
+                total_minor: 27_000,
+                decided_at: st(4),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::QUOTE_DECLINED,
+        entity: "quote",
+        variant: "default",
+        shape: typed_shape!(
+            QuoteDeclined,
+            QuoteDeclined {
+                quote_id: su(40),
+                number: "Q-000012".into(),
+                client_id: su(3),
+                decided_at: st(4),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::QUOTE_EXPIRED,
+        entity: "quote",
+        variant: "default",
+        shape: typed_shape!(
+            QuoteExpired,
+            QuoteExpired {
+                quote_id: su(40),
+                number: "Q-000012".into(),
+                client_id: su(3),
+                decided_at: st(5),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::QUOTE_CONVERTED,
+        entity: "quote",
+        variant: "default",
+        shape: typed_shape!(
+            QuoteConverted,
+            QuoteConverted {
+                quote_id: su(40),
+                quote_number: "Q-000012".into(),
+                client_id: su(3),
+                contract_id: su(43),
+                invoice_id: su(44),
+                currency: "USD".into(),
+                total_minor: 27_000,
+                converted_at: st(6),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PIPELINE_STAGE_CREATED,
+        entity: "pipeline_stage",
+        variant: "default",
+        shape: typed_shape!(
+            PipelineStageCreated,
+            PipelineStageCreated {
+                stage: sample_pipeline_stage(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PIPELINE_STAGE_UPDATED,
+        entity: "pipeline_stage",
+        variant: "default",
+        shape: typed_shape!(
+            PipelineStageUpdated,
+            PipelineStageUpdated {
+                stage: sample_pipeline_stage(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PIPELINE_DEAL_CREATED,
+        entity: "pipeline_deal",
+        variant: "default",
+        shape: typed_shape!(
+            PipelineDealCreated,
+            PipelineDealCreated {
+                deal: sample_pipeline_deal(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PIPELINE_DEAL_UPDATED,
+        entity: "pipeline_deal",
+        variant: "default",
+        shape: typed_shape!(
+            PipelineDealUpdated,
+            PipelineDealUpdated {
+                deal: sample_pipeline_deal(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PIPELINE_DEAL_STAGE_CHANGED,
+        entity: "pipeline_deal",
+        variant: "default",
+        shape: typed_shape!(
+            PipelineDealStageChanged,
+            PipelineDealStageChanged {
+                deal_id: su(42),
+                name: "Workstation rollout".into(),
+                from_stage_id: Some(su(41)),
+                to_stage_id: su(43),
+                to_stage_type: StageType::Won,
+                status: DealStatus::Won,
+                amount_minor: 27_000,
+                currency: "USD".into(),
+                actor_id: Some(su(4)),
+                occurred_at: st(5),
             }
         ),
     },

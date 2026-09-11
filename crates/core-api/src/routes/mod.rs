@@ -49,6 +49,7 @@ pub mod board_access;
 pub mod boards;
 pub mod byok;
 pub mod calendar;
+pub mod catalog;
 pub mod checklists;
 pub mod clients;
 pub mod connector;
@@ -71,11 +72,13 @@ pub mod oidc;
 pub mod openapi;
 pub mod org_users;
 pub mod passwords;
+pub mod pipeline;
 pub mod portal;
 pub mod portal_admin;
 pub mod portal_v2;
 pub mod projects;
 pub mod provenance;
+pub mod quotes;
 pub mod recurring;
 pub mod report_defs;
 pub mod report_schedules;
@@ -1079,6 +1082,12 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .merge(ticket_links::routes(gen))
         .merge(costs::routes(gen))
         .merge(recurring::routes(gen))
+        // quote builder + product/service catalog + sales pipeline
+        // (Wave 12 lane 2, migration 0060) — each module owns its own
+        // router; mutations ride the IF1–IF3 envelope.
+        .merge(catalog::routes(gen))
+        .merge(quotes::routes(gen))
+        .merge(pipeline::routes(gen))
         // dispatch connector (TASKLIST Phase 3, Wave 9 lane 9): scoped
         // machine surface — schedule reads + field-service status pushes;
         // module owns its own router.

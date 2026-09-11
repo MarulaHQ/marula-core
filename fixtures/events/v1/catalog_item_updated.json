@@ -1,0 +1,27 @@
+{
+  "event_type": "catalog.item_updated",
+  "entity": "catalog_item",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "item": {
+      "active": true,
+      "category": "Managed services",
+      "cost_minor": 4000,
+      "created_at": "2023-11-14T22:13:21Z",
+      "created_by": "00000000-0000-0000-0000-000000000004",
+      "currency": "USD",
+      "description": null,
+      "group_name": null,
+      "id": "00000000-0000-0000-0000-000000000025",
+      "name": "Managed workstation",
+      "org_id": "00000000-0000-0000-0000-000000000002",
+      "sku": "WS-MGD",
+      "taxable": true,
+      "unit": "month",
+      "unit_price_minor": 9900,
+      "updated_at": "2023-11-14T22:13:21Z"
+    }
+  }
+}

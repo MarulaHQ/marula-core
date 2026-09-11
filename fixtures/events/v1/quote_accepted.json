@@ -1,0 +1,15 @@
+{
+  "event_type": "quote.accepted",
+  "entity": "quote",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "client_id": "00000000-0000-0000-0000-000000000003",
+    "currency": "USD",
+    "decided_at": "2023-11-14T22:13:24Z",
+    "number": "Q-000012",
+    "quote_id": "00000000-0000-0000-0000-000000000028",
+    "total_minor": 27000
+  }
+}
