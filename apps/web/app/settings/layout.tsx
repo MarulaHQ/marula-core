@@ -28,6 +28,7 @@ const SECTIONS: NavItem[] = [
   { href: "/settings/notifications", label: "Notifications" },
   { href: "/settings/security", label: "Security" },
   { href: "/settings/workflow", label: "Workflow" },
+  { href: "/settings/taxonomy", label: "Taxonomy" },
   { href: "/settings/tags", label: "Tags" },
   { href: "/settings/pm-schedules", label: "PM schedules" },
   { href: "/settings/sla", label: "SLA" },

@@ -86,6 +86,11 @@ export interface TicketStatusBarProps {
   sla: TicketSlaStatus | null;
   busy?: boolean;
   onChangeStatus(statusId: string): void;
+  /**
+   * Opens the board-move flow from the status menu. Omit to hide the
+   * affordance (no permission / merged ticket).
+   */
+  onMoveBoard?: () => void;
 }
 
 /** Chevron glyph for the transition trigger. */
@@ -106,6 +111,7 @@ export function TicketStatusBar({
   sla,
   busy,
   onChangeStatus,
+  onMoveBoard,
 }: TicketStatusBarProps): ReactNode {
   const [open, setOpen] = useState(false);
   const popRef = useRef<HTMLDivElement | null>(null);
@@ -226,6 +232,21 @@ export function TicketStatusBar({
                 </div>
               );
             })}
+            {onMoveBoard !== undefined ? (
+              <div className="mt-1 border-t pt-2" style={{ borderColor: "var(--m-border)" }}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  data-testid="ticket-move-board"
+                  onClick={() => {
+                    setOpen(false);
+                    onMoveBoard();
+                  }}
+                >
+                  Move to another board…
+                </Button>
+              </div>
+            ) : null}
           </div>
         )}
       </div>

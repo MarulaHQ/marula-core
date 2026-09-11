@@ -21,6 +21,12 @@ export interface InstantTransportResult {
   /** IF3 machine-readable reason on rejected writes. */
   reason?: string;
   message?: string;
+  /**
+   * The full typed IF3 error object when the rejection carried one (e.g.
+   * `board_move_status_conflict`'s `target_statuses`). Clients branch on
+   * typed extras to render conflict pickers, never a dead end.
+   */
+  details?: unknown;
 }
 
 export interface InstantTransport {
@@ -54,7 +60,7 @@ export interface WriteSpec {
 
 export type WriteResult =
   | { status: "accepted"; mutation: MutationMetaLike | null }
-  | { status: "rejected"; reason: string; message?: string }
+  | { status: "rejected"; reason: string; message?: string; details?: unknown }
   | { status: "queued"; key: string };
 
 export function newIdempotencyKey(): string {
@@ -98,6 +104,7 @@ export function executeInstantWrite(
         status: "rejected",
         reason: result.reason ?? "conflict",
         message: result.message,
+        details: result.details,
       } as WriteResult;
     }
     // Accepted: reconcile the authoritative snapshot through the ledger.

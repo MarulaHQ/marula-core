@@ -43,7 +43,7 @@ function wsUrl(): string | null {
 }
 
 /** The IF3 typed error body, wherever openapi-fetch parked it. */
-function reasonOf(error: unknown): { reason: string; message?: string } {
+function reasonOf(error: unknown): { reason: string; message?: string; details?: unknown } {
   const outer = error as
     | { error?: { reason?: string; message?: string }; reason?: string; message?: string }
     | null;
@@ -51,6 +51,9 @@ function reasonOf(error: unknown): { reason: string; message?: string } {
   return {
     reason: typeof inner?.reason === "string" ? inner.reason : "conflict",
     message: typeof inner?.message === "string" ? inner.message : undefined,
+    // Preserve the whole typed body so conflict extras (e.g. the target
+    // statuses behind `board_move_status_conflict`) reach the renderer.
+    details: inner,
   };
 }
 

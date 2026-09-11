@@ -36,6 +36,7 @@ import {
   Tr,
 } from "@meridian/ui";
 import { PanelLayout, usePanelLayout } from "@meridian/layout";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
@@ -77,6 +78,12 @@ import {
   canConfigurePods,
 } from "../../../components/ticket-workspace/pod-settings";
 import { TicketStatusBar } from "../../../components/ticket-status-bar";
+import {
+  MoveBoardDialog,
+  extractTargetStatuses,
+  type MoveBoardInput,
+  type MoveBoardOutcome,
+} from "../../../components/ticket-workspace/move-board";
 import { ClientContactPod } from "../../../components/ticket-workspace/client-contact-pod";
 import { NextStepsPod } from "../../../components/ticket-workspace/next-steps-pod";
 import { TasksPanel } from "../../../components/ticket-workspace/tasks-panel";
@@ -174,6 +181,7 @@ export default function TicketWorkspacePage() {
     };
   }, [mergedIntoId]);
   const isMerged = mergedIntoId !== null;
+  const canMoveBoard = !isMerged && (auth.me?.permissions.includes("tickets:edit") ?? false);
 
   // --- org directory (author names for notes/timeline) -----------------------
   const [namesByUser, setNamesByUser] = useState<Map<string, string>>(new Map());
@@ -228,6 +236,7 @@ export default function TicketWorkspacePage() {
 
   // --- detail tabs --------------------------------------------------------------
   const [activeTab, setActiveTab] = useState<DetailTabId>("original");
+  const [moveBoardOpen, setMoveBoardOpen] = useState(false);
 
   // --- write paths ----------------------------------------------------------------
   const [commentDraftsBusy, setCommentDraftsBusy] = useState(false);
@@ -285,6 +294,78 @@ export default function TicketWorkspacePage() {
     if (result.status === "rejected") {
       throw new Error(result.message ?? "Change rejected");
     }
+  }
+
+  /// Board move (Wave 11 lane 3 backend): optimistic render against the
+  /// target board's status set, authoritative reconcile from the IF2
+  /// envelope; a typed `board_move_status_conflict` returns the target
+  /// board's statuses so the dialog can render an inline pick-list and
+  /// retry with an explicit `status_id`.
+  async function performBoardMove(input: MoveBoardInput): Promise<MoveBoardOutcome> {
+    if (ticket === null) return { ok: false, message: "No ticket loaded." };
+    const before = ticket;
+    // The optimistic render swaps the board's status set + workflow too, so a
+    // rejection must restore the WHOLE slice — otherwise a typed conflict
+    // leaves the target board's statuses in place and the ticket's own status
+    // renders as "Unknown status".
+    const beforeStatuses = statuses;
+    const beforeWorkflow = workflow;
+    const pinned =
+      input.statusId !== null
+        ? (input.targetStatuses.find((s) => s.id === input.statusId) ?? null)
+        : null;
+    const targetStatus = pinned ?? input.autoStatus;
+    const result = await mutate({
+      describe: `Move ${ticket.number} to another board`,
+      entityId: ticket.id,
+      method: "POST",
+      path: `/api/v1/tickets/${ticket.id}/move-board`,
+      buildBody: (base) => ({
+        target_board_id: input.targetBoardId,
+        status_id: input.statusId,
+        reset_sla: input.resetSla,
+        ...base,
+      }),
+      optimistic: () => {
+        patchDetail((m) => {
+          if (m.ticket === null) return m;
+          return {
+            ...m,
+            statuses: input.targetStatuses.length > 0 ? input.targetStatuses : m.statuses,
+            workflow: { mode: "floor", edges: [] },
+            ticket: {
+              ...m.ticket,
+              board_id: input.targetBoardId,
+              ...(targetStatus !== null
+                ? { status_id: targetStatus.id, category: targetStatus.category }
+                : {}),
+            },
+          };
+        });
+      },
+      captureBefore: () => before,
+      revert: () => {
+        patchDetail((m) => ({
+          ...m,
+          ticket: m.ticket === null ? m.ticket : { ...m.ticket, ...before },
+          statuses: beforeStatuses,
+          workflow: beforeWorkflow,
+        }));
+      },
+    });
+    if (result.status === "rejected") {
+      const conflictStatuses =
+        result.reason === "board_move_status_conflict"
+          ? extractTargetStatuses(result.details)
+          : undefined;
+      return {
+        ok: false,
+        reason: result.reason,
+        message: result.message,
+        conflictStatuses,
+      };
+    }
+    return { ok: true };
   }
 
   async function saveCustomField(fieldId: string, value: string): Promise<void> {
@@ -679,9 +760,32 @@ export default function TicketWorkspacePage() {
         />
       )}
       <div className="grid gap-1 text-xs">
+        <dt className="font-medium">Board</dt>
+        <dd className="flex flex-wrap items-center gap-2" data-testid="details-board">
+          {canMoveBoard ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              data-testid="details-move-board"
+              onClick={() => setMoveBoardOpen(true)}
+            >
+              Move to another board…
+            </Button>
+          ) : (
+            <span style={{ color: "var(--m-text-muted)" }}>
+              Moving a ticket to another board requires ticket edit permission.
+            </span>
+          )}
+        </dd>
+      </div>
+      <div className="grid gap-1 text-xs">
         <dt className="font-medium">Classification</dt>
         <dd style={{ color: "var(--m-text-muted)" }} data-testid="classification-gap">
-          Type/category read-back is not exposed on the ticket read yet — manage trees in Settings → Taxonomy.
+          Type/category read-back is not exposed on the ticket read yet —{" "}
+          <Link href="/settings/taxonomy" className="underline">
+            manage the trees in Settings → Taxonomy
+          </Link>
+          .
         </dd>
       </div>
       {ticket !== null && <TicketUndo ticketId={ticket.id} onChanged={() => void refresh()} />}
@@ -806,7 +910,11 @@ export default function TicketWorkspacePage() {
               Classification
             </h2>
             <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>
-              This ticket's type/category read-back is not on the ticket view yet; the org's tree lives in Settings → Taxonomy.
+              This ticket&apos;s type/category read-back is not on the ticket view yet;{" "}
+              <Link href="/settings/taxonomy" className="underline">
+                manage the org&apos;s trees in Settings → Taxonomy
+              </Link>
+              .
             </p>
           </section>
         );
@@ -865,6 +973,7 @@ export default function TicketWorkspacePage() {
                     workflow={workflow}
                     sla={model?.sla ?? null}
                     onChangeStatus={(id) => void changeStatus(id)}
+                    onMoveBoard={canMoveBoard ? () => setMoveBoardOpen(true) : undefined}
                   />
                   <div className="flex flex-wrap items-center justify-between gap-2 px-3 pt-2">
                     <TicketTags
@@ -928,6 +1037,15 @@ export default function TicketWorkspacePage() {
                     }}
                     onChangeStatus={changeStatus}
                   />
+                  {canMoveBoard ? (
+                    <MoveBoardDialog
+                      open={moveBoardOpen}
+                      onOpenChange={setMoveBoardOpen}
+                      ticket={ticket}
+                      onMove={performBoardMove}
+                      onMoved={() => void refresh()}
+                    />
+                  ) : null}
                 </div>
               );
             }
