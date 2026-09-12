@@ -6,6 +6,7 @@ license = "Apache-2.0"
 description = "First-party documentation-system (DMS) sync adapter for Project Meridian — IT Glue / Hudu exports + generic REST over the public API only (Apache-2.0)"
 
 [dependencies]
+adapters-core = { path = "../adapters-core" }
 async-trait = { workspace = true }
 chrono = { workspace = true }
 hex = { workspace = true }

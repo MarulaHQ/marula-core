@@ -1,0 +1,19 @@
+[package]
+name = "m365-graph"
+version = "0.1.0"
+edition.workspace = true
+license = "Apache-2.0"
+description = "First-party Microsoft 365 Graph connector for Project Meridian — device inventory (Intune managedDevices + Entra directory devices) over the Graph API, feeding the public feed-upsert seam (Apache-2.0)"
+
+[dependencies]
+adapters-core = { path = "../adapters-core" }
+ci-feeders = { path = "../ci-feeders" }
+reqwest = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+axum = { workspace = true }
+tokio = { workspace = true }

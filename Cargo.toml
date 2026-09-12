@@ -29,6 +29,13 @@ members = [
     # feeder adapters (NinjaOne / IT Glue / Auvik) writing through
     # ConfigSourceLink over the public feed-upsert seam, public-API-only.
     "connectors/ci-feeders",
+    # Adapters tranche 2 (Wave 12 lane 9): shared live-REST transport
+    # primitives (vendor auth, native pagination, org→client mapping)
+    # + the M365 Graph, ImmyBot, and IT Glue live connectors.
+    "connectors/adapters-core",
+    "connectors/it-glue",
+    "connectors/m365-graph",
+    "connectors/immybot",
 ]
 
 [workspace.package]

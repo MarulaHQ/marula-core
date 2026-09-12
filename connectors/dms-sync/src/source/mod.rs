@@ -7,10 +7,13 @@
 //!   configurations); fixture-testable, zero network.
 //! * [`hudu::HuduExport`] — Hudu's export JSON (asset_layouts, assets,
 //!   websites, passwords); fixture-testable, zero network.
+//! * [`live::ItGlueLive`] / [`live::HuduLive`] — LIVE REST pulls from
+//!   the IT Glue / Hudu APIs with their native pagination/auth flows
+//!   (the adapters-tranche-2 follow-up; same snapshot vocabulary as
+//!   the export parsers).
 //! * [`rest::RestSource`] — a generic REST DMS: list endpoints +
 //!   a declarative field mapping (the escape hatch for "none of the
-//!   above" documentation systems; also the transport for live IT
-//!   Glue / Hudu APIs when an org prefers pulling live).
+//!   above" documentation systems).
 //!
 //! Non-purpose: no incremental/delta protocol (a sync pass consumes one
 //! whole snapshot — exports are small and idempotent upserts make full
@@ -31,6 +34,7 @@ pub trait DmsSource: Send + Sync {
 
 pub mod hudu;
 pub mod it_glue;
+pub mod live;
 pub mod rest;
 
 /// Typed errors surfaced by source adapters.
