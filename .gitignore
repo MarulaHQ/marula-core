@@ -31,3 +31,6 @@ Thumbs.db
 graphify-out/
 
 graphify-out
+
+# Stale pre-DX10 build dir (accidentally committed; artifacts live in .kilo/target-shared)
+target-dx11/
