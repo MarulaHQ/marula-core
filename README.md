@@ -2,7 +2,7 @@
 
 **The open-source PSA that MSPs own.** Tickets, time, clients, dispatch, projects, invoicing, knowledge base — everything an IT service team runs on, self-hosted, in a database you control.
 
-> **Status:** early development (scaffold → Stage 0). See [Roadmap](#roadmap).
+> **Status:** Phase 3 (commercial engine) — alpha gate closed 2026-09-12; Wave 12 (quotes, catalog, pipeline, inventory + configuration identity, vector search, FX, per-client overrides, live collaboration) landed. See [Roadmap](#roadmap).
 > **License:** AGPL-3.0 · SDK, plugins & connectors: Apache-2.0
 
 <!-- TODO(ci): badge row once pipelines exist
