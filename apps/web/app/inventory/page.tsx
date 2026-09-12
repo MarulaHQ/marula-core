@@ -230,7 +230,7 @@ export default function InventoryPage(): ReactNode {
   }
 
   return (
-    <div className="grid gap-6">
+    <div className="mx-auto grid w-full max-w-[1400px] gap-6 p-4 md:p-6">
       <header>
         <h1 className="text-lg font-semibold" style={{ color: "var(--m-text)" }}>
           Inventory

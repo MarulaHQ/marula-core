@@ -292,7 +292,7 @@ export default function CatalogPage(): ReactNode {
   }
 
   return (
-    <div className="grid gap-4">
+    <div className="mx-auto grid w-full max-w-[1400px] gap-4 p-4 md:p-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold" style={{ color: "var(--m-text)" }}>
