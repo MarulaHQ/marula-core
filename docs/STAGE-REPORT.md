@@ -283,3 +283,66 @@ CI grep gate for new pool-reads: tracked in TASKLIST (RLS-scope audit).
 
 ### Waves 10–11 (2026-09-04 → 09-09, interim)
 Wave 10 landed: nav pass (grouped nav + active states, global header) + workspace-core UIs (clients/projects/contracts/board admin). QA findings fixed: systemic RLS-scope 500s (~70 handlers moved to org-bound txs), search index seeding, SLA none-mode, register slug UX tracked. Wave 11 fired (8 lanes): vision-driven UI quality pass, org-users backend, ticket taxonomy, scheduling links, assets UX, money+docs UI, ops UI, workflow constructs (tags/merge/costs/PM tickets). Typography changed by owner decision: JetBrains Mono headings via shadcn preset b3J8o4J600 (theme.md + BUILD-PROMPT updated).
+
+## Wave 12 — alpha tranche 3 remainder (2026-09-11 → 09-12, LANDED)
+
+Eleven+ lanes closed Phase 3 (the alpha gate). All merged to main; landing
+records in `TASKLIST_COMPLETED.md`.
+
+**Backends (tranches A+B):**
+- `p12-main-green` b8b944c — the four gate-blockers cleared: contract-registry
+  goldens for document_layout.*/password.*/link., worker search_indexer
+  compile fix, BYOK delete-500 hardening (0057), vitest DOM isolation.
+- `p12-quote-catalog` 32ba768 (0060) — quote builder, product/service catalog,
+  sales pipeline, full-stack backend.
+- `p12-inventory-ci` 0027320 (0061) — inventory/asset lifecycle (rental,
+  depreciation) + configuration identity core CI1–CI6 on the lane-3 seam
+  (ADR 0003).
+- `p12-vector-search` 15e1fb9 (0062) — pgvector embeddings + RRF hybrid
+  fusion, exactly-once side table, tenant-scoped exact KNN (ADR-recorded
+  non-feature: no global ANN in v1).
+- `p12-workflow-overrides` 67466d4 (0063) — per-client workflow overrides:
+  typed closed-key registry, resolution precedence (client set > client deny
+  > org default), undo-trailed.
+- `p12-ticket-email-gaps` d62702a (0064) — per-ticket email read (reply
+  chains + delivery projection), checklist N-A column, email
+  greeting/sign-off settings, pod-visibility store, ticket read-view
+  classification, scheduling auto-email through the outbound ledger + 31-day
+  horizon lift.
+- `p12-ci-feeders` 422db4e — CI7 feeder conformance: NinjaOne/IT Glue/Auvik
+  through `ConfigSourceLink` (deterministic identity keys, never
+  blind-insert; second sync updates its own link), machine-key scoped access
+  on /api/config-items; also restored lane-6-merge-lost event registrations.
+- `p12-adapters2` 91af407 — live REST transports: adapters-core shared
+  primitives (VendorAuth incl. OAuth2 CC, PageFlow, OrgMapping), IT Glue
+  live, M365 Graph, ImmyBot, DMS live sources; none/dry modes everywhere.
+- `p12-fx` b47a5bf (0065–0067) — FX1–FX7 (ADR 0002): org base currency,
+  Money generalization, append-only fx_rates, five snapshot lock moments,
+  half-even conversion, manual-entry provider, ops.v1_fx_reconciliation.
+
+**Review remediation be53a13 (coordinator pass, 2026-09-12):** 13 findings
+fixed — SSRF continuation-URL host pinning (adapters-core), negative-rate
+ledger corruption (`-0.5` parsed positive), FX lock path riding the org-bound
+tx (pool-starvation hazard), integer-space half-even fact amounts (no floats
+near money; view + domain share one rule), typed 409 for amount edits on
+snapshot-bearing facts, base-currency guard counting base-denominated money,
+header base totals = Σ line snapshots, 0065 constraints NOT VALID +
+VALIDATE (upgrade-safe), reconciliation partial indexes + additivity
+contract.
+
+**Web close-out `p12-t3-closeout` 8a75306:** all Wave 12 APIs wired into
+staff UI per the close-out doctrine — quotes/catalog/pipeline, inventory +
+CI merge queue, workflow-overrides, FX surfaces (base currency, rate book,
+reconciliation), vector search in unified search, DMS connector admin,
+ticket email timeline rows, N-A tri-state, greeting/sign-off editors,
+pod-visibility matrix; screenshot evidence under `design/qa-t3-closeout/`;
+SDK at 320 paths (DX12 pin gate active).
+
+**In flight:** `p12-realtime` (lane 12, user-added) — SSE fan-out off the
+event trail via LISTEN/NOTIFY + ticket presence (big-team live collaboration).
+
+**Verification posture:** every lane suite-green at close-out on its own
+lane DB; coordinator re-verified merges on main (fresh-DB migration chain
+0001–0067, db_suite 76, core-domain 255, connectors 60, core-events 22,
+conformance 12, web typecheck + vitest 177). Alpha gate = end of Wave 12 —
+CLOSED 2026-09-12.
