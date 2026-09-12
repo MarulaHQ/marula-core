@@ -25,6 +25,10 @@ members = [
     # DMS sync-connector lane (2026-09-10): external documentation-system
     # adapter (IT Glue / Hudu exports + generic REST), public-API-only.
     "connectors/dms-sync",
+    # CI feeder lane (Wave 12 lane 8, ADR 0003 CI7): configuration-item
+    # feeder adapters (NinjaOne / IT Glue / Auvik) writing through
+    # ConfigSourceLink over the public feed-upsert seam, public-API-only.
+    "connectors/ci-feeders",
 ]
 
 [workspace.package]

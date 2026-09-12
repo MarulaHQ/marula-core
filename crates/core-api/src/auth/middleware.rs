@@ -194,6 +194,11 @@ const API_KEY_PATHS: &[&str] = &[
     // The dispatch connector (Wave 9 lane 9): scoped schedule reads +
     // field-service status pushes; handlers gate on `dispatch:*` scopes.
     "/api/dispatch-connector",
+    // The CI feeders (Wave 12 lane 8, ADR 0003 CI7): RMM/NMS/docs feeders
+    // write through /api/config-items/feed-upsert with `clients:write`
+    // keys — the handler's Clients-matrix permission check stays the
+    // gate (a read-scoped key still gets typed 403s on writes).
+    "/api/config-items",
 ];
 
 /// Maps capability scopes onto the permission matrix. Unknown scopes are

@@ -11,6 +11,10 @@ async-trait = { workspace = true }
 testcontainers = { version = "0.23", features = ["reusable-containers"] }
 rsa = { version = "0.9", features = ["sha2"] }
 serial_test = "3"
+# The CI feeder gate drives the REAL feeder adapters over the wire
+# (public API contract) against this router — test-only edge; the
+# connector never imports the core.
+ci-feeders = { path = "../../connectors/ci-feeders" }
 
 [[bin]]
 name = "core-api"

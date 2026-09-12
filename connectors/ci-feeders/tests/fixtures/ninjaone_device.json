@@ -1,0 +1,14 @@
+{
+  "id": 4242,
+  "uid": "e7f1c2a4-9b3d-4c8e-a1f2-33b4c5d6e7f8",
+  "displayName": "ACME-MAIL-01",
+  "systemName": "acme-mail-01",
+  "domain": "acme.local",
+  "osName": "Microsoft Windows Server 2022 Standard",
+  "serialNumber": "SN-8F3K2-Q",
+  "macAddresses": ["AA-BB-CC-DD-EE-FF"],
+  "externalIp": "203.0.113.7",
+  "lastSeen": "2026-09-12T09:30:00Z",
+  "deviceClass": "SERVER",
+  "nodeClass": "WINDOWS_SERVER"
+}

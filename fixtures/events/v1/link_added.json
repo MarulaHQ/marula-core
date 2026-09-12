@@ -4,5 +4,10 @@
   "variant": "default",
   "payload_schema_ref": "core-domain/v1",
   "pinned_in": "0.1.0",
-  "payload": { "from_kind": "document", "from_id": "00000000-0000-0000-0000-000000000016", "to_kind": "ticket", "to_id": "00000000-0000-0000-0000-000000000002" }
+  "payload": {
+    "from_id": "00000000-0000-0000-0000-000000000016",
+    "from_kind": "document",
+    "to_id": "00000000-0000-0000-0000-000000000002",
+    "to_kind": "ticket"
+  }
 }

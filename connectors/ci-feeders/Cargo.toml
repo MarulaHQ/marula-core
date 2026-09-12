@@ -1,0 +1,20 @@
+[package]
+name = "ci-feeders"
+version = "0.1.0"
+edition.workspace = true
+license = "Apache-2.0"
+description = "First-party configuration-item feeder adapters (NinjaOne RMM, IT Glue docs, Auvik NMS) for Project Meridian — ADR 0003 CI7 over the public API only (Apache-2.0)"
+
+[dependencies]
+async-trait = { workspace = true }
+hex = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+axum = { workspace = true }
