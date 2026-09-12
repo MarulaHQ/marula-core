@@ -435,6 +435,29 @@ export default function IntegrationsSettingsPage() {
           </DialogActions>
         </DialogContent>
       </Dialog>
+
+      {/* DMS sync connector — connector-side, operator-managed today */}
+      <Card>
+        <div className="p-4 grid gap-2">
+          <h2 className="text-sm font-semibold">DMS sync connector</h2>
+          <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+            The document-management sync connector (<code>connectors/dms-sync</code>, live IT
+            Glue / Hudu pulls via the adapters line) runs operator-side today — it is a
+            standalone crate pushing through the public feed-upsert seam, not an in-org
+            configurable integration, so there is nothing to enable or disable here yet.
+          </p>
+          <p className="text-[11px]" style={{ color: "var(--m-text-muted)" }} data-testid="dms-syncstate-note">
+            State ledger: the connector keeps its identity ledger (<code>SyncState</code>) in
+            process — a cold start re-adopts records once, which the identity keys make safe.
+            A durable (file/DB-backed) ledger and a per-connector enable/disable surface are
+            queued backend work, not a settings toggle here.
+          </p>
+          <p className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+            Until a connector admin API exists, no connector controls render here — this note
+            is the honest surface, not a placeholder UI.
+          </p>
+        </div>
+      </Card>
     </div>
   );
 }

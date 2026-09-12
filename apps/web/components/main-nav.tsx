@@ -59,6 +59,10 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Contracts", href: "/contracts", match: ["/contracts"] },
       { label: "Billing", href: "/billing", match: ["/billing"] },
       { label: "Credit notes", href: "/billing/credit-notes", match: ["/billing/credit-notes"] },
+      { label: "Sales pipeline", href: "/sales/pipeline", match: ["/sales/pipeline"] },
+      { label: "Quotes", href: "/sales/quotes", match: ["/sales/quotes"] },
+      { label: "Catalog", href: "/sales/catalog", match: ["/sales/catalog"] },
+      { label: "Inventory", href: "/inventory", match: ["/inventory"] },
     ],
   },
   {
@@ -92,6 +96,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Tags", href: "/settings/tags" },
       { label: "PM schedules", href: "/settings/pm-schedules" },
       { label: "SLA", href: "/settings/sla" },
+      { label: "FX rates", href: "/settings/fx", match: ["/settings/fx"] },
       { label: "Notifications", href: "/settings/notifications" },
       { label: "Preferences", href: "/settings/preferences" },
       { label: "Portal", href: "/settings/portal" },

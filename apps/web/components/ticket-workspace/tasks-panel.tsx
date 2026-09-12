@@ -1,13 +1,13 @@
 // Task-lists panel — per-ticket task items through the whole workflow.
 //
 // Purpose: render the ticket checklist inline (notes-pane pod), with
-// per-item tri-state actions: ✓ check, ✗ uncheck, and N-A. Check/uncheck
-// ride the existing checklist toggle endpoint (server truth). N-A is a
-// per-user display state persisted through the panel-state engine
-// (namespace `meridian.ticket-tasks`): the API has no third checklist
-// state, so an N-A item is marked checked server-side + shown as N-A with
-// strike-through in this user's view, and excluded from the "resolved"
-// fold when it was N-A'd — a backend follow-up records the real column.
+// per-item tri-state actions: ✓ check, ✗ uncheck, and N-A. All three ride
+// the checklist toggle endpoint; `na` is ORG-WIDE server truth (Wave 12
+// lane 6) and mutually exclusive with checked — setting N-A clears the
+// checkmark, checking an item clears N-A. A server-side mutual-exclusion
+// 422 surfaces inline next to the item (role="alert"), never a dead
+// action. N-A REQUIRED items are exempt from pre-close enforcement and
+// derived progress (server derives this; the panel reflects the counts).
 // Task states fold into notes (see close-flow.tsx).
 // Non-purpose: no checklist-template editing (board admin owns that).
 
@@ -15,93 +15,59 @@
 
 import type { components } from "@meridian/sdk";
 import { Button, Input } from "@meridian/ui";
-import { useEffect, useState, type ReactNode } from "react";
-
-import { LocalStoragePanelStateStore } from "@meridian/layout";
+import { useState, type ReactNode } from "react";
 
 type ChecklistItem = components["schemas"]["ChecklistItem"];
 
-const store = new LocalStoragePanelStateStore({ namespace: "meridian.ticket-tasks" });
-
-/** Per-user N-A set, keyed per ticket. */
-export type NaMap = Record<string, string[]>; // ticketId -> itemIds
-
-async function loadNa(userId: string, ticketId: string): Promise<string[]> {
-  try {
-    const raw = await store.load(`${userId}:na`);
-    if (raw === null) return [];
-    const parsed = JSON.parse(raw) as NaMap | null;
-    return parsed?.[ticketId] ?? [];
-  } catch {
-    return [];
-  }
-}
-
-async function saveNa(userId: string, ticketId: string, ids: string[]): Promise<void> {
-  const raw = await store.load(`${userId}:na`);
-  let map: NaMap = {};
-  try {
-    map = (raw === null ? null : (JSON.parse(raw) as NaMap)) ?? {};
-  } catch {
-    map = {};
-  }
-  if (ids.length === 0) delete map[ticketId];
-  else map[ticketId] = ids;
-  await store.save(`${userId}:na`, JSON.stringify(map));
+export interface TaskToggleOutcome {
+  ok: boolean;
+  message?: string;
 }
 
 export interface TasksPanelProps {
-  ticketId: string;
-  userId: string;
   items: ChecklistItem[];
   enforcementActive: boolean;
   blockingCount: number;
   /** Testid prefix so multiple mounted instances don't collide. */
   testPrefix?: string;
-  onToggle(itemId: string, checked: boolean): Promise<void>;
+  onSetState(
+    itemId: string,
+    state: { checked: boolean; na: boolean },
+  ): Promise<TaskToggleOutcome>;
   onAdd(text: string): Promise<void>;
 }
 
 export function TasksPanel({
-  ticketId,
-  userId,
   items,
   enforcementActive,
   blockingCount,
   testPrefix = "",
-  onToggle,
+  onSetState,
   onAdd,
 }: TasksPanelProps): ReactNode {
-  const [na, setNa] = useState<string[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const [rowError, setRowError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    void loadNa(userId, ticketId).then((ids) => {
-      if (!cancelled) setNa(ids);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [userId, ticketId]);
-
-  async function markNa(item: ChecklistItem, value: boolean): Promise<void> {
-    const next = value ? [...new Set([...na, item.id])] : na.filter((id) => id !== item.id);
-    setNa(next);
-    await saveNa(userId, ticketId, next);
-    // N-A settles the item as resolved server-side (checked); clearing N-A
-    // via the N/A button leaves the item checked — the ✗ button unchecks.
-    await onToggle(item.id, value ? true : item.checked);
+  async function markNa(item: ChecklistItem, na: boolean): Promise<void> {
+    setRowError(null);
+    // Mutual exclusion client-side: N-A clears the checkmark; clearing N-A
+    // keeps the item unchecked so it re-enters the open set.
+    const result = await onSetState(item.id, { checked: false, na });
+    if (!result.ok) {
+      setRowError(result.message ?? "Could not update that item");
+    }
   }
 
   async function toggleChecked(item: ChecklistItem, checked: boolean): Promise<void> {
-    if (checked && na.includes(item.id)) {
-      const next = na.filter((id) => id !== item.id);
-      setNa(next);
-      await saveNa(userId, ticketId, next);
+    setRowError(null);
+    // Mutual exclusion client-side: checking clears a prior N-A; unchecking
+    // only clears the checkmark and leaves N-A untouched.
+    const na = checked ? false : (item.na ?? false);
+    const result = await onSetState(item.id, { checked, na });
+    if (!result.ok) {
+      setRowError(result.message ?? "Could not update that item");
     }
-    await onToggle(item.id, checked);
   }
 
   async function add(): Promise<void> {
@@ -117,7 +83,7 @@ export function TasksPanel({
   }
 
   /** The close flow's resolved list: checked items that are NOT N-A'd. */
-  const resolvedForNotes = items.filter((i) => i.checked && !na.includes(i.id));
+  const resolvedForNotes = items.filter((i) => i.checked && i.na !== true);
 
   return (
     <section className="grid content-start gap-2" data-testid={`${testPrefix}pod-tasks`} aria-label="Task lists">
@@ -136,7 +102,7 @@ export function TasksPanel({
       )}
       <ul className="grid gap-1">
         {items.map((item) => {
-          const isNa = na.includes(item.id);
+          const isNa = item.na === true;
           return (
             <li
               key={item.id}
@@ -191,6 +157,11 @@ export function TasksPanel({
           <li className="text-xs" style={{ color: "var(--m-text-muted)" }}>No tasks yet.</li>
         )}
       </ul>
+      {rowError !== null && (
+        <p className="text-xs" style={{ color: "var(--m-status-danger-fg)" }} role="alert" data-testid={`${testPrefix}task-row-error`}>
+          {rowError}
+        </p>
+      )}
       <div className="flex gap-2">
         <Input
           value={draft}

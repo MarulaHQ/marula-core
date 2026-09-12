@@ -35,6 +35,7 @@ interface OrgProfile {
   name: string;
   slug: string;
   ticket_prefix: string;
+  base_currency: string;
 }
 
 /** Renders one registry declaration as the right control. */
@@ -125,6 +126,7 @@ export default function GeneralSettingsPage() {
   const [profileDraft, setProfileDraft] = useState<{
     name: string;
     ticket_prefix: string;
+    base_currency: string;
   } | null>(null);
   const [declarations, setDeclarations] = useState<Declaration[]>([]);
   const [values, setValues] = useState<
@@ -148,6 +150,7 @@ export default function GeneralSettingsPage() {
         setProfileDraft({
           name: profileRes.data.name,
           ticket_prefix: profileRes.data.ticket_prefix,
+          base_currency: profileRes.data.base_currency,
         });
       }
       if (registryRes.data && valuesRes.data) {
@@ -171,7 +174,8 @@ export default function GeneralSettingsPage() {
       profile !== null &&
       profileDraft !== null &&
       (profile.name !== profileDraft.name ||
-        profile.ticket_prefix !== profileDraft.ticket_prefix),
+        profile.ticket_prefix !== profileDraft.ticket_prefix ||
+        profile.base_currency !== profileDraft.base_currency.trim().toUpperCase()),
     [profile, profileDraft],
   );
 
@@ -190,14 +194,22 @@ export default function GeneralSettingsPage() {
           body: {
             name: profileDraft.name.trim(),
             ticket_prefix: profileDraft.ticket_prefix.trim(),
+            base_currency: profileDraft.base_currency.trim().toUpperCase(),
           },
         });
-        if (res.error) throw new Error("org profile was rejected");
+        if (res.error) {
+          const detail =
+            (res.error as { error?: { message?: string }; response?: Response }).error?.message;
+          // A base-currency change is governed (ADR 0002): a 409/typed
+          // conflict means conversion snapshots exist — surface the reason.
+          throw new Error(detail ?? "org profile was rejected");
+        }
         if (res.data) {
           setProfile(res.data);
           setProfileDraft({
             name: res.data.name,
             ticket_prefix: res.data.ticket_prefix,
+            base_currency: res.data.base_currency,
           });
         }
       }
@@ -270,6 +282,27 @@ export default function GeneralSettingsPage() {
             />
             <FieldHint>
               Short uppercase code prepended to ticket numbers.
+            </FieldHint>
+          </label>
+          <label className="grid gap-1">
+            <Label>Base currency</Label>
+            <Input
+              value={profileDraft.base_currency}
+              maxLength={3}
+              data-testid="org-base-currency"
+              onChange={(e) => {
+                setProfileDraft({
+                  ...profileDraft,
+                  base_currency: e.target.value.toUpperCase(),
+                });
+                setSaved(false);
+              }}
+              className="w-32"
+            />
+            <FieldHint>
+              ISO 4217 code — the ONE reporting currency all money surfaces
+              reconcile to. Changing it is refused while FX conversion
+              snapshots exist; record rates first.
             </FieldHint>
           </label>
           <p className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>

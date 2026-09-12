@@ -43,6 +43,8 @@ const EXPECTED_V1_VIEWS: &[&str] = &[
     "v1_board_statuses",
     "v1_invoices",
     "v1_invoice_lines",
+    // 0067 fx reconciliation slice
+    "v1_fx_reconciliation",
 ];
 
 /// (view, [(column, data_type)]) — the 0059 tranche column contracts,

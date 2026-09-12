@@ -8014,6 +8014,16 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        CiMergeRequest: components["schemas"]["MutationParams"] & {
+            /** Format: uuid */
+            candidate_id?: string | null;
+            /**
+             * Format: uuid
+             * @description The item to absorb into `{id}`.
+             */
+            merged_config_item_id: string;
+            reason?: string | null;
+        };
         /**
          * @description CI4: lifecycle of a reviewable merge candidate.
          * @enum {string}
@@ -11256,14 +11266,9 @@ export interface components {
             time_minutes_folded: number;
         };
         MergeRequest: components["schemas"]["MutationParams"] & {
+            resolve?: components["schemas"]["MergeResolutions"];
             /** Format: uuid */
-            candidate_id?: string | null;
-            /**
-             * Format: uuid
-             * @description The item to absorb into `{id}`.
-             */
-            merged_config_item_id: string;
-            reason?: string | null;
+            survivor_id: string;
         };
         MergeResolutions: {
             assignee?: null | components["schemas"]["FieldResolution"];
@@ -18935,7 +18940,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["MergeRequest"];
+                "application/json": components["schemas"]["CiMergeRequest"];
             };
         };
         responses: {

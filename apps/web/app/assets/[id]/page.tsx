@@ -21,6 +21,7 @@ import {
   DialogContent,
   DialogTrigger,
   EmptyState,
+  FieldHint,
   Input,
   Label,
   Select,
@@ -46,6 +47,36 @@ type VaultEntryView = components["schemas"]["VaultEntryView"];
 type IntegrationLinkStatus = components["schemas"]["IntegrationLinkStatus"];
 type ProvenancePage = components["schemas"]["ProvenancePage"];
 type Site = components["schemas"]["Site"];
+
+/** Editable inventory lifecycle fields (rental tracking + depreciation). */
+interface AssetLifecycleDraft {
+  ownership: string;
+  purchase_cost_major: string;
+  purchase_currency: string;
+  purchase_date: string;
+  rental_vendor: string;
+  rental_cost_major: string;
+  rental_currency: string;
+  rental_cycle: string;
+  rental_start: string;
+  rental_end: string;
+  depreciation_method: string;
+  depreciation_rate_bps: string;
+  useful_life_months: string;
+  salvage_major: string;
+}
+
+/** Major-unit string → minor-unit integer; "" and NaN → undefined (keep). */
+function majorToMinor(v: string): number | undefined {
+  if (v.trim() === "") return undefined;
+  const n = Number(v);
+  return Number.isNaN(n) ? undefined : Math.round(n * 100);
+}
+
+/** "" or "none" → null (absent patch semantics keep the value). */
+function orNull(v: string): string | null | undefined {
+  return v.trim() === "" ? null : v.trim();
+}
 
 function fieldInputType(f: LayoutField): string {
   switch (f.type) {
@@ -125,6 +156,25 @@ export default function AssetDetailPage() {
   const [reveal, setReveal] = useState<(VaultEntryView & { secret: string }) | null>(null);
   const [revealing, setRevealing] = useState<string | null>(null);
   const [revealError, setRevealError] = useState<string | null>(null);
+
+  // Inventory lifecycle drafts (rental tracking + depreciation, 0061):
+  // money in major-unit strings, persisted as minor units on save.
+  const [lifecycleDraft, setLifecycleDraft] = useState<AssetLifecycleDraft>({
+    ownership: "",
+    purchase_cost_major: "",
+    purchase_currency: "",
+    purchase_date: "",
+    rental_vendor: "",
+    rental_cost_major: "",
+    rental_currency: "",
+    rental_cycle: "",
+    rental_start: "",
+    rental_end: "",
+    depreciation_method: "",
+    depreciation_rate_bps: "",
+    useful_life_months: "",
+    salvage_major: "",
+  });
 
   const layoutById = useMemo(() => {
     const map = new Map<string, DocumentLayout>();
@@ -218,6 +268,37 @@ export default function AssetDetailPage() {
       setStatusDraft(asset.status);
       setSiteDraft(asset.site_id ?? "");
       setLayoutDraft(asset.layout_id ?? "");
+      setLifecycleDraft({
+        ownership: asset.ownership ?? "",
+        purchase_cost_major:
+          asset.purchase_cost_minor === null || asset.purchase_cost_minor === undefined
+            ? ""
+            : (asset.purchase_cost_minor / 100).toString(),
+        purchase_currency: asset.purchase_currency ?? "",
+        purchase_date: asset.purchase_date ?? "",
+        rental_vendor: asset.rental_vendor ?? "",
+        rental_cost_major:
+          asset.rental_cost_minor === null || asset.rental_cost_minor === undefined
+            ? ""
+            : (asset.rental_cost_minor / 100).toString(),
+        rental_currency: asset.rental_currency ?? "",
+        rental_cycle: asset.rental_cycle ?? "",
+        rental_start: asset.rental_start ?? "",
+        rental_end: asset.rental_end ?? "",
+        depreciation_method: asset.depreciation_method ?? "",
+        depreciation_rate_bps:
+          asset.depreciation_rate_bps === null || asset.depreciation_rate_bps === undefined
+            ? ""
+            : String(asset.depreciation_rate_bps),
+        useful_life_months:
+          asset.useful_life_months === null || asset.useful_life_months === undefined
+            ? ""
+            : String(asset.useful_life_months),
+        salvage_major:
+          asset.salvage_value_minor === null || asset.salvage_value_minor === undefined
+            ? ""
+            : (asset.salvage_value_minor / 100).toString(),
+      });
     }
   }, [asset]);
 
@@ -261,6 +342,28 @@ export default function AssetDetailPage() {
           site_id: siteDraft === "" ? null : siteDraft,
           layout_id: layoutDraft === "" ? null : layoutDraft,
           fields: fieldValues,
+          lifecycle: {
+            ownership: orNull(lifecycleDraft.ownership),
+            purchase_cost_minor: majorToMinor(lifecycleDraft.purchase_cost_major),
+            purchase_currency: orNull(lifecycleDraft.purchase_currency),
+            purchase_date: orNull(lifecycleDraft.purchase_date),
+            rental_vendor: orNull(lifecycleDraft.rental_vendor),
+            rental_cost_minor: majorToMinor(lifecycleDraft.rental_cost_major),
+            rental_currency: orNull(lifecycleDraft.rental_currency),
+            rental_cycle: orNull(lifecycleDraft.rental_cycle),
+            rental_start: orNull(lifecycleDraft.rental_start),
+            rental_end: orNull(lifecycleDraft.rental_end),
+            depreciation_method: orNull(lifecycleDraft.depreciation_method),
+            depreciation_rate_bps:
+              lifecycleDraft.depreciation_rate_bps.trim() === "" || Number.isNaN(Number(lifecycleDraft.depreciation_rate_bps))
+                ? null
+                : Math.max(1, Math.min(9999, Math.round(Number(lifecycleDraft.depreciation_rate_bps)))),
+            useful_life_months:
+              lifecycleDraft.useful_life_months.trim() === "" || Number.isNaN(Number(lifecycleDraft.useful_life_months))
+                ? null
+                : Math.max(1, Math.round(Number(lifecycleDraft.useful_life_months))),
+            salvage_value_minor: majorToMinor(lifecycleDraft.salvage_major),
+          },
           idempotency_key: base.idempotency_key,
           version: base.version,
         };
@@ -467,6 +570,185 @@ export default function AssetDetailPage() {
             {saving ? <Spinner /> : null} Save fields
           </Button>
         </div>
+      </Card>
+
+      {/* ---- inventory lifecycle (rental tracking + depreciation, 0061) ---- */}
+      <Card>
+        <div
+          className="flex flex-wrap items-center gap-3 p-4"
+          style={{ borderBottom: "1px solid var(--m-border)" }}
+        >
+          <h2 className="text-sm font-semibold">Lifecycle</h2>
+          <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+            Rental tracking and depreciation — saves with the fields above.
+          </span>
+        </div>
+        <div className="grid gap-3 p-4 md:grid-cols-2">
+          <div className="grid gap-1">
+            <Label htmlFor="asset-ownership">Ownership</Label>
+            <select
+              id="asset-ownership"
+              className="rounded-[2px] border bg-transparent px-2 py-1 text-[13px]"
+              style={{ borderColor: "var(--m-border)", color: "var(--m-text)" }}
+              value={lifecycleDraft.ownership}
+              onChange={(e) => setLifecycleDraft({ ...lifecycleDraft, ownership: e.target.value })}
+              data-testid="asset-ownership"
+            >
+              <option value="">—</option>
+              <option value="owned">owned</option>
+              <option value="leased">leased</option>
+              <option value="rented">rented</option>
+            </select>
+          </div>
+          <div className="grid gap-1">
+            <Label htmlFor="asset-dep-method">Depreciation method</Label>
+            <select
+              id="asset-dep-method"
+              className="rounded-[2px] border bg-transparent text-[13px]"
+              style={{ borderColor: "var(--m-border)", color: "var(--m-text)" }}
+              value={lifecycleDraft.depreciation_method}
+              onChange={(e) => setLifecycleDraft({ ...lifecycleDraft, depreciation_method: e.target.value })}
+              data-testid="asset-dep-method"
+            >
+              <option value="">—</option>
+              <option value="none">none</option>
+              <option value="straight_line">straight line</option>
+              <option value="declining_balance">declining balance</option>
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="grid gap-1">
+              <Label htmlFor="asset-purchase-cost">Purchase cost (major)</Label>
+              <Input
+                id="asset-purchase-cost"
+                inputMode="decimal"
+                value={lifecycleDraft.purchase_cost_major}
+                onChange={(e) => setLifecycleDraft({ ...lifecycleDraft, purchase_cost_major: e.target.value })}
+              />
+            </div>
+            <div className="grid gap-1">
+              <Label htmlFor="asset-purchase-currency">Currency</Label>
+              <Input
+                id="asset-purchase-currency"
+                maxLength={3}
+                value={lifecycleDraft.purchase_currency}
+                onChange={(e) => setLifecycleDraft({ ...lifecycleDraft, purchase_currency: e.target.value.toUpperCase() })}
+              />
+            </div>
+            <div className="grid gap-1">
+              <Label htmlFor="asset-purchase-date">Purchase date</Label>
+              <Input
+                id="asset-purchase-date"
+                type="date"
+                value={lifecycleDraft.purchase_date}
+                onChange={(e) => setLifecycleDraft({ ...lifecycleDraft, purchase_date: e.target.value })}
+              />
+            </div>
+            <div className="grid gap-1">
+              <Label htmlFor="asset-salvage">Salvage value (major)</Label>
+              <Input
+                id="asset-salvage"
+                inputMode="decimal"
+                value={lifecycleDraft.salvage_major}
+                onChange={(e) => setLifecycleDraft({ ...lifecycleDraft, salvage_major: e.target.value })}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="grid gap-1">
+              <Label htmlFor="asset-dep-rate">Declining-balance rate (bps)</Label>
+              <Input
+                id="asset-dep-rate"
+                inputMode="numeric"
+                value={lifecycleDraft.depreciation_rate_bps}
+                onChange={(e) => setLifecycleDraft({ ...lifecycleDraft, depreciation_rate_bps: e.target.value })}
+              />
+              <FieldHint>1–9999; declining balance only.</FieldHint>
+            </div>
+            <div className="grid gap-1">
+              <Label htmlFor="asset-useful-life">Useful life (months)</Label>
+              <Input
+                id="asset-useful-life"
+                inputMode="numeric"
+                value={lifecycleDraft.useful_life_months}
+                onChange={(e) => setLifecycleDraft({ ...lifecycleDraft, useful_life_months: e.target.value })}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 md:col-span-2">
+            <div className="grid gap-1">
+              <Label htmlFor="asset-rental-vendor">Rental vendor</Label>
+              <Input
+                id="asset-rental-vendor"
+                value={lifecycleDraft.rental_vendor}
+                onChange={(e) => setLifecycleDraft({ ...lifecycleDraft, rental_vendor: e.target.value })}
+              />
+            </div>
+            <div className="grid gap-1">
+              <Label htmlFor="asset-rental-cost">Rental cost (major)</Label>
+              <Input
+                id="asset-rental-cost"
+                inputMode="decimal"
+                value={lifecycleDraft.rental_cost_major}
+                onChange={(e) => setLifecycleDraft({ ...lifecycleDraft, rental_cost_major: e.target.value })}
+              />
+            </div>
+            <div className="grid gap-1">
+              <Label htmlFor="asset-rental-currency">Rental currency</Label>
+              <Input
+                id="asset-rental-currency"
+                maxLength={3}
+                value={lifecycleDraft.rental_currency}
+                onChange={(e) => setLifecycleDraft({ ...lifecycleDraft, rental_currency: e.target.value.toUpperCase() })}
+              />
+            </div>
+            <div className="grid gap-1">
+              <Label htmlFor="asset-rental-cycle">Rental cycle</Label>
+              <select
+                id="asset-rental-cycle"
+                className="rounded-[2px] border bg-transparent text-[13px]"
+                style={{ borderColor: "var(--m-border)", color: "var(--m-text)" }}
+                value={lifecycleDraft.rental_cycle}
+                onChange={(e) => setLifecycleDraft({ ...lifecycleDraft, rental_cycle: e.target.value })}
+                data-testid="asset-rental-cycle"
+              >
+                <option value="">—</option>
+                <option value="monthly">monthly</option>
+                <option value="quarterly">quarterly</option>
+                <option value="annual">annual</option>
+              </select>
+            </div>
+            <div className="grid gap-1">
+              <Label htmlFor="asset-rental-start">Rental start</Label>
+              <Input
+                id="asset-rental-start"
+                type="date"
+                value={lifecycleDraft.rental_start}
+                onChange={(e) => setLifecycleDraft({ ...lifecycleDraft, rental_start: e.target.value })}
+              />
+            </div>
+            <div className="grid gap-1">
+              <Label htmlFor="asset-rental-end">Rental end</Label>
+              <Input
+                id="asset-rental-end"
+                type="date"
+                value={lifecycleDraft.rental_end}
+                onChange={(e) => setLifecycleDraft({ ...lifecycleDraft, rental_end: e.target.value })}
+              />
+            </div>
+          </div>
+        </div>
+        {lifecycleDraft.ownership !== "rented" && lifecycleDraft.ownership !== "leased" ? null : (
+          <p className="px-4 pb-4 text-[11px]" style={{ color: "var(--m-text-muted)" }} data-testid="asset-rental-note">
+            Rented/leased asset — rental period {lifecycleDraft.rental_start || "?"} → {lifecycleDraft.rental_end || "?"}
+            {lifecycleDraft.rental_cost_major !== ""
+              ? ` · ${lifecycleDraft.rental_cost_major} ${lifecycleDraft.rental_currency || ""} per ${lifecycleDraft.rental_cycle || "cycle"}`
+              : ""}
+          </p>
+        )}
       </Card>
 
       {/* ---- integration link status: data, not sync ---- */}

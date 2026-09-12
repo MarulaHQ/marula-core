@@ -41,6 +41,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { api, useAuth, useRequireAuth } from "../../../lib/api";
 import AssetsTab from "./AssetsTab";
+import WorkflowOverridesTab from "./WorkflowOverridesTab";
 
 type Client = components["schemas"]["Client"];
 type Site = components["schemas"]["Site"];
@@ -48,13 +49,14 @@ type Contact = components["schemas"]["Contact"];
 type PortalUser = components["schemas"]["PortalUser"];
 type PortalRole = components["schemas"]["PortalRole"];
 
-type Tab = "sites" | "contacts" | "assets" | "portal";
+type Tab = "sites" | "contacts" | "assets" | "portal" | "workflow";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "sites", label: "Sites" },
   { key: "contacts", label: "Contacts" },
   { key: "assets", label: "Assets" },
   { key: "portal", label: "Portal users" },
+  { key: "workflow", label: "Workflow" },
 ];
 
 function tabButtonStyle(active: boolean): React.CSSProperties {
@@ -472,6 +474,8 @@ export default function ClientDetailPage() {
       {tab === "assets" ? (
         <AssetsTab clientId={clientId} />
       ) : null}
+
+      {tab === "workflow" ? <WorkflowOverridesTab clientId={clientId} /> : null}
 
       {tab === "portal" ? (
         <Card>

@@ -1,9 +1,13 @@
-// /search — unified search across tickets, comments and clients (2.16).
+// /search — unified search across tickets, comments, clients/sites/contacts,
+// KB articles and documents (2.16 + the 0062 vector leg).
 //
-// Purpose: one query box over GET /api/v1/search; results render grouped
-// (Tickets / Comments / Clients) in server rank order, linking to ticket
-// detail pages; client-hierarchy hits stay informational rows until a
-// clients page exists. Tokens only — renders correctly in both themes.
+// Purpose: one query box over GET /api/v1/search; the core fuses the FTS,
+// trigram and pgvector legs by reciprocal rank fusion and returns one
+// blended ranking — this surface renders whatever the core ranks honestly
+// (server rank order, grouped by kind, semantic hits indistinguishable from
+// lexical ones because they ARE one ranking). Kinds without a detail page
+// (site, contact, KB article) render as informational rows, never links to
+// nowhere. Tokens only — renders correctly in both themes.
 // Non-purpose: no filters/facets UI, no portal visibility logic.
 "use client";
 
@@ -17,17 +21,25 @@ import { api, useRequireAuth } from "../../lib/api";
 type SearchResult = components["schemas"]["SearchResult"];
 type SearchResponse = components["schemas"]["SearchResponse"];
 
-const GROUP_ORDER = ["ticket", "comment", "client"] as const;
+const GROUP_ORDER = ["ticket", "comment", "client", "document", "kb_article", "site", "contact"] as const;
 
 const GROUP_LABEL: Record<string, string> = {
   ticket: "Tickets",
   comment: "Comments",
   client: "Clients",
+  site: "Sites",
+  contact: "Contacts",
+  kb_article: "KB articles",
+  document: "Documents",
 };
 
 function groupOf(kind: string): (typeof GROUP_ORDER)[number] {
   if (kind === "comment") return "comment";
   if (kind === "ticket") return "ticket";
+  if (kind === "document") return "document";
+  if (kind === "kb_article") return "kb_article";
+  if (kind === "site") return "site";
+  if (kind === "contact") return "contact";
   return "client";
 }
 
@@ -46,6 +58,8 @@ function resultHref(hit: SearchResult): string | null {
   if (hit.entity_kind === "comment" && hit.parent_id) {
     return `/tickets/${hit.parent_id}`;
   }
+  if (hit.entity_kind === "client") return `/clients/${hit.entity_id}`;
+  if (hit.entity_kind === "document") return `/documents/${hit.entity_id}`;
   return null;
 }
 
@@ -110,7 +124,7 @@ export default function SearchPage() {
         <Input
           autoFocus
           type="search"
-          placeholder="Search tickets, comments, clients…"
+          placeholder="Search tickets, clients, documents, KB…"
           value={rawQuery}
           onChange={(event) => setRawQuery(event.target.value)}
           aria-label="Search"

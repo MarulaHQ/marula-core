@@ -4,13 +4,9 @@
 // (a) structured notes (comments, badged internal / client-visible /
 // in-house), (b) key ticket events from the audit trail (status changes,
 // board moves — action prefix `ticket.`, filtered to this ticket's id),
-// and (c) time-entry activity from the ticket's time-entries read. The
-// stream is filterable by kind (all / notes / events / time) and by
-// visibility (all / internal-only / client-visible-only). Email rows in
-// AND out have NO read endpoint on the current API surface (emails are
-// recorded and fanned out server-side; nothing lists them per ticket), so
-// that section renders a typed "not available yet" state — never fake
-// data; recorded as a backend follow-up.
+// (c) time-entry activity from the ticket's time-entries read, and
+// (d) the ticket's email ledger rows (GET /tickets/{id}/emails: inbound +
+// outbound with reply-chain parents and outbound delivery state).
 // Non-purpose: no authoring here (the notes composer owns writes).
 
 "use client";
@@ -24,8 +20,9 @@ import type { TicketComment } from "../../lib/instant/read-models";
 
 type AuditEvent = components["schemas"]["AuditEvent"];
 type TimeEntry = components["schemas"]["TimeEntry"];
+type TicketEmailRow = components["schemas"]["TicketEmailRow"];
 
-export type TimelineFilterKind = "all" | "notes" | "events" | "time";
+export type TimelineFilterKind = "all" | "notes" | "events" | "time" | "email";
 export type TimelineFilterVisibility = "all" | "internal" | "client_visible";
 
 const NOTE_KIND_LABEL: Record<string, string> = {
@@ -49,13 +46,17 @@ function kindBadge(kind: string): "neutral" | "success" | "warning" {
 interface TimelineEntry {
   id: string;
   at: string;
-  kind: "notes" | "events" | "time";
+  kind: "notes" | "events" | "time" | "email";
   /** Visibility dimension, applied only to notes. */
   visibility: "internal" | "client_visible" | null;
   title: string;
   detail?: string | null;
   badge?: string | null;
   badgeTone?: "neutral" | "success" | "warning";
+  /** Extra meta line for email rows (delivery / scan state). */
+  meta?: string | null;
+  /** Reply-thread parent id inside this ticket's stream. */
+  parentId?: string | null;
 }
 
 export interface TimelineProps {
@@ -70,18 +71,21 @@ export function TicketTimeline({ ticketId, comments, namesByUser }: TimelineProp
   const [visFilter, setVisFilter] = useState<TimelineFilterVisibility>("all");
   const [events, setEvents] = useState<AuditEvent[] | null>(null);
   const [entries, setEntries] = useState<TimeEntry[] | null>(null);
+  const [emails, setEmails] = useState<TicketEmailRow[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Key events + time activity: plain SDK reads scoped to this ticket.
-  // Audit rows arrive org-wide for the `ticket.` action prefix; we narrow
-  // client-side to this ticket's entity id (no entity filter param exists).
+  // Key events + time activity + email ledger: plain SDK reads scoped to
+  // this ticket. Audit rows arrive org-wide for the `ticket.` action
+  // prefix; we narrow client-side to this ticket's entity id (no entity
+  // filter param exists).
   useEffect(() => {
     let cancelled = false;
     setLoadError(null);
     const run = async (): Promise<void> => {
-      const [audit, time] = await Promise.all([
+      const [audit, time, mail] = await Promise.all([
         api.api.GET("/api/v1/audit-events", { params: { query: { action: "ticket.", limit: 200 } } }),
         api.api.GET("/api/v1/tickets/{id}/time-entries", { params: { path: { id: ticketId } } }),
+        api.api.GET("/api/v1/tickets/{id}/emails", { params: { path: { id: ticketId } } }),
       ]);
       if (cancelled) return;
       if (audit.data === undefined) {
@@ -94,6 +98,7 @@ export function TicketTimeline({ ticketId, comments, namesByUser }: TimelineProp
         );
       }
       setEntries(time.data === undefined ? null : (time.data ?? []));
+      setEmails(mail.data === undefined ? null : (mail.data.messages ?? []));
     };
     void run();
     return () => {
@@ -143,9 +148,34 @@ export function TicketTimeline({ ticketId, comments, namesByUser }: TimelineProp
         detail: t.notes,
       });
     }
+    for (const m of emails ?? []) {
+      const inbound = m.direction === "inbound";
+      const parts: string[] = [];
+      if (inbound) {
+        parts.push(`from ${m.from_address}`);
+      } else {
+        parts.push(`to ${m.to_addresses.join(", ")}`);
+        if (m.delivery !== null && m.delivery !== undefined) {
+          parts.push(`delivery: ${m.delivery.status}${m.delivery.last_error !== null && m.delivery.last_error !== undefined && m.delivery.last_error !== "" ? ` (${m.delivery.last_error})` : ""}`);
+        }
+      }
+      if (m.scan_status === "infected") parts.push("SCAN: infected");
+      rows.push({
+        id: `email-${m.id}`,
+        at: m.created_at,
+        kind: "email",
+        visibility: "internal",
+        badge: inbound ? "Email in" : "Email out",
+        badgeTone: inbound ? "success" : "neutral",
+        title: m.subject ?? "(no subject)",
+        detail: m.body_text,
+        meta: parts.join(" · "),
+        parentId: m.reply_to_message_id ?? null,
+      });
+    }
     rows.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
     return rows;
-  }, [comments, events, entries, namesByUser]);
+  }, [comments, events, entries, emails, namesByUser]);
 
   const filtered = stream.filter((row) => {
     if (kindFilter !== "all" && row.kind !== kindFilter) return false;
@@ -166,6 +196,7 @@ export function TicketTimeline({ ticketId, comments, namesByUser }: TimelineProp
               ["notes", "Notes"],
               ["events", "Events"],
               ["time", "Time"],
+              ["email", "Email"],
             ] as const
           ).map(([value, label]) => (
             <button
@@ -212,7 +243,7 @@ export function TicketTimeline({ ticketId, comments, namesByUser }: TimelineProp
         </div>
       </div>
 
-      <TypedEmailGap />
+      <TypedEmailGap emailCount={emails === null ? null : (emails.length ?? 0)} />
 
       {loadError !== null && (
         <p className="text-xs" style={{ color: "var(--m-status-danger-fg)" }} role="alert">{loadError}</p>
@@ -232,11 +263,25 @@ export function TicketTimeline({ ticketId, comments, namesByUser }: TimelineProp
                 {row.badge !== null && row.badge !== undefined && (
                   <StatusTag tone={row.badgeTone ?? "neutral"}>{row.badge}</StatusTag>
                 )}
+                {row.parentId != null && (
+                  <span
+                    className="text-[11px]"
+                    style={{ color: "var(--m-text-muted)" }}
+                    title="Reply within this ticket's thread"
+                  >
+                    ↳ reply
+                  </span>
+                )}
                 <span className="font-medium">{row.title}</span>
                 <time className="ml-auto" style={{ color: "var(--m-text-muted)" }}>
                   {new Date(row.at).toLocaleString()}
                 </time>
               </div>
+              {row.meta != null && row.meta !== "" && (
+                <p className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+                  {row.meta}
+                </p>
+              )}
               {row.detail != null && row.detail !== "" && (
                 <p className="whitespace-pre-wrap" style={{ color: "var(--m-text-secondary)" }}>
                   {row.detail}
@@ -256,20 +301,24 @@ export function TicketTimeline({ ticketId, comments, namesByUser }: TimelineProp
 }
 
 /**
- * Typed empty state for the email legs of the timeline. The API records
- * and transports email in/out (2.4 path) but exposes no per-ticket email
- * read endpoint, so the rows cannot be rendered without inventing data.
+ * Typed state for the email legs of the timeline: with the lane-6 read
+ * endpoint (`GET /api/tickets/{id}/emails`) the rows render live; when the
+ * read fails or a ticket genuinely has no ledger rows, say so explicitly —
+ * never fake data.
  */
-function TypedEmailGap(): ReactNode {
+function TypedEmailGap({ emailCount }: { emailCount: number | null }): ReactNode {
+  if (emailCount !== null && emailCount > 0) return null;
+  const message =
+    emailCount === null
+      ? "Email in/out rows are not available yet — the per-ticket email read could not be loaded."
+      : "No email in/out rows yet — nothing has been sent to or received from this ticket's mailbox.";
   return (
     <p
       className="rounded-[2px] border border-dashed px-2 py-1.5 text-[11px]"
       style={{ borderColor: "var(--m-border)", color: "var(--m-text-muted)" }}
       data-testid="timeline-email-gap"
     >
-      Email in/out rows are not available yet — the API records and sends
-      ticket email but has no per-ticket email read endpoint yet. Notes and
-      key events below are live.
+      {message}
     </p>
   );
 }

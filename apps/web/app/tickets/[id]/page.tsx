@@ -48,6 +48,7 @@ import {
   uploadAttachment,
   useRequireAuth,
 } from "../../../lib/api";
+import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import {
   makeMyWorkSpec,
   makeTicketDetailSpec,
@@ -65,7 +66,6 @@ import {
   orderedPods,
   podVisibleFor,
   loadPodState,
-  saveAdminConfig,
   saveUserState,
   rbacLevelFor,
   type PodUserState,
@@ -204,23 +204,49 @@ export default function TicketWorkspacePage() {
   const rbac = rbacLevelFor(auth.me?.permissions ?? []);
   const [podAdmin, setPodAdmin] = useState<PodVisibilityConfig>({});
   const [podUser, setPodUser] = useState<PodUserState>({ hidden: [], order: [] });
+  const [podAdminError, setPodAdminError] = useState<string | null>(null);
   const podStateLoaded = useRef(false);
   useEffect(() => {
     if (auth.status !== "authed" || auth.me === null) return;
     if (podStateLoaded.current) return;
     podStateLoaded.current = true;
-    void loadPodState(auth.me.org_id, auth.me.user_id).then(({ admin, user }) => {
-      setPodAdmin(admin);
+    // Admin layer is org server truth (GET /api/org/pod-visibility —
+    // lane 6); the user layer stays per-user device state.
+    void Promise.all([
+      api.api.GET("/api/v1/org/pod-visibility"),
+      loadPodState(auth.me.org_id, auth.me.user_id),
+    ]).then(([vis, { user }]) => {
+      setPodAdmin(
+        (vis.data?.config ?? {}) as PodVisibilityConfig,
+      );
       setPodUser(user);
     });
   }, [auth.status, auth.me]);
 
   const onPodAdminChange = useCallback(
     (next: PodVisibilityConfig) => {
+      const previous = podAdmin;
       setPodAdmin(next);
-      if (auth.me !== null) void saveAdminConfig(auth.me.org_id, auth.me.user_id, next);
+      setPodAdminError(null);
+      if (auth.me === null) return;
+      // Optimistic org write (Admin:edit); a typed rejection rolls the
+      // local matrix back and surfaces the reason inline.
+      void runEnvelopeMutation({
+        describe: "Update pod visibility matrix",
+        buildBody: (base) => ({ config: next, ...base }),
+        optimistic: () => {},
+        revert: () => setPodAdmin(previous),
+        request: (client, body) =>
+          client.PUT("/api/v1/org/pod-visibility", {
+            body: body as components["schemas"]["PutPodVisibilityRequest"],
+          }),
+      }).then((result) => {
+        if (result.ok === false) {
+          setPodAdminError(result.message ?? "Could not save the pod visibility matrix");
+        }
+      });
     },
-    [auth.me],
+    [auth.me, podAdmin],
   );
   const onPodUserChange = useCallback(
     (next: PodUserState) => {
@@ -562,14 +588,18 @@ export default function TicketWorkspacePage() {
     if (result.status === "queued") void refresh();
   }
 
-  async function toggleChecklistItem(itemId: string, checked: boolean) {
-    if (itemId.startsWith("pending-")) return;
+  async function setChecklistItemState(
+    itemId: string,
+    state: { checked: boolean; na: boolean },
+  ): Promise<{ ok: boolean; message?: string }> {
+    if (itemId.startsWith("pending-")) return { ok: false };
+    let prior: { checked: boolean; na: boolean } | null = null;
     const result = await mutate({
-      describe: checked ? "Check off item" : "Uncheck item",
+      describe: state.na ? "Mark item N-A" : state.checked ? "Check off item" : "Uncheck item",
       entityId: itemId,
       method: "POST",
       path: `/api/v1/tickets/${ticketId}/checklist/${itemId}`,
-      buildBody: (base) => ({ checked, ...base }),
+      buildBody: (base) => ({ checked: state.checked, na: state.na, ...base }),
       optimistic: () => {
         patchDetail((m) => ({
           ...m,
@@ -579,13 +609,19 @@ export default function TicketWorkspacePage() {
               : {
                   ...m.checklist,
                   items: m.checklist.items.map((i) =>
-                    i.id === itemId ? { ...i, checked } : i,
+                    i.id === itemId ? { ...i, checked: state.checked, na: state.na } : i,
                   ),
                 },
         }));
       },
-      captureBefore: () => null,
+      captureBefore: () => {
+        const item = model?.checklist?.items.find((i) => i.id === itemId) ?? null;
+        if (item !== null) prior = { checked: item.checked, na: item.na ?? false };
+        return prior;
+      },
       revert: () => {
+        const snapshot = prior;
+        if (snapshot === null) return;
         patchDetail((m) => ({
           ...m,
           checklist:
@@ -594,15 +630,16 @@ export default function TicketWorkspacePage() {
               : {
                   ...m.checklist,
                   items: m.checklist.items.map((i) =>
-                    i.id === itemId ? { ...i, checked: !checked } : i,
+                    i.id === itemId ? { ...i, checked: snapshot.checked, na: snapshot.na } : i,
                   ),
                 },
         }));
       },
     });
     if (result.status === "rejected") {
-      setError(result.message ?? "Could not update checklist item");
-      return;
+      const message = result.message ?? "Could not update checklist item";
+      setError(message);
+      return { ok: false, message };
     }
     // Authoritative toggle: the envelope carries the applied item.
     if (result.status === "accepted" && result.mutation !== null) {
@@ -622,6 +659,7 @@ export default function TicketWorkspacePage() {
         }));
       }
     }
+    return { ok: true };
   }
 
   // --- close flow ----------------------------------------------------------------
@@ -724,12 +762,10 @@ export default function TicketWorkspacePage() {
     <div className="p-3">
     <TasksPanel
       testPrefix="tab-"
-      ticketId={ticketId}
-      userId={auth.me?.user_id ?? "anonymous"}
       items={checklistItems}
       enforcementActive={model?.checklist?.enforcement_active ?? false}
       blockingCount={model?.checklist?.blocking.length ?? 0}
-      onToggle={toggleChecklistItem}
+      onSetState={setChecklistItemState}
       onAdd={addChecklistItem}
     />
     </div>
@@ -885,12 +921,10 @@ export default function TicketWorkspacePage() {
           >
             <TasksPanel
               testPrefix="pod-"
-              ticketId={ticketId}
-              userId={auth.me?.user_id ?? "anonymous"}
               items={checklistItems}
               enforcementActive={model?.checklist?.enforcement_active ?? false}
               blockingCount={model?.checklist?.blocking.length ?? 0}
-              onToggle={toggleChecklistItem}
+              onSetState={setChecklistItemState}
               onAdd={addChecklistItem}
             />
           </section>
@@ -924,6 +958,11 @@ export default function TicketWorkspacePage() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-end gap-2 px-3 py-1.5">
+        {podAdminError !== null && (
+          <p className="text-[11px]" style={{ color: "var(--m-status-danger-fg)" }} role="alert" data-testid="pod-admin-error">
+            {podAdminError}
+          </p>
+        )}
         {canConfigurePods(auth.me?.permissions ?? []) && (
           <PodAdminSettings
             level={rbac}

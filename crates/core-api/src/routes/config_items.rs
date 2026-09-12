@@ -160,6 +160,7 @@ pub struct ListCandidatesQuery {
 }
 
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
+#[schema(as = CiMergeRequest)]
 pub struct MergeRequest {
     /// The item to absorb into `{id}`.
     pub merged_config_item_id: Uuid,
