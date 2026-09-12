@@ -64,6 +64,13 @@ jobs:
       - uses: actions/checkout@v4
       - run: ./scripts/check-migrations.sh
 
+  openapi-pins:
+    name: OpenAPI pin format (compact minified snapshots, byte-identical pair — DX12)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/check-openapi-pins.sh
+
   rls-coverage:
     name: RLS coverage (every user-data table has a policy)
     runs-on: ubuntu-latest
