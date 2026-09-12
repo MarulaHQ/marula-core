@@ -1,0 +1,77 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO fx_rates (id, org_id, base_currency, quote_currency, as_of_date, rate, source, created_by)\n           VALUES ($1, $2, $3, $4, $5, $6::text::numeric, $7, $8)\n           RETURNING id, org_id,\n             base_currency AS \"base_currency!\", quote_currency AS \"quote_currency!\",\n             as_of_date AS \"as_of_date!\", rate::text AS \"rate!\",\n             source AS \"source!\", captured_at AS \"captured_at!\", created_by",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "base_currency!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "quote_currency!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "as_of_date!",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 5,
+        "name": "rate!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "source!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "captured_at!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_by",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Date",
+        "Text",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      null,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "99adf4b7702e6170efbd30c5c8caacd911f66218b1c96b0258037b990d621696"
+}
