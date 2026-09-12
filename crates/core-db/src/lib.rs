@@ -40,6 +40,7 @@ pub mod manifest;
 pub mod mfa;
 pub mod notifications;
 pub mod oidc;
+pub mod org_config;
 pub mod org_users;
 pub mod orgs;
 pub mod outbox;

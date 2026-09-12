@@ -69,6 +69,7 @@ pub mod manifest;
 pub mod notifications;
 pub mod oidc;
 pub mod openapi;
+pub mod org_config;
 pub mod org_users;
 pub mod passwords;
 pub mod portal;
@@ -87,6 +88,7 @@ pub mod settings;
 pub mod sla_admin;
 pub mod tags;
 pub mod taxonomy;
+pub mod ticket_emails;
 pub mod ticket_links;
 pub mod tickets;
 pub mod time;
@@ -570,6 +572,12 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/tickets/{id}/checklist/{item_id}"),
             post(tickets::set_checklist_item),
         )
+        // per-ticket email read (Wave 12 lane 6): the timeline's real
+        // in/out rows via the 2.4 email path.
+        .route(
+            &rp("/tickets/{id}/emails"),
+            get(ticket_emails::list_for_ticket),
+        )
         .route(
             &rp("/tickets/{id}/time-entries"),
             get(tickets::ticket_time_entries),
@@ -860,6 +868,12 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/org"),
             get(settings::org_profile_get).patch(settings::org_profile_patch),
+        )
+        // org-scoped pod-visibility matrix (Wave 12 lane 6): the admin
+        // per-RBAC config moved off device-local panel state.
+        .route(
+            &rp("/org/pod-visibility"),
+            get(org_config::pod_visibility_get).put(org_config::pod_visibility_put),
         )
         // AI/BYOK settings (TASKLIST Phase 3: CompletionProvider seam)
         .route(&rp("/settings/ai/status"), get(byok::get_ai_status))

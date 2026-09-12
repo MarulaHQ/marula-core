@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO org_pod_visibility (id, org_id, config, updated_by)\n           VALUES ($1, $2, $3, $4)\n           ON CONFLICT (org_id) DO UPDATE\n             SET config = EXCLUDED.config,\n                 updated_by = EXCLUDED.updated_by,\n                 updated_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Jsonb",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0abed6d68bd9ccaf9b68f0ffe03ab66999247571fced28f71558eb7a766834f4"
+}

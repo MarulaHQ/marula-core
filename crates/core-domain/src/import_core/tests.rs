@@ -1000,6 +1000,8 @@ fn new_family_projections_agree_between_incoming_and_stored() {
         created_at: now,
         updated_at: now,
         merged_into_ticket_id: None,
+        type_id: None,
+        category_id: None,
     };
     assert_eq!(spec.projection(), ticket_projection(&stored));
 

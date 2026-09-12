@@ -751,7 +751,7 @@ async fn checklist_items_sort_toggle_and_missing_notfound() {
     );
     assert!(!listed[0].checked);
 
-    tickets::set_checklist_item(&mut *tx, s.org, fixed_uuid(903), true, Some(u))
+    tickets::set_checklist_item(&mut *tx, s.org, fixed_uuid(903), true, false, Some(u))
         .await
         .expect("check");
     let listed = tickets::list_checklist(&mut *tx, s.org, t.id)
@@ -762,7 +762,7 @@ async fn checklist_items_sort_toggle_and_missing_notfound() {
     assert!(listed[0].checked_at.is_some());
 
     // Unchecking clears both the auditor and the timestamp.
-    tickets::set_checklist_item(&mut *tx, s.org, fixed_uuid(903), false, None)
+    tickets::set_checklist_item(&mut *tx, s.org, fixed_uuid(903), false, false, None)
         .await
         .expect("uncheck");
     let listed = tickets::list_checklist(&mut *tx, s.org, t.id)
@@ -773,7 +773,7 @@ async fn checklist_items_sort_toggle_and_missing_notfound() {
     assert!(listed[0].checked_at.is_none());
 
     assert!(matches!(
-        tickets::set_checklist_item(&mut *tx, s.org, fixed_uuid(999), true, None).await,
+        tickets::set_checklist_item(&mut *tx, s.org, fixed_uuid(999), true, false, None).await,
         Err(DbError::NotFound)
     ));
 }
@@ -2080,7 +2080,7 @@ async fn template_instantiation_idempotent_lazy_sync_and_progress() {
     );
 
     // Check one instance off: derived progress follows instantly.
-    tickets::set_checklist_item(&mut *tx, s.org, listed[0].id, true, Some(u))
+    tickets::set_checklist_item(&mut *tx, s.org, listed[0].id, true, false, Some(u))
         .await
         .expect("check");
     let (_, p1) = checklists::view(&mut tx, s.org, t.id)

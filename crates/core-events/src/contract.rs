@@ -430,16 +430,16 @@ use core_domain::events::{
     DispatchStatusUpdated, ImportBatchFinished, ImportBatchStarted, InvoiceCreated,
     InvoiceDunningChanged, InvoicePaymentRecorded, InvoiceRunCompleted, InvoiceVoided,
     MigrationPushSessionFinished, MigrationPushSessionStarted, NotificationCreated, OnCallChanged,
-    PmScheduleChanged, PmScheduleDeleted, ProjectCreated, ProjectMilestoneCompleted,
-    ProjectPhaseCompleted, ProjectPhaseCreated, ProjectPhaseUpdated, ProjectTaskCompleted,
-    ProjectTaskCreated, ProjectTaskUpdated, ProjectTemplateRemoved, ProjectTemplateUpdated,
-    ProjectUpdated, ProjectViewRemoved, ProjectViewUpdated, SchedulingLinkCreated,
-    SchedulingLinkRevoked, SchedulingLinkScheduled, SchedulingLinkViewed, SiteCreated, SiteUpdated,
-    TagCreated, TagDeleted, TagUpdated, TicketAssigned, TicketBoardMoved, TicketChecklistUpdated,
-    TicketCommentAdded, TicketCostLineAdded, TicketCostLineRemoved, TicketCreated,
-    TicketExpenseRecorded, TicketExpenseRemoved, TicketLinkChanged, TicketMerged, TicketReverted,
-    TicketStatusChanged, TicketTagsChanged, TimeEntryCreated, TimerPaused, TimerStarted,
-    TimerStopped, TravelDraftSubmitted, UserActivated, UserDeactivated, UserInvited,
+    PmScheduleChanged, PmScheduleDeleted, PodVisibilityUpdated, ProjectCreated,
+    ProjectMilestoneCompleted, ProjectPhaseCompleted, ProjectPhaseCreated, ProjectPhaseUpdated,
+    ProjectTaskCompleted, ProjectTaskCreated, ProjectTaskUpdated, ProjectTemplateRemoved,
+    ProjectTemplateUpdated, ProjectUpdated, ProjectViewRemoved, ProjectViewUpdated,
+    SchedulingLinkCreated, SchedulingLinkRevoked, SchedulingLinkScheduled, SchedulingLinkViewed,
+    SiteCreated, SiteUpdated, TagCreated, TagDeleted, TagUpdated, TicketAssigned, TicketBoardMoved,
+    TicketChecklistUpdated, TicketCommentAdded, TicketCostLineAdded, TicketCostLineRemoved,
+    TicketCreated, TicketExpenseRecorded, TicketExpenseRemoved, TicketLinkChanged, TicketMerged,
+    TicketReverted, TicketStatusChanged, TicketTagsChanged, TimeEntryCreated, TimerPaused,
+    TimerStarted, TimerStopped, TravelDraftSubmitted, UserActivated, UserDeactivated, UserInvited,
     UserRoleChanged,
 };
 use core_domain::money::{CurrencyCode, Money};
@@ -613,6 +613,7 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
                     ticket_id: su(1),
                     text: "Confirm backup restore".into(),
                     checked: false,
+                    na: false,
                     sort_order: 0,
                     checked_by: None,
                     checked_at: None,
@@ -1432,6 +1433,18 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
         shape: untyped_shape!(
             ["name", "ticket_prefix"],
             serde_json::json!({ "name": "Meridian MSP", "ticket_prefix": "MER" })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::POD_VISIBILITY_UPDATED,
+        entity: "org",
+        variant: "default",
+        shape: typed_shape!(
+            PodVisibilityUpdated,
+            PodVisibilityUpdated {
+                config: serde_json::json!({ "tasks": { "read_only": false } }),
+                updated_by: Some(su(5)),
+            }
         ),
     },
     // -- BYOK sealed keys (Wave 9 adapters lane) ------------------------------

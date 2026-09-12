@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT COUNT(*) AS total,\n                  COUNT(*) FILTER (WHERE checked) AS checked,\n                  COUNT(*) FILTER (WHERE template_item_id IS NOT NULL AND NOT checked) AS required_open\n           FROM checklist_items\n           WHERE org_id = $1 AND ticket_id = $2",
+  "query": "SELECT COUNT(*) AS total,\n                   COUNT(*) FILTER (WHERE checked) AS checked,\n                   COUNT(*) FILTER (WHERE template_item_id IS NOT NULL AND NOT checked\n                                      AND NOT na) AS required_open\n            FROM checklist_items\n            WHERE org_id = $1 AND ticket_id = $2",
   "describe": {
     "columns": [
       {
@@ -31,5 +31,5 @@
       null
     ]
   },
-  "hash": "a735112bff5b537898af7d6c8a9ccc2dd18db4a9adf90b35f7cde86d7c621703"
+  "hash": "bf8f3a620630055b08812b13e2e08c2185681d3b48fa24e1b11ddf7dedaaedd7"
 }

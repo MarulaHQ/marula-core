@@ -37,6 +37,12 @@ pub enum OutboundKind {
         /// formatting).
         invoice_lines: Vec<String>,
     },
+    /// Free-form message fully rendered by the caller (Wave 12 lane 6:
+    /// the scheduling-link template auto-email, whose subject/body are
+    /// org-edited template text with the placeholders already expanded).
+    /// Rendering happens at the composition site because only it knows
+    /// the template semantics; this module carries it verbatim.
+    Templated { subject: String, body: String },
 }
 
 impl OutboundKind {
@@ -57,6 +63,7 @@ impl OutboundKind {
             OutboundKind::InvoiceStatement { client_name, .. } => {
                 format!("Account statement — {client_name}")
             }
+            OutboundKind::Templated { subject, .. } => subject.clone(),
         }
     }
 
@@ -99,6 +106,7 @@ impl OutboundKind {
                 ));
                 body
             }
+            OutboundKind::Templated { body, .. } => body.clone(),
         }
     }
 }
@@ -169,6 +177,16 @@ mod tests {
         assert_eq!(backoff_delay(4), Duration::seconds(240));
         assert_eq!(backoff_delay(8), Duration::seconds(3_600));
         assert_eq!(backoff_delay(50), Duration::seconds(3_600));
+    }
+
+    #[test]
+    fn templated_carries_the_caller_rendering_verbatim() {
+        let k = OutboundKind::Templated {
+            subject: "Confirmed: {date}".replace("{date}", "2026-09-15 09:00"),
+            body: "Hi Dana,\n\nYour booking is confirmed.".into(),
+        };
+        assert_eq!(k.subject(), "Confirmed: 2026-09-15 09:00");
+        assert!(k.body().contains("Your booking is confirmed"));
     }
 
     #[test]

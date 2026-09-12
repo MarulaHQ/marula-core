@@ -81,7 +81,9 @@ pub struct CloseBlocked {
 ///   its `require_checklist_close` toggle is on (`enforcement_active`);
 /// - When inactive, closing always proceeds regardless of item state;
 /// - When active, closing proceeds only while every REQUIRED instance
-///   (template-derived, i.e. `template_item_id` set) is checked. Ad-hoc
+///   (template-derived, i.e. `template_item_id` set) is checked or marked
+///   N-A (Wave 12 lane 6: shared not-applicable state — an item the org
+///   deemed not applicable can never block a closure). Ad-hoc
 ///   items never block — they are personal notes, not process gates.
 ///
 /// Items with `template_item_id == None` are ignored by design.
@@ -94,7 +96,7 @@ pub fn enforce_pre_close(
     }
     let missing: Vec<String> = items
         .iter()
-        .filter(|i| i.template_item_id.is_some() && !i.checked)
+        .filter(|i| i.template_item_id.is_some() && !i.checked && !i.na)
         .map(|i| i.text.clone())
         .collect();
     if missing.is_empty() {
@@ -116,6 +118,7 @@ mod tests {
             ticket_id: Uuid::now_v7(),
             text: text.into(),
             checked,
+            na: false,
             sort_order: 0,
             checked_by: None,
             checked_at: None,
@@ -207,6 +210,33 @@ mod tests {
     fn ad_hoc_items_never_block_even_when_enforced() {
         let items = vec![item("remember to smile", false, false)];
         assert_eq!(enforce_pre_close(&items, true), Ok(()));
+    }
+
+    #[test]
+    fn na_required_items_never_block_and_missing_na_defaults_false() {
+        // N-A REQUIRED items are exempt: the shared not-applicable state is
+        // close-gate truth, not a per-user view.
+        let mut na = item("legacy on-prem check", false, true);
+        na.na = true;
+        assert_eq!(enforce_pre_close(&[na], true), Ok(()));
+
+        // Backward compatibility: a payload without the `na` key (older
+        // goldens, older emitters) deserializes as false and keeps blocking
+        // exactly as before.
+        let legacy: ChecklistItem = serde_json::from_value(serde_json::json!({
+            "id": Uuid::now_v7(),
+            "org_id": Uuid::now_v7(),
+            "ticket_id": Uuid::now_v7(),
+            "text": "client notified",
+            "checked": false,
+            "sort_order": 0,
+            "checked_by": null,
+            "checked_at": null,
+            "template_item_id": Uuid::now_v7(),
+        }))
+        .expect("legacy payload without na deserializes");
+        assert!(!legacy.na);
+        assert!(enforce_pre_close(&[legacy], true).is_err());
     }
 
     #[test]

@@ -48,12 +48,17 @@ pub(crate) fn row_to_ticket(row: sqlx::postgres::PgRow) -> Result<Ticket, sqlx::
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
         merged_into_ticket_id: row.try_get("merged_into_ticket_id").unwrap_or(None),
+        // Classification read-view (Wave 12 lane 6): try_get keeps callers
+        // that project a narrower column list (portal surfaces) working —
+        // they simply report unclassified.
+        type_id: row.try_get("type_id").unwrap_or(None),
+        category_id: row.try_get("category_id").unwrap_or(None),
     })
 }
 
 const TICKET_COLS: &str = "id, org_id, number, board_id, status_id, title, body, priority, \
      client_id, site_id, contact_id, assignee_id, requester_id, category, due_at, \
-     resolved_at, created_at, updated_at, merged_into_ticket_id";
+     resolved_at, created_at, updated_at, merged_into_ticket_id, type_id, category_id";
 
 pub struct NewTicket<'a> {
     pub id: Uuid,
@@ -653,23 +658,31 @@ where
     Ok(())
 }
 
+/// Toggles one checklist item. `checked` semantics are UNCHANGED from
+/// 0004; `na` is the shared not-applicable state (Wave 12 lane 6) —
+/// mutually exclusive with `checked` (the API validates), and setting
+/// either clears the other's stamps: an N-A item carries no checkmark
+/// provenance, and unchecking clears it too.
 pub async fn set_checklist_item<'e, E>(
     executor: E,
     org_id: Uuid,
     item_id: Uuid,
     checked: bool,
+    na: bool,
     checked_by: Option<Uuid>,
 ) -> DbResult<()>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     let res = sqlx::query!(
-        r#"UPDATE checklist_items SET checked = $3, checked_by = $4,
-             checked_at = CASE WHEN $3 THEN now() ELSE NULL END
+        r#"UPDATE checklist_items SET checked = $3, na = $4,
+             checked_by = CASE WHEN $3 AND NOT $4 THEN $5::uuid ELSE NULL END,
+             checked_at = CASE WHEN $3 AND NOT $4 THEN now() ELSE NULL END
            WHERE org_id = $1 AND id = $2"#,
         org_id,
         item_id,
         checked,
+        na,
         checked_by
     )
     .execute(executor)
@@ -689,9 +702,9 @@ where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     let rows = sqlx::query!(
-        r#"SELECT id, org_id, ticket_id, text, checked, sort_order, checked_by, checked_at,
+        r#"SELECT id, org_id, ticket_id, text, checked, na, sort_order, checked_by, checked_at,
                   template_item_id
-           FROM checklist_items WHERE org_id = $1 AND ticket_id = $2 ORDER BY sort_order"#,
+            FROM checklist_items WHERE org_id = $1 AND ticket_id = $2 ORDER BY sort_order"#,
         org_id,
         ticket_id
     )
@@ -705,6 +718,7 @@ where
             ticket_id: row.ticket_id,
             text: row.text,
             checked: row.checked,
+            na: row.na,
             sort_order: row.sort_order,
             checked_by: row.checked_by,
             checked_at: row.checked_at,

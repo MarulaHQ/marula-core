@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE checklist_items SET checked = $3, na = $4,\n             checked_by = CASE WHEN $3 AND NOT $4 THEN $5::uuid ELSE NULL END,\n             checked_at = CASE WHEN $3 AND NOT $4 THEN now() ELSE NULL END\n           WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Bool",
+        "Bool",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c9a496cbe4b78c5ea697bbdff4c246b7885b56dae53394feca7860556f3bd9ef"
+}

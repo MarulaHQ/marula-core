@@ -137,6 +137,14 @@ pub struct AddChecklistItemRequest {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct SetChecklistItemRequest {
     pub checked: bool,
+    /// Shared not-applicable state (Wave 12 lane 6): `true` marks the item
+    /// N-A as ORG-WIDE server truth and clears the checkmark (the states
+    /// are mutually exclusive; checked semantics are untouched for callers
+    /// that omit it — legacy payloads default to `false` and behave
+    /// exactly as before). N-A REQUIRED items are exempt from pre-close
+    /// enforcement and derived progress.
+    #[serde(default)]
+    pub na: bool,
     /// Instant-first autosave parameters (IF1): idempotency key + entity
     /// version. Absent in legacy clients — purely additive.
     #[serde(flatten, default)]
@@ -1611,11 +1619,19 @@ pub async fn set_checklist_item(
             .into_iter()
             .find(|item| item.id == item_id)
             .ok_or(ApiError::NotFound)?;
+        // Mutual exclusion (Wave 12 lane 6): checked and N-A are distinct
+        // server states; asking for both is a client bug, not a preference.
+        if req.checked && req.na {
+            return Err(ApiError::Validation(
+                "a checklist item cannot be both checked and N-A".into(),
+            ));
+        }
         core_db::tickets::set_checklist_item(
             &mut *ctx.tx,
             org_id,
             item_id,
             req.checked,
+            req.na,
             Some(user_id),
         )
         .await?;

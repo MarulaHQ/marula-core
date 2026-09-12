@@ -3328,6 +3328,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/org/pod-visibility": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/org/pod-visibility — the org's stored matrix; `config` is
+         *     `{}` when the org never customized (clients fall back to their
+         *     registry defaults, defaults-first).
+         */
+        get: operations["org_pod_visibility_get"];
+        /**
+         * PUT /api/org/pod-visibility — rewrites the org's matrix (Admin:edit).
+         *     Emits `org.pod_visibility_updated` + audit row in the same tx.
+         */
+        put: operations["org_pod_visibility_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/org/users": {
         parameters: {
             query?: never;
@@ -5363,6 +5388,27 @@ export interface paths {
         patch: operations["tickets_update_cost_line"];
         trace?: never;
     };
+    "/api/v1/tickets/{id}/emails": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/tickets/{id}/emails — every ledger row routed to this ticket
+         *     (inbound + outbound), newest first, with reply-chain parents resolved
+         *     and outbound delivery state projected from the retry ledger.
+         */
+        get: operations["tickets_list_emails"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tickets/{id}/expenses": {
         parameters: {
             query?: never;
@@ -6979,6 +7025,15 @@ export interface components {
             checked_by?: string | null;
             /** Format: uuid */
             id: string;
+            /**
+             * @description Shared "not applicable" state (Wave 12 lane 6): server truth for the
+             *     tasks-panel tri-state, set by the toggle endpoint in the same tx as
+             *     `checked`. Mutually exclusive with `checked` (enforced at the API);
+             *     N-A REQUIRED items are exempt from pre-close enforcement and derived
+             *     progress. `#[serde(default)]` keeps older payloads (no `na` key)
+             *     deserializing as false — additive-only contract.
+             */
+            na?: boolean;
             /** Format: uuid */
             org_id: string;
             /** Format: int32 */
@@ -8592,6 +8647,54 @@ export interface components {
             rule_id?: string | null;
             /** Format: uuid */
             ticket_id: string;
+        };
+        /**
+         * @description Delivery projection from the `email_outbound` ledger. Present for
+         *     outbound rows only — inbound mail has no send lifecycle.
+         */
+        EmailDeliveryView: {
+            /** Format: int32 */
+            attempts: number;
+            last_error?: string | null;
+            /** Format: int32 */
+            max_attempts: number;
+            /** @description queued | sending | sent | dead */
+            status: string;
+        };
+        /**
+         * @description Whether a message entered (inbound) or left (outbound) the system.
+         * @enum {string}
+         */
+        EmailDirection: "inbound" | "outbound";
+        /**
+         * @description One persisted email message. `rfc_message_id` is unique per org and is
+         *     the idempotency key for inbound processing; `email_refs` carries the
+         *     RFC 5322 References chain (`references` itself is reserved SQL).
+         */
+        EmailMessage: {
+            body_text?: string | null;
+            /** Format: uuid */
+            comment_id?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            direction: components["schemas"]["EmailDirection"];
+            email_refs: string[];
+            from_address: string;
+            from_name?: string | null;
+            /** Format: uuid */
+            id: string;
+            in_reply_to?: string | null;
+            /** Format: uuid */
+            org_id: string;
+            raw_ref?: string | null;
+            rfc_message_id: string;
+            scan_status: components["schemas"]["ScanStatus"];
+            subject?: string | null;
+            /** Format: uuid */
+            ticket_id?: string | null;
+            to_addresses: string[];
+            /** @description Which transport adapter handled the message (postmark/smtp/…). */
+            transport: string;
         };
         /**
          * @description Which entity family a batch targets. One batch = exactly one kind; the
@@ -10481,6 +10584,17 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        PodVisibilityView: {
+            /**
+             * @description Pod id → RBAC level → visible. Absent entries fall back to the
+             *     client registry defaults.
+             */
+            config: unknown;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: uuid */
+            updated_by?: string | null;
+        };
         PolicyView: {
             /** Format: uuid */
             calendar_id?: string | null;
@@ -11024,8 +11138,9 @@ export interface components {
         };
         /**
          * @description What the public page needs to render the booking UI: the template's
-         *     bookable shape plus a slot preview over the booking window. Slot
-         *     generation is bounded at 31 days (calendar-view cap).
+         *     bookable shape plus a slot preview over the booking window. The
+         *     horizon follows `booking_window_days`; intervals are computed in
+         *     server-side chunks and capped at [`MAX_PREVIEW_SLOTS`].
          */
         PublicLinkView: {
             /** Format: int32 */
@@ -11297,6 +11412,13 @@ export interface components {
              *     statuses OF THAT BOARD — unknown ids are rejected, not silently kept.
              */
             visible_status_ids: string[];
+        };
+        PutPodVisibilityRequest: {
+            /**
+             * @description The full matrix; the store is whole-document (admins edit the
+             *     matrix in one pass). Must satisfy [`validate_matrix`].
+             */
+            config: unknown;
         };
         /**
          * @description Queue mutation envelope (set + clear share the shape; clears carry
@@ -11680,6 +11802,13 @@ export interface components {
             summary: components["schemas"]["ChunkSummaryWire"];
         };
         /**
+         * @description Outcome of the malware scan that runs between webhook receipt and
+         *     persistence. `skipped` is the documented "none" mode (no scanner
+         *     configured) — never a silent pass of an actual verdict.
+         * @enum {string}
+         */
+        ScanStatus: "clean" | "infected" | "skipped";
+        /**
          * @description Wire cadence of a schedule (snake_case slugs matching the stored
          *     column and the worker's parser).
          * @enum {string}
@@ -11864,6 +11993,15 @@ export interface components {
         };
         SetChecklistItemRequest: components["schemas"]["MutationParams"] & {
             checked: boolean;
+            /**
+             * @description Shared not-applicable state (Wave 12 lane 6): `true` marks the item
+             *     N-A as ORG-WIDE server truth and clears the checkmark (the states
+             *     are mutually exclusive; checked semantics are untouched for callers
+             *     that omit it — legacy payloads default to `false` and behave
+             *     exactly as before). N-A REQUIRED items are exempt from pre-close
+             *     enforcement and derived progress.
+             */
+            na?: boolean;
         };
         SetDependenciesRequest: {
             /**
@@ -12301,6 +12439,8 @@ export interface components {
             /** @description Denormalized from the board status for cheap filtering/sorting. */
             category: components["schemas"]["TicketStatusCategory"];
             /** Format: uuid */
+            category_id?: string | null;
+            /** Format: uuid */
             client_id?: string | null;
             /** Format: uuid */
             contact_id?: string | null;
@@ -12330,6 +12470,15 @@ export interface components {
             /** Format: uuid */
             status_id: string;
             title: string;
+            /**
+             * Format: uuid
+             * @description Classification (Wave 11 lane 3; read-view exposure Wave 12 lane 6):
+             *     the org taxonomy nodes carried on the ticket. PATCH accepts them;
+             *     the read view now returns them so ticket detail can display the
+             *     current classification. Purely descriptive — classification-only
+             *     doctrine (§5) binds behavior to semantic categories, never these.
+             */
+            type_id?: string | null;
             /** Format: date-time */
             updated_at: string;
         };
@@ -12417,6 +12566,25 @@ export interface components {
             /** Format: int32 */
             sort_order: number;
             value: unknown;
+        };
+        /**
+         * @description One ledger message as the timeline renders it: the full `EmailMessage`
+         *     shape (unchanged, additive only) plus the delivery projection and the
+         *     resolved in-ticket reply parent.
+         */
+        TicketEmailRow: components["schemas"]["EmailMessage"] & {
+            delivery?: null | components["schemas"]["EmailDeliveryView"];
+            /**
+             * Format: uuid
+             * @description The id of the message INSIDE THIS TICKET this row replies to,
+             *     resolved case-insensitively against the ledger's Message-IDs.
+             *     `null` when the parent is unknown or lives on another ticket.
+             */
+            reply_to_message_id?: string | null;
+        };
+        TicketEmailsView: {
+            /** @description Newest-first, mirroring the ledger's thread view. */
+            messages: components["schemas"]["TicketEmailRow"][];
         };
         /** @description One expense entry on a ticket. */
         TicketExpense: {
@@ -19349,6 +19517,61 @@ export interface operations {
             };
         };
     };
+    org_pod_visibility_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PodVisibilityView"];
+                };
+            };
+        };
+    };
+    org_pod_visibility_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutPodVisibilityRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PodVisibilityView"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid matrix shape */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     org_users_list: {
         parameters: {
             query?: {
@@ -23748,6 +23971,34 @@ export interface operations {
             };
             /** @description already billed, version conflict, or idempotency key reused */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tickets_list_emails: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketEmailsView"];
+                };
+            };
+            /** @description ticket not visible in scope */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
