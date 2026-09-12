@@ -11,8 +11,9 @@
 //! — all in ONE transaction, so a slot can never be booked twice by two
 //! racing bookings (the appointments EXCLUDE constraint is the
 //! concurrency backstop; the link-status predicate is the single-winner
-//! gate). The template's auto-email runs POST-commit off the write path
-//! (instant-first doctrine); transport `none` is the natural skip.
+//! gate). The template's auto-email rides the `email_outbound` exactly-
+//! once ledger inside the booking transaction (transport `none` is the
+//! documented skip).
 //!
 //! Non-purpose: reminders/recurrence, external calendar sync, the
 //! ticket-workspace send UI (lane 6 consumes these endpoints), org-chart
@@ -39,7 +40,6 @@ use core_domain::events::{
     SchedulingLinkViewed,
 };
 use core_domain::policy::{Action, Permission};
-use core_mail::OutboundEmail;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -891,9 +891,20 @@ pub async fn list_link_bookings(
 
 // --- PUBLIC booking surface (token-scoped, unauthenticated) -------------------------
 
+/// Availability is computed in bounded server-side chunks over the
+/// bookable horizon (Wave 12 lane 6 lifted the old 31-day calendar cap —
+/// the horizon now follows the template's `booking_window_days`, up to
+/// its 1..=365 CHECK).
+const HORIZON_CHUNK_DAYS: i64 = 31;
+/// Payload bound for the public preview: after merging, at most this many
+/// free intervals are returned (the earliest ones). A 365-day window over
+/// a busy calendar would otherwise render an unusable payload.
+const MAX_PREVIEW_SLOTS: usize = 400;
+
 /// What the public page needs to render the booking UI: the template's
-/// bookable shape plus a slot preview over the booking window. Slot
-/// generation is bounded at 31 days (calendar-view cap).
+/// bookable shape plus a slot preview over the booking window. The
+/// horizon follows `booking_window_days`; intervals are computed in
+/// server-side chunks and capped at [`MAX_PREVIEW_SLOTS`].
 #[derive(Debug, Serialize, ToSchema)]
 pub struct PublicLinkView {
     #[schema(value_type = uuid::Uuid)]
@@ -980,8 +991,10 @@ pub async fn public_view(
     })
     .await?;
 
-    let horizon = (now + Duration::days(resolved.meeting_type.booking_window_days.into()))
-        .min(now + Duration::days(31));
+    // The horizon follows the template's booking window — the 31-day
+    // calendar cap was lifted (Wave 12 lane 6); the window itself is
+    // bounded 1..=365 by the meeting-type CHECK.
+    let horizon = now + Duration::days(resolved.meeting_type.booking_window_days.into());
     let slots = free_slots(
         &state,
         resolved.org_id,
@@ -1007,6 +1020,9 @@ pub async fn public_view(
 
 /// Unioned free intervals across the assignee scope over [from, to]:
 /// one user's calendar, or every group member's calendar combined.
+/// Availability is computed in [`HORIZON_CHUNK_DAYS`] chunks server-side
+/// so a long horizon keeps per-query cost bounded, and the merged result
+/// is capped at [`MAX_PREVIEW_SLOTS`] earliest intervals.
 async fn free_slots(
     state: &AppState,
     org_id: Uuid,
@@ -1022,13 +1038,19 @@ async fn free_slots(
         return Ok(Vec::new());
     }
     let mut unioned: Vec<(DateTime<Utc>, DateTime<Utc>)> = Vec::new();
-    for user_id in member_ids {
-        unioned.extend(member_free(state, org_id, user_id, from, to).await?);
+    let mut cursor = from;
+    while cursor < to {
+        let chunk_end = (cursor + Duration::days(HORIZON_CHUNK_DAYS)).min(to);
+        for user_id in &member_ids {
+            unioned.extend(member_free(state, org_id, *user_id, cursor, chunk_end).await?);
+        }
+        cursor = chunk_end;
     }
     unioned.sort();
     let merged = merge_sorted(unioned);
     Ok(merged
         .into_iter()
+        .take(MAX_PREVIEW_SLOTS)
         .map(|(s, e)| SlotInterval {
             starts_at: s,
             ends_at: e,
@@ -1213,6 +1235,7 @@ pub async fn public_book(
     let booker_notes = req.booker_notes.clone();
     let fingerprint = serde_json::to_value(&req).unwrap_or(serde_json::Value::Null);
     let key = req.instant.idempotency_key.clone();
+    let mail = state.mail.clone();
     let outcome = org_tx::with_org_tx(&state, org_id, Uuid::nil(), |mut tx| async move {
         if let InstantClaim::Replay(stored) = instant::claim(
             &mut tx,
@@ -1449,6 +1472,44 @@ pub async fn public_book(
             },
         )
         .await?;
+        // The template's auto-email rides the `email_outbound` exactly-once
+        // ledger INSIDE the booking transaction (Wave 12 lane 6 — the old
+        // post-commit fire-and-forget only logged a transport failure). The
+        // worker claims, transports, and retries with backoff; an idempotent
+        // replay returned above before any enqueue, so a booking can never
+        // double-send. `ticket_id` (when the link was minted from a ticket)
+        // puts the confirmation on that ticket's email timeline. Transport
+        // `none` remains the documented skip. Only the BODY expands the
+        // `{date}`/`{name}` placeholders, matching the lane-4 template.
+        if meeting_type.auto_email_enabled {
+            if let (Some(subject), Some(body), Some(to)) = (
+                meeting_type.auto_email_subject.as_deref(),
+                meeting_type.auto_email_body.as_deref(),
+                booker_email.as_deref().filter(|e| e.contains('@')),
+            ) {
+                if mail.transport.name() != "none" {
+                    let body = body
+                        .replace("{date}", &appointment.starts_at.to_rfc3339())
+                        .replace("{name}", booker_name.as_deref().unwrap_or("there"));
+                    crate::email::enqueue_outbound(
+                        &mut tx.tx,
+                        crate::email::OutboundEnqueue {
+                            mail: &mail,
+                            org_id,
+                            to_addresses: vec![to.to_string()],
+                            kind: &core_mail::outbound::OutboundKind::Templated {
+                                subject: subject.to_string(),
+                                body,
+                            },
+                            in_reply_to: None,
+                            references: vec![],
+                            ticket_id: resolved.ticket_id,
+                        },
+                    )
+                    .await?;
+                }
+            }
+        }
         Ok((
             tx,
             MutationOutcome::Applied(BookResponse {
@@ -1459,64 +1520,7 @@ pub async fn public_book(
     })
     .await?;
     let booked = outcome.into_response()?;
-    // Side effect off the write path (instant-first doctrine): the
-    // template's auto-email runs post-commit; transport `none` (the
-    // Noop transport) is the documented skip.
-    maybe_send_auto_email(
-        &state,
-        &meeting_type,
-        &booked,
-        &req.booker_name,
-        &req.booker_email,
-    );
     Ok((axum::http::StatusCode::CREATED, Json(booked)))
-}
-
-fn maybe_send_auto_email(
-    state: &AppState,
-    meeting_type: &MeetingType,
-    booked: &BookResponse,
-    booker_name: &Option<String>,
-    booker_email: &Option<String>,
-) {
-    if !meeting_type.auto_email_enabled {
-        return;
-    }
-    let (Some(subject), Some(body)) = (
-        meeting_type.auto_email_subject.as_deref(),
-        meeting_type.auto_email_body.as_deref(),
-    ) else {
-        return;
-    };
-    let Some(to) = booker_email.clone().filter(|e| e.contains('@')) else {
-        return;
-    };
-    if state.mail.transport.name() == "none" {
-        // none-mode = skipped, per the lane convention.
-        return;
-    }
-    let transport = state.mail.transport.clone();
-    let from_address = state.config.email_from_address.clone();
-    let from_name = state.config.email_from_name.clone();
-    let subject = subject.to_string();
-    let body = body
-        .replace("{date}", &booked.appointment.starts_at.to_rfc3339())
-        .replace("{name}", booker_name.as_deref().unwrap_or("there"));
-    tokio::spawn(async move {
-        let message = OutboundEmail {
-            from_address,
-            from_name,
-            to_addresses: vec![to],
-            subject,
-            body_text: body,
-            rfc_message_id: format!("<scheduling-link-{}@meridian.local>", Uuid::now_v7()),
-            in_reply_to: None,
-            references: vec![],
-        };
-        if let Err(e) = transport.send(&message).await {
-            tracing::warn!(error = %e, "scheduling link auto-email send failed");
-        }
-    });
 }
 
 /// Public-route mount: merged OUTSIDE the JWT middleware (alerts

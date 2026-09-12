@@ -80,6 +80,8 @@ use utoipa::OpenApi;
         crate::routes::tickets::add_checklist_item,
         crate::routes::tickets::set_checklist_item,
         crate::routes::tickets::ticket_time_entries,
+        // per-ticket email read (Wave 12 lane 6)
+        crate::routes::ticket_emails::list_for_ticket,
         // workflow constructs (Wave 11 lane 9, migration 0056)
         crate::routes::tags::list_tags,
         crate::routes::tags::create_tag,
@@ -210,6 +212,9 @@ use utoipa::OpenApi;
         crate::routes::settings::user_value_put,
         crate::routes::settings::org_profile_get,
         crate::routes::settings::org_profile_patch,
+        // org-scoped pod-visibility matrix (Wave 12 lane 6)
+        crate::routes::org_config::pod_visibility_get,
+        crate::routes::org_config::pod_visibility_put,
         // BYOK sealed credentials + completion seam (TASKLIST Phase 3
         // adapters lane): owner/admin-gated, instant-first write path.
         crate::routes::byok::get_ai_status,
@@ -723,6 +728,13 @@ use utoipa::OpenApi;
         crate::routes::settings::UpdateSettingRequest,
         crate::routes::settings::OrgProfileResponse,
         crate::routes::settings::PatchOrgRequest,
+        // org-scoped pod-visibility matrix (Wave 12 lane 6)
+        crate::routes::org_config::PodVisibilityView,
+        crate::routes::org_config::PutPodVisibilityRequest,
+        // per-ticket email read (Wave 12 lane 6)
+        crate::routes::ticket_emails::TicketEmailsView,
+        crate::routes::ticket_emails::TicketEmailRow,
+        crate::routes::ticket_emails::EmailDeliveryView,
         crate::routes::byok::PutByokSecretRequest,
         crate::routes::byok::ByokSecretMutationResponse,
         crate::routes::byok::TestConnectionRequest,

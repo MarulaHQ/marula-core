@@ -137,6 +137,10 @@ pub mod types {
     /// Emitted when the org profile (name/ticket prefix) is edited from
     /// General settings or the first-run wizard.
     pub const ORG_UPDATED: &str = "org.updated";
+    /// Org-scoped ticket-workspace pod-visibility matrix changed (Wave 12
+    /// lane 6): the admin per-RBAC matrix moved from device-local panel
+    /// state to the org store (`org_pod_visibility`, migration 0064).
+    pub const POD_VISIBILITY_UPDATED: &str = "org.pod_visibility_updated";
     /// Board organization + board-level RBAC (TASKLIST 2.11).
     pub const BOARD_GROUP_CREATED: &str = "board.group_created";
     pub const BOARD_GROUP_UPDATED: &str = "board.group_updated";
@@ -725,6 +729,19 @@ pub struct EmailMessageRecorded {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct BoardGroupCreated {
     pub group: crate::entities::BoardGroup,
+}
+
+/// The org's per-RBAC pod-visibility matrix was rewritten (Wave 12 lane
+/// 6). The matrix is pod id → RBAC level → visible; absent pods/levels
+/// fall back to the client registry defaults, so the payload carries the
+/// stored document verbatim rather than a closed struct.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PodVisibilityUpdated {
+    /// The stored matrix document (validated shape at the API boundary).
+    pub config: serde_json::Value,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub updated_by: Option<uuid::Uuid>,
 }
 
 /// A board group's name/position changed.

@@ -1572,62 +1572,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/catalog-items": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/catalog-items — newest/active first, filterable. */
-        get: operations["catalog_items_list"];
-        put?: never;
-        /** POST /api/catalog-items — create through the instant-first write path. */
-        post: operations["catalog_items_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/catalog-items/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/catalog-items/{id}. */
-        get: operations["catalog_items_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** PATCH /api/catalog-items/{id} — absent fields keep their value. */
-        patch: operations["catalog_items_update"];
-        trace?: never;
-    };
-    "/api/v1/catalog-items/{id}/archive": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * POST /api/catalog-items/{id}/archive — flip `active` off (data, never
-         *     a delete). Already-archived items archive as a no-op replay of state.
-         */
-        post: operations["catalog_items_archive"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/clients": {
         parameters: {
             query?: never;
@@ -1753,327 +1697,6 @@ export interface paths {
         put?: never;
         /** POST /api/clients/{id}/sites */
         post: operations["clients_create_site"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/clients/{id}/workflow-overrides": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * GET /api/clients/{id}/workflow-overrides — the client's resolved workflow:
-         *     one entry per registry declaration with precedence outcome, provenance,
-         *     renderable details (names + semantic status categories), and drift issues.
-         */
-        get: operations["client_workflow_overrides_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/clients/{id}/workflow-overrides/{key}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * PUT /api/clients/{id}/workflow-overrides/{key} — set a value or record an
-         *     explicit disable. Unknown keys, mistyped payloads, out-of-org references,
-         *     and disallowed disables are typed 422s before anything persists.
-         */
-        put: operations["client_workflow_override_put"];
-        post?: never;
-        /**
-         * DELETE /api/clients/{id}/workflow-overrides/{key} — remove the override so
-         *     the client inherits the org default again. Distinct from an explicit
-         *     disable; clearing an absent override is a no-op that still resolves.
-         */
-        delete: operations["client_workflow_override_clear"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/config-items": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/config-items — active items only (merged tombstones excluded). */
-        get: operations["config_items_list"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/config-items/feed-upsert": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * POST /api/config-items/feed-upsert — CI2: the single feeder write path
-         *     (lane 8's seam). Never blind-inserts: existing (source_system,
-         *     external_id) links resolve to their own item; identity keys resolve the
-         *     deterministic case; ambiguity queues reviewable candidates and only
-         *     auto-merges at/above the org threshold.
-         */
-        post: operations["config_items_feed_upsert"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/config-items/interfaces/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** DELETE /api/config-items/interfaces/{id} */
-        delete: operations["config_items_delete_interface"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/config-items/merge-candidates": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/config-items/merge-candidates — the review queue. */
-        get: operations["config_items_list_candidates"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/config-items/merge-candidates/{id}/accept": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * POST /api/config-items/merge-candidates/{id}/accept — fold the candidate
-         *     into the primary with the candidate's evidence attached.
-         */
-        post: operations["config_items_accept_candidate"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/config-items/merge-candidates/{id}/reject": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** POST /api/config-items/merge-candidates/{id}/reject — keep both items. */
-        post: operations["config_items_reject_candidate"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/config-items/merges/{id}/split": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * POST /api/config-items/merges/{id}/split — undo a merge (IF7): links,
-         *     interfaces, and field tiers ride back from the audit row's packet.
-         */
-        post: operations["config_items_split"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/config-items/precedence": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * GET /api/config-items/precedence — org overrides (shipped ADR defaults
-         *     resolve in Rust when no row matches).
-         */
-        get: operations["config_items_list_precedence"];
-        /**
-         * PUT /api/config-items/precedence — a per-type/per-source precedence
-         *     override (CI5). Upserts by (layout, field, source).
-         */
-        put: operations["config_items_upsert_precedence"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/config-items/settings": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/config-items/settings — the org's auto-merge threshold. */
-        get: operations["config_items_get_settings"];
-        /**
-         * PUT /api/config-items/settings — the org's auto-merge confidence
-         *     threshold (CI4).
-         */
-        put: operations["config_items_put_settings"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/config-items/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/config-items/{id} — the CI with its source links + interfaces. */
-        get: operations["config_items_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /**
-         * PATCH /api/config-items/{id} — human curation (CI5): curated values are
-         *     sticky forever; feeds never auto-overwrite them afterwards.
-         */
-        patch: operations["config_items_curate"];
-        trace?: never;
-    };
-    "/api/v1/config-items/{id}/accept-observed": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * POST /api/config-items/{id}/accept-observed — CI5 one-click "accept the
-         *     new value": promotes the observed value into the sticky curated tier.
-         */
-        post: operations["config_items_accept_observed"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/config-items/{id}/interfaces": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * POST /api/config-items/{id}/interfaces — record a NIC (ADR 0003
-         *     lifecycle rule: NICs are attributes, not their own CIs).
-         */
-        post: operations["config_items_add_interface"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/config-items/{id}/merge": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * POST /api/config-items/{id}/merge — an explicit human merge (the queue's
-         *     accept path rides this too). Audited + undoable (split).
-         */
-        post: operations["config_items_merge"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/config-items/{id}/merges": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/config-items/{id}/merges — the item's merge audit trail. */
-        get: operations["config_items_list_merges"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3705,6 +3328,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/org/pod-visibility": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/org/pod-visibility — the org's stored matrix; `config` is
+         *     `{}` when the org never customized (clients fall back to their
+         *     registry defaults, defaults-first).
+         */
+        get: operations["org_pod_visibility_get"];
+        /**
+         * PUT /api/org/pod-visibility — rewrites the org's matrix (Admin:edit).
+         *     Emits `org.pod_visibility_updated` + audit row in the same tx.
+         */
+        put: operations["org_pod_visibility_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/org/users": {
         parameters: {
             query?: never;
@@ -3893,107 +3541,6 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
-        trace?: never;
-    };
-    "/api/v1/pipeline/deals": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/pipeline/deals — newest first, filterable. */
-        get: operations["pipeline_deals_list"];
-        put?: never;
-        /**
-         * POST /api/pipeline/deals — create an opportunity and record its
-         *     initial placement in the transition ledger (same transaction).
-         */
-        post: operations["pipeline_deals_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/pipeline/deals/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * GET /api/pipeline/deals/{id} — deal + transition ledger.
-         *     (Registered at the `get_one` name in the router.)
-         */
-        get: operations["pipeline_deals_get_one"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /**
-         * PATCH /api/pipeline/deals/{id} — editable fields; the stage is not
-         *     touched here (that is the audited /stage leg).
-         */
-        patch: operations["pipeline_deals_update"];
-        trace?: never;
-    };
-    "/api/v1/pipeline/deals/{id}/stage": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * POST /api/pipeline/deals/{id}/stage — one audited stage transition.
-         *     Guarded on the CURRENT stage (concurrent moves: first wins, loser gets
-         *     a typed 409); the ledger row commits in the same transaction.
-         */
-        post: operations["pipeline_deals_move_stage"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/pipeline/stages": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/pipeline/stages — ordered pipeline definition. */
-        get: operations["pipeline_stages_list"];
-        put?: never;
-        /** POST /api/pipeline/stages — create a stage (name unique per org). */
-        post: operations["pipeline_stages_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/pipeline/stages/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** PATCH /api/pipeline/stages/{id}. */
-        patch: operations["pipeline_stages_update"];
         trace?: never;
     };
     "/api/v1/pm-schedules": {
@@ -4849,144 +4396,6 @@ export interface paths {
          *     the appointments EXCLUDE constraint is the concurrency backstop.
          */
         post: operations["public_scheduling_link_book"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/quotes": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/quotes — newest first, client/status filters. */
-        get: operations["quotes_list"];
-        put?: never;
-        /**
-         * POST /api/quotes — create a numbered draft. Lines snapshot catalog
-         *     context; roll-ups are computed server-side (never trusted from the
-         *     client).
-         */
-        post: operations["quotes_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/quotes/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/quotes/{id} — the quote plus its lines. */
-        get: operations["quotes_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /**
-         * PATCH /api/quotes/{id} — edit a DRAFT (header + optionally the whole
-         *     line list). Sent+ quotes are immutable: typed 409.
-         */
-        patch: operations["quotes_update"];
-        trace?: never;
-    };
-    "/api/v1/quotes/{id}/accept": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** POST /api/quotes/{id}/accept — sent → accepted (terminal). */
-        post: operations["quotes_accept"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/quotes/{id}/convert-to-invoice": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * POST /api/quotes/{id}/convert-to-invoice — materialize an ACCEPTED
-         *     quote into a fixed-fee contract + DRAFT invoice through the existing
-         *     invoicing persistence (the seam's rationale is in the module docs).
-         */
-        post: operations["quotes_convert_to_invoice"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/quotes/{id}/decline": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** POST /api/quotes/{id}/decline — sent → declined. Terminal. */
-        post: operations["quotes_decline"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/quotes/{id}/expire": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * POST /api/quotes/{id}/expire — explicitly expire a quote PAST its
-         *     validity window (decline is the in-window exit).
-         */
-        post: operations["quotes_expire"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/quotes/{id}/send": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * One lifecycle leg: shared shape for send/accept/decline (expire has a
-         *     POST /api/quotes/{id}/send — draft → sent. Locks the document.
-         */
-        post: operations["quotes_send"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5979,6 +5388,27 @@ export interface paths {
         patch: operations["tickets_update_cost_line"];
         trace?: never;
     };
+    "/api/v1/tickets/{id}/emails": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/tickets/{id}/emails — every ledger row routed to this ticket
+         *     (inbound + outbound), newest first, with reply-chain parents resolved
+         *     and outbound delivery state projected from the retry ledger.
+         */
+        get: operations["tickets_list_emails"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tickets/{id}/expenses": {
         parameters: {
             query?: never;
@@ -6556,27 +5986,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/workflow-overrides/registry": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * GET /api/workflow-overrides/registry — the closed set of overridable
-         *     constructs with their typed value kinds (the UI renders the editor FROM
-         *     this; policy §4.5: customizations are data against a typed registry).
-         */
-        get: operations["workflow_overrides_registry"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -6587,9 +5996,6 @@ export interface components {
             timezone?: string | null;
             /** @description The one-time setup token from the invite response. */
             token: string;
-        };
-        AcceptObservedRequest: components["schemas"]["MutationParams"] & {
-            field_key: string;
         };
         /**
          * @description Who performed the audited action. Append-only provenance record.
@@ -6958,7 +6364,6 @@ export interface components {
          * @enum {string}
          */
         AppointmentStatus: "scheduled" | "in_progress" | "done" | "cancelled";
-        ArchiveCatalogItemRequest: components["schemas"]["MutationParams"];
         ArticleListQuery: {
             /** Format: uuid */
             category_id?: string | null;
@@ -6971,40 +6376,6 @@ export interface components {
         /** @description Instant-first mutation response (IF2). */
         ArticleMutationResponse: components["schemas"]["KbArticle"] & {
             mutation: components["schemas"]["MutationMeta"];
-        };
-        /**
-         * @description Rental tracking + depreciation inputs on an asset (money is integer
-         *     minor units + currency code per ADR 0002; no conversion happens here).
-         */
-        AssetLifecycleInput: {
-            /** @description none | straight_line | declining_balance */
-            depreciation_method?: string | null;
-            /**
-             * Format: int32
-             * @description basis points for declining_balance (1..9999)
-             */
-            depreciation_rate_bps?: number | null;
-            /** @description owned | leased | rented */
-            ownership?: string | null;
-            /** Format: int64 */
-            purchase_cost_minor?: number | null;
-            purchase_currency?: string | null;
-            /** Format: date */
-            purchase_date?: string | null;
-            /** Format: int64 */
-            rental_cost_minor?: number | null;
-            rental_currency?: string | null;
-            /** @description monthly | quarterly | annual */
-            rental_cycle?: string | null;
-            /** Format: date */
-            rental_end?: string | null;
-            /** Format: date */
-            rental_start?: string | null;
-            rental_vendor?: string | null;
-            /** Format: int64 */
-            salvage_value_minor?: number | null;
-            /** Format: int32 */
-            useful_life_months?: number | null;
         };
         /**
          * @description Instant-first mutation response (IF2): asset fields at the top level
@@ -7586,10 +6957,6 @@ export interface components {
              */
             user_id?: string | null;
         };
-        CandidateView: components["schemas"]["CiMergeCandidate"] & {
-            candidate_tag: string;
-            primary_tag: string;
-        };
         CapabilityGrantList: {
             grants: components["schemas"]["CapabilityGrantView"][];
         };
@@ -7633,46 +7000,6 @@ export interface components {
             /** Format: date */
             from?: string | null;
         };
-        /** @description One catalog item. `unit_price_minor` and `cost_minor` share `currency`. */
-        CatalogItem: {
-            active: boolean;
-            category?: string | null;
-            /** Format: int64 */
-            cost_minor: number;
-            /** Format: date-time */
-            created_at: string;
-            /** Format: uuid */
-            created_by?: string | null;
-            currency: string;
-            description?: string | null;
-            group_name?: string | null;
-            /** Format: uuid */
-            id: string;
-            name: string;
-            /** Format: uuid */
-            org_id: string;
-            /** @description Optional SKU; unique per org (case-insensitive) when present. */
-            sku?: string | null;
-            taxable: boolean;
-            /** @description Unit of measure the price applies to ("each", "hour", "month"). */
-            unit: string;
-            /** Format: int64 */
-            unit_price_minor: number;
-            /** Format: date-time */
-            updated_at: string;
-        };
-        /** @description Instant-first mutation response (IF2) for catalog mutations. */
-        CatalogItemMutationResponse: components["schemas"]["CatalogItem"] & {
-            mutation: components["schemas"]["MutationMeta"];
-        };
-        CatalogListQuery: {
-            /** @description `None` = all items (active + archived). */
-            active?: boolean | null;
-            category?: string | null;
-            group_name?: string | null;
-            /** @description Substring search over name/sku/category/group. */
-            search?: string | null;
-        };
         /**
          * @description Instant-first mutation response (IF2): category fields at the top level
          *     plus the additive `mutation` metadata.
@@ -7698,6 +7025,15 @@ export interface components {
             checked_by?: string | null;
             /** Format: uuid */
             id: string;
+            /**
+             * @description Shared "not applicable" state (Wave 12 lane 6): server truth for the
+             *     tasks-panel tri-state, set by the toggle endpoint in the same tx as
+             *     `checked`. Mutually exclusive with `checked` (enforced at the API);
+             *     N-A REQUIRED items are exempt from pre-close enforcement and derived
+             *     progress. `#[serde(default)]` keeps older payloads (no `na` key)
+             *     deserializing as false — additive-only contract.
+             */
+            na?: boolean;
             /** Format: uuid */
             org_id: string;
             /** Format: int32 */
@@ -7801,114 +7137,6 @@ export interface components {
             /** Format: int32 */
             would_update: number;
         };
-        /** @description A per-type/per-source precedence override (CI5). */
-        CiFieldPrecedence: {
-            /** Format: date-time */
-            created_at: string;
-            field_key: string;
-            /** Format: uuid */
-            id: string;
-            /** Format: uuid */
-            layout_id?: string | null;
-            /** Format: uuid */
-            org_id: string;
-            /** Format: int32 */
-            priority: number;
-            semantic_class?: null | components["schemas"]["CiSemanticClass"];
-            source_system: string;
-            /** Format: date-time */
-            updated_at: string;
-        };
-        /** @description A NIC attribute of a config item (ADR 0003 lifecycle rule). */
-        CiInterface: {
-            /** Format: uuid */
-            config_item_id: string;
-            /** Format: date-time */
-            created_at: string;
-            /** Format: uuid */
-            id: string;
-            ips?: string[];
-            is_primary?: boolean;
-            /** @description Normalized lower colon form, e.g. `aa:bb:cc:dd:ee:ff`. */
-            mac?: string | null;
-            name?: string | null;
-            /** Format: uuid */
-            org_id: string;
-            /** Format: uuid */
-            source_link_id?: string | null;
-            /** Format: date-time */
-            updated_at: string;
-            vlans?: string[];
-        };
-        /** @description An audited, undoable merge (the split substrate). */
-        CiMerge: {
-            /** Format: uuid */
-            candidate_id?: string | null;
-            /** Format: double */
-            confidence?: number | null;
-            evidence?: unknown;
-            /** Format: uuid */
-            id: string;
-            /** Format: date-time */
-            merged_at: string;
-            /** Format: uuid */
-            merged_by?: string | null;
-            /** Format: uuid */
-            merged_config_item_id: string;
-            moved?: unknown;
-            /** Format: uuid */
-            org_id: string;
-            /** Format: uuid */
-            primary_config_item_id: string;
-            reason: string;
-            status: string;
-            /** Format: date-time */
-            undone_at?: string | null;
-            /** Format: uuid */
-            undone_by?: string | null;
-        };
-        /**
-         * @description A reviewable ambiguous match (ADR 0003): visible evidence, one-click
-         *     accept/reject, auto-merge only above the org threshold.
-         */
-        CiMergeCandidate: {
-            /** Format: uuid */
-            candidate_config_item_id: string;
-            /** Format: double */
-            confidence: number;
-            /** Format: date-time */
-            created_at: string;
-            /** Format: date-time */
-            decided_at?: string | null;
-            /** Format: uuid */
-            decided_by?: string | null;
-            evidence?: unknown;
-            /** Format: uuid */
-            id: string;
-            /** Format: uuid */
-            org_id: string;
-            /** Format: uuid */
-            primary_config_item_id: string;
-            reason: string;
-            status: components["schemas"]["CiMergeStatus"];
-            /** Format: date-time */
-            updated_at: string;
-        };
-        /**
-         * @description CI4: lifecycle of a reviewable merge candidate.
-         * @enum {string}
-         */
-        CiMergeStatus: "pending" | "auto_merged" | "accepted" | "rejected";
-        /**
-         * @description CI6: a semantic class is the behavior-bearing identity of a CI type.
-         *     Layouts (types) are org-configurable and renameable; the class is not.
-         * @enum {string}
-         */
-        CiSemanticClass: "workstation" | "server" | "vm" | "network_appliance" | "printer" | "iot";
-        CiSettingsView: {
-            /** Format: double */
-            auto_merge_threshold: number;
-        };
         Client: {
             /** Format: date-time */
             created_at: string;
@@ -7933,27 +7161,6 @@ export interface components {
         ClientMutationResponse: components["schemas"]["Client"] & {
             mutation: components["schemas"]["MutationMeta"];
         };
-        /**
-         * @description The stored client row, as provenance on a resolved entry (who last set it
-         *     and when — the audit subject; the append-only trail keeps the full history).
-         */
-        ClientOverrideRow: {
-            /** Format: uuid */
-            changed_by?: string | null;
-            /** @description "set" | "disabled". */
-            state: string;
-            updated_at: string;
-            value: Record<string, never> | null;
-        };
-        /**
-         * @description The client's full resolved workflow: one entry per registry declaration,
-         *     registry order preserved.
-         */
-        ClientWorkflowResolution: {
-            /** Format: uuid */
-            client_id: string;
-            entries: components["schemas"]["OverrideEntry"][];
-        };
         CommentListQuery: {
             kind?: null | components["schemas"]["NoteKind"];
         };
@@ -7962,38 +7169,6 @@ export interface components {
             /** Format: int64 */
             chunk_index: number;
             committed_at: string;
-        };
-        /** @description Instant-first mutation response (IF2). */
-        ConfigItemMutationResponse: components["schemas"]["DeviceAsset"] & {
-            mutation: components["schemas"]["MutationMeta"];
-        };
-        ConfigItemView: components["schemas"]["DeviceAsset"] & {
-            interfaces?: components["schemas"]["CiInterface"][];
-            /** @description The layout's CI6 semantic class (None = untyped). */
-            semantic_class?: string | null;
-            source_links?: components["schemas"]["ConfigSourceLink"][];
-        };
-        /**
-         * @description A feeder's per-source record link (ADR 0003). 0..N per config item; the
-         *     unique key is `(org, source_system, external_id)`.
-         */
-        ConfigSourceLink: {
-            /** Format: uuid */
-            config_item_id: string;
-            /** Format: date-time */
-            created_at: string;
-            external_id: string;
-            /** Format: uuid */
-            id: string;
-            /** Format: date-time */
-            last_seen_at: string;
-            /** Format: uuid */
-            org_id: string;
-            payload_ref?: string | null;
-            source_guid?: string | null;
-            source_system: string;
-            /** Format: date-time */
-            updated_at: string;
         };
         ConflictCheckRequest: {
             /** Format: date-time */
@@ -8253,15 +7428,6 @@ export interface components {
          * @enum {string}
          */
         ContractType: "recurring" | "time_and_materials" | "retainer" | "fixed_fee";
-        /** @description POST /api/quotes/{id}/convert-to-invoice body. */
-        ConvertQuoteRequest: components["schemas"]["MutationParams"];
-        /** @description Convert-to-invoice response: the quote with its seam targets. */
-        ConvertQuoteResponse: {
-            contract: components["schemas"]["Contract"];
-            invoice: components["schemas"]["Invoice"];
-            mutation: components["schemas"]["MutationMeta"];
-            quote: components["schemas"]["Quote"];
-        };
         /**
          * @description One money line on a ticket: `parts`, `flat`, or `other`.
          * @enum {string}
@@ -8359,7 +7525,6 @@ export interface components {
              * @description Typed layout; when set, `fields` is validated against its schema.
              */
             layout_id?: string | null;
-            lifecycle?: null | components["schemas"]["AssetLifecycleInput"];
             name: string;
             /** Format: uuid */
             site_id?: string | null;
@@ -8407,22 +7572,6 @@ export interface components {
             /** @description Timezone/windows/holidays/maintenance document. */
             calendar: components["schemas"]["BusinessCalendar"];
             name: string;
-        };
-        /** @description POST /api/catalog-items body. */
-        CreateCatalogItemRequest: components["schemas"]["MutationParams"] & {
-            category?: string | null;
-            /** Format: int64 */
-            cost_minor?: number;
-            currency: string;
-            description?: string | null;
-            group_name?: string | null;
-            name: string;
-            sku?: string | null;
-            taxable?: boolean;
-            /** @description Unit of measure the price applies to (default `each`). */
-            unit?: string;
-            /** Format: int64 */
-            unit_price_minor?: number;
         };
         CreateCategoryRequest: components["schemas"]["MutationParams"] & {
             /**
@@ -8502,27 +7651,6 @@ export interface components {
             /** Format: int64 */
             unit_cost_minor: number;
         };
-        /** @description POST /api/pipeline/deals body. */
-        CreateDealRequest: components["schemas"]["MutationParams"] & {
-            /** Format: int64 */
-            amount_minor?: number;
-            /** Format: uuid */
-            client_id: string;
-            currency: string;
-            /** Format: date */
-            expected_close_on?: string | null;
-            name: string;
-            notes?: string | null;
-            /** Format: uuid */
-            owner_user_id?: string | null;
-            /**
-             * Format: uuid
-             * @description Optional originating quote (same client).
-             */
-            quote_id?: string | null;
-            /** Format: uuid */
-            stage_id: string;
-        };
         CreateDocumentRequest: components["schemas"]["MutationParams"] & {
             body?: string | null;
             change_summary?: string | null;
@@ -8579,14 +7707,6 @@ export interface components {
             name: string;
             /** @description Source-system label this template belongs to (e.g. "connectwise"). */
             source_system: string;
-        };
-        CreateInterfaceRequest: {
-            ips?: string[];
-            is_primary?: boolean;
-            /** @description Normalized to lower colon form server-side. */
-            mac?: string | null;
-            name?: string | null;
-            vlans?: string[];
         };
         CreateInvoiceRunRequest: components["schemas"]["MutationParams"] & {
             /**
@@ -8732,27 +7852,6 @@ export interface components {
             /** @description Free-form note about the third-party source system. */
             source_note?: string | null;
         };
-        /** @description POST /api/quotes body. */
-        CreateQuoteRequest: components["schemas"]["MutationParams"] & {
-            /** Format: uuid */
-            client_id: string;
-            currency: string;
-            /**
-             * Format: date
-             * @description Issuance date (defaults to today).
-             */
-            issued_on?: string | null;
-            lines: components["schemas"]["QuoteLineInput"][];
-            notes?: string | null;
-            /**
-             * Format: int32
-             * @description Flat tax rate over the TAXABLE subtotal, basis points (800 = 8%).
-             */
-            tax_rate_bps?: number;
-            terms?: string | null;
-            /** Format: date */
-            valid_until: string;
-        };
         /** @description POST /api/report-definitions body. */
         CreateReportDefinitionRequest: components["schemas"]["MutationParams"] & {
             description?: string | null;
@@ -8849,13 +7948,6 @@ export interface components {
             postal_code?: string | null;
             region?: string | null;
             timezone?: string | null;
-        };
-        /** @description POST /api/pipeline/stages body. */
-        CreateStageRequest: components["schemas"]["MutationParams"] & {
-            name: string;
-            /** Format: int32 */
-            position?: number | null;
-            stage_type?: null | components["schemas"]["StageType"];
         };
         CreateStatusRequest: {
             /**
@@ -9109,10 +8201,6 @@ export interface components {
          * @enum {string}
          */
         CreditNoteStatus: "issued" | "void";
-        CurateFieldsRequest: components["schemas"]["MutationParams"] & {
-            /** @description Per-field human values; a `null` value un-curates the field. */
-            fields: unknown;
-        };
         /** @description The customization manifest envelope, `manifest_version` 1. */
         CustomizationManifest: {
             /**
@@ -9173,32 +8261,6 @@ export interface components {
              */
             user_id?: string | null;
         };
-        /** @description The deal aggregate: document + transition ledger. */
-        DealDetail: components["schemas"]["PipelineDeal"] & {
-            transitions: components["schemas"]["PipelineDealTransition"][];
-        };
-        /** @description GET /api/pipeline/deals query. */
-        DealListQuery: {
-            /** Format: uuid */
-            client_id?: string | null;
-            /** Format: uuid */
-            owner_user_id?: string | null;
-            /** Format: uuid */
-            quote_id?: string | null;
-            /** Format: uuid */
-            stage_id?: string | null;
-            /** @description Exact status: `open|won|lost`. */
-            status?: string | null;
-        };
-        DealMutationResponse: components["schemas"]["PipelineDeal"] & {
-            mutation: components["schemas"]["MutationMeta"];
-        };
-        /**
-         * @description A deal's posture, mirroring its stage's kind. Kept as a distinct enum
-         *     so consumers filter deals without resolving the stage row.
-         * @enum {string}
-         */
-        DealStatus: "open" | "won" | "lost";
         /**
          * @description A staff decision body. `decision_note` is the (optional) reason shown
          *     to the client on decline and a confirmation note on approve.
@@ -9303,24 +8365,13 @@ export interface components {
             client_id: string;
             /** Format: date-time */
             created_at: string;
-            /** @description CI5: human-set tier; sticky forever, never auto-overwritten. */
-            curated_fields?: unknown;
-            /** @description none | straight_line | declining_balance. */
-            depreciation_method?: string;
-            /** Format: int32 */
-            depreciation_rate_bps?: number | null;
-            /** @description CI5: per observed field `{source_system, source_link_id, observed_at}`. */
-            field_sources?: unknown;
             /**
              * @description Custom-field values validated against the layout's schema
-             *     (docs-platform v1 shape; app-validated). The EFFECTIVE view:
-             *     curated wins over observed (CI5, migration 0061).
+             *     (docs-platform v1 shape; app-validated).
              */
             fields?: unknown;
             /** Format: uuid */
             id: string;
-            /** @description CI3 deterministic identity keys (source GUID, serial, MACs, ...). */
-            identity_keys?: unknown;
             /**
              * @description Free-text connector compatibility column; typed classification
              *     lives in `layout_id` + `fields` (asset taxonomy, migration 0054).
@@ -9331,35 +8382,9 @@ export interface components {
              * @description The typed layout this asset instantiates; NULL = untyped.
              */
             layout_id?: string | null;
-            /**
-             * Format: uuid
-             * @description CI4: non-NULL means this row was absorbed by the target (tombstone).
-             */
-            merged_into_id?: string | null;
             name: string;
-            /** @description CI5: feed-written tier; churns silently with its source. */
-            observed_fields?: unknown;
             /** Format: uuid */
             org_id: string;
-            /** @description owned | leased | rented. */
-            ownership?: string;
-            /** Format: int64 */
-            purchase_cost_minor?: number | null;
-            purchase_currency?: string | null;
-            /** Format: date */
-            purchase_date?: string | null;
-            /** Format: int64 */
-            rental_cost_minor?: number | null;
-            rental_currency?: string | null;
-            /** @description monthly | quarterly | annual. */
-            rental_cycle?: string | null;
-            /** Format: date */
-            rental_end?: string | null;
-            /** Format: date */
-            rental_start?: string | null;
-            rental_vendor?: string | null;
-            /** Format: int64 */
-            salvage_value_minor?: number | null;
             /** Format: uuid */
             site_id?: string | null;
             status: string;
@@ -9367,8 +8392,6 @@ export interface components {
             tag: string;
             /** Format: date-time */
             updated_at: string;
-            /** Format: int32 */
-            useful_life_months?: number | null;
         };
         /**
          * @description One booking block on the dispatch board: the appointment plus the
@@ -9498,7 +8521,6 @@ export interface components {
             name: string;
             /** Format: uuid */
             org_id: string;
-            semantic_class?: null | components["schemas"]["CiSemanticClass"];
             /** @description Stable per-org handle (unique). */
             slug: string;
             /** Format: date-time */
@@ -9625,6 +8647,54 @@ export interface components {
             rule_id?: string | null;
             /** Format: uuid */
             ticket_id: string;
+        };
+        /**
+         * @description Delivery projection from the `email_outbound` ledger. Present for
+         *     outbound rows only — inbound mail has no send lifecycle.
+         */
+        EmailDeliveryView: {
+            /** Format: int32 */
+            attempts: number;
+            last_error?: string | null;
+            /** Format: int32 */
+            max_attempts: number;
+            /** @description queued | sending | sent | dead */
+            status: string;
+        };
+        /**
+         * @description Whether a message entered (inbound) or left (outbound) the system.
+         * @enum {string}
+         */
+        EmailDirection: "inbound" | "outbound";
+        /**
+         * @description One persisted email message. `rfc_message_id` is unique per org and is
+         *     the idempotency key for inbound processing; `email_refs` carries the
+         *     RFC 5322 References chain (`references` itself is reserved SQL).
+         */
+        EmailMessage: {
+            body_text?: string | null;
+            /** Format: uuid */
+            comment_id?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            direction: components["schemas"]["EmailDirection"];
+            email_refs: string[];
+            from_address: string;
+            from_name?: string | null;
+            /** Format: uuid */
+            id: string;
+            in_reply_to?: string | null;
+            /** Format: uuid */
+            org_id: string;
+            raw_ref?: string | null;
+            rfc_message_id: string;
+            scan_status: components["schemas"]["ScanStatus"];
+            subject?: string | null;
+            /** Format: uuid */
+            ticket_id?: string | null;
+            to_addresses: string[];
+            /** @description Which transport adapter handled the message (postmark/smtp/…). */
+            transport: string;
         };
         /**
          * @description Which entity family a batch targets. One batch = exactly one kind; the
@@ -9896,45 +8966,6 @@ export interface components {
             due_on: string;
             label: string;
             notes?: string | null;
-        };
-        /** @description The feeder upsert input — lane 8's seam (NinjaOne / IT Glue / Auvik). */
-        FeedUpsertRequest: components["schemas"]["MutationParams"] & {
-            /** Format: uuid */
-            client_id: string;
-            external_id: string;
-            /** @description CI3 deterministic identity signals (source GUID, serial, MACs, ...). */
-            identity_keys?: unknown;
-            /** Format: uuid */
-            layout_id?: string | null;
-            name: string;
-            /** @description CI5 observed tier: feed-written, churns with its source. */
-            observed_fields?: unknown;
-            payload_ref?: string | null;
-            source_guid?: string | null;
-            source_system: string;
-            /** @description Display defaults for a freshly created canonical item. */
-            tag: string;
-        };
-        /**
-         * @description Instant-first mutation response (IF2): item fields flattened at the top
-         *     level plus the additive feed-sync evidence and `mutation` metadata.
-         */
-        FeedUpsertResponse: components["schemas"]["DeviceAsset"] & {
-            /** @description Auto-merged at/above the org confidence threshold. */
-            auto_merged?: boolean;
-            /** @description Observed values that contradict a curated value (never applied). */
-            contradictions?: string[];
-            /** @description A fresh canonical row was created by THIS sync (no twin risk). */
-            created_item?: boolean;
-            mutation: components["schemas"]["MutationMeta"];
-            /** @description Reviewable candidates queued for a human (visible evidence). */
-            queued_candidates?: components["schemas"]["CiMergeCandidate"][];
-            /**
-             * @description An existing item was deterministically resolved through identity
-             *     keys; no second row exists for this source record.
-             */
-            resolved_existing?: boolean;
-            source_link?: components["schemas"]["ConfigSourceLink"];
         };
         /**
          * @description Wire view of one field definition; choice kinds carry their closed
@@ -10466,22 +9497,6 @@ export interface components {
             rollup: components["schemas"]["TicketRollup"];
             to: Record<string, never>[];
         };
-        ListCandidatesQuery: {
-            /** @description pending | auto_merged | accepted | rejected */
-            status?: string | null;
-        };
-        ListConfigItemsQuery: {
-            /** Format: uuid */
-            client_id?: string | null;
-            /** Format: uuid */
-            layout_id?: string | null;
-            q?: string | null;
-            /**
-             * @description CI6 semantic class filter (workstation | server | vm |
-             *     network_appliance | printer | iot).
-             */
-            semantic_class?: string | null;
-        };
         ListEntriesQuery: {
             /** Format: int64 */
             limit?: number;
@@ -10626,26 +9641,6 @@ export interface components {
             sort_order: number;
         };
         /**
-         * @description One per-client workflow override row, verbatim. `state` is
-         *     `set` (value overrides the org default) or `disabled` (explicit deny);
-         *     an absent row means the client inherits and exports nothing.
-         */
-        ManifestClientWorkflowOverride: {
-            /** Format: uuid */
-            client_id: string;
-            /** @description Stable semantic sort key (ids only break ties across re-imports). */
-            client_name: string;
-            /** @description Registry key from `core_domain::workflow_overrides` (closed set). */
-            key: string;
-            /** @description "set" | "disabled". */
-            state: string;
-            /**
-             * @description The typed payload (uuid string for reference kinds, boolean for
-             *     toggles); `null` when `disabled`.
-             */
-            value?: Record<string, never> | null;
-        };
-        /**
          * @description One custom field definition. `config` is the kind-specific document
          *     (select options, validation bounds, …) exactly as stored.
          */
@@ -10731,15 +9726,6 @@ export interface components {
              *     semantic-category floor applies, not "no transitions".
              */
             boards: components["schemas"]["ManifestBoard"][];
-            /**
-             * @description Per-client workflow overrides (Wave 12 lane 5): every client-scoped
-             *     override of the org workflow defaults, rows verbatim. The override
-             *     registry (`core_domain::workflow_overrides`) is the closed key set;
-             *     the preflight must see which constructs each client's rows reference
-             *     so a migration touching those constructs transforms the rows in the
-             *     same transaction (§4.5).
-             */
-            client_workflow_overrides: components["schemas"]["ManifestClientWorkflowOverride"][];
             /**
              * @description Custom field definitions across all entities (tickets, clients,
              *     contacts, assets), including archived ones.
@@ -10994,14 +9980,9 @@ export interface components {
             time_minutes_folded: number;
         };
         MergeRequest: components["schemas"]["MutationParams"] & {
+            resolve?: components["schemas"]["MergeResolutions"];
             /** Format: uuid */
-            candidate_id?: string | null;
-            /**
-             * Format: uuid
-             * @description The item to absorb into `{id}`.
-             */
-            merged_config_item_id: string;
-            reason?: string | null;
+            survivor_id: string;
         };
         MergeResolutions: {
             assignee?: null | components["schemas"]["FieldResolution"];
@@ -11061,12 +10042,6 @@ export interface components {
             starts_at: string;
             /** Format: uuid */
             user_id: string;
-        };
-        /** @description POST /api/pipeline/deals/{id}/stage body — one audited transition. */
-        MoveStageRequest: components["schemas"]["MutationParams"] & {
-            note?: string | null;
-            /** Format: uuid */
-            to_stage_id: string;
         };
         /**
          * @description Read-your-write metadata every mutation response carries (IF2), merged
@@ -11272,58 +10247,6 @@ export interface components {
             invite?: null | components["schemas"]["InviteInfo"];
             mutation: components["schemas"]["MutationMeta"];
         };
-        /** @description One registry declaration, projected for the settings/admin surface. */
-        OverrideDeclarationView: {
-            allow_disable: boolean;
-            description: string;
-            key: string;
-            label: string;
-            /** @description The settings-registry key carrying the org default for toggles. */
-            org_default_setting?: string | null;
-            /** @description board_ref | status_ref | sla_policy_ref | toggle. */
-            value_kind: string;
-        };
-        /**
-         * @description One resolved override entry: the declaration it validated against, the
-         *     resolution outcome, which layer supplied it, the raw org default and client
-         *     row, the renderable detail, and any resolution issues (e.g. a stale
-         *     cross-board status override that fell back to the board's entry status).
-         */
-        OverrideEntry: {
-            allow_disable: boolean;
-            client_override?: null | components["schemas"]["ClientOverrideRow"];
-            description: string;
-            detail?: null | components["schemas"]["ResolvedDetail"];
-            /** @description Typed drift/validation notes (never empty on a fallback). */
-            issues: string[];
-            key: string;
-            label: string;
-            /** @description The org default this resolution inherited from, when one existed. */
-            org_default: Record<string, never> | null;
-            resolution: components["schemas"]["Resolution"];
-            source: components["schemas"]["ResolutionSource"];
-            value_kind: components["schemas"]["OverrideValueKind"];
-        };
-        OverrideMutationResponse: {
-            /** Format: uuid */
-            client_id: string;
-            detail?: null | components["schemas"]["ResolvedDetail"];
-            key: string;
-            mutation: components["schemas"]["MutationMeta"];
-            resolution: components["schemas"]["Resolution"];
-            /** @description Which layer supplied the effective value. */
-            source: components["schemas"]["ResolutionSource"];
-        };
-        OverrideRegistryResponse: {
-            declarations: components["schemas"]["OverrideDeclarationView"][];
-        };
-        /**
-         * @description The value shapes a client override accepts. The wire value is the plain
-         *     JSON payload (uuid string / boolean); the kind exists so validation can
-         *     reject a mistyped payload before persistence.
-         * @enum {string}
-         */
-        OverrideValueKind: "board_ref" | "status_ref" | "sla_policy_ref" | "toggle";
         OwnedDeleteQuery: {
             /**
              * Format: uuid
@@ -11595,77 +10518,6 @@ export interface components {
          * @enum {string}
          */
         PhaseStatus: "pending" | "active" | "completed" | "cancelled";
-        /** @description An opportunity: one client, optionally one quote, one current stage. */
-        PipelineDeal: {
-            /** Format: int64 */
-            amount_minor: number;
-            /** Format: uuid */
-            client_id: string;
-            /**
-             * Format: date-time
-             * @description Set when the deal lands on a won/lost stage.
-             */
-            closed_at?: string | null;
-            /** Format: date-time */
-            created_at: string;
-            /** Format: uuid */
-            created_by?: string | null;
-            currency: string;
-            /** Format: date */
-            expected_close_on?: string | null;
-            /** Format: uuid */
-            id: string;
-            name: string;
-            notes?: string | null;
-            /** Format: uuid */
-            org_id: string;
-            /** Format: uuid */
-            owner_user_id?: string | null;
-            /** Format: uuid */
-            quote_id?: string | null;
-            /** Format: uuid */
-            stage_id: string;
-            status: components["schemas"]["DealStatus"];
-            /** Format: date-time */
-            updated_at: string;
-        };
-        /**
-         * @description One immutable stage move (or the initial placement, with a NULL
-         *     `from_stage_id`). Appended in the same transaction as the move.
-         */
-        PipelineDealTransition: {
-            /** Format: uuid */
-            actor_id?: string | null;
-            /** Format: date-time */
-            created_at: string;
-            /** Format: uuid */
-            deal_id: string;
-            /** Format: uuid */
-            from_stage_id?: string | null;
-            /** Format: uuid */
-            id: string;
-            note?: string | null;
-            /** Format: uuid */
-            org_id: string;
-            /** Format: uuid */
-            to_stage_id: string;
-        };
-        /** @description One ordered stage of the org's pipeline. */
-        PipelineStage: {
-            active: boolean;
-            /** Format: date-time */
-            created_at: string;
-            /** Format: uuid */
-            id: string;
-            name: string;
-            /** Format: uuid */
-            org_id: string;
-            /** Format: int32 */
-            position: number;
-            stage_type: components["schemas"]["StageType"];
-            /** Format: date-time */
-            updated_at: string;
-        };
         /** @description One append-only PM run ledger row. */
         PmRun: {
             /** Format: date-time */
@@ -11731,6 +10583,17 @@ export interface components {
             title: string;
             /** Format: date-time */
             updated_at: string;
+        };
+        PodVisibilityView: {
+            /**
+             * @description Pod id → RBAC level → visible. Absent entries fall back to the
+             *     client registry defaults.
+             */
+            config: unknown;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: uuid */
+            updated_by?: string | null;
         };
         PolicyView: {
             /** Format: uuid */
@@ -12275,8 +11138,9 @@ export interface components {
         };
         /**
          * @description What the public page needs to render the booking UI: the template's
-         *     bookable shape plus a slot preview over the booking window. Slot
-         *     generation is bounded at 31 days (calendar-view cap).
+         *     bookable shape plus a slot preview over the booking window. The
+         *     horizon follows `booking_window_days`; intervals are computed in
+         *     server-side chunks and capped at [`MAX_PREVIEW_SLOTS`].
          */
         PublicLinkView: {
             /** Format: int32 */
@@ -12549,21 +11413,12 @@ export interface components {
              */
             visible_status_ids: string[];
         };
-        /**
-         * @description PUT body: `{ "state": "set", "value": <typed payload> }` or
-         *     `{ "state": "disabled" }`, plus the instant-first parameters.
-         */
-        PutOverrideRequest: components["schemas"]["MutationParams"] & {
+        PutPodVisibilityRequest: {
             /**
-             * @description "set" (value replaces the org default) or "disabled" (explicit deny
-             *     that wins over an org-enabled default).
+             * @description The full matrix; the store is whole-document (admins edit the
+             *     matrix in one pass). Must satisfy [`validate_matrix`].
              */
-            state: string;
-            /**
-             * @description The typed payload (uuid string for reference kinds, boolean for
-             *     toggles); MUST be absent for "disabled".
-             */
-            value?: unknown;
+            config: unknown;
         };
         /**
          * @description Queue mutation envelope (set + clear share the shape; clears carry
@@ -12591,143 +11446,6 @@ export interface components {
              */
             rank_override?: number | null;
         };
-        /**
-         * @description The quote document. `subtotal/tax/total` are persisted roll-ups of the
-         *     lines, recomputed on every draft edit.
-         */
-        Quote: {
-            /** Format: uuid */
-            client_id: string;
-            /** Format: date-time */
-            converted_at?: string | null;
-            /**
-             * Format: uuid
-             * @description The contract the convert-to-invoice seam materialized (NULL until
-             *     converted).
-             */
-            converted_contract_id?: string | null;
-            /**
-             * Format: uuid
-             * @description The DRAFT invoice the seam created (NULL until converted).
-             */
-            converted_invoice_id?: string | null;
-            /** Format: date-time */
-            created_at: string;
-            /** Format: uuid */
-            created_by?: string | null;
-            currency: string;
-            /**
-             * Format: date-time
-             * @description When the quote reached a terminal accept/decline/expire state.
-             */
-            decided_at?: string | null;
-            /** Format: uuid */
-            id: string;
-            /** Format: date */
-            issued_on: string;
-            notes?: string | null;
-            /** @description Human quote number, unique per org (e.g. "Q-000012"). */
-            number: string;
-            /** Format: uuid */
-            org_id: string;
-            /** Format: date-time */
-            sent_at?: string | null;
-            status: components["schemas"]["QuoteStatus"];
-            /** Format: int64 */
-            subtotal_minor: number;
-            /** Format: int64 */
-            tax_minor: number;
-            /** Format: int32 */
-            tax_rate_bps: number;
-            terms?: string | null;
-            /** Format: int64 */
-            total_minor: number;
-            /** Format: date-time */
-            updated_at: string;
-            /**
-             * Format: date
-             * @description Last day the quote is valid; conversion after this is refused.
-             */
-            valid_until: string;
-        };
-        /** @description The quote aggregate: document + lines. */
-        QuoteDetail: components["schemas"]["Quote"] & {
-            lines: components["schemas"]["QuoteLine"][];
-        };
-        /**
-         * @description A lifecycle leg body (send/accept/decline/expire): envelope params
-         *     only; the target status is the URL.
-         */
-        QuoteLifecycleRequest: components["schemas"]["MutationParams"];
-        /**
-         * @description One quote line. `amount_minor` is the half-even product of
-         *     `quantity_milli × unit_amount_minor / 1000`; the API recomputes it.
-         */
-        QuoteLine: {
-            /** Format: int64 */
-            amount_minor: number;
-            /** Format: uuid */
-            catalog_item_id?: string | null;
-            description: string;
-            /** Format: uuid */
-            id: string;
-            /** Format: uuid */
-            org_id: string;
-            /** Format: int32 */
-            position: number;
-            /**
-             * Format: int64
-             * @description Quantity in thousandths of a unit (1.5 = 1500).
-             */
-            quantity_milli: number;
-            /** Format: uuid */
-            quote_id: string;
-            taxable: boolean;
-            unit: string;
-            /** Format: int64 */
-            unit_amount_minor: number;
-        };
-        /**
-         * @description One requested line. Catalog-backed lines snapshot the item's
-         *     description/unit/price/taxability at write time; free lines name
-         *     their own.
-         */
-        QuoteLineInput: {
-            /** Format: uuid */
-            catalog_item_id?: string | null;
-            /** @description Required when no catalog item backs the line. */
-            description?: string | null;
-            /**
-             * Format: int64
-             * @description Quantity in thousandths of a unit (1.5 = 1500).
-             */
-            quantity_milli: number;
-            taxable?: boolean | null;
-            /** @description Defaults to the catalog item's unit or `each`. */
-            unit?: string | null;
-            /**
-             * Format: int64
-             * @description Per-unit price, minor units; required when no catalog item backs
-             *     the line.
-             */
-            unit_amount_minor?: number | null;
-        };
-        /** @description GET /api/quotes query. */
-        QuoteListQuery: {
-            /** Format: uuid */
-            client_id?: string | null;
-            /** @description Exact status: `draft|sent|accepted|declined|expired`. */
-            status?: string | null;
-        };
-        /** @description Instant-first mutation response (IF2) for quote mutations. */
-        QuoteMutationResponse: components["schemas"]["Quote"] & {
-            mutation: components["schemas"]["MutationMeta"];
-        };
-        /**
-         * @description Lifecycle of a quote. `accepted` / `declined` / `expired` are terminal.
-         * @enum {string}
-         */
-        QuoteStatus: "draft" | "sent" | "accepted" | "declined" | "expired";
         RangeParams: {
             /** Format: date-time */
             from?: string | null;
@@ -12963,55 +11681,6 @@ export interface components {
             /** @description Presentation hint (never affects the compiled SQL). */
             viz: components["schemas"]["VizHint"];
         };
-        /** @description The effective state of one construct after resolution. */
-        Resolution: {
-            /** @enum {string} */
-            state: "set";
-            value: Record<string, never>;
-        } | {
-            /** @enum {string} */
-            state: "disabled";
-        } | {
-            /** @enum {string} */
-            state: "unset";
-        };
-        /**
-         * @description Which layer supplied the effective value.
-         * @enum {string}
-         */
-        ResolutionSource: "client_override" | "org_default" | "unset";
-        /**
-         * @description Render-ready details of a resolved reference value: names and the semantic
-         *     category travel WITH the resolution so consumers never branch on labels and
-         *     never need a second lookup.
-         */
-        ResolvedDetail: {
-            /** Format: uuid */
-            board_id: string;
-            /** @enum {string} */
-            kind: "board";
-            name: string;
-        } | {
-            /** Format: uuid */
-            board_id: string;
-            /** @description The semantic category the behavior layer keys on. */
-            category: components["schemas"]["TicketStatusCategory"];
-            /** @enum {string} */
-            kind: "status";
-            name: string;
-            /** Format: uuid */
-            status_id: string;
-        } | {
-            /** @enum {string} */
-            kind: "sla_policy";
-            name: string;
-            /** Format: uuid */
-            policy_id: string;
-        } | {
-            enabled: boolean;
-            /** @enum {string} */
-            kind: "toggle";
-        };
         /**
          * @description A link with its target resolved to a display label for the UI
          *     (typed read model; the raw row never carries the label).
@@ -13132,6 +11801,13 @@ export interface components {
             rows: components["schemas"]["RowReport"][];
             summary: components["schemas"]["ChunkSummaryWire"];
         };
+        /**
+         * @description Outcome of the malware scan that runs between webhook receipt and
+         *     persistence. `skipped` is the documented "none" mode (no scanner
+         *     configured) — never a silent pass of an actual verdict.
+         * @enum {string}
+         */
+        ScanStatus: "clean" | "infected" | "skipped";
         /**
          * @description Wire cadence of a schedule (snake_case slugs matching the stored
          *     column and the worker's parser).
@@ -13317,6 +11993,15 @@ export interface components {
         };
         SetChecklistItemRequest: components["schemas"]["MutationParams"] & {
             checked: boolean;
+            /**
+             * @description Shared not-applicable state (Wave 12 lane 6): `true` marks the item
+             *     N-A as ORG-WIDE server truth and clears the checkmark (the states
+             *     are mutually exclusive; checked semantics are untouched for callers
+             *     that omit it — legacy payloads default to `false` and behave
+             *     exactly as before). N-A REQUIRED items are exempt from pre-close
+             *     enforcement and derived progress.
+             */
+            na?: boolean;
         };
         SetDependenciesRequest: {
             /**
@@ -13539,20 +12224,6 @@ export interface components {
              */
             staged_chunks: number;
         };
-        StageListQuery: {
-            /** @description `None` = active stages only (default); `true` includes inactive. */
-            include_inactive?: boolean | null;
-        };
-        /** @description Instant-first mutation responses (IF2). */
-        StageMutationResponse: components["schemas"]["PipelineStage"] & {
-            mutation: components["schemas"]["MutationMeta"];
-        };
-        /**
-         * @description The kind of a pipeline stage. `won` / `lost` are terminal outcomes;
-         *     deals on such a stage are closed.
-         * @enum {string}
-         */
-        StageType: "open" | "won" | "lost";
         StartTimerRequest: components["schemas"]["MutationParams"] & {
             /** Format: uuid */
             ticket_id: string;
@@ -13768,6 +12439,8 @@ export interface components {
             /** @description Denormalized from the board status for cheap filtering/sorting. */
             category: components["schemas"]["TicketStatusCategory"];
             /** Format: uuid */
+            category_id?: string | null;
+            /** Format: uuid */
             client_id?: string | null;
             /** Format: uuid */
             contact_id?: string | null;
@@ -13797,6 +12470,15 @@ export interface components {
             /** Format: uuid */
             status_id: string;
             title: string;
+            /**
+             * Format: uuid
+             * @description Classification (Wave 11 lane 3; read-view exposure Wave 12 lane 6):
+             *     the org taxonomy nodes carried on the ticket. PATCH accepts them;
+             *     the read view now returns them so ticket detail can display the
+             *     current classification. Purely descriptive — classification-only
+             *     doctrine (§5) binds behavior to semantic categories, never these.
+             */
+            type_id?: string | null;
             /** Format: date-time */
             updated_at: string;
         };
@@ -13884,6 +12566,25 @@ export interface components {
             /** Format: int32 */
             sort_order: number;
             value: unknown;
+        };
+        /**
+         * @description One ledger message as the timeline renders it: the full `EmailMessage`
+         *     shape (unchanged, additive only) plus the delivery projection and the
+         *     resolved in-ticket reply parent.
+         */
+        TicketEmailRow: components["schemas"]["EmailMessage"] & {
+            delivery?: null | components["schemas"]["EmailDeliveryView"];
+            /**
+             * Format: uuid
+             * @description The id of the message INSIDE THIS TICKET this row replies to,
+             *     resolved case-insensitively against the ledger's Message-IDs.
+             *     `null` when the parent is unknown or lives on another ticket.
+             */
+            reply_to_message_id?: string | null;
+        };
+        TicketEmailsView: {
+            /** @description Newest-first, mirroring the ledger's thread view. */
+            messages: components["schemas"]["TicketEmailRow"][];
         };
         /** @description One expense entry on a ticket. */
         TicketExpense: {
@@ -14335,7 +13036,6 @@ export interface components {
             fields?: unknown;
             /** Format: uuid */
             layout_id?: string | null;
-            lifecycle?: null | components["schemas"]["AssetLifecycleInput"];
             name?: string | null;
             /** Format: uuid */
             site_id?: string | null;
@@ -14347,27 +13047,6 @@ export interface components {
             name?: string | null;
             timezone?: string | null;
             windows?: unknown;
-        };
-        /**
-         * @description PATCH /api/catalog-items/{id} body. Absent fields keep their value;
-         *     `Some(None)` clears an optional field.
-         */
-        UpdateCatalogItemRequest: components["schemas"]["MutationParams"] & {
-            /** @description Reactivating an archived item is a plain update. */
-            active?: boolean | null;
-            category?: string | null;
-            /** Format: int64 */
-            cost_minor?: number | null;
-            currency?: string | null;
-            description?: string | null;
-            group_name?: string | null;
-            name?: string | null;
-            /** @description Some → set (null clears); absent → no change. */
-            sku?: string | null;
-            taxable?: boolean | null;
-            unit?: string | null;
-            /** Format: int64 */
-            unit_price_minor?: number | null;
         };
         UpdateCategoryRequest: components["schemas"]["MutationParams"] & {
             client_visible?: boolean | null;
@@ -14383,25 +13062,6 @@ export interface components {
             quantity?: number | null;
             /** Format: int64 */
             unit_cost_minor?: number | null;
-        };
-        /**
-         * @description PATCH /api/pipeline/deals/{id} body — editable fields only; the stage
-         *     moves via the /stage leg.
-         */
-        UpdateDealRequest: components["schemas"]["MutationParams"] & {
-            /** Format: int64 */
-            amount_minor?: number | null;
-            /** Format: uuid */
-            client_id?: string | null;
-            currency?: string | null;
-            /** Format: date */
-            expected_close_on?: string | null;
-            name?: string | null;
-            notes?: string | null;
-            /** Format: uuid */
-            owner_user_id?: string | null;
-            /** Format: uuid */
-            quote_id?: string | null;
         };
         UpdateDocumentRequest: components["schemas"]["MutationParams"] & {
             body?: string | null;
@@ -14472,19 +13132,6 @@ export interface components {
             timezone?: string | null;
         };
         /**
-         * @description PATCH /api/quotes/{id} body — draft-only. Absent fields keep their
-         *     value; `lines` present replaces the whole line list.
-         */
-        UpdateQuoteRequest: components["schemas"]["MutationParams"] & {
-            lines?: components["schemas"]["QuoteLineInput"][] | null;
-            notes?: string | null;
-            /** Format: int32 */
-            tax_rate_bps?: number | null;
-            terms?: string | null;
-            /** Format: date */
-            valid_until?: string | null;
-        };
-        /**
          * @description PUT /api/report-definitions/{id} body — full-replace semantics: every
          *     member is applied; `description: null` clears it.
          */
@@ -14546,21 +13193,6 @@ export interface components {
             /** @description Must satisfy the declaration's kind or the request is rejected 422. */
             value: unknown;
         };
-        UpdateSettingsRequest: {
-            /**
-             * Format: double
-             * @description Auto-merge only at/above this confidence (0..1).
-             */
-            auto_merge_threshold: number;
-        };
-        /** @description PATCH /api/pipeline/stages/{id} body. */
-        UpdateStageRequest: components["schemas"]["MutationParams"] & {
-            active?: boolean | null;
-            name?: string | null;
-            /** Format: int32 */
-            position?: number | null;
-            stage_type?: null | components["schemas"]["StageType"];
-        };
         UpdateStatusRequest: {
             category?: null | components["schemas"]["TicketStatusCategory"];
             is_entry?: boolean | null;
@@ -14602,15 +13234,6 @@ export interface components {
             role: components["schemas"]["BoardRole"];
             /** Format: uuid */
             user_id: string;
-        };
-        UpsertPrecedenceRequest: {
-            field_key: string;
-            /** Format: uuid */
-            layout_id?: string | null;
-            /** Format: int32 */
-            priority: number;
-            semantic_class?: string | null;
-            source_system: string;
         };
         UpsertProviderRequest: {
             client_id: string;
@@ -17498,182 +16121,6 @@ export interface operations {
             };
         };
     };
-    catalog_items_list: {
-        parameters: {
-            query?: {
-                /** @description `None` = all items (active + archived). */
-                active?: boolean | null;
-                category?: string | null;
-                group_name?: string | null;
-                /** @description Substring search over name/sku/category/group. */
-                search?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CatalogItem"][];
-                };
-            };
-        };
-    };
-    catalog_items_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateCatalogItemRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CatalogItemMutationResponse"];
-                };
-            };
-            /** @description SKU already exists or idempotency key reused */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description validation failure */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    catalog_items_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CatalogItem"];
-                };
-            };
-            /** @description not visible in scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    catalog_items_update: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateCatalogItemRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CatalogItemMutationResponse"];
-                };
-            };
-            /** @description not visible in scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description SKU already exists, version conflict, or idempotency key reused */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description validation failure */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    catalog_items_archive: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ArchiveCatalogItemRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CatalogItemMutationResponse"];
-                };
-            };
-            /** @description not visible in scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description version conflict or idempotency key reused */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
     clients_list: {
         parameters: {
             query?: never;
@@ -17984,626 +16431,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Site"];
-                };
-            };
-        };
-    };
-    client_workflow_overrides_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ClientWorkflowResolution"];
-                };
-            };
-            /** @description client not found in this org */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    client_workflow_override_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-                key: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PutOverrideRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OverrideMutationResponse"];
-                };
-            };
-            /** @description client not found in this org (rls_sparse in-mutation) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description version conflict or idempotency key reused */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description unregistered key, mistyped value, invalid reference, or disallowed disable */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    client_workflow_override_clear: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-                key: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OverrideMutationResponse"];
-                };
-            };
-            /** @description client not found in this org (rls_sparse in-mutation) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description unknown override key */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    config_items_list: {
-        parameters: {
-            query?: {
-                client_id?: string | null;
-                layout_id?: string | null;
-                /**
-                 * @description CI6 semantic class filter (workstation | server | vm |
-                 *     network_appliance | printer | iot).
-                 */
-                semantic_class?: string | null;
-                q?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConfigItemView"][];
-                };
-            };
-        };
-    };
-    config_items_feed_upsert: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["FeedUpsertRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FeedUpsertResponse"];
-                };
-            };
-            /** @description idempotency key reused */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description source system / external id validation */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    config_items_delete_interface: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    config_items_list_candidates: {
-        parameters: {
-            query?: {
-                /** @description pending | auto_merged | accepted | rejected */
-                status?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CandidateView"][];
-                };
-            };
-        };
-    };
-    config_items_accept_candidate: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CiMerge"];
-                };
-            };
-            /** @description candidate not visible in scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description candidate already decided */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    config_items_reject_candidate: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CiMergeCandidate"];
-                };
-            };
-            /** @description candidate not visible in scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description candidate already decided */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    config_items_split: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CiMerge"];
-                };
-            };
-            /** @description merge not visible in scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description merge already undone */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    config_items_list_precedence: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CiFieldPrecedence"][];
-                };
-            };
-        };
-    };
-    config_items_upsert_precedence: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpsertPrecedenceRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CiFieldPrecedence"];
-                };
-            };
-            /** @description unknown semantic class */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    config_items_get_settings: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CiSettingsView"];
-                };
-            };
-        };
-    };
-    config_items_put_settings: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateSettingsRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CiSettingsView"];
-                };
-            };
-            /** @description threshold out of range */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    config_items_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConfigItemView"];
-                };
-            };
-            /** @description config item not visible in scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    config_items_curate: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CurateFieldsRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConfigItemMutationResponse"];
-                };
-            };
-            /** @description config item not visible in scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description version conflict or idempotency key reused */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    config_items_accept_observed: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AcceptObservedRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConfigItemMutationResponse"];
-                };
-            };
-            /** @description config item not visible in scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description no observed value for that field / version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    config_items_add_interface: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateInterfaceRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CiInterface"][];
-                };
-            };
-            /** @description config item not visible in scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    config_items_merge: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["MergeRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CiMerge"];
-                };
-            };
-            /** @description config item not visible in scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description cannot merge an item into itself / already merged */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    config_items_list_merges: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CiMerge"][];
                 };
             };
         };
@@ -21690,6 +19517,61 @@ export interface operations {
             };
         };
     };
+    org_pod_visibility_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PodVisibilityView"];
+                };
+            };
+        };
+    };
+    org_pod_visibility_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutPodVisibilityRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PodVisibilityView"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid matrix shape */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     org_users_list: {
         parameters: {
             query?: {
@@ -22115,301 +19997,6 @@ export interface operations {
             };
             /** @description entry not visible in scope */
             404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    pipeline_deals_list: {
-        parameters: {
-            query?: {
-                client_id?: string | null;
-                stage_id?: string | null;
-                quote_id?: string | null;
-                /** @description Exact status: `open|won|lost`. */
-                status?: string | null;
-                owner_user_id?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PipelineDeal"][];
-                };
-            };
-        };
-    };
-    pipeline_deals_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateDealRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DealMutationResponse"];
-                };
-            };
-            /** @description client, quote, or stage not visible in scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description idempotency key reused */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description validation failure */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    pipeline_deals_get_one: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DealDetail"];
-                };
-            };
-            /** @description not visible in scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    pipeline_deals_update: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateDealRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DealMutationResponse"];
-                };
-            };
-            /** @description deal, client, or quote not visible in scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description version conflict or idempotency key reused */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description validation failure */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    pipeline_deals_move_stage: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["MoveStageRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DealMutationResponse"];
-                };
-            };
-            /** @description deal or target stage not visible in scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description concurrent move or version conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description validation failure */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    pipeline_stages_list: {
-        parameters: {
-            query?: {
-                /** @description `None` = active stages only (default); `true` includes inactive. */
-                include_inactive?: boolean | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PipelineStage"][];
-                };
-            };
-        };
-    };
-    pipeline_stages_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateStageRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["StageMutationResponse"];
-                };
-            };
-            /** @description stage name already exists or idempotency key reused */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description validation failure */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    pipeline_stages_update: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateStageRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["StageMutationResponse"];
-                };
-            };
-            /** @description stage not visible in scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description stage name already exists, version conflict, or idempotency key reused */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description validation failure */
-            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -24186,349 +21773,6 @@ export interface operations {
                 content?: never;
             };
             429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    quotes_list: {
-        parameters: {
-            query?: {
-                client_id?: string | null;
-                /** @description Exact status: `draft|sent|accepted|declined|expired`. */
-                status?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Quote"][];
-                };
-            };
-        };
-    };
-    quotes_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateQuoteRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["QuoteMutationResponse"];
-                };
-            };
-            /** @description client or catalog item not visible in scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description idempotency key reused */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description validation failure */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    quotes_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["QuoteDetail"];
-                };
-            };
-            /** @description not visible in scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    quotes_update: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateQuoteRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["QuoteMutationResponse"];
-                };
-            };
-            /** @description quote or catalog item not visible in scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description quote is not a draft, version conflict, or idempotency key reused */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description validation failure */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    quotes_accept: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["QuoteLifecycleRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["QuoteMutationResponse"];
-                };
-            };
-            /** @description quote not visible in scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description illegal transition, version conflict, or idempotency key reused */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    quotes_convert_to_invoice: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ConvertQuoteRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConvertQuoteResponse"];
-                };
-            };
-            /** @description quote not visible in scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description quote not accepted / outside validity / already converted, version conflict, or idempotency key reused */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description validation failure */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    quotes_decline: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["QuoteLifecycleRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["QuoteMutationResponse"];
-                };
-            };
-            /** @description quote not visible in scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description illegal transition, version conflict, or idempotency key reused */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    quotes_expire: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["QuoteLifecycleRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["QuoteMutationResponse"];
-                };
-            };
-            /** @description quote not visible in scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description still inside validity window, illegal transition, version conflict, or idempotency key reused */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    quotes_send: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["QuoteLifecycleRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["QuoteMutationResponse"];
-                };
-            };
-            /** @description quote not visible in scope */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description illegal transition, version conflict, or idempotency key reused */
-            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -26734,6 +23978,34 @@ export interface operations {
             };
         };
     };
+    tickets_list_emails: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketEmailsView"];
+                };
+            };
+            /** @description ticket not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     tickets_list_expenses: {
         parameters: {
             query?: never;
@@ -27815,25 +25087,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TestFireResponse"];
-                };
-            };
-        };
-    };
-    workflow_overrides_registry: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OverrideRegistryResponse"];
                 };
             };
         };

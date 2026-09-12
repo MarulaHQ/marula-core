@@ -181,6 +181,56 @@ where
         .collect::<Result<_, _>>()?)
 }
 
+/// Delivery state of one outbound message, projected from the
+/// `email_outbound` retry ledger (0014). `None`-shaped statuses (inbound
+/// rows) simply have no row here.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OutboundDelivery {
+    pub email_message_id: Uuid,
+    /// queued | sending | sent | dead
+    pub status: String,
+    pub attempts: i32,
+    pub max_attempts: i32,
+    pub last_error: Option<String>,
+}
+
+/// Delivery rows for the given outbound messages, creation-ordered. At
+/// most one ledger row exists per message today (enqueue is exactly-once
+/// inside the causing transaction); if that ever loosens, the caller keeps
+/// the FIRST row per message — deterministic by creation order.
+pub async fn outbound_delivery_for_messages<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    message_ids: &[Uuid],
+) -> DbResult<Vec<OutboundDelivery>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    if message_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows = sqlx::query!(
+        r#"SELECT email_message_id, status, attempts, max_attempts, last_error
+           FROM email_outbound
+           WHERE org_id = $1 AND email_message_id = ANY($2)
+           ORDER BY created_at, id"#,
+        org_id,
+        message_ids
+    )
+    .fetch_all(executor)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| OutboundDelivery {
+            email_message_id: r.email_message_id,
+            status: r.status,
+            attempts: r.attempts,
+            max_attempts: r.max_attempts,
+            last_error: r.last_error,
+        })
+        .collect())
+}
+
 // --- threading + routing lookups -------------------------------------------
 
 /// Most recent ticket threaded to ANY of the normalized keys (bare,

@@ -247,10 +247,11 @@ where
 {
     let row = sqlx::query!(
         r#"SELECT COUNT(*) AS total,
-                  COUNT(*) FILTER (WHERE checked) AS checked,
-                  COUNT(*) FILTER (WHERE template_item_id IS NOT NULL AND NOT checked) AS required_open
-           FROM checklist_items
-           WHERE org_id = $1 AND ticket_id = $2"#,
+                   COUNT(*) FILTER (WHERE checked) AS checked,
+                   COUNT(*) FILTER (WHERE template_item_id IS NOT NULL AND NOT checked
+                                      AND NOT na) AS required_open
+            FROM checklist_items
+            WHERE org_id = $1 AND ticket_id = $2"#,
         org_id,
         ticket_id,
     )

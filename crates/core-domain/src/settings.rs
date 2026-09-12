@@ -138,6 +138,7 @@ pub enum SettingSection {
     Appearance,
     Onboarding,
     Integrations,
+    Email,
 }
 
 impl SettingSection {
@@ -147,6 +148,7 @@ impl SettingSection {
             SettingSection::Appearance => "appearance",
             SettingSection::Onboarding => "onboarding",
             SettingSection::Integrations => "integrations",
+            SettingSection::Email => "email",
         }
     }
 }
@@ -239,14 +241,12 @@ pub const APPEARANCE_THEME: &str = "appearance.theme";
 pub const ONBOARDING_WIZARD_COMPLETED: &str = "onboarding.wizard_completed";
 pub const AI_COMPLETION_PROVIDER: &str = "ai.completion_provider";
 pub const AI_COMPLETION_MODEL: &str = "ai.completion_model";
-/// Org default for firing notifications on client ticket activity. A client
-/// may override it through the per-client workflow-override registry
-/// (`core_domain::workflow_overrides`), including an explicit disable.
-pub const NOTIFICATIONS_CLIENT_EVENTS: &str = "notifications.client_events";
-/// Org default for running automation rules against client tickets. A client
-/// may override it through the per-client workflow-override registry,
-/// including an explicit disable.
-pub const AUTOMATIONS_CLIENT_RULES: &str = "automations.client_rules";
+/// Email greeting/sign-off (Wave 12 lane 6): per-user declarations for the
+/// client-email composers (close-flow summary email, reply composer).
+/// Editable defaults live in the settings registry, so they persist as
+/// real user settings instead of device-local panel state.
+pub const EMAIL_GREETING: &str = "email.greeting";
+pub const EMAIL_SIGNOFF: &str = "email.signoff";
 
 pub const TIMEZONE_OPTIONS: &[&str] = &[
     "UTC",
@@ -381,28 +381,27 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> =
                 description: "Model identifier to invoke on the active completion provider.",
             },
             SettingDeclaration {
-                key: NOTIFICATIONS_CLIENT_EVENTS,
-                kind: SettingKind::Boolean,
-                default: SettingValue::Boolean(true),
-                scope: SettingScope::Org,
-                section: SettingSection::General,
+                key: EMAIL_GREETING,
+                kind: SettingKind::Text { max_len: 500 },
+                default: SettingValue::Text(String::new()),
+                scope: SettingScope::User,
+                section: SettingSection::Email,
                 visibility: SettingVisibility::Ui,
-                label: "Notify on client ticket activity",
-                description: "Org default for firing notifications on client ticket activity. \
-                             A client may override this through its workflow overrides, \
-                             including an explicit disable.",
+                label: "Email greeting",
+                description: "Default greeting line for client emails you compose. \
+                             The `{name}` placeholder expands to the recipient's name; \
+                             empty falls back to the composer default (\"Hi {name},\").",
             },
             SettingDeclaration {
-                key: AUTOMATIONS_CLIENT_RULES,
-                kind: SettingKind::Boolean,
-                default: SettingValue::Boolean(true),
-                scope: SettingScope::Org,
-                section: SettingSection::General,
+                key: EMAIL_SIGNOFF,
+                kind: SettingKind::Text { max_len: 500 },
+                default: SettingValue::Text(String::new()),
+                scope: SettingScope::User,
+                section: SettingSection::Email,
                 visibility: SettingVisibility::Ui,
-                label: "Run automations for client tickets",
-                description: "Org default for running automation rules against a client's \
-                             tickets. A client may override this through its workflow \
-                             overrides, including an explicit disable.",
+                label: "Email sign-off",
+                description: "Default sign-off block appended to client emails you \
+                             compose (e.g. your name and title). Empty appends none.",
             },
         ]
     });
@@ -460,8 +459,26 @@ mod tests {
             default_value(APPEARANCE_THEME),
             Some(SettingValue::Text("light".into()))
         );
-        assert_eq!(declarations_for(SettingScope::User).len(), 1);
-        assert_eq!(declarations_for(SettingScope::Org).len(), 8);
+        assert_eq!(declarations_for(SettingScope::User).len(), 3);
+        assert_eq!(declarations_for(SettingScope::Org).len(), 6);
+    }
+
+    #[test]
+    fn email_greeting_and_signoff_are_user_scope_text_settings() {
+        for key in [EMAIL_GREETING, EMAIL_SIGNOFF] {
+            let d = declaration(key).unwrap_or_else(|| panic!("{key} declared"));
+            assert_eq!(d.scope, SettingScope::User);
+            assert_eq!(d.section, SettingSection::Email);
+            assert!(d.validate(&SettingValue::Text("Hi {name},".into())).is_ok());
+            assert!(d.validate(&SettingValue::Integer(1)).is_err());
+            let too_long = "x".repeat(501);
+            assert!(d.validate(&SettingValue::Text(too_long)).is_err());
+        }
+        // Defaults are empty: untouched users keep the composer defaults.
+        assert_eq!(
+            default_value(EMAIL_GREETING),
+            Some(SettingValue::Text(String::new()))
+        );
     }
 
     #[test]

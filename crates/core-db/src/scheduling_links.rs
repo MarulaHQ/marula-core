@@ -484,6 +484,7 @@ pub async fn resolve_link_by_token(
         first_viewed_at: row.get("first_viewed_at"),
         view_count: row.get::<i32, _>("view_count") as i64,
         scheduled_at: row.get("scheduled_at"),
+        ticket_id: row.get("r_ticket_id"),
     })
 }
 
@@ -500,6 +501,9 @@ pub struct ResolvedLink {
     pub first_viewed_at: Option<chrono::DateTime<chrono::Utc>>,
     pub view_count: i64,
     pub scheduled_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// The originating ticket cross-ref (0064): the ledger-enqueued
+    /// auto-email lands back on this ticket's timeline.
+    pub ticket_id: Option<Uuid>,
 }
 
 /// Lifecycle stamp for a public page load (definer seam; fire-and-forget).

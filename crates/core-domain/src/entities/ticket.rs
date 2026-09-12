@@ -41,6 +41,15 @@ pub struct Ticket {
     /// (doctrine #9) but is closed and never re-opened.
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub merged_into_ticket_id: Option<crate::ids::TicketId>,
+    /// Classification (Wave 11 lane 3; read-view exposure Wave 12 lane 6):
+    /// the org taxonomy nodes carried on the ticket. PATCH accepts them;
+    /// the read view now returns them so ticket detail can display the
+    /// current classification. Purely descriptive — classification-only
+    /// doctrine (§5) binds behavior to semantic categories, never these.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub type_id: Option<uuid::Uuid>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub category_id: Option<uuid::Uuid>,
 }
 
 impl Ticket {
@@ -90,6 +99,14 @@ pub struct ChecklistItem {
     pub ticket_id: TicketId,
     pub text: String,
     pub checked: bool,
+    /// Shared "not applicable" state (Wave 12 lane 6): server truth for the
+    /// tasks-panel tri-state, set by the toggle endpoint in the same tx as
+    /// `checked`. Mutually exclusive with `checked` (enforced at the API);
+    /// N-A REQUIRED items are exempt from pre-close enforcement and derived
+    /// progress. `#[serde(default)]` keeps older payloads (no `na` key)
+    /// deserializing as false — additive-only contract.
+    #[serde(default)]
+    pub na: bool,
     pub sort_order: i32,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub checked_by: Option<UserId>,
@@ -143,6 +160,8 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
             merged_into_ticket_id: None,
+            type_id: None,
+            category_id: None,
         };
         assert!(!t.can_transition_to(&open));
         assert!(t.can_transition_to(&waiting)); // reopen via intermediate is allowed
