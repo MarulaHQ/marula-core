@@ -1202,6 +1202,14 @@ pub async fn convert(
             due_on,
             total_minor: quote.total_minor,
             total_paid_minor: 0,
+            // Draft document: no snapshot yet. The issue leg locks it
+            // (ADR 0002); there is no issue endpoint yet (manual-invoice
+            // API follow-up), so cross-currency quotes convert with the
+            // snapshot pending until that leg exists.
+            fx_rate_used: None,
+            fx_rate_date: None,
+            fx_source: None,
+            base_total_minor: None,
             dunning_state: DunningState::None,
             dunning_updated_at: None,
             dunning_note: None,
@@ -1227,6 +1235,10 @@ pub async fn convert(
                 quantity_minutes: 0,
                 unit_amount_minor: fee.amount_minor,
                 amount_minor: fee.amount_minor,
+                fx_rate_used: None,
+                fx_rate_date: None,
+                fx_source: None,
+                base_amount_minor: None,
                 position: position as i32,
             })
             .collect();

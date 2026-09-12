@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, slug, ticket_prefix, ticket_sequence, created_at\n           FROM orgs WHERE id = $1",
+  "query": "SELECT id, name, slug, ticket_prefix, ticket_sequence, base_currency, created_at\n           FROM orgs WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -30,6 +30,11 @@
       },
       {
         "ordinal": 5,
+        "name": "base_currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
         "name": "created_at",
         "type_info": "Timestamptz"
       }
@@ -45,8 +50,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "902f97e300ae5f44591d4f49399066b7b1109aa3d6e44429d0e05b708b21d025"
+  "hash": "2862abdf1c79ed6bb5248fb71d125c813add38e4e6c7a816aa8c8a709f3e1f24"
 }

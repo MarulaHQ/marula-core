@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, org_id, invoice_id, amount_minor, currency, provider, provider_ref,\n                  notes, received_at, created_by\n           FROM invoice_payments WHERE org_id = $1 AND invoice_id = $2\n           ORDER BY received_at, id",
+  "query": "SELECT id, org_id, invoice_id, amount_minor, currency, provider, provider_ref,\n                  notes, received_at, created_by,\n                  fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_amount_minor\n           FROM invoice_payments WHERE org_id = $1 AND invoice_id = $2\n           ORDER BY received_at, id",
   "describe": {
     "columns": [
       {
@@ -52,6 +52,26 @@
         "ordinal": 9,
         "name": "created_by",
         "type_info": "Uuid"
+      },
+      {
+        "ordinal": 10,
+        "name": "fx_rate_used",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "fx_rate_date",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 12,
+        "name": "fx_source",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "base_amount_minor",
+        "type_info": "Int8"
       }
     ],
     "parameters": {
@@ -70,8 +90,12 @@
       true,
       true,
       false,
+      true,
+      null,
+      true,
+      true,
       true
     ]
   },
-  "hash": "b64e3e77a2015dd84ed204ffe2e38ea9fbb41b99c13de4f975543e3e1c18dd5f"
+  "hash": "ea1cc0145beec1dc99956ff24b5dbbbe2494cfd714b36c7c6c6985975e64609a"
 }

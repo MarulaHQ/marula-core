@@ -20,6 +20,7 @@ use crate::state::AppState;
 use axum::{extract::State, http::Extensions, Json};
 use core_domain::entities::{Actor, AuditEvent};
 use core_domain::events::types;
+use core_domain::money::CurrencyCode;
 use core_domain::policy::{Action, Module, Permission};
 use core_domain::settings::{self as registry, SettingDeclaration, SettingScope, SettingValue};
 use serde::{Deserialize, Serialize};
@@ -346,6 +347,8 @@ pub struct OrgProfileResponse {
     pub name: String,
     pub slug: String,
     pub ticket_prefix: String,
+    /// The org's ONE base (reporting) currency (ADR 0002, FX1).
+    pub base_currency: String,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -354,6 +357,10 @@ pub struct PatchOrgRequest {
     pub name: Option<String>,
     #[serde(default)]
     pub ticket_prefix: Option<String>,
+    /// Present + different ⇒ a governed base-currency change (ADR 0002):
+    /// refused with a typed conflict while conversion snapshots exist.
+    #[serde(default)]
+    pub base_currency: Option<String>,
 }
 
 /// GET /api/org — profile fields shown on General settings / the wizard.
@@ -378,6 +385,7 @@ pub async fn org_profile_get(
         name: org.name,
         slug: org.slug,
         ticket_prefix: org.ticket_prefix,
+        base_currency: org.base_currency,
     }))
 }
 
@@ -413,8 +421,56 @@ pub async fn org_profile_patch(
             ));
         }
     }
+    let base_currency = match req.base_currency.as_deref().map(str::trim) {
+        None => None,
+        Some(code) => Some(
+            CurrencyCode::new(code)
+                .map_err(|_| ApiError::Validation("base_currency must be an ISO 4217 code".into()))?
+                .to_string(),
+        ),
+    };
 
     crate::org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        // Base-currency change is governed (ADR 0002): refused with a
+        // typed conflict while conversion snapshots exist. Emit the
+        // dedicated event so caches re-hydrate every money view.
+        if let Some(new_base) = base_currency.as_deref() {
+            let current = core_db::orgs::get_org(&mut *ctx.tx, org_id).await?;
+            if current.base_currency != new_base {
+                let org =
+                    core_db::orgs::change_base_currency(&mut *ctx.tx, org_id, new_base).await?;
+                ctx.emit(
+                    types::FX_BASE_CURRENCY_CHANGED,
+                    "fx",
+                    Some(org_id.to_string().as_str()),
+                    &serde_json::json!({
+                        "org_id": org_id,
+                        "from": current.base_currency,
+                        "to": org.base_currency,
+                        "changed_at": chrono::Utc::now(),
+                    }),
+                )
+                .await?;
+                core_db::audit::insert(
+                    &mut *ctx.tx,
+                    &AuditEvent {
+                        id: Uuid::now_v7(),
+                        org_id,
+                        actor: Actor::Human(user_id),
+                        action: "fx.base_currency_changed".to_string(),
+                        entity_type: Some("org".to_string()),
+                        entity_id: Some(org_id.to_string()),
+                        detail: serde_json::json!({
+                            "from": current.base_currency,
+                            "to": org.base_currency,
+                        }),
+                        ip: None,
+                        occurred_at: chrono::Utc::now(),
+                    },
+                )
+                .await?;
+            }
+        }
         let org = core_db::orgs::update_profile(&mut *ctx.tx, org_id, name, prefix).await?;
         ctx.emit(
             types::ORG_UPDATED,
@@ -448,6 +504,7 @@ pub async fn org_profile_patch(
                 name: org.name,
                 slug: org.slug,
                 ticket_prefix: org.ticket_prefix,
+                base_currency: org.base_currency,
             },
         ))
     })

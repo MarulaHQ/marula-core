@@ -12,6 +12,8 @@ use uuid::Uuid;
 pub(crate) const ASSET_COLUMNS: &str = "id, org_id, client_id, site_id, tag, name, kind, status, \
      layout_id, fields, ownership, rental_vendor, rental_start, rental_end, rental_cost_minor, \
      rental_currency, rental_cycle, purchase_date, purchase_cost_minor, purchase_currency, \
+     purchase_fx_rate_used::text AS purchase_fx_rate_used, purchase_fx_rate_date, purchase_fx_source, \
+     base_purchase_cost_minor, \
      depreciation_method, useful_life_months, salvage_value_minor, depreciation_rate_bps, \
      identity_keys, observed_fields, curated_fields, field_sources, merged_into_id, \
      created_at, updated_at";
@@ -38,6 +40,10 @@ pub(crate) fn row_to_asset(row: sqlx::postgres::PgRow) -> DeviceAsset {
         purchase_date: row.get("purchase_date"),
         purchase_cost_minor: row.get("purchase_cost_minor"),
         purchase_currency: row.get("purchase_currency"),
+        purchase_fx_rate_used: row.get("purchase_fx_rate_used"),
+        purchase_fx_rate_date: row.get("purchase_fx_rate_date"),
+        purchase_fx_source: row.get("purchase_fx_source"),
+        base_purchase_cost_minor: row.get("base_purchase_cost_minor"),
         depreciation_method: row.get("depreciation_method"),
         useful_life_months: row.get("useful_life_months"),
         salvage_value_minor: row.get("salvage_value_minor"),
@@ -212,6 +218,12 @@ pub struct AssetLifecyclePatch {
     pub purchase_date: Option<chrono::NaiveDate>,
     pub purchase_cost_minor: Option<i64>,
     pub purchase_currency: Option<String>,
+    /// FX snapshot (ADR 0002, inventory receipt lock moment) — computed by
+    /// the API layer when the purchase is written in a non-base currency.
+    pub purchase_fx_rate_used: Option<String>,
+    pub purchase_fx_rate_date: Option<chrono::NaiveDate>,
+    pub purchase_fx_source: Option<String>,
+    pub base_purchase_cost_minor: Option<i64>,
     pub depreciation_method: Option<String>,
     pub useful_life_months: Option<i32>,
     pub salvage_value_minor: Option<i64>,
@@ -230,6 +242,10 @@ impl AssetLifecyclePatch {
             && self.purchase_date.is_none()
             && self.purchase_cost_minor.is_none()
             && self.purchase_currency.is_none()
+            && self.purchase_fx_rate_used.is_none()
+            && self.purchase_fx_rate_date.is_none()
+            && self.purchase_fx_source.is_none()
+            && self.base_purchase_cost_minor.is_none()
             && self.depreciation_method.is_none()
             && self.useful_life_months.is_none()
             && self.salvage_value_minor.is_none()
@@ -258,6 +274,10 @@ where
              purchase_date = COALESCE($10, purchase_date),
              purchase_cost_minor = COALESCE($11, purchase_cost_minor),
              purchase_currency = COALESCE($12, purchase_currency),
+             purchase_fx_rate_used = COALESCE($17::text, purchase_fx_rate_used),
+             purchase_fx_rate_date = COALESCE($18, purchase_fx_rate_date),
+             purchase_fx_source = COALESCE($19::text, purchase_fx_source),
+             base_purchase_cost_minor = COALESCE($20, base_purchase_cost_minor),
              depreciation_method = COALESCE($13, depreciation_method),
              useful_life_months = COALESCE($14, useful_life_months),
              salvage_value_minor = COALESCE($15, salvage_value_minor),
@@ -278,6 +298,10 @@ where
     .bind(p.purchase_date)
     .bind(p.purchase_cost_minor)
     .bind(p.purchase_currency.as_deref())
+    .bind(p.purchase_fx_rate_used.clone())
+    .bind(p.purchase_fx_rate_date)
+    .bind(p.purchase_fx_source.clone())
+    .bind(p.base_purchase_cost_minor)
     .bind(p.depreciation_method.as_deref())
     .bind(p.useful_life_months)
     .bind(p.salvage_value_minor)

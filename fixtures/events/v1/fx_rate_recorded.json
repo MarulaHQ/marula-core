@@ -1,0 +1,17 @@
+{
+  "event_type": "fx.rate_recorded",
+  "entity": "fx_rate",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "as_of_date": "2026-09-12",
+    "base_currency": "USD",
+    "captured_at": "2023-11-14T22:13:24Z",
+    "org_id": "00000000-0000-0000-0000-000000000001",
+    "quote_currency": "ZAR",
+    "rate": "17.850000000000",
+    "rate_id": "00000000-0000-0000-0000-000000000022",
+    "source": "manual"
+  }
+}

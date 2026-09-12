@@ -179,6 +179,14 @@ pub struct Invoice {
     pub total_minor: i64,
     /// Recorded payment total, minor units.
     pub total_paid_minor: i64,
+    /// FX conversion snapshot (ADR 0002 lock moment: invoice issue) —
+    /// locked once at the issue leg when currency ≠ org base; immutable
+    /// afterwards. `base_total_minor` is the issue-time base equivalent.
+    pub fx_rate_used: Option<String>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>))]
+    pub fx_rate_date: Option<NaiveDate>,
+    pub fx_source: Option<String>,
+    pub base_total_minor: Option<i64>,
     pub dunning_state: DunningState,
     pub dunning_updated_at: Option<chrono::DateTime<Utc>>,
     pub dunning_note: Option<String>,
@@ -231,6 +239,13 @@ pub struct InvoiceLine {
     pub quantity_minutes: i64,
     pub unit_amount_minor: i64,
     pub amount_minor: i64,
+    /// FX conversion snapshot (ADR 0002 lock moment: time-entry costing —
+    /// the run pricing labor into this line) when currency ≠ org base.
+    pub fx_rate_used: Option<String>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>))]
+    pub fx_rate_date: Option<NaiveDate>,
+    pub fx_source: Option<String>,
+    pub base_amount_minor: Option<i64>,
     pub position: i32,
 }
 
@@ -248,6 +263,13 @@ pub struct InvoicePayment {
     pub invoice_id: uuid::Uuid,
     pub amount_minor: i64,
     pub currency: String,
+    /// FX conversion snapshot (ADR 0002 lock moment: payment settlement) —
+    /// locked once at receipt when currency ≠ org base; immutable after.
+    pub fx_rate_used: Option<String>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>))]
+    pub fx_rate_date: Option<NaiveDate>,
+    pub fx_source: Option<String>,
+    pub base_amount_minor: Option<i64>,
     pub provider: String,
     pub provider_ref: Option<String>,
     pub notes: Option<String>,
@@ -331,6 +353,10 @@ mod tests {
             due_on: NaiveDate::from_ymd_opt(2026, 1, 31).unwrap(),
             total_minor: 1_000,
             total_paid_minor: 0,
+            fx_rate_used: None,
+            fx_rate_date: None,
+            fx_source: None,
+            base_total_minor: None,
             dunning_state: DunningState::None,
             dunning_updated_at: None,
             dunning_note: None,

@@ -15,6 +15,9 @@ pub struct Org {
     pub ticket_prefix: String,
     /// Next numeric value for ticket numbers (monotonic per org).
     pub ticket_sequence: i64,
+    /// The org's ONE base (reporting) currency (ADR 0002, FX1). Set at
+    /// creation; changeable only through the governed re-snapshot path.
+    pub base_currency: String,
     pub created_at: DateTime<Utc>,
 }
 

@@ -1,0 +1,73 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, org_id, base_currency, quote_currency, as_of_date, rate::text AS \"rate!\",\n                  source AS \"source!\", captured_at AS \"captured_at!\", created_by\n           FROM fx_rates\n           WHERE org_id = $1\n             AND ($2::text IS NULL OR base_currency = $2)\n             AND ($3::text IS NULL OR quote_currency = $3)\n           ORDER BY captured_at DESC, as_of_date DESC\n           LIMIT $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "base_currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "quote_currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "as_of_date",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 5,
+        "name": "rate!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "source!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "captured_at!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_by",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      null,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "b1718614efe4ed8ac0aa3b2ef4de1e3530e5876c7fdb938f8c2147a1e41d29cb"
+}

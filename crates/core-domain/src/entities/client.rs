@@ -110,6 +110,17 @@ pub struct DeviceAsset {
     pub purchase_cost_minor: Option<i64>,
     #[serde(default)]
     pub purchase_currency: Option<String>,
+    /// FX conversion snapshot (ADR 0002 lock moment: inventory receipt) —
+    /// locked once when the purchase cost is written in a non-base
+    /// currency; immutable afterwards (DB trigger enforced).
+    #[serde(default)]
+    pub purchase_fx_rate_used: Option<String>,
+    #[serde(default)]
+    pub purchase_fx_rate_date: Option<NaiveDate>,
+    #[serde(default)]
+    pub purchase_fx_source: Option<String>,
+    #[serde(default)]
+    pub base_purchase_cost_minor: Option<i64>,
     /// none | straight_line | declining_balance.
     #[serde(default = "default_depreciation_method")]
     pub depreciation_method: String,

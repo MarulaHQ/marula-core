@@ -15,6 +15,7 @@ use crate::error::{ApiError, ApiResult};
 use crate::instant::{self, InstantClaim, MutationOutcome};
 use crate::org_tx;
 use crate::routes::board_access::authorize_board_op;
+use crate::routes::fx::lock_snapshot;
 use crate::state::AppState;
 use axum::{
     extract::{Path, State},
@@ -144,6 +145,8 @@ pub async fn create_cost_line(
     let fingerprint = serde_json::to_value(&req).unwrap_or(serde_json::Value::Null);
     let key = req.instant.idempotency_key.clone();
 
+    let pool = state.pool.clone();
+
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         if let InstantClaim::Replay(stored) = instant::claim(
             &mut ctx,
@@ -161,6 +164,17 @@ pub async fn create_cost_line(
         let ticket =
             ticket_for_board_check(&mut ctx.tx, &authed.principal, org_id, id, BoardOp::View)
                 .await?;
+        // ADR 0002 lock moment (expense/purchase entry): a fact entered in
+        // a non-base currency locks its conversion snapshot at entry.
+        let today = chrono::Utc::now().date_naive();
+        let snap = lock_snapshot(
+            &pool,
+            org_id,
+            (req.quantity * req.unit_cost_minor as f64).round() as i64,
+            &req.currency,
+            today,
+        )
+        .await?;
         let line = TicketCostLine {
             id: uuid::Uuid::now_v7(),
             org_id,
@@ -171,6 +185,10 @@ pub async fn create_cost_line(
             unit_cost_minor: req.unit_cost_minor,
             currency: req.currency.clone(),
             billable: req.billable,
+            fx_rate_used: snap.as_ref().map(|s| s.rate_used.clone()),
+            fx_rate_date: snap.as_ref().map(|s| s.rate_date),
+            fx_source: snap.as_ref().map(|s| s.source.clone()),
+            base_amount_minor: snap.as_ref().map(|s| s.base_amount_minor),
             invoice_line_id: None,
             created_by: Some(user_id),
             created_at: chrono::Utc::now(),
@@ -518,6 +536,8 @@ pub async fn create_expense(
     let fingerprint = serde_json::to_value(&req).unwrap_or(serde_json::Value::Null);
     let key = req.instant.idempotency_key.clone();
 
+    let pool = state.pool.clone();
+
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         if let InstantClaim::Replay(stored) = instant::claim(
             &mut ctx,
@@ -535,6 +555,8 @@ pub async fn create_expense(
         let ticket =
             ticket_for_board_check(&mut ctx.tx, &authed.principal, org_id, id, BoardOp::View)
                 .await?;
+        let today = chrono::Utc::now().date_naive();
+        let snap = lock_snapshot(&pool, org_id, req.amount_minor, &req.currency, today).await?;
         let expense = TicketExpense {
             id: uuid::Uuid::now_v7(),
             org_id,
@@ -543,6 +565,10 @@ pub async fn create_expense(
             amount_minor: req.amount_minor,
             currency: req.currency.clone(),
             billable: req.billable,
+            fx_rate_used: snap.as_ref().map(|s| s.rate_used.clone()),
+            fx_rate_date: snap.as_ref().map(|s| s.rate_date),
+            fx_source: snap.as_ref().map(|s| s.source.clone()),
+            base_amount_minor: snap.as_ref().map(|s| s.base_amount_minor),
             invoice_line_id: None,
             incurred_by: Some(user_id),
             incurred_at: chrono::Utc::now(),

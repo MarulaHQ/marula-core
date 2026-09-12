@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, org_id, run_id, client_id, contract_id, number, status, currency,\n                  period_from, period_to, issued_at, due_on, total_minor, total_paid_minor,\n                  dunning_state, dunning_updated_at, dunning_note, notes, created_by,\n                  created_at, updated_at\n           FROM invoices\n           WHERE org_id = $1 AND client_id = $2 AND status IN ('issued', 'paid')\n           ORDER BY issued_at DESC, number DESC\n           LIMIT $3",
+  "query": "UPDATE invoices SET total_paid_minor = total_paid_minor + $3,\n                               status = CASE\n                                   WHEN total_paid_minor + $3 >= total_minor THEN 'paid'\n                                   ELSE status END,\n                               updated_at = now()\n           WHERE org_id = $1 AND id = $2 AND status = 'issued'\n           RETURNING id, org_id, run_id, client_id, contract_id, number, status, currency,\n                     period_from, period_to, issued_at, due_on, total_minor, total_paid_minor,\n                     dunning_state, dunning_updated_at, dunning_note, notes,\n                     fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_total_minor,\n                     created_by, created_at, updated_at",
   "describe": {
     "columns": [
       {
@@ -95,16 +95,36 @@
       },
       {
         "ordinal": 18,
+        "name": "fx_rate_used",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 19,
+        "name": "fx_rate_date",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 20,
+        "name": "fx_source",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 21,
+        "name": "base_total_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 22,
         "name": "created_by",
         "type_info": "Uuid"
       },
       {
-        "ordinal": 19,
+        "ordinal": 23,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 20,
+        "ordinal": 24,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
@@ -135,10 +155,14 @@
       true,
       true,
       true,
+      null,
+      true,
+      true,
+      true,
       true,
       false,
       false
     ]
   },
-  "hash": "2f6a52edf068f17541db579c7acb8558c12e52c7f8aa1efdd67247a111a7af66"
+  "hash": "9fcd04612e21e81723a2915dc563f1847d59030e2957f3468fd5ef393bddf80d"
 }

@@ -169,8 +169,11 @@ where
     sqlx::query!(
         r#"INSERT INTO invoices (id, org_id, run_id, client_id, contract_id, number, status,
                                  currency, period_from, period_to, issued_at, due_on,
-                                 total_minor, total_paid_minor, dunning_state, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)"#,
+                                 total_minor, total_paid_minor, dunning_state,
+                                 fx_rate_used, fx_rate_date, fx_source, base_total_minor,
+                                 created_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+                   $16::text::numeric, $17, $18, $19, $20)"#,
         invoice.id,
         invoice.org_id,
         invoice.run_id,
@@ -186,6 +189,10 @@ where
         invoice.total_minor,
         invoice.total_paid_minor,
         invoice.dunning_state.as_str(),
+        invoice.fx_rate_used,
+        invoice.fx_rate_date,
+        invoice.fx_source,
+        invoice.base_total_minor,
         invoice.created_by,
     )
     .execute(executor)
@@ -214,27 +221,69 @@ where
     let minutes: Vec<i64> = lines.iter().map(|l| l.quantity_minutes).collect();
     let units: Vec<i64> = lines.iter().map(|l| l.unit_amount_minor).collect();
     let amounts: Vec<i64> = lines.iter().map(|l| l.amount_minor).collect();
+    // Optional snapshot columns ride as text with "" ⇒ NULL (NULLIF) so
+    // the UNNEST arrays stay plain-typed; NULLIF maps the sentinel back.
+    let fx_rates: Vec<String> = lines
+        .iter()
+        .map(|l| l.fx_rate_used.clone().unwrap_or_default())
+        .collect();
+    let fx_dates: Vec<String> = lines
+        .iter()
+        .map(|l| l.fx_rate_date.map(|d| d.to_string()).unwrap_or_default())
+        .collect();
+    let fx_sources: Vec<String> = lines
+        .iter()
+        .map(|l| l.fx_source.clone().unwrap_or_default())
+        .collect();
+    let base_amounts: Vec<String> = lines
+        .iter()
+        .map(|l| {
+            l.base_amount_minor
+                .map(|v| v.to_string())
+                .unwrap_or_default()
+        })
+        .collect();
     let positions: Vec<i32> = lines.iter().enumerate().map(|(i, _)| i as i32).collect();
-    sqlx::query!(
+    // Dynamic (not macro) on purpose: the optional FX snapshot columns
+    // ride as text with "" ⇒ NULL sentinels, and the same optional-array
+    // shape is what costs.rs/assets.rs already do dynamically.
+    sqlx::query(
         r#"INSERT INTO invoice_lines (id, org_id, invoice_id, contract_id, kind, description,
                                       period_start, period_end, quantity_minutes,
-                                      unit_amount_minor, amount_minor, position)
-           SELECT * FROM UNNEST($1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[], $5::text[],
-                                $6::text[], $7::date[], $8::date[], $9::bigint[],
-                                $10::bigint[], $11::bigint[], $12::int[])"#,
-        &ids,
-        &orgs,
-        &invoices,
-        &contracts,
-        &kinds,
-        &descriptions,
-        &starts,
-        &ends,
-        &minutes,
-        &units,
-        &amounts,
-        &positions,
+                                      unit_amount_minor, amount_minor,
+                                      fx_rate_used, fx_rate_date, fx_source, base_amount_minor,
+                                      position)
+           SELECT id, org_id, invoice_id, contract_id, kind, description,
+                  period_start, period_end, quantity_minutes,
+                  unit_amount_minor, amount_minor,
+                  NULLIF(fx_rate_used, '')::numeric, NULLIF(fx_rate_date, '')::date,
+                  NULLIF(fx_source, ''), NULLIF(base_amount_minor, '')::bigint,
+                  position
+           FROM UNNEST($1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[], $5::text[],
+                       $6::text[], $7::date[], $8::date[], $9::bigint[],
+                       $10::bigint[], $11::bigint[], $12::text[], $13::text[],
+                       $14::text[], $15::text[], $16::int[])
+                AS t(id, org_id, invoice_id, contract_id, kind, description,
+                     period_start, period_end, quantity_minutes,
+                     unit_amount_minor, amount_minor,
+                     fx_rate_used, fx_rate_date, fx_source, base_amount_minor, position)"#,
     )
+    .bind(&ids)
+    .bind(&orgs)
+    .bind(&invoices)
+    .bind(&contracts)
+    .bind(&kinds)
+    .bind(&descriptions)
+    .bind(&starts)
+    .bind(&ends)
+    .bind(&minutes)
+    .bind(&units)
+    .bind(&amounts)
+    .bind(&fx_rates)
+    .bind(&fx_dates)
+    .bind(&fx_sources)
+    .bind(&base_amounts)
+    .bind(&positions)
     .execute(executor)
     .await?;
     Ok(())
@@ -289,6 +338,10 @@ struct InvoiceRow {
     dunning_updated_at: Option<chrono::DateTime<chrono::Utc>>,
     dunning_note: Option<String>,
     notes: Option<String>,
+    fx_rate_used: Option<String>,
+    fx_rate_date: Option<chrono::NaiveDate>,
+    fx_source: Option<String>,
+    base_total_minor: Option<i64>,
     created_by: Option<Uuid>,
     created_at: chrono::DateTime<chrono::Utc>,
     updated_at: chrono::DateTime<chrono::Utc>,
@@ -316,6 +369,10 @@ fn invoice_row(row: InvoiceRow) -> Invoice {
         dunning_updated_at: row.dunning_updated_at,
         dunning_note: row.dunning_note,
         notes: row.notes,
+        fx_rate_used: row.fx_rate_used,
+        fx_rate_date: row.fx_rate_date,
+        fx_source: row.fx_source,
+        base_total_minor: row.base_total_minor,
         created_by: row.created_by,
         created_at: row.created_at,
         updated_at: row.updated_at,
@@ -342,6 +399,7 @@ where
         r#"SELECT id, org_id, run_id, client_id, contract_id, number, status, currency,
                   period_from, period_to, issued_at, due_on, total_minor, total_paid_minor,
                   dunning_state, dunning_updated_at, dunning_note, notes, created_by,
+                  fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_total_minor,
                   created_at, updated_at
            FROM invoices WHERE org_id = $1 AND id = $2"#,
         org_id,
@@ -367,6 +425,7 @@ where
         r#"SELECT id, org_id, run_id, client_id, contract_id, number, status, currency,
                   period_from, period_to, issued_at, due_on, total_minor, total_paid_minor,
                   dunning_state, dunning_updated_at, dunning_note, notes, created_by,
+                  fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_total_minor,
                   created_at, updated_at
            FROM invoices
            WHERE org_id = $1
@@ -408,6 +467,7 @@ where
         r#"SELECT id, org_id, run_id, client_id, contract_id, number, status, currency,
                   period_from, period_to, issued_at, due_on, total_minor, total_paid_minor,
                   dunning_state, dunning_updated_at, dunning_note, notes, created_by,
+                  fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_total_minor,
                   created_at, updated_at
            FROM invoices
            WHERE org_id = $1 AND client_id = $2 AND status IN ('issued', 'paid')
@@ -440,6 +500,7 @@ where
         r#"SELECT id, org_id, run_id, client_id, contract_id, number, status, currency,
                   period_from, period_to, issued_at, due_on, total_minor, total_paid_minor,
                   dunning_state, dunning_updated_at, dunning_note, notes, created_by,
+                  fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_total_minor,
                   created_at, updated_at
            FROM invoices
            WHERE org_id = $1 AND id = $2 AND client_id = $3
@@ -464,7 +525,8 @@ where
 {
     let rows = sqlx::query!(
         r#"SELECT id, org_id, invoice_id, contract_id, kind, description, period_start,
-                  period_end, quantity_minutes, unit_amount_minor, amount_minor, position
+                  period_end, quantity_minutes, unit_amount_minor, amount_minor,
+                  fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_amount_minor, position
            FROM invoice_lines WHERE org_id = $1 AND invoice_id = $2
            ORDER BY position, id"#,
         org_id,
@@ -487,6 +549,10 @@ where
             quantity_minutes: r.quantity_minutes,
             unit_amount_minor: r.unit_amount_minor,
             amount_minor: r.amount_minor,
+            fx_rate_used: r.fx_rate_used,
+            fx_rate_date: r.fx_rate_date,
+            fx_source: r.fx_source,
+            base_amount_minor: r.base_amount_minor,
             position: r.position,
         })
         .collect())
@@ -568,8 +634,9 @@ where
            WHERE org_id = $1 AND id = $2 AND status = 'issued'
            RETURNING id, org_id, run_id, client_id, contract_id, number, status, currency,
                      period_from, period_to, issued_at, due_on, total_minor, total_paid_minor,
-                     dunning_state, dunning_updated_at, dunning_note, notes, created_by,
-                     created_at, updated_at"#,
+                     dunning_state, dunning_updated_at, dunning_note, notes,
+                     fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_total_minor,
+                     created_by, created_at, updated_at"#,
         org_id,
         id
     )
@@ -598,8 +665,9 @@ where
            WHERE org_id = $1 AND id = $2 AND status = 'issued'
            RETURNING id, org_id, run_id, client_id, contract_id, number, status, currency,
                      period_from, period_to, issued_at, due_on, total_minor, total_paid_minor,
-                     dunning_state, dunning_updated_at, dunning_note, notes, created_by,
-                     created_at, updated_at"#,
+                     dunning_state, dunning_updated_at, dunning_note, notes,
+                     fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_total_minor,
+                     created_by, created_at, updated_at"#,
         org_id,
         id,
         state.as_str(),
@@ -616,13 +684,18 @@ where
 {
     sqlx::query!(
         r#"INSERT INTO invoice_payments (id, org_id, invoice_id, amount_minor, currency,
+                                         fx_rate_used, fx_rate_date, fx_source, base_amount_minor,
                                          provider, provider_ref, notes, received_at, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#,
+           VALUES ($1, $2, $3, $4, $5, $6::text::numeric, $7, $8, $9, $10, $11, $12, $13, $14)"#,
         payment.id,
         payment.org_id,
         payment.invoice_id,
         payment.amount_minor,
         payment.currency,
+        payment.fx_rate_used,
+        payment.fx_rate_date,
+        payment.fx_source,
+        payment.base_amount_minor,
         payment.provider,
         payment.provider_ref,
         payment.notes,
@@ -656,8 +729,9 @@ where
            WHERE org_id = $1 AND id = $2 AND status = 'issued'
            RETURNING id, org_id, run_id, client_id, contract_id, number, status, currency,
                      period_from, period_to, issued_at, due_on, total_minor, total_paid_minor,
-                     dunning_state, dunning_updated_at, dunning_note, notes, created_by,
-                     created_at, updated_at"#,
+                     dunning_state, dunning_updated_at, dunning_note, notes,
+                     fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_total_minor,
+                     created_by, created_at, updated_at"#,
         org_id,
         id,
         amount_minor,
@@ -677,7 +751,8 @@ where
 {
     let rows = sqlx::query!(
         r#"SELECT id, org_id, invoice_id, amount_minor, currency, provider, provider_ref,
-                  notes, received_at, created_by
+                  notes, received_at, created_by,
+                  fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_amount_minor
            FROM invoice_payments WHERE org_id = $1 AND invoice_id = $2
            ORDER BY received_at, id"#,
         org_id,
@@ -693,6 +768,10 @@ where
             invoice_id: r.invoice_id,
             amount_minor: r.amount_minor,
             currency: r.currency,
+            fx_rate_used: r.fx_rate_used,
+            fx_rate_date: r.fx_rate_date,
+            fx_source: r.fx_source,
+            base_amount_minor: r.base_amount_minor,
             provider: r.provider,
             provider_ref: r.provider_ref,
             notes: r.notes,

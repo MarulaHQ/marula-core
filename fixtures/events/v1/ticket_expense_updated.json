@@ -7,10 +7,14 @@
   "payload": {
     "expense": {
       "amount_minor": 2400,
+      "base_amount_minor": null,
       "billable": true,
       "created_at": "2023-11-14T22:13:21Z",
       "currency": "USD",
       "description": "Courier for replacement hardware",
+      "fx_rate_date": null,
+      "fx_rate_used": null,
+      "fx_source": null,
       "id": "00000000-0000-0000-0000-00000000002f",
       "incurred_at": "2023-11-14T22:13:21Z",
       "incurred_by": "00000000-0000-0000-0000-000000000005",

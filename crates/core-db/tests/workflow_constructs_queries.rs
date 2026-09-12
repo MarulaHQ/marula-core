@@ -302,6 +302,10 @@ async fn links_rollup_and_merge_fold() {
         costs::insert_cost_line(
             &mut *tx,
             &core_domain::entities::TicketCostLine {
+                fx_rate_used: None,
+                fx_rate_date: None,
+                fx_source: None,
+                base_amount_minor: None,
                 id: fixed_uuid(956),
                 org_id: org,
                 ticket_id: source.id,
@@ -322,6 +326,10 @@ async fn links_rollup_and_merge_fold() {
         costs::insert_expense(
             &mut *tx,
             &core_domain::entities::TicketExpense {
+                fx_rate_used: None,
+                fx_rate_date: None,
+                fx_source: None,
+                base_amount_minor: None,
                 id: fixed_uuid(957),
                 org_id: org,
                 ticket_id: source.id,
@@ -435,6 +443,10 @@ async fn costs_candidate_feed_and_billed_once_guard() {
         costs::insert_cost_line(
             &mut *tx,
             &core_domain::entities::TicketCostLine {
+                fx_rate_used: None,
+                fx_rate_date: None,
+                fx_source: None,
+                base_amount_minor: None,
                 id: cost_id,
                 org_id: org,
                 ticket_id: t.id,
@@ -455,6 +467,10 @@ async fn costs_candidate_feed_and_billed_once_guard() {
         costs::insert_expense(
             &mut *tx,
             &core_domain::entities::TicketExpense {
+                fx_rate_used: None,
+                fx_rate_date: None,
+                fx_source: None,
+                base_amount_minor: None,
                 id: expense_id,
                 org_id: org,
                 ticket_id: t.id,

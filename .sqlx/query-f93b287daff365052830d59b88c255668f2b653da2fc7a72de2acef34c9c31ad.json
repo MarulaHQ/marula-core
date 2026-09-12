@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO orgs (id, name, slug, ticket_prefix)\n           VALUES ($1, $2, $3, $4)\n           RETURNING id, name, slug, ticket_prefix, ticket_sequence, created_at",
+  "query": "UPDATE orgs SET base_currency = $2\n           WHERE id = $1\n           RETURNING id, name, slug, ticket_prefix, ticket_sequence, base_currency, created_at",
   "describe": {
     "columns": [
       {
@@ -30,6 +30,11 @@
       },
       {
         "ordinal": 5,
+        "name": "base_currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
         "name": "created_at",
         "type_info": "Timestamptz"
       }
@@ -37,8 +42,6 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Text",
-        "Text",
         "Text"
       ]
     },
@@ -48,8 +51,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "a0421d439db5d9108f99fd64babcb99445a99aa2b81714be5e2966f288e18d2a"
+  "hash": "f93b287daff365052830d59b88c255668f2b653da2fc7a72de2acef34c9c31ad"
 }

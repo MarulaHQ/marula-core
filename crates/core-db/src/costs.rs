@@ -15,8 +15,8 @@ use core_domain::entities::{CostLineKind, TicketCostLine, TicketExpense};
 use sqlx::Postgres;
 use uuid::Uuid;
 
-const COST_COLS: &str = "id, org_id, ticket_id, kind, description, quantity, unit_cost_minor, currency, billable, invoice_line_id, created_by, created_at, updated_at";
-const EXPENSE_COLS: &str = "id, org_id, ticket_id, description, amount_minor, currency, billable, invoice_line_id, incurred_by, incurred_at, created_at, updated_at";
+const COST_COLS: &str = "id, org_id, ticket_id, kind, description, quantity, unit_cost_minor, currency, billable, fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_amount_minor, invoice_line_id, created_by, created_at, updated_at";
+const EXPENSE_COLS: &str = "id, org_id, ticket_id, description, amount_minor, currency, billable, fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_amount_minor, invoice_line_id, incurred_by, incurred_at, created_at, updated_at";
 
 fn cost_line_from(row: sqlx::postgres::PgRow) -> DbResult<TicketCostLine> {
     use sqlx::Row;
@@ -31,6 +31,10 @@ fn cost_line_from(row: sqlx::postgres::PgRow) -> DbResult<TicketCostLine> {
         unit_cost_minor: row.get("unit_cost_minor"),
         currency: row.get("currency"),
         billable: row.get("billable"),
+        fx_rate_used: row.get("fx_rate_used"),
+        fx_rate_date: row.get("fx_rate_date"),
+        fx_source: row.get("fx_source"),
+        base_amount_minor: row.get("base_amount_minor"),
         invoice_line_id: row.get("invoice_line_id"),
         created_by: row.get("created_by"),
         created_at: row.get("created_at"),
@@ -48,6 +52,10 @@ fn expense_from(row: sqlx::postgres::PgRow) -> DbResult<TicketExpense> {
         amount_minor: row.get("amount_minor"),
         currency: row.get("currency"),
         billable: row.get("billable"),
+        fx_rate_used: row.get("fx_rate_used"),
+        fx_rate_date: row.get("fx_rate_date"),
+        fx_source: row.get("fx_source"),
+        base_amount_minor: row.get("base_amount_minor"),
         invoice_line_id: row.get("invoice_line_id"),
         incurred_by: row.get("incurred_by"),
         incurred_at: row.get("incurred_at"),
@@ -83,8 +91,9 @@ where
     sqlx::query!(
         r#"INSERT INTO ticket_cost_lines
              (id, org_id, ticket_id, kind, description, quantity, unit_cost_minor,
-              currency, billable, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6::double precision, $7, $8, $9, $10)"#,
+              currency, billable, fx_rate_used, fx_rate_date, fx_source,
+              base_amount_minor, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6::double precision, $7, $8, $9, $10::text::numeric, $11, $12, $13, $14)"#,
         line.id,
         line.org_id,
         line.ticket_id,
@@ -94,6 +103,10 @@ where
         line.unit_cost_minor,
         line.currency,
         line.billable,
+        line.fx_rate_used,
+        line.fx_rate_date,
+        line.fx_source,
+        line.base_amount_minor,
         line.created_by
     )
     .execute(executor)
@@ -204,8 +217,9 @@ where
     sqlx::query!(
         r#"INSERT INTO ticket_expenses
              (id, org_id, ticket_id, description, amount_minor, currency,
-              billable, incurred_by, incurred_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#,
+              billable, fx_rate_used, fx_rate_date, fx_source, base_amount_minor,
+              incurred_by, incurred_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text::numeric, $9, $10, $11, $12, $13)"#,
         e.id,
         e.org_id,
         e.ticket_id,
@@ -213,6 +227,10 @@ where
         e.amount_minor,
         e.currency,
         e.billable,
+        e.fx_rate_used,
+        e.fx_rate_date,
+        e.fx_source,
+        e.base_amount_minor,
         e.incurred_by,
         e.incurred_at
     )

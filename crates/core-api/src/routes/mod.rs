@@ -63,6 +63,7 @@ pub mod dispatch_connector;
 pub mod documents;
 pub mod email_admin;
 pub mod export;
+pub mod fx;
 pub mod imports;
 pub mod internal;
 pub mod invoices;
@@ -1105,6 +1106,10 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .merge(catalog::routes(gen))
         .merge(quotes::routes(gen))
         .merge(pipeline::routes(gen))
+        // currency & FX (ADR 0002, Wave 12 lane 10, migration 0066): the
+        // append-only rate book (manual-entry built-in provider) + the
+        // reconciliation read model; mutations ride the IF1–IF3 envelope.
+        .merge(fx::routes(gen))
         // configuration identity (ADR 0003, Wave 12 lane 3, migration
         // 0061): CI facets of the asset surface — source links (the only
         // feed write path), interfaces, curation, and the audited/undoable

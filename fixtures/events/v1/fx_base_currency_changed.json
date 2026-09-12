@@ -1,0 +1,13 @@
+{
+  "event_type": "fx.base_currency_changed",
+  "entity": "fx",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "changed_at": "2023-11-14T22:13:24Z",
+    "from": "USD",
+    "org_id": "00000000-0000-0000-0000-000000000001",
+    "to": "EUR"
+  }
+}

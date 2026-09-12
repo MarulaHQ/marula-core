@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE orgs SET\n             name = COALESCE($2, name),\n             ticket_prefix = COALESCE($3, ticket_prefix)\n           WHERE id = $1\n           RETURNING id, name, slug, ticket_prefix, ticket_sequence, created_at",
+  "query": "INSERT INTO orgs (id, name, slug, ticket_prefix)\n           VALUES ($1, $2, $3, $4)\n           RETURNING id, name, slug, ticket_prefix, ticket_sequence, base_currency, created_at",
   "describe": {
     "columns": [
       {
@@ -30,6 +30,11 @@
       },
       {
         "ordinal": 5,
+        "name": "base_currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
         "name": "created_at",
         "type_info": "Timestamptz"
       }
@@ -37,6 +42,7 @@
     "parameters": {
       "Left": [
         "Uuid",
+        "Text",
         "Text",
         "Text"
       ]
@@ -47,8 +53,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "020b151dc4dbe9b0ac5c5d99cefe29498c9b756465746757d0c6bebbbf90f193"
+  "hash": "b75e413eade59cfa0e2e890122b6c998ed8eaf3cb71c0cdb4b42f3affcdde129"
 }

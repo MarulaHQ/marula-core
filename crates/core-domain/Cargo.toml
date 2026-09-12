@@ -17,10 +17,13 @@ hmac = { workspace = true }
 subtle = { workspace = true }
 utoipa = { workspace = true, optional = true, features = ["uuid", "chrono"] }
 
+sqlx = { workspace = true, optional = true }
+
 [dev-dependencies]
 proptest = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
 
 [features]
+"sqlx" = ["dep:sqlx"]
 default = []
 openapi = ["dep:utoipa"]

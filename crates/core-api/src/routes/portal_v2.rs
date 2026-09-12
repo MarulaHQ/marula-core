@@ -313,6 +313,8 @@ pub async fn pay_invoice(
     let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
     let key = req.instant.idempotency_key.clone();
 
+    let pool = state.pool.clone();
+
     let outcome = org_tx::with_org_tx(&state, org_id, authed.user.id, |mut ctx| async move {
         if let InstantClaim::Replay(stored) = instant::claim(
             &mut ctx,
@@ -374,12 +376,24 @@ pub async fn pay_invoice(
                 core_billing::PaymentError::Unavailable(m) => ApiError::Unavailable(m),
             })?;
 
+        let snap = crate::routes::fx::lock_snapshot(
+            &pool,
+            org_id,
+            req.amount_minor,
+            &invoice.currency,
+            Utc::now().date_naive(),
+        )
+        .await?;
         let payment = InvoicePayment {
             id: Uuid::now_v7(),
             org_id,
             invoice_id: id,
             amount_minor: req.amount_minor,
             currency: invoice.currency.clone(),
+            fx_rate_used: snap.as_ref().map(|s| s.rate_used.clone()),
+            fx_rate_date: snap.as_ref().map(|s| s.rate_date),
+            fx_source: snap.as_ref().map(|s| s.source.clone()),
+            base_amount_minor: snap.as_ref().map(|s| s.base_amount_minor),
             provider: receipt.provider,
             provider_ref: receipt.provider_ref,
             notes: req.notes.clone(),

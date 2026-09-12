@@ -35,6 +35,7 @@ pub mod document_links;
 pub mod documents;
 pub mod emails;
 pub mod export;
+pub mod fx;
 pub mod imports;
 pub mod invoices;
 pub mod kb;

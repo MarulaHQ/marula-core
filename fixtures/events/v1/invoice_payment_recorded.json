@@ -8,8 +8,12 @@
     "invoice_status": "paid",
     "payment": {
       "amount_minor": 150000,
+      "base_amount_minor": null,
       "created_by": "00000000-0000-0000-0000-000000000004",
       "currency": "USD",
+      "fx_rate_date": null,
+      "fx_rate_used": null,
+      "fx_source": null,
       "id": "00000000-0000-0000-0000-000000000021",
       "invoice_id": "00000000-0000-0000-0000-000000000020",
       "notes": null,

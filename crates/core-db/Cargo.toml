@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-core-domain = { path = "../core-domain" }
+core-domain = { path = "../core-domain", features = ["sqlx"] }
 sqlx = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

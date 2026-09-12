@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO ticket_cost_lines\n             (id, org_id, ticket_id, kind, description, quantity, unit_cost_minor,\n              currency, billable, fx_rate_used, fx_rate_date, fx_source,\n              base_amount_minor, created_by)\n           VALUES ($1, $2, $3, $4, $5, $6::double precision, $7, $8, $9, $10::text::numeric, $11, $12, $13, $14)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Float8",
+        "Int8",
+        "Text",
+        "Bool",
+        "Text",
+        "Date",
+        "Text",
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f3ca76899e67d72cb209ea8413b36794804778d0857c34867c50b8b068d51ef8"
+}

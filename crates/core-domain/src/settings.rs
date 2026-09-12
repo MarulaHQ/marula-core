@@ -247,12 +247,13 @@ pub const AI_COMPLETION_MODEL: &str = "ai.completion_model";
 /// real user settings instead of device-local panel state.
 pub const EMAIL_GREETING: &str = "email.greeting";
 pub const EMAIL_SIGNOFF: &str = "email.signoff";
-/// Org-scope toggle defaults the client workflow-override registry points at
-/// (`workflow_overrides::NOTIFICATIONS_ENABLED` / `AUTOMATIONS_ENABLED`).
-/// Read straight from the `settings` table by the override resolution path —
-/// unset keys fall back to `true` (lane 5 shipped the references; the
-/// constants were missing from this module and broke the build).
+/// Org default for firing notifications on client ticket activity. A client
+/// may override it through the per-client workflow-override registry
+/// (`core_domain::workflow_overrides`), including an explicit disable.
 pub const NOTIFICATIONS_CLIENT_EVENTS: &str = "notifications.client_events";
+/// Org default for running automation rules against client tickets. A client
+/// may override it through the per-client workflow-override registry,
+/// including an explicit disable.
 pub const AUTOMATIONS_CLIENT_RULES: &str = "automations.client_rules";
 
 pub const TIMEZONE_OPTIONS: &[&str] = &[
@@ -388,6 +389,30 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> =
                 description: "Model identifier to invoke on the active completion provider.",
             },
             SettingDeclaration {
+                key: NOTIFICATIONS_CLIENT_EVENTS,
+                kind: SettingKind::Boolean,
+                default: SettingValue::Boolean(true),
+                scope: SettingScope::Org,
+                section: SettingSection::General,
+                visibility: SettingVisibility::Ui,
+                label: "Notify on client ticket activity",
+                description: "Org default for firing notifications on client ticket activity. \
+                             A client may override this through its workflow overrides, \
+                             including an explicit disable.",
+            },
+            SettingDeclaration {
+                key: AUTOMATIONS_CLIENT_RULES,
+                kind: SettingKind::Boolean,
+                default: SettingValue::Boolean(true),
+                scope: SettingScope::Org,
+                section: SettingSection::General,
+                visibility: SettingVisibility::Ui,
+                label: "Run automations for client tickets",
+                description: "Org default for running automation rules against a client's \
+                             tickets. A client may override this through its workflow \
+                             overrides, including an explicit disable.",
+            },
+            SettingDeclaration {
                 key: EMAIL_GREETING,
                 kind: SettingKind::Text { max_len: 500 },
                 default: SettingValue::Text(String::new()),
@@ -467,7 +492,7 @@ mod tests {
             Some(SettingValue::Text("light".into()))
         );
         assert_eq!(declarations_for(SettingScope::User).len(), 3);
-        assert_eq!(declarations_for(SettingScope::Org).len(), 6);
+        assert_eq!(declarations_for(SettingScope::Org).len(), 8);
     }
 
     #[test]

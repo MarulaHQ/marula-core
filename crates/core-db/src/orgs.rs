@@ -23,7 +23,7 @@ where
     let row = sqlx::query!(
         r#"INSERT INTO orgs (id, name, slug, ticket_prefix)
            VALUES ($1, $2, $3, $4)
-           RETURNING id, name, slug, ticket_prefix, ticket_sequence, created_at"#,
+           RETURNING id, name, slug, ticket_prefix, ticket_sequence, base_currency, created_at"#,
         id,
         name,
         slug,
@@ -37,6 +37,7 @@ where
         slug: row.slug,
         ticket_prefix: row.ticket_prefix,
         ticket_sequence: row.ticket_sequence,
+        base_currency: row.base_currency,
         created_at: row.created_at,
     })
 }
@@ -46,7 +47,7 @@ where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     let row = sqlx::query!(
-        r#"SELECT id, name, slug, ticket_prefix, ticket_sequence, created_at
+        r#"SELECT id, name, slug, ticket_prefix, ticket_sequence, base_currency, created_at
            FROM orgs WHERE id = $1"#,
         id
     )
@@ -59,6 +60,7 @@ where
         slug: row.slug,
         ticket_prefix: row.ticket_prefix,
         ticket_sequence: row.ticket_sequence,
+        base_currency: row.base_currency,
         created_at: row.created_at,
     })
 }
@@ -93,7 +95,7 @@ pub async fn update_profile(
              name = COALESCE($2, name),
              ticket_prefix = COALESCE($3, ticket_prefix)
            WHERE id = $1
-           RETURNING id, name, slug, ticket_prefix, ticket_sequence, created_at"#,
+           RETURNING id, name, slug, ticket_prefix, ticket_sequence, base_currency, created_at"#,
         org_id,
         name,
         ticket_prefix,
@@ -107,6 +109,68 @@ pub async fn update_profile(
         slug: row.slug,
         ticket_prefix: row.ticket_prefix,
         ticket_sequence: row.ticket_sequence,
+        base_currency: row.base_currency,
+        created_at: row.created_at,
+    })
+}
+
+/// Counts conversion snapshots across the five lock moments (ADR 0002)
+/// for one org. Used by the base-currency guard and the lane's tests.
+pub async fn count_fx_snapshots<'e, E>(executor: E, org_id: Uuid) -> DbResult<i64>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let n: Option<i64> = sqlx::query_scalar!(
+        r#"SELECT (
+              (SELECT count(*) FROM ticket_expenses  WHERE org_id = $1 AND fx_rate_used IS NOT NULL) +
+              (SELECT count(*) FROM ticket_cost_lines WHERE org_id = $1 AND fx_rate_used IS NOT NULL) +
+              (SELECT count(*) FROM invoices          WHERE org_id = $1 AND fx_rate_used IS NOT NULL) +
+              (SELECT count(*) FROM invoice_lines     WHERE org_id = $1 AND fx_rate_used IS NOT NULL) +
+              (SELECT count(*) FROM invoice_payments  WHERE org_id = $1 AND fx_rate_used IS NOT NULL) +
+              (SELECT count(*) FROM device_assets     WHERE org_id = $1 AND purchase_fx_rate_used IS NOT NULL)
+            )"#,
+        org_id
+    )
+    .fetch_one(executor)
+    .await?;
+    Ok(n.unwrap_or(0))
+}
+
+/// Changes the org base currency (ADR 0002, FX1). Governed: the write is
+/// REFUSED while any conversion snapshot exists — snapshots are locked to
+/// the base they were taken against, so a base change requires a full
+/// re-snapshot (a governed, operator-driven act outside the write path;
+/// the core never revaluates in place). The guard counts rows carrying
+/// any snapshot column across the five lock moments.
+pub async fn change_base_currency(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    base_currency: &str,
+) -> DbResult<Org> {
+    let snapshots = count_fx_snapshots(&mut *conn, org_id).await?;
+    if snapshots > 0 {
+        return Err(DbError::Conflict(format!(
+            "org has {snapshots} fx conversion snapshot(s); changing the base currency \
+             requires the documented full re-snapshot path"
+        )));
+    }
+    let row = sqlx::query!(
+        r#"UPDATE orgs SET base_currency = $2
+           WHERE id = $1
+           RETURNING id, name, slug, ticket_prefix, ticket_sequence, base_currency, created_at"#,
+        org_id,
+        base_currency,
+    )
+    .fetch_optional(&mut *conn)
+    .await?
+    .ok_or(DbError::NotFound)?;
+    Ok(Org {
+        id: row.id,
+        name: row.name,
+        slug: row.slug,
+        ticket_prefix: row.ticket_prefix,
+        ticket_sequence: row.ticket_sequence,
+        base_currency: row.base_currency,
         created_at: row.created_at,
     })
 }

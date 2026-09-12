@@ -137,6 +137,10 @@ impl From<AssetLifecycleInput> for AssetLifecyclePatch {
             purchase_date: v.purchase_date,
             purchase_cost_minor: v.purchase_cost_minor,
             purchase_currency: v.purchase_currency,
+            purchase_fx_rate_used: None,
+            purchase_fx_rate_date: None,
+            purchase_fx_source: None,
+            base_purchase_cost_minor: None,
             depreciation_method: v.depreciation_method,
             useful_life_months: v.useful_life_months,
             salvage_value_minor: v.salvage_value_minor,
@@ -384,6 +388,8 @@ pub async fn update(
     let key = req.instant.idempotency_key.clone();
     let version = req.instant.version;
 
+    let pool = state.pool.clone();
+
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         if let InstantClaim::Replay(stored) = instant::claim(
             &mut ctx,
@@ -439,13 +445,33 @@ pub async fn update(
         .await?;
         let asset = match &req.lifecycle {
             Some(lifecycle) => {
-                core_db::assets::update_asset_lifecycle(
-                    &mut *ctx.tx,
-                    org_id,
-                    id,
-                    &AssetLifecyclePatch::from(lifecycle.clone()),
-                )
-                .await?
+                let mut patch = AssetLifecyclePatch::from(lifecycle.clone());
+                // ADR 0002 lock moment (inventory receipt): a purchase cost
+                // written in a non-base currency locks its conversion
+                // snapshot; the snapshot columns are then immutable (DB
+                // trigger). The transaction currency stays the fact.
+                if let (Some(cost), Some(cur)) = (
+                    lifecycle.purchase_cost_minor,
+                    lifecycle.purchase_currency.as_deref(),
+                ) {
+                    let snap = crate::routes::fx::lock_snapshot(
+                        &pool,
+                        org_id,
+                        cost,
+                        cur,
+                        lifecycle
+                            .purchase_date
+                            .unwrap_or_else(|| chrono::Utc::now().date_naive()),
+                    )
+                    .await?;
+                    if let Some(s) = snap {
+                        patch.purchase_fx_rate_used = Some(s.rate_used);
+                        patch.purchase_fx_rate_date = Some(s.rate_date);
+                        patch.purchase_fx_source = Some(s.source);
+                        patch.base_purchase_cost_minor = Some(s.base_amount_minor);
+                    }
+                }
+                core_db::assets::update_asset_lifecycle(&mut *ctx.tx, org_id, id, &patch).await?
             }
             None => asset,
         };

@@ -54,6 +54,7 @@ use core_domain::events::{
     types, InvoiceCreated, InvoiceDunningChanged, InvoicePaymentRecorded, InvoiceRunCompleted,
     InvoiceVoided,
 };
+use core_domain::fx::FxRateProvider as _;
 use core_domain::policy::{Action, Module, Permission};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -231,6 +232,19 @@ fn parse_run_window(from: chrono::NaiveDate, to: chrono::NaiveDate) -> ApiResult
     Ok(())
 }
 
+fn fx_provider_error(e: core_domain::fx::FxError) -> ApiError {
+    match e {
+        // Fail-closed (ADR 0002): a run hitting a cross-currency fact
+        // without rate coverage is a preflight refusal — nothing commits,
+        // so the typed signal is a conflict, not a validation error.
+        core_domain::fx::FxError::NoRate { from, to, as_of } => ApiError::Conflict(format!(
+            "no fx rate recorded for {from}→{to} effective {as_of}; \
+             record one before invoicing in a non-base currency"
+        )),
+        other => ApiError::Internal(anyhow::anyhow!("fx provider error: {other}")),
+    }
+}
+
 fn engine_error(e: core_billing::BillingError) -> ApiError {
     match e {
         core_billing::BillingError::InvalidWindow { from, to } => ApiError::Validation(format!(
@@ -306,6 +320,8 @@ pub async fn create_run(
     let key = req.instant.idempotency_key.clone();
     let window = (req.from, req.to);
     let client_filter = req.client_id;
+
+    let pool = state.pool.clone();
 
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         if let InstantClaim::Replay(stored) = instant::claim(
@@ -499,6 +515,57 @@ pub async fn create_run(
                     (from, to)
                 }
             };
+            // ADR 0002 lock moments: this run creates the document
+            // already ISSUED, so the invoice-issue snapshot locks here —
+            // and each priced line locks its time-entry-costing snapshot
+            // (same resolved rate, per-line amount). Single-currency facts
+            // (contract currency = org base) carry no snapshot.
+            let base = core_db::fx::base_currency(&mut *ctx.tx, org_id)
+                .await
+                .map_err(ApiError::from)?;
+            let issue_snapshot: Option<core_domain::fx::FxSnapshot> = if contract.currency != base {
+                let provider = crate::routes::fx::ManualFxRateProvider::new(pool.clone());
+                let rate = provider
+                    .resolve(&core_domain::fx::FxRateRequest {
+                        org_id,
+                        from: core_domain::money::CurrencyCode::new(&contract.currency)
+                            .map_err(ApiError::from)?,
+                        to: core_domain::money::CurrencyCode::new(&base).map_err(ApiError::from)?,
+                        as_of: today,
+                    })
+                    .await
+                    .map_err(fx_provider_error)?;
+                let original = core_domain::money::Money::new(
+                    evaluation.total_minor,
+                    core_domain::money::CurrencyCode::new(&contract.currency)
+                        .map_err(ApiError::from)?,
+                );
+                Some(
+                    core_domain::fx::FxSnapshot::lock(
+                        &original,
+                        &core_domain::money::CurrencyCode::new(&base).map_err(ApiError::from)?,
+                        rate,
+                        today,
+                        provider.name(),
+                    )
+                    .map_err(ApiError::from)?,
+                )
+            } else {
+                None
+            };
+            let base_of = |minor: i64| -> ApiResult<i64> {
+                match &issue_snapshot {
+                    Some(s) => {
+                        let m = core_domain::money::Money::new(
+                            minor,
+                            core_domain::money::CurrencyCode::new(&contract.currency)
+                                .map_err(ApiError::from)?,
+                        );
+                        Ok(m.convert(&s.rate_used).map_err(ApiError::from)?.minor)
+                    }
+                    None => Ok(minor),
+                }
+            };
             let invoice = Invoice {
                 id: Uuid::now_v7(),
                 org_id,
@@ -514,6 +581,10 @@ pub async fn create_run(
                 due_on,
                 total_minor: evaluation.total_minor,
                 total_paid_minor: 0,
+                fx_rate_used: issue_snapshot.as_ref().map(|s| s.columns().0),
+                fx_rate_date: issue_snapshot.as_ref().map(|s| s.rate_date),
+                fx_source: issue_snapshot.as_ref().map(|s| s.source.clone()),
+                base_total_minor: issue_snapshot.as_ref().map(|s| s.base_amount.minor),
                 dunning_state: DunningState::None,
                 dunning_updated_at: None,
                 dunning_note: None,
@@ -526,21 +597,28 @@ pub async fn create_run(
             let line_rows: Vec<InvoiceLine> = lines
                 .iter()
                 .enumerate()
-                .map(|(position, l)| InvoiceLine {
-                    id: Uuid::now_v7(),
-                    org_id,
-                    invoice_id: invoice.id,
-                    contract_id: contract.id,
-                    kind: l.kind,
-                    description: l.description.clone(),
-                    period_start: l.period_start,
-                    period_end: l.period_end,
-                    quantity_minutes: l.quantity_minutes,
-                    unit_amount_minor: l.unit_amount_minor,
-                    amount_minor: l.amount_minor,
-                    position: position as i32,
+                .map(|(position, l)| {
+                    let base_minor = base_of(l.amount_minor)?;
+                    Ok(InvoiceLine {
+                        id: Uuid::now_v7(),
+                        org_id,
+                        invoice_id: invoice.id,
+                        contract_id: contract.id,
+                        kind: l.kind,
+                        description: l.description.clone(),
+                        period_start: l.period_start,
+                        period_end: l.period_end,
+                        quantity_minutes: l.quantity_minutes,
+                        unit_amount_minor: l.unit_amount_minor,
+                        amount_minor: l.amount_minor,
+                        fx_rate_used: issue_snapshot.as_ref().map(|s| s.columns().0),
+                        fx_rate_date: issue_snapshot.as_ref().map(|s| s.rate_date),
+                        fx_source: issue_snapshot.as_ref().map(|s| s.source.clone()),
+                        base_amount_minor: issue_snapshot.as_ref().map(|_| base_minor),
+                        position: position as i32,
+                    })
                 })
-                .collect();
+                .collect::<ApiResult<Vec<InvoiceLine>>>()?;
             core_db::invoices::insert_invoice(&mut *ctx.tx, &invoice).await?;
             core_db::invoices::insert_lines(&mut *ctx.tx, org_id, invoice.id, &line_rows).await?;
             if !consumed.is_empty() {
@@ -1014,6 +1092,8 @@ pub async fn record_payment(
     let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
     let key = req.instant.idempotency_key.clone();
 
+    let pool = state.pool.clone();
+
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         if let InstantClaim::Replay(stored) = instant::claim(
             &mut ctx,
@@ -1070,12 +1150,26 @@ pub async fn record_payment(
                 core_billing::PaymentError::Unavailable(m) => ApiError::Unavailable(m),
             })?;
 
+        // ADR 0002 lock moment (payment settlement): the receipt locks its
+        // base equivalent at settlement when currency ≠ org base.
+        let snap = crate::routes::fx::lock_snapshot(
+            &pool,
+            org_id,
+            req.amount_minor,
+            &invoice.currency,
+            chrono::Utc::now().date_naive(),
+        )
+        .await?;
         let payment = InvoicePayment {
             id: Uuid::now_v7(),
             org_id,
             invoice_id: id,
             amount_minor: req.amount_minor,
             currency: invoice.currency.clone(),
+            fx_rate_used: snap.as_ref().map(|s| s.rate_used.clone()),
+            fx_rate_date: snap.as_ref().map(|s| s.rate_date),
+            fx_source: snap.as_ref().map(|s| s.source.clone()),
+            base_amount_minor: snap.as_ref().map(|s| s.base_amount_minor),
             provider: receipt.provider,
             provider_ref: receipt.provider_ref,
             notes: req.notes.clone(),

@@ -2790,6 +2790,71 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/fx/rates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/fx/rates — the org's append-only rate book, newest first. */
+        get: operations["fx_rates_list"];
+        put?: never;
+        /**
+         * POST /api/fx/rates — manual entry (the built-in provider's write path).
+         *     Append-only: corrections are new rows; the effective-rate resolver
+         *     always picks the newest capture on-or-before the requested date.
+         */
+        post: operations["fx_rates_record"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/fx/rates/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/fx/rates/resolve — the effective rate for one direction on
+         *     one date (defaults to today). Read-only; mirrors the resolver the
+         *     lock-moment write paths use.
+         */
+        get: operations["fx_rates_resolve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/fx/reconciliation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/fx/reconciliation — the FX deliverable to the books (FX7):
+         *     original amount, rate, source/date, base equivalent, sync target. The
+         *     core records conversions that happened; realized/unrealized gain-loss
+         *     stays in the accounting system.
+         */
+        get: operations["fx_reconciliation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/imports/batches": {
         parameters: {
             query?: never;
@@ -9354,6 +9419,8 @@ export interface components {
             task_id: string;
         };
         DeviceAsset: {
+            /** Format: int64 */
+            base_purchase_cost_minor?: number | null;
             /** Format: uuid */
             client_id: string;
             /** Format: date-time */
@@ -9403,6 +9470,15 @@ export interface components {
             purchase_currency?: string | null;
             /** Format: date */
             purchase_date?: string | null;
+            /** Format: date */
+            purchase_fx_rate_date?: string | null;
+            /**
+             * @description FX conversion snapshot (ADR 0002 lock moment: inventory receipt) —
+             *     locked once when the purchase cost is written in a non-base
+             *     currency; immutable afterwards (DB trigger enforced).
+             */
+            purchase_fx_rate_used?: string | null;
+            purchase_fx_source?: string | null;
             /** Format: int64 */
             rental_cost_minor?: number | null;
             rental_currency?: string | null;
@@ -10112,6 +10188,61 @@ export interface components {
         } | {
             bool: boolean;
         };
+        /** @description One `fx_rates` row: append-only; corrections add rows, never rewrite. */
+        FxRateEntry: {
+            as_of_date: string;
+            /** @description 1 base major unit buys `rate` quote major units. */
+            base_currency: string;
+            /** Format: date-time */
+            captured_at: string;
+            /** Format: uuid */
+            created_by: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            quote_currency: string;
+            /** @description Stored-precision decimal string ("17.850000000000"). */
+            rate: string;
+            /** @description 'manual' for the built-in provider; managed feeds stamp their own. */
+            source: string;
+        };
+        /**
+         * @description One `ops.v1_fx_reconciliation` row — the FX deliverable to the books
+         *     (FX7): original amount, rate, source/date, base equivalent, sync
+         *     target. The core records conversions that happened; realized/unrealized
+         *     gain-loss stays in the accounting system.
+         */
+        FxReconciliationRow: {
+            /** Format: int64 */
+            base_amount_minor?: number | null;
+            /** Format: date-time */
+            fact_at?: string | null;
+            /** Format: uuid */
+            fact_id: string;
+            fx_rate_date: string;
+            fx_rate_used?: string | null;
+            fx_source?: string | null;
+            /** Format: uuid */
+            invoice_id: string;
+            /**
+             * @description 'expense' | 'cost_line' | 'invoice_issue' | 'labor_pricing' |
+             *     'inventory_receipt' | 'payment'.
+             */
+            kind: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: int64 */
+            original_amount_minor?: number | null;
+            original_currency?: string | null;
+            /**
+             * @description The accounting export target ('none' until a deployment configures
+             *     one — qbo-export-sync / xero-export-sync are per-deployment).
+             */
+            sync_target: string;
+            /** Format: uuid */
+            ticket_id: string;
+        };
         GapDayView: {
             activity: boolean;
             /** @description Local calendar day (YYYY-MM-DD). */
@@ -10249,6 +10380,8 @@ export interface components {
          *     and `total_minor` come from the contract's evaluation (line sum).
          */
         Invoice: {
+            /** Format: int64 */
+            base_total_minor?: number | null;
             /** Format: uuid */
             client_id: string;
             /** Format: uuid */
@@ -10265,6 +10398,14 @@ export interface components {
             dunning_state: components["schemas"]["DunningState"];
             /** Format: date-time */
             dunning_updated_at?: string | null;
+            fx_rate_date?: string | null;
+            /**
+             * @description FX conversion snapshot (ADR 0002 lock moment: invoice issue) —
+             *     locked once at the issue leg when currency ≠ org base; immutable
+             *     afterwards. `base_total_minor` is the issue-time base equivalent.
+             */
+            fx_rate_used?: string | null;
+            fx_source?: string | null;
             /** Format: uuid */
             id: string;
             /** Format: date */
@@ -10328,9 +10469,18 @@ export interface components {
         InvoiceLine: {
             /** Format: int64 */
             amount_minor: number;
+            /** Format: int64 */
+            base_amount_minor?: number | null;
             /** Format: uuid */
             contract_id: string;
             description: string;
+            fx_rate_date?: string | null;
+            /**
+             * @description FX conversion snapshot (ADR 0002 lock moment: time-entry costing —
+             *     the run pricing labor into this line) when currency ≠ org base.
+             */
+            fx_rate_used?: string | null;
+            fx_source?: string | null;
             /** Format: uuid */
             id: string;
             /** Format: uuid */
@@ -10377,9 +10527,18 @@ export interface components {
         InvoicePayment: {
             /** Format: int64 */
             amount_minor: number;
+            /** Format: int64 */
+            base_amount_minor?: number | null;
             /** Format: uuid */
             created_by?: string | null;
             currency: string;
+            fx_rate_date?: string | null;
+            /**
+             * @description FX conversion snapshot (ADR 0002 lock moment: payment settlement) —
+             *     locked once at receipt when currency ≠ org base; immutable after.
+             */
+            fx_rate_used?: string | null;
+            fx_source?: string | null;
             /** Format: uuid */
             id: string;
             /** Format: uuid */
@@ -11337,6 +11496,8 @@ export interface components {
             total_minor: number;
         };
         OrgProfileResponse: {
+            /** @description The org's ONE base (reporting) currency (ADR 0002, FX1). */
+            base_currency: string;
             /** Format: uuid */
             id: string;
             name: string;
@@ -11554,6 +11715,11 @@ export interface components {
             status?: null | components["schemas"]["ContractStatus"];
         };
         PatchOrgRequest: {
+            /**
+             * @description Present + different ⇒ a governed base-currency change (ADR 0002):
+             *     refused with a typed conflict while conversion snapshots exist.
+             */
+            base_currency?: string | null;
             name?: string | null;
             ticket_prefix?: string | null;
         };
@@ -12858,11 +13024,22 @@ export interface components {
             /** Format: uuid */
             user_id?: string | null;
         };
+        RateListQuery: {
+            base_currency?: string | null;
+            quote_currency?: string | null;
+        };
+        RateMutationResponse: components["schemas"]["FxRateEntry"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
         /** @description T&M rate-card row spec (hourly minor units per `work_type`). */
         RateSpec: {
             /** Format: int64 */
             rate_minor: number;
             work_type: string;
+        };
+        ReconciliationQuery: {
+            /** Format: int64 */
+            limit?: number | null;
         };
         RecordPaymentRequest: components["schemas"]["MutationParams"] & {
             /**
@@ -12872,6 +13049,14 @@ export interface components {
              */
             amount_minor: number;
             notes?: string | null;
+        };
+        RecordRateRequest: components["schemas"]["MutationParams"] & {
+            as_of_date: string;
+            /** @description 1 base major unit buys `rate` quote major units. */
+            base_currency: string;
+            quote_currency: string;
+            /** @description Positive decimal, max 12 fractional digits ("17.85"). */
+            rate: string;
         };
         RecoveryCodesResponse: {
             /** @description Plaintext codes — displayed once, stored only as argon2id hashes. */
@@ -13102,6 +13287,11 @@ export interface components {
          * @enum {string}
          */
         ResolutionSource: "client_override" | "org_default" | "unset";
+        ResolveRateQuery: {
+            as_of: string;
+            from: string;
+            to: string;
+        };
         /**
          * @description Render-ready details of a resolved reference value: names and the semantic
          *     category travel WITH the resolution so consumers never branch on labels and
@@ -13997,6 +14187,8 @@ export interface components {
             mutation: components["schemas"]["MutationMeta"];
         };
         TicketCostLine: {
+            /** Format: int64 */
+            base_amount_minor?: number | null;
             billable: boolean;
             /** Format: date-time */
             created_at: string;
@@ -14004,6 +14196,13 @@ export interface components {
             created_by?: string | null;
             currency: string;
             description: string;
+            fx_rate_date?: string | null;
+            /**
+             * @description FX conversion snapshot (ADR 0002 lock moment: purchase entry) —
+             *     set once at entry when currency ≠ org base; immutable afterwards.
+             */
+            fx_rate_used?: string | null;
+            fx_source?: string | null;
             /** Format: uuid */
             id: string;
             /**
@@ -14057,11 +14256,20 @@ export interface components {
         TicketExpense: {
             /** Format: int64 */
             amount_minor: number;
+            /** Format: int64 */
+            base_amount_minor?: number | null;
             billable: boolean;
             /** Format: date-time */
             created_at: string;
             currency: string;
             description: string;
+            fx_rate_date?: string | null;
+            /**
+             * @description FX conversion snapshot (ADR 0002 lock moment: expense entry) —
+             *     set once at entry when currency ≠ org base; immutable afterwards.
+             */
+            fx_rate_used?: string | null;
+            fx_source?: string | null;
             /** Format: uuid */
             id: string;
             /** Format: date-time */
@@ -20271,6 +20479,107 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    fx_rates_list: {
+        parameters: {
+            query?: {
+                base_currency?: string;
+                quote_currency?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FxRateEntry"][];
+                };
+            };
+        };
+    };
+    fx_rates_record: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordRateRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RateMutationResponse"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    fx_rates_resolve: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+                as_of?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FxRateEntry"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    fx_reconciliation: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FxReconciliationRow"][];
+                };
             };
         };
     };

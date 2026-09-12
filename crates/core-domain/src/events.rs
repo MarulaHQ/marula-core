@@ -258,6 +258,14 @@ pub mod types {
     pub const CREDIT_NOTE_ISSUED: &str = "credit_note.issued";
     pub const CREDIT_NOTE_APPLIED: &str = "credit_note.applied";
     pub const CREDIT_NOTE_REFUNDED: &str = "credit_note.refunded";
+    /// Currency & FX (ADR 0002, Wave 12 lane 10). `fx.rate_recorded` — a
+    /// rate row entered the append-only book (manual entry or a managed
+    /// feed); consumers re-price pending conversions and reconcile caches.
+    /// `fx.base_currency_changed` — the org's ONE reporting currency moved
+    /// through the governed re-snapshot path; every money view must
+    /// re-hydrate (the core never revaluates in place).
+    pub const FX_RATE_RECORDED: &str = "fx.rate_recorded";
+    pub const FX_BASE_CURRENCY_CHANGED: &str = "fx.base_currency_changed";
     /// Quote builder + catalog + sales pipeline (TASKLIST Phase 3, Wave 12
     /// lane 2). Catalog lifecycle is create/update/archive (archival is a
     /// flag, never a delete). The quote lifecycle is data
@@ -1352,6 +1360,40 @@ pub struct InvoiceDunningChanged {
     pub from_state: String,
     pub to_state: String,
     pub note: Option<String>,
+    pub changed_at: DateTime<Utc>,
+}
+
+/// fx.rate_recorded — a rate row entered the org's append-only book
+/// (ADR 0002). Corrections are NEW rows; consumers re-price pending
+/// conversions from the effective rate (newest captured_at ≤ as_of).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct FxRateRecorded {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub rate_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub org_id: uuid::Uuid,
+    pub base_currency: String,
+    pub quote_currency: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = String))]
+    pub as_of_date: chrono::NaiveDate,
+    /// QUOTE major units per 1 BASE major unit ("17.850000000000").
+    pub rate: String,
+    /// 'manual' for the built-in provider; managed feeds stamp their own.
+    pub source: String,
+    pub captured_at: DateTime<Utc>,
+}
+
+/// fx.base_currency_changed — the org's ONE base (reporting) currency
+/// moved through the governed re-snapshot path (ADR 0002, FX1). Every
+/// money view must re-hydrate; the core never revaluates in place.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct FxBaseCurrencyChanged {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub org_id: uuid::Uuid,
+    pub from: String,
+    pub to: String,
     pub changed_at: DateTime<Utc>,
 }
 

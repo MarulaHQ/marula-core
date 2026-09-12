@@ -3,7 +3,7 @@
 
 use crate::ids::*;
 use crate::status::Priority;
-use chrono::{DateTime, NaiveTime, Utc};
+use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 use uuid::Uuid;
 
 /// An org-wide tag: a flat named label with an optional display color.
@@ -133,6 +133,13 @@ pub struct TicketCostLine {
     pub unit_cost_minor: i64,
     pub currency: String,
     pub billable: bool,
+    /// FX conversion snapshot (ADR 0002 lock moment: purchase entry) —
+    /// set once at entry when currency ≠ org base; immutable afterwards.
+    pub fx_rate_used: Option<String>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>))]
+    pub fx_rate_date: Option<NaiveDate>,
+    pub fx_source: Option<String>,
+    pub base_amount_minor: Option<i64>,
     /// Set once this line became an invoice line ("billed once, ever").
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub invoice_line_id: Option<Uuid>,
@@ -162,6 +169,13 @@ pub struct TicketExpense {
     pub amount_minor: i64,
     pub currency: String,
     pub billable: bool,
+    /// FX conversion snapshot (ADR 0002 lock moment: expense entry) —
+    /// set once at entry when currency ≠ org base; immutable afterwards.
+    pub fx_rate_used: Option<String>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>))]
+    pub fx_rate_date: Option<NaiveDate>,
+    pub fx_source: Option<String>,
+    pub base_amount_minor: Option<i64>,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub invoice_line_id: Option<Uuid>,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]

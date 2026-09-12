@@ -15,6 +15,7 @@ pub mod deprecation;
 pub mod entities;
 pub mod error;
 pub mod events;
+pub mod fx;
 pub mod ids;
 pub mod import_core;
 pub mod mentions;
