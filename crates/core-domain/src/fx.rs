@@ -22,6 +22,41 @@ use std::fmt;
 /// forbidden anywhere near money (§5), including rate handling.
 pub const FX_RATE_SCALE: i128 = 1_000_000_000_000;
 
+/// Fixed-point scale for fractional fact quantities (cost lines, expenses
+/// carry `quantity double precision` in the schema). The API write path
+/// and the SQL read model MUST quantize through this same boundary —
+/// `round(quantity × scale)` on both sides (Rust `f64::round` and Postgres
+/// `round(double precision)` are both half-away-from-zero over the same
+/// IEEE-754 product) — so the reconciliation view reproduces the locked
+/// fact bit-for-bit.
+pub const FACT_QUANTITY_SCALE: i128 = 1_000_000;
+
+/// Quantizes a fractional fact quantity to [`FACT_QUANTITY_SCALE`]. The
+/// single sanctioned float→integer boundary for quantities; `None` on
+/// non-finite or absurd inputs.
+#[must_use]
+pub fn quantize_quantity(quantity: f64) -> Option<i128> {
+    if !quantity.is_finite() {
+        return None;
+    }
+    let scaled = quantity * FACT_QUANTITY_SCALE as f64;
+    if !scaled.is_finite() || scaled.abs() >= 9.0e15 {
+        return None;
+    }
+    Some(scaled.round() as i128)
+}
+
+/// `quantity × unit_cost_minor` in integer space with the documented
+/// half-even rule — never a float multiply (§5). Returns `None` when the
+/// product leaves the i64 fact range.
+#[must_use]
+pub fn fact_amount_minor(quantity: f64, unit_cost_minor: i64) -> Option<i64> {
+    let q = quantize_quantity(quantity)?;
+    let numer = q.checked_mul(unit_cost_minor as i128)?;
+    let amount = div_half_even(numer, FACT_QUANTITY_SCALE);
+    i64::try_from(amount).ok()
+}
+
 /// Half-even division of `numer / denom` (denom > 0), sign-symmetric:
 /// ties round to the even neighbor, matching `Money::percent`.
 #[must_use]
@@ -117,6 +152,12 @@ impl fmt::Display for FxRate {
 fn parse_decimal_scaled(s: &str, max_frac: u32) -> Option<i128> {
     let body = s.trim();
     if body.is_empty() {
+        return None;
+    }
+    // Reject any sign up front: `"-0"` parses as `0` and would slip the
+    // numeric `< 0` guards below, letting a negative rate into the
+    // append-only ledger (the total==0 guard also cannot catch it).
+    if body.starts_with('-') || body.starts_with('+') {
         return None;
     }
     let (whole, frac) = match body.split_once('.') {
@@ -392,6 +433,11 @@ mod tests {
     fn rejects_bad_rates() {
         assert!(FxRate::new(cc("USD"), cc("ZAR"), "0").is_err());
         assert!(FxRate::new(cc("USD"), cc("ZAR"), "-1.5").is_err());
+        // `"-0"` parses as 0 numerically — the sign check must catch it.
+        assert!(FxRate::new(cc("USD"), cc("ZAR"), "-0.5").is_err());
+        assert!(FxRate::new(cc("USD"), cc("ZAR"), "-.5").is_err());
+        assert!(FxRate::new(cc("USD"), cc("ZAR"), "-0").is_err());
+        assert!(FxRate::new(cc("USD"), cc("ZAR"), "+1.5").is_err());
         assert!(FxRate::new(cc("USD"), cc("ZAR"), "1.1234567890123").is_err()); // 13 dp
         assert!(FxRate::new(cc("USD"), cc("ZAR"), "abc").is_err());
         assert!(FxRate::new(cc("USD"), cc("USD"), "1").is_err());

@@ -463,8 +463,6 @@ pub async fn apply(
     let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
     let key = req.instant.idempotency_key.clone();
 
-    let pool = state.pool.clone();
-
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         if let InstantClaim::Replay(stored) = instant::claim(
             &mut ctx,
@@ -533,7 +531,7 @@ pub async fn apply(
         // The money move: a real receipt through the ordinary payment
         // path (paid-state transition + overpayment guards included).
         let snap = crate::routes::fx::lock_snapshot(
-            &pool,
+            &mut ctx.tx,
             org_id,
             req.amount_minor,
             &note.currency,

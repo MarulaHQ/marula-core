@@ -438,7 +438,7 @@ pub async fn org_profile_patch(
             let current = core_db::orgs::get_org(&mut *ctx.tx, org_id).await?;
             if current.base_currency != new_base {
                 let org =
-                    core_db::orgs::change_base_currency(&mut *ctx.tx, org_id, new_base).await?;
+                    core_db::orgs::change_base_currency(&mut ctx.tx, org_id, new_base).await?;
                 ctx.emit(
                     types::FX_BASE_CURRENCY_CHANGED,
                     "fx",

@@ -23,11 +23,11 @@ use axum::{
 };
 use chrono::NaiveDate;
 use core_domain::entities::{FxRateEntry, FxReconciliationRow};
-use core_domain::fx::{FxError, FxRate, FxRateProvider, FxRateRequest, FxSnapshot};
+use core_domain::fx::{FxError, FxRate, FxRateRequest, FxSnapshot};
 use core_domain::money::{CurrencyCode, Money};
 use core_domain::policy::{Action, Module, Permission};
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::Postgres;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -55,35 +55,42 @@ pub fn routes(gen: ApiGeneration) -> Router<AppState> {
 
 /// The manual-entry built-in provider: resolves the effective rate from
 /// the org's append-only `fx_rates` book (core-db), the standalone "none"
-/// mode. Zero network calls. Managed daily feeds (ECB/OFX-class) are
-/// Relay/community bundles implementing the same trait.
-#[derive(Debug, Clone)]
-pub struct ManualFxRateProvider {
-    pool: PgPool,
-}
+/// mode. Zero network calls, and STATELESS — the org's book IS the state.
+/// Managed daily feeds (ECB/OFX-class) are Relay/community bundles
+/// implementing the same trait.
+#[derive(Debug, Clone, Default)]
+pub struct ManualFxRateProvider;
 
 impl ManualFxRateProvider {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new() -> Self {
+        Self
     }
-}
 
-impl FxRateProvider for ManualFxRateProvider {
-    fn name(&self) -> &str {
+    /// The source label persisted into `fx_source`.
+    pub fn name(&self) -> &'static str {
         "manual"
     }
 
-    async fn resolve(&self, req: &FxRateRequest) -> Result<FxRate, FxError> {
-        let mut tx = self.pool.begin().await.map_err(|e| FxError::Backend {
-            reason: e.to_string(),
-        })?;
-        core_db::set_org(&mut tx, req.org_id)
+    /// Resolves the rate on the caller's ALREADY org-bound transaction —
+    /// the form every lock-moment write path uses. There is deliberately
+    /// no standalone `resolve` here: a lock-moment call must ride the
+    /// caller's transaction (a nested `pool.begin()` would hold a second
+    /// connection per call and starve the pool under load). Managed-feed
+    /// bundles implementing [`core_domain::fx::FxRateProvider`] carry
+    /// their own state; this struct intentionally does not implement the
+    /// trait.
+    pub async fn resolve_in_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        req: &FxRateRequest,
+    ) -> Result<FxRate, FxError> {
+        core_db::set_org(tx, req.org_id)
             .await
             .map_err(|e| FxError::Backend {
                 reason: e.to_string(),
             })?;
         let entry = core_db::fx::resolve_rate(
-            &mut tx,
+            tx,
             req.org_id,
             req.from.as_str(),
             req.to.as_str(),
@@ -91,9 +98,6 @@ impl FxRateProvider for ManualFxRateProvider {
         )
         .await
         .map_err(|e| FxError::Backend {
-            reason: e.to_string(),
-        })?;
-        tx.commit().await.map_err(|e| FxError::Backend {
             reason: e.to_string(),
         })?;
         let entry = entry.ok_or_else(|| FxError::NoRate {
@@ -130,28 +134,27 @@ pub(crate) struct LockedSnapshot {
 }
 
 /// Resolves the effective rate for `currency → org base` on `as_of` and
-/// locks the immutable snapshot. `Ok(None)` when the fact is already in
-/// the org base currency (no snapshot needed). Missing rate coverage ⇒
-/// typed 422 naming the pair — fail-closed manual mode.
+/// locks the immutable snapshot. Rides the caller's ALREADY org-bound
+/// transaction — never opens its own (a nested pool transaction would
+/// hold a second connection per call and starve the pool under load).
+/// `Ok(None)` when the fact is already in the org base currency (no
+/// snapshot needed). Missing rate coverage ⇒ typed 422 naming the pair —
+/// fail-closed manual mode.
 pub(crate) async fn lock_snapshot(
-    pool: &PgPool,
+    tx: &mut sqlx::Transaction<'_, Postgres>,
     org_id: Uuid,
     amount_minor: i64,
     currency: &str,
     as_of: NaiveDate,
 ) -> ApiResult<Option<LockedSnapshot>> {
-    let mut tx = pool.begin().await.map_err(ApiError::from)?;
-    core_db::set_org(&mut tx, org_id)
+    core_db::set_org(tx, org_id).await.map_err(ApiError::from)?;
+    let base = core_db::fx::base_currency(&mut **tx, org_id)
         .await
         .map_err(ApiError::from)?;
-    let base = core_db::fx::base_currency(&mut *tx, org_id)
-        .await
-        .map_err(ApiError::from)?;
-    tx.commit().await.map_err(ApiError::from)?;
     if currency == base {
         return Ok(None);
     }
-    let provider = ManualFxRateProvider::new(pool.clone());
+    let provider = ManualFxRateProvider;
     let req = FxRateRequest {
         org_id,
         from: CurrencyCode::new(currency)
@@ -160,13 +163,16 @@ pub(crate) async fn lock_snapshot(
             .map_err(|_| ApiError::Validation(format!("invalid base currency code: {base}")))?,
         as_of,
     };
-    let rate = provider.resolve(&req).await.map_err(|e| match e {
-        FxError::NoRate { from, to, as_of } => ApiError::Validation(format!(
-            "no fx rate recorded for {from}→{to} effective {as_of}; \
-             record one before entering this cross-currency fact"
-        )),
-        other => ApiError::Internal(anyhow::anyhow!("fx provider error: {other}")),
-    })?;
+    let rate = provider
+        .resolve_in_tx(&mut *tx, &req)
+        .await
+        .map_err(|e| match e {
+            FxError::NoRate { from, to, as_of } => ApiError::Validation(format!(
+                "no fx rate recorded for {from}→{to} effective {as_of}; \
+                 record one before entering this cross-currency fact"
+            )),
+            other => ApiError::Internal(anyhow::anyhow!("fx provider error: {other}")),
+        })?;
     let original = Money::new(amount_minor, req.from.clone());
     let snapshot = FxSnapshot::lock(&original, &req.to, rate, as_of, provider.name())
         .map_err(|e| ApiError::Validation(e.to_string()))?;

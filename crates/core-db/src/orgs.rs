@@ -136,12 +136,42 @@ where
     Ok(n.unwrap_or(0))
 }
 
+/// Money rows denominated in the CURRENT base (no snapshot — a
+/// single-currency fact in the base needs none). A base change re-labels
+/// these: every existing document's currency becomes a NON-base currency
+/// with no snapshot and no re-snapshot path (the issue-side lock moment
+/// has passed), so the guard must count them too — otherwise an org that
+/// traded purely in its old base can flip silently and strand its
+/// history half-snapshotted once payments start locking.
+pub async fn count_base_currency_money<'e, E>(executor: E, org_id: Uuid) -> DbResult<i64>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let n: Option<i64> = sqlx::query_scalar!(
+        r#"SELECT (
+              (SELECT count(*) FROM ticket_expenses  WHERE org_id = $1 AND currency = (SELECT base_currency FROM orgs WHERE id = $1)) +
+              (SELECT count(*) FROM ticket_cost_lines WHERE org_id = $1 AND currency = (SELECT base_currency FROM orgs WHERE id = $1)) +
+              (SELECT count(*) FROM invoices          WHERE org_id = $1 AND currency = (SELECT base_currency FROM orgs WHERE id = $1) AND fx_rate_used IS NULL) +
+              (SELECT count(*) FROM invoice_payments  WHERE org_id = $1 AND currency = (SELECT base_currency FROM orgs WHERE id = $1) AND fx_rate_used IS NULL) +
+              (SELECT count(*) FROM credit_notes      WHERE org_id = $1 AND currency = (SELECT base_currency FROM orgs WHERE id = $1))
+            )"#,
+        org_id
+    )
+    .fetch_one(executor)
+    .await?;
+    Ok(n.unwrap_or(0))
+}
+
 /// Changes the org base currency (ADR 0002, FX1). Governed: the write is
 /// REFUSED while any conversion snapshot exists — snapshots are locked to
 /// the base they were taken against, so a base change requires a full
 /// re-snapshot (a governed, operator-driven act outside the write path;
 /// the core never revaluates in place). The guard counts rows carrying
-/// any snapshot column across the five lock moments.
+/// any snapshot column across the five lock moments, AND rows denominated
+/// in the current base without a snapshot — those would be re-labeled
+/// into a non-base currency they never agreed to. Only a truly
+/// money-empty org (or one that has completed the documented governed
+/// re-snapshot) may change its base.
 pub async fn change_base_currency(
     conn: &mut PgConnection,
     org_id: Uuid,
@@ -152,6 +182,14 @@ pub async fn change_base_currency(
         return Err(DbError::Conflict(format!(
             "org has {snapshots} fx conversion snapshot(s); changing the base currency \
              requires the documented full re-snapshot path"
+        )));
+    }
+    let base_money = count_base_currency_money(&mut *conn, org_id).await?;
+    if base_money > 0 {
+        return Err(DbError::Conflict(format!(
+            "org has {base_money} document(s) denominated in the current base currency \
+             with no conversion snapshot; changing the base currency would strand them \
+             without a base equivalent — complete the documented re-snapshot path first"
         )));
     }
     let row = sqlx::query!(

@@ -145,8 +145,6 @@ pub async fn create_cost_line(
     let fingerprint = serde_json::to_value(&req).unwrap_or(serde_json::Value::Null);
     let key = req.instant.idempotency_key.clone();
 
-    let pool = state.pool.clone();
-
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         if let InstantClaim::Replay(stored) = instant::claim(
             &mut ctx,
@@ -165,16 +163,14 @@ pub async fn create_cost_line(
             ticket_for_board_check(&mut ctx.tx, &authed.principal, org_id, id, BoardOp::View)
                 .await?;
         // ADR 0002 lock moment (expense/purchase entry): a fact entered in
-        // a non-base currency locks its conversion snapshot at entry.
+        // a non-base currency locks its conversion snapshot at entry. The
+        // fact amount is computed in integer space with the documented
+        // half-even rule (§5 — no float multiplies near money) so the
+        // reconciliation read model reproduces it bit-for-bit.
         let today = chrono::Utc::now().date_naive();
-        let snap = lock_snapshot(
-            &pool,
-            org_id,
-            (req.quantity * req.unit_cost_minor as f64).round() as i64,
-            &req.currency,
-            today,
-        )
-        .await?;
+        let fact_amount = core_domain::fx::fact_amount_minor(req.quantity, req.unit_cost_minor)
+            .ok_or_else(|| ApiError::Validation("quantity × unit cost out of range".into()))?;
+        let snap = lock_snapshot(&mut ctx.tx, org_id, fact_amount, &req.currency, today).await?;
         let line = TicketCostLine {
             id: uuid::Uuid::now_v7(),
             org_id,
@@ -326,6 +322,25 @@ pub async fn update_cost_line(
             .into_iter()
             .find(|l| l.id == line_id)
             .ok_or(ApiError::NotFound)?;
+        // Snapshot doctrine (ADR 0002): a fact that already locked an FX
+        // snapshot cannot have its amount edited in place — the locked
+        // `base_amount_minor` would silently stop matching the row's own
+        // quantity × unit cost. Amount corrections are new facts: remove
+        // and re-enter. Description/billable edits stay allowed.
+        if before.fx_rate_used.is_some()
+            && (req.quantity.is_some_and(|q| {
+                core_domain::fx::quantize_quantity(q)
+                    != core_domain::fx::quantize_quantity(before.quantity)
+            }) || req
+                .unit_cost_minor
+                .is_some_and(|u| u != before.unit_cost_minor))
+        {
+            return Err(ApiError::Conflict(
+                "cost line carries an FX snapshot; amount corrections are new facts, \
+                 not edits — remove and re-enter"
+                    .into(),
+            ));
+        }
         core_db::costs::update_cost_line(
             &mut ctx.tx,
             org_id,
@@ -536,8 +551,6 @@ pub async fn create_expense(
     let fingerprint = serde_json::to_value(&req).unwrap_or(serde_json::Value::Null);
     let key = req.instant.idempotency_key.clone();
 
-    let pool = state.pool.clone();
-
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         if let InstantClaim::Replay(stored) = instant::claim(
             &mut ctx,
@@ -556,7 +569,8 @@ pub async fn create_expense(
             ticket_for_board_check(&mut ctx.tx, &authed.principal, org_id, id, BoardOp::View)
                 .await?;
         let today = chrono::Utc::now().date_naive();
-        let snap = lock_snapshot(&pool, org_id, req.amount_minor, &req.currency, today).await?;
+        let snap =
+            lock_snapshot(&mut ctx.tx, org_id, req.amount_minor, &req.currency, today).await?;
         let expense = TicketExpense {
             id: uuid::Uuid::now_v7(),
             org_id,
@@ -707,6 +721,18 @@ pub async fn update_expense(
             .into_iter()
             .find(|e| e.id == expense_id)
             .ok_or(ApiError::NotFound)?;
+        // Snapshot doctrine (ADR 0002): same rule as cost lines — an
+        // amount edit on a snapshotted expense would desynchronize the
+        // locked base amount. Corrections are new facts.
+        if before.fx_rate_used.is_some()
+            && req.amount_minor.is_some_and(|a| a != before.amount_minor)
+        {
+            return Err(ApiError::Conflict(
+                "expense carries an FX snapshot; amount corrections are new facts, \
+                 not edits — remove and re-enter"
+                    .into(),
+            ));
+        }
         core_db::costs::update_expense(
             &mut ctx.tx,
             org_id,

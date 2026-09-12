@@ -25,6 +25,14 @@
 -- row — their original amount IS the base amount, and they are already
 -- covered by the other ops.v1_* views.
 --
+-- ADDITIVITY CONTRACT: the union is NOT additive across `kind`. One
+-- cross-currency invoice appears as an `invoice_issue` row (document
+-- total), one `labor_pricing` row per priced line (lines sum to ≈ the
+-- total), and one `payment` row per settlement — the same money seen
+-- through three lock moments by design ("original amount, rate, base
+-- equivalent" per fact). NEVER sum across kinds; aggregate per (kind) —
+-- or per invoice via invoice_id — or the books double-count.
+--
 -- Columns: original amount + currency, the immutable snapshot (rate in
 -- the fact→base direction, rate date, source), the base equivalent, the
 -- org base currency for the row's window, and the books sync target.
@@ -35,6 +43,36 @@
 -- packet shape is stable).
 --
 -- security_invoker: rows are org-filtered by the underlying tables' RLS.
+
+-- Mirrors core_domain::fx::div_half_even so the view's recomputed fact
+-- amount matches the API's locked snapshot bit-for-bit (the write path
+-- computes quantity × unit cost through the same half-even rule —
+-- migration 0065 / core-domain §5: no float arithmetic on money facts).
+CREATE OR REPLACE FUNCTION fx_half_even_div(numer numeric, denom numeric)
+RETURNS bigint
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT CASE
+    WHEN numer >= 0 THEN (
+      floor(numer / denom)
+      + CASE
+          WHEN (numer - floor(numer / denom) * denom) * 2 > denom THEN 1
+          WHEN (numer - floor(numer / denom) * denom) * 2 = denom
+               AND floor(numer / denom)::bigint % 2 = 1 THEN 1
+          ELSE 0
+        END
+    ) ELSE -(
+      floor((-numer) / denom)
+      + CASE
+          WHEN ((-numer) - floor((-numer) / denom) * denom) * 2 > denom THEN 1
+          WHEN ((-numer) - floor((-numer) / denom) * denom) * 2 = denom
+               AND floor((-numer) / denom)::bigint % 2 = 1 THEN 1
+          ELSE 0
+        END
+    )
+  END::bigint
+$$;
 
 CREATE VIEW ops.v1_fx_reconciliation WITH (security_invoker = true) AS
 SELECT
@@ -63,7 +101,12 @@ SELECT
   c.ticket_id,
   NULL::uuid,
   c.currency,
-  (c.quantity * c.unit_cost_minor)::bigint AS original_amount_minor,
+  -- Same integer-space half-even product the API's lock path used when
+  -- the snapshot was taken (fact_amount_minor) — recomputing it with a
+  -- float multiply here would make base/original drift off fx_rate_used
+  -- on .5-boundary quantities.
+  fx_half_even_div(round(c.quantity * 1000000) * c.unit_cost_minor, 1000000)
+    AS original_amount_minor,
   c.fx_rate_used,
   c.fx_rate_date,
   c.fx_source,
@@ -148,3 +191,22 @@ SELECT
   p.received_at
 FROM invoice_payments p
 WHERE p.fx_rate_used IS NOT NULL;
+
+-- Query-supporting partial indexes: the reconciliation endpoint reads
+-- each branch filtered to the snapshot-bearing subset (fx_rate_used IS
+-- NOT NULL) ordered by the fact timestamp. Without these, every request
+-- full-scans all six fact tables; with them, the RLS org predicate, the
+-- NOT-NULL filter, and the fact_at DESC top-N ordering are all served by
+-- one index probe per branch. Additive-only (mirrors the 0065 convention).
+CREATE INDEX IF NOT EXISTS ticket_expenses_fx_reconciliation_idx
+  ON ticket_expenses (org_id, incurred_at DESC) WHERE fx_rate_used IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ticket_cost_lines_fx_reconciliation_idx
+  ON ticket_cost_lines (org_id, created_at DESC) WHERE fx_rate_used IS NOT NULL;
+CREATE INDEX IF NOT EXISTS invoices_fx_reconciliation_idx
+  ON invoices (org_id, created_at DESC) WHERE fx_rate_used IS NOT NULL;
+CREATE INDEX IF NOT EXISTS invoice_lines_fx_reconciliation_idx
+  ON invoice_lines (org_id, invoice_id) WHERE fx_rate_used IS NOT NULL;
+CREATE INDEX IF NOT EXISTS device_assets_fx_reconciliation_idx
+  ON device_assets (org_id, created_at DESC) WHERE purchase_fx_rate_used IS NOT NULL;
+CREATE INDEX IF NOT EXISTS invoice_payments_fx_reconciliation_idx
+  ON invoice_payments (org_id, received_at DESC) WHERE fx_rate_used IS NOT NULL;

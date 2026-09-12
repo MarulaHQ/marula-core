@@ -388,8 +388,6 @@ pub async fn update(
     let key = req.instant.idempotency_key.clone();
     let version = req.instant.version;
 
-    let pool = state.pool.clone();
-
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         if let InstantClaim::Replay(stored) = instant::claim(
             &mut ctx,
@@ -445,6 +443,27 @@ pub async fn update(
         .await?;
         let asset = match &req.lifecycle {
             Some(lifecycle) => {
+                // Snapshot doctrine (ADR 0002): an asset that already
+                // locked a purchase snapshot cannot have its purchase cost
+                // edited in place — an edit would either trip the DB
+                // immutability trigger with an opaque error, or (base
+                // currency) leave the locked base figure stale via
+                // COALESCE. Cost corrections are new facts.
+                if before.purchase_fx_rate_used.is_some()
+                    && (lifecycle
+                        .purchase_cost_minor
+                        .is_some_and(|c| Some(c) != before.purchase_cost_minor)
+                        || lifecycle
+                            .purchase_currency
+                            .as_deref()
+                            .is_some_and(|c| Some(c.to_string()) != before.purchase_currency))
+                {
+                    return Err(ApiError::Conflict(
+                        "asset carries a purchase FX snapshot; cost corrections are new facts, \
+                         not edits"
+                            .into(),
+                    ));
+                }
                 let mut patch = AssetLifecyclePatch::from(lifecycle.clone());
                 // ADR 0002 lock moment (inventory receipt): a purchase cost
                 // written in a non-base currency locks its conversion
@@ -455,7 +474,7 @@ pub async fn update(
                     lifecycle.purchase_currency.as_deref(),
                 ) {
                     let snap = crate::routes::fx::lock_snapshot(
-                        &pool,
+                        &mut ctx.tx,
                         org_id,
                         cost,
                         cur,

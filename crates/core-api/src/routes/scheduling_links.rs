@@ -360,7 +360,7 @@ pub async fn delete_group(
     let org_id = authed.principal.user.org_id;
     let actor = authed.principal.user.id;
     org_tx::with_org_tx(&state, org_id, actor, |mut tx| async move {
-        core_db::scheduling_links::delete_group(&mut *tx.tx, org_id, id).await?;
+        core_db::scheduling_links::delete_group(&mut tx.tx, org_id, id).await?;
         Ok((tx, ()))
     })
     .await?;
@@ -761,7 +761,7 @@ pub async fn create_link(
         let meeting_type =
             core_db::scheduling_links::get_meeting_type(&mut *tx.tx, org_id, link.meeting_type_id)
                 .await
-                .map_err(|e| ApiError::from(e))?;
+                .map_err(ApiError::from)?;
         if !meeting_type.is_active {
             return Err(ApiError::Validation(
                 "meeting type is retired; links cannot be minted".into(),
@@ -846,7 +846,7 @@ pub async fn revoke_link(
     let org_id = authed.principal.user.org_id;
     let actor = authed.principal.user.id;
     org_tx::with_org_tx(&state, org_id, actor, |mut tx| async move {
-        let link = core_db::scheduling_links::revoke_link(&mut *tx.tx, org_id, id).await?;
+        let link = core_db::scheduling_links::revoke_link(&mut tx.tx, org_id, id).await?;
         if link.status == SchedulingLinkStatus::Revoked {
             tx.emit(
                 types::SCHEDULING_LINK_REVOKED,

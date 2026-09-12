@@ -170,15 +170,43 @@ impl VendorClient {
                         break;
                     }
                     page += 1;
+                    // Same hard stop as the other flows: a vendor that
+                    // ignores the page parameter would re-serve page 1
+                    // forever.
+                    if page > 10_000 {
+                        return Err(VendorError::Rejected(format!(
+                            "pagination exceeded 10,000 pages at {path}"
+                        )));
+                    }
                 }
             }
         }
         Ok(items)
     }
 
-    /// GET an absolute continuation URL, applying auth.
+    /// GET an absolute continuation URL, applying auth. Continuation
+    /// URLs come from the vendor's response BODY — a compromised or
+    /// manipulated response must not be able to redirect the credential
+    /// to a third-party host, so the URL is validated against the
+    /// configured base (same scheme + host) before anything is sent.
     async fn get_absolute(&self, url: &str) -> Result<Value, VendorError> {
-        let request = self.http.get(url);
+        let parsed = url
+            .parse::<reqwest::Url>()
+            .map_err(|_| VendorError::Rejected(format!("malformed continuation URL: {url}")))?;
+        let base = self
+            .base_url
+            .parse::<reqwest::Url>()
+            .map_err(|_| VendorError::Rejected(format!("malformed base URL: {}", self.base_url)))?;
+        if parsed.scheme() != base.scheme()
+            || parsed.host_str() != base.host_str()
+            || parsed.port_or_known_default() != base.port_or_known_default()
+        {
+            return Err(VendorError::Rejected(format!(
+                "continuation URL {url} leaves the vendor base {}",
+                self.base_url
+            )));
+        }
+        let request = self.http.get(parsed);
         let request = self.auth.apply(request, &self.http).await?;
         let response = request
             .send()

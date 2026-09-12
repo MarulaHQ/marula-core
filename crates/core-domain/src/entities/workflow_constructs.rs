@@ -150,8 +150,12 @@ pub struct TicketCostLine {
 }
 
 impl TicketCostLine {
+    /// The fact amount in integer space with the documented half-even
+    /// rule (core_domain::fx::fact_amount_minor) — never a float multiply
+    /// (§5). Falls back to saturating on absurd inputs; the API write
+    /// path validates the range before a fact is ever persisted.
     pub fn total_minor(&self) -> i64 {
-        (self.quantity * self.unit_cost_minor as f64).round() as i64
+        crate::fx::fact_amount_minor(self.quantity, self.unit_cost_minor).unwrap_or(i64::MAX)
     }
 }
 

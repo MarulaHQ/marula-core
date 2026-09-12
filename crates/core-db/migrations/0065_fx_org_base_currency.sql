@@ -65,35 +65,71 @@ ALTER TABLE orgs ADD CONSTRAINT orgs_base_currency_iso
 -- Nullable columns keep their optionality (a CHECK only rejects non-NULL
 -- values that don't match). Every row written by the app layer is already
 -- an uppercase 3-letter code, so backfill is a no-op by construction.
+--
+-- UPGRADE SAFETY (DX-grade): the shape guards are added NOT VALID and
+-- validated in a second pass below. `VALIDATE CONSTRAINT` takes only
+-- SHARE UPDATE EXCLUSIVE (no read/write blocking) instead of the
+-- ACCESS EXCLUSIVE full-table scan each validated ADD CONSTRAINT would
+-- hold on the largest money tables — and a legacy row that violates the
+-- shape can be triaged after validation instead of aborting the whole
+-- migration chain mid-flight. Fresh installs are fully enforced once
+-- validated (the VALIDATE statements run inside this same migration).
 
 ALTER TABLE contracts ADD CONSTRAINT contracts_currency_iso
-  CHECK (currency ~ '^[A-Z]{3}$');
+  CHECK (currency ~ '^[A-Z]{3}$') NOT VALID;
 ALTER TABLE invoices ADD CONSTRAINT invoices_currency_iso
-  CHECK (currency ~ '^[A-Z]{3}$');
+  CHECK (currency ~ '^[A-Z]{3}$') NOT VALID;
 ALTER TABLE invoice_payments ADD CONSTRAINT invoice_payments_currency_iso
-  CHECK (currency ~ '^[A-Z]{3}$');
+  CHECK (currency ~ '^[A-Z]{3}$') NOT VALID;
 ALTER TABLE projects ADD CONSTRAINT projects_currency_iso
-  CHECK (currency IS NULL OR currency ~ '^[A-Z]{3}$');
+  CHECK (currency IS NULL OR currency ~ '^[A-Z]{3}$') NOT VALID;
 ALTER TABLE project_phases ADD CONSTRAINT project_phases_milestone_currency_iso
-  CHECK (milestone_currency IS NULL OR milestone_currency ~ '^[A-Z]{3}$');
+  CHECK (milestone_currency IS NULL OR milestone_currency ~ '^[A-Z]{3}$') NOT VALID;
 ALTER TABLE project_tasks ADD CONSTRAINT project_tasks_milestone_currency_iso
-  CHECK (milestone_currency IS NULL OR milestone_currency ~ '^[A-Z]{3}$');
+  CHECK (milestone_currency IS NULL OR milestone_currency ~ '^[A-Z]{3}$') NOT VALID;
 ALTER TABLE ticket_cost_lines ADD CONSTRAINT ticket_cost_lines_currency_iso
-  CHECK (currency ~ '^[A-Z]{3}$');
+  CHECK (currency ~ '^[A-Z]{3}$') NOT VALID;
 ALTER TABLE ticket_expenses ADD CONSTRAINT ticket_expenses_currency_iso
-  CHECK (currency ~ '^[A-Z]{3}$');
+  CHECK (currency ~ '^[A-Z]{3}$') NOT VALID;
 ALTER TABLE credit_notes ADD CONSTRAINT credit_notes_currency_iso
-  CHECK (currency ~ '^[A-Z]{3}$');
+  CHECK (currency ~ '^[A-Z]{3}$') NOT VALID;
 ALTER TABLE catalog_items ADD CONSTRAINT catalog_items_currency_iso
-  CHECK (currency ~ '^[A-Z]{3}$');
+  CHECK (currency ~ '^[A-Z]{3}$') NOT VALID;
 ALTER TABLE quotes ADD CONSTRAINT quotes_currency_iso
-  CHECK (currency ~ '^[A-Z]{3}$');
+  CHECK (currency ~ '^[A-Z]{3}$') NOT VALID;
 ALTER TABLE pipeline_deals ADD CONSTRAINT pipeline_deals_currency_iso
-  CHECK (currency ~ '^[A-Z]{3}$');
+  CHECK (currency ~ '^[A-Z]{3}$') NOT VALID;
 ALTER TABLE device_assets ADD CONSTRAINT device_assets_rental_currency_iso
-  CHECK (rental_currency IS NULL OR rental_currency ~ '^[A-Z]{3}$');
+  CHECK (rental_currency IS NULL OR rental_currency ~ '^[A-Z]{3}$') NOT VALID;
 ALTER TABLE device_assets ADD CONSTRAINT device_assets_purchase_currency_iso
-  CHECK (purchase_currency IS NULL OR purchase_currency ~ '^[A-Z]{3}$');
+  CHECK (purchase_currency IS NULL OR purchase_currency ~ '^[A-Z]{3}$') NOT VALID;
+
+-- Validation pass: SHARE UPDATE EXCLUSIVE only — concurrent DML proceeds.
+ALTER TABLE contracts VALIDATE CONSTRAINT contracts_currency_iso;
+ALTER TABLE invoices VALIDATE CONSTRAINT invoices_currency_iso;
+ALTER TABLE invoice_payments VALIDATE CONSTRAINT invoice_payments_currency_iso;
+ALTER TABLE projects VALIDATE CONSTRAINT projects_currency_iso;
+ALTER TABLE project_phases VALIDATE CONSTRAINT project_phases_milestone_currency_iso;
+ALTER TABLE project_tasks VALIDATE CONSTRAINT project_tasks_milestone_currency_iso;
+ALTER TABLE ticket_cost_lines VALIDATE CONSTRAINT ticket_cost_lines_currency_iso;
+ALTER TABLE ticket_expenses VALIDATE CONSTRAINT ticket_expenses_currency_iso;
+ALTER TABLE credit_notes VALIDATE CONSTRAINT credit_notes_currency_iso;
+ALTER TABLE catalog_items VALIDATE CONSTRAINT catalog_items_currency_iso;
+ALTER TABLE quotes VALIDATE CONSTRAINT quotes_currency_iso;
+ALTER TABLE pipeline_deals VALIDATE CONSTRAINT pipeline_deals_currency_iso;
+ALTER TABLE device_assets VALIDATE CONSTRAINT device_assets_rental_currency_iso;
+ALTER TABLE device_assets VALIDATE CONSTRAINT device_assets_purchase_currency_iso;
+
+-- OPERATOR NOTE (upgrade path): rows written BEFORE this migration carry
+-- no FX snapshots — correctly so for facts denominated in the org base.
+-- Pre-upgrade invoices whose currency ≠ the org base keep a NULL snapshot
+-- (their issue-side lock moment has passed); the settlement leg of their
+-- FIRST post-upgrade payment locks a payment-side snapshot and therefore
+-- requires an `fx_rates` entry (0066) for the pair. Every upgraded org
+-- starts with an EMPTY rate book — operators must record the historical
+-- rates their cross-currency documents need before accepting payments on
+-- them, or those payments fail closed with the typed no-rate error. This
+-- is the documented backfill step for the FX rollout, not a defect.
 
 -- --- FX4: snapshot columns at the five lock moments ---------------------------
 -- Group shape (uniform): fx_rate_used (BASE per FACT, major units),
