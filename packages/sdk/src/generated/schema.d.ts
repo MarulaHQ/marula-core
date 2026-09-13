@@ -2790,6 +2790,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/events/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/events/stream — live contract-event + presence frames.
+         * @description Response is `text/event-stream`: `data:` frames are the StreamFrame
+         *     JSON documented above; comment heartbeats every 15s keep intermediaries
+         *     from closing an idle connection. A per-user connection cap (8) guards
+         *     fan-out memory; over the cap the request is a typed 429.
+         */
+        get: operations["events_stream"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/fx/rates": {
         parameters: {
             query?: never;
@@ -4576,6 +4599,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/presence/heartbeat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/presence/heartbeat — keep this viewer's presence alive on
+         *     {entity, entity_id}; flips the editing flag when it changed. Returns
+         *     the current roster so the caller can paint it immediately.
+         */
+        post: operations["presence_heartbeat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/project-templates": {
         parameters: {
             query?: never;
@@ -6226,6 +6270,27 @@ export interface paths {
          *     first (IF1/IF2): idempotency-keyed, version-gated, read-your-write.
          */
         post: operations["tickets_move_board"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{id}/presence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/tickets/{id}/presence — current viewers/editors of the
+         *     ticket, TTL-pruned. The ticket must exist in the caller's org (RLS);
+         *     the roster is org-keyed, so it can never leak across orgs.
+         */
+        get: operations["ticket_presence"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -10302,6 +10367,19 @@ export interface components {
         HealthResponse: {
             status: string;
         };
+        /**
+         * @description POST /api/presence/heartbeat body. One heartbeat per viewer per entity
+         *     instance every ~30s; entries expire after 90s without one (TTL is
+         *     server-side, see `realtime::presence`).
+         */
+        HeartbeatRequest: {
+            /** @description True while the caller is actively editing (vs. just viewing). */
+            editing?: boolean;
+            /** @description Entity family (e.g. `"ticket"`). */
+            entity: string;
+            /** @description The entity instance id. */
+            entity_id: string;
+        };
         /** @description The storm group behind an incident ticket. */
         IncidentView: {
             /**
@@ -12300,6 +12378,19 @@ export interface components {
             quiet_until?: string | null;
             source: string;
             timezone: string;
+        };
+        /** @description GET /api/tickets/{id}/presence response. */
+        PresenceRoster: {
+            viewers: components["schemas"]["PresenceViewer"][];
+        };
+        /** @description One presence viewer on an entity (roster + roster frames). */
+        PresenceViewer: {
+            at: string;
+            /** @description True while the user is actively editing (vs. just viewing). */
+            editing: boolean;
+            name: string;
+            /** Format: uuid */
+            user_id: string;
         };
         PreviewQuery: {
             /**
@@ -20487,6 +20578,46 @@ export interface operations {
             };
         };
     };
+    events_stream: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Optional per-entity scope: only frames for this ticket (its events
+                 *     AND its presence) are delivered. Omit for the org-wide stream.
+                 */
+                ticket?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description text/event-stream of StreamFrame JSON data lines with comment heartbeats */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
+                };
+            };
+            /** @description missing or invalid bearer token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description per-user connection cap reached; reconnect later */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     fx_rates_list: {
         parameters: {
             query?: {
@@ -23762,6 +23893,43 @@ export interface operations {
                 };
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    presence_heartbeat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HeartbeatRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PresenceRoster"];
+                };
+            };
+            /** @description missing or invalid bearer token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description malformed entity/entity_id */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -27676,6 +27844,42 @@ export interface operations {
             };
             /** @description validation error */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ticket_presence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Ticket id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PresenceRoster"];
+                };
+            };
+            /** @description missing or invalid bearer token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description ticket not visible in caller's org */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -508,6 +508,10 @@ use utoipa::OpenApi;
         crate::routes::alerts::sources_create,
         crate::routes::alerts::sources_patch,
         crate::routes::alerts::list,
+        // live delivery + ephemeral presence (Wave 12 lane 12)
+        crate::routes::events::stream,
+        crate::routes::presence::heartbeat,
+        crate::routes::presence::ticket_presence,
     ),
     components(schemas(
         // import framework (TASKLIST D2)
@@ -852,6 +856,10 @@ use utoipa::OpenApi;
         crate::routes::fx::ReconciliationQuery,
         core_domain::entities::FxRateEntry,
         core_domain::entities::FxReconciliationRow,
+        // ephemeral presence (Wave 12 lane 12)
+        crate::realtime::PresenceViewer,
+        crate::routes::presence::HeartbeatRequest,
+        crate::routes::presence::PresenceRoster,
         crate::routes::pipeline::CreateStageRequest,
         crate::routes::pipeline::UpdateStageRequest,
         crate::routes::pipeline::StageListQuery,
