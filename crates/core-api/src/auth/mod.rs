@@ -8,8 +8,11 @@ pub mod mfa_handlers;
 pub mod middleware;
 pub mod oidc_client;
 pub mod password;
+pub mod presets;
 pub mod totp_service;
 pub mod webauthn_service;
+
+pub mod federation;
 
 use core_domain::entities::{PortalUser, Principal};
 use uuid::Uuid;

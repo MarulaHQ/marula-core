@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, display_name, issuer, discovery_url,\n                  client_id, jit_provisioning, enabled\n           FROM oidc_providers WHERE org_id = $1 AND id = $2",
+  "query": "SELECT id, name, display_name, issuer, audience, jwks_url,\n                  enabled, created_at\n           FROM edge_assertion_configs WHERE org_id = $1 ORDER BY created_at",
   "describe": {
     "columns": [
       {
@@ -25,28 +25,27 @@
       },
       {
         "ordinal": 4,
-        "name": "discovery_url",
+        "name": "audience",
         "type_info": "Text"
       },
       {
         "ordinal": 5,
-        "name": "client_id",
+        "name": "jwks_url",
         "type_info": "Text"
       },
       {
         "ordinal": 6,
-        "name": "jit_provisioning",
+        "name": "enabled",
         "type_info": "Bool"
       },
       {
         "ordinal": 7,
-        "name": "enabled",
-        "type_info": "Bool"
+        "name": "created_at",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid",
         "Uuid"
       ]
     },
@@ -61,5 +60,5 @@
       false
     ]
   },
-  "hash": "40632c03c42648b88f255de00a2fd545860e6be20955d46afefbcdc80c47e5ee"
+  "hash": "1dc3c887f5c32aadcb8dba5350f40b4c0566d144e2860493103b22c4be9f0877"
 }

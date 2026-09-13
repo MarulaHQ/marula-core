@@ -577,6 +577,108 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/edge/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/auth/edge/sources — admin listing of edge-assertion sources. */
+        get: operations["edge_sources_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/edge/sources/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * PUT /api/auth/edge/sources/{name} — create or replace an edge
+         *     source. Pins are stored verbatim and enforced byte-for-byte at
+         *     verification time; every write is audited.
+         */
+        put: operations["edge_source_upsert"];
+        post?: never;
+        /** DELETE /api/auth/edge/sources/{name}. */
+        delete: operations["edge_source_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/edge/sources/{name}/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/auth/edge/sources/{name}/links — admin link listing. */
+        get: operations["edge_links_list"];
+        put?: never;
+        /**
+         * POST /api/auth/edge/sources/{name}/links — create an explicit link.
+         *     Audited as `auth.federated_account_linked`.
+         */
+        post: operations["edge_link_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/edge/sources/{name}/links/{link_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/auth/edge/sources/{name}/links/{link_id}. Audited as
+         *     `auth.federated_account_unlinked`.
+         */
+        delete: operations["edge_link_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/edge/{name}/exchange": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/auth/edge/{name}/exchange — swaps a valid
+         *     `Cf-Access-Jwt-Assertion` (header) for Meridian tokens. The
+         *     assertion MUST verify against the source's pinned team JWKS with
+         *     issuer AND audience pinned; failures are a uniform typed 401.
+         */
+        post: operations["edge_exchange"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/login": {
         parameters: {
             query?: never;
@@ -828,6 +930,26 @@ export interface paths {
          *     and stores the passkey. The public key is stored; no secret exists.
          */
         post: operations["mfa_webauthn_register_finish"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/oidc/presets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/auth/oidc/presets — the declarative preset catalog that
+         *     drives the admin "add provider" UI. Pure data; no configuration.
+         */
+        get: operations["oidc_presets_list"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -8734,6 +8856,19 @@ export interface components {
             layout_id?: string | null;
             title: string;
         };
+        CreateEdgeLinkRequest: {
+            /** @description The identity's email, recorded for audit/display only. */
+            email: string;
+            /** @description The edge assertion's `sub` (Cloudflare Access user id). */
+            subject: string;
+            /**
+             * Format: uuid
+             * @description Local Meridian user to bind. The admin is the verified-email
+             *     authority here: linking asserts "this local account is this
+             *     edge identity".
+             */
+            user_id: string;
+        };
         CreateExclusionRequest: {
             /** Format: date-time */
             ends_at: string;
@@ -9821,6 +9956,32 @@ export interface components {
              *     (skipping rungs is allowed).
              */
             to_state: components["schemas"]["DunningState"];
+        };
+        EdgeExchangeResponse: components["schemas"]["TokenPair"] | {
+            methods: string[];
+            mfa_required: boolean;
+            mfa_token: string;
+        };
+        EdgeLinkInfo: {
+            email: string;
+            /** Format: date-time */
+            last_login_at?: string | null;
+            /** Format: uuid */
+            link_id: string;
+            subject: string;
+            /** Format: uuid */
+            user_id: string;
+        };
+        EdgeSourceInfo: {
+            audience: string;
+            display_name: string;
+            enabled: boolean;
+            /** Format: uuid */
+            id: string;
+            issuer: string;
+            jwks_url: string;
+            /** @description URL path segment used by the exchange + link routes. */
+            name: string;
         };
         EffectsRequest: {
             /** @description AutomationAction documents, parsed and validated via core-domain. */
@@ -11532,6 +11693,19 @@ export interface components {
             /** @description Pass as `cursor` on the next request; `None` means exhausted. */
             next_cursor?: string | null;
         };
+        /** @description One entry of the declarative first-party preset catalog. */
+        OidcPresetInfo: {
+            discovery_template: string;
+            display_name: string;
+            /** @description `{param}`-templated issuer the preset pins. */
+            issuer_template: string;
+            name: string;
+            /** @description Where to register the redirect URI on the provider side. */
+            redirect_guidance: string;
+            /** @description Parameters the admin MUST provide (e.g. `tenant`, `domain`). */
+            required_params: string[];
+            scopes: string;
+        };
         OidcProviderInfo: {
             client_id: string;
             discovery_url: string;
@@ -11543,6 +11717,8 @@ export interface components {
             jit_provisioning: boolean;
             /** @description URL path segment used by login/link routes. */
             name: string;
+            /** @description Declarative preset this provider was created from, when any. */
+            preset?: string | null;
         };
         /** @description An absolute UTC on-call rotation segment for one user. */
         OnCallBlock: {
@@ -13935,6 +14111,10 @@ export interface components {
             code: string;
         };
         SsoExchangeResponse: components["schemas"]["TokenPair"] | {
+            methods: string[];
+            mfa_required: boolean;
+            mfa_token: string;
+        } | {
             linked: boolean;
         };
         /**
@@ -15070,6 +15250,26 @@ export interface components {
             event_types?: string[] | null;
             url?: string | null;
         };
+        UpsertEdgeSourceRequest: {
+            /**
+             * @description PINNED audience — the assertion's `aud` must equal this exactly
+             *     (the Access application's AUD tag).
+             */
+            audience: string;
+            display_name: string;
+            /**
+             * @description Deny-by-default: omitted or false creates/keeps the source
+             *     DISABLED. Only an explicit admin `true` enables authentication.
+             */
+            enabled?: boolean;
+            /**
+             * @description PINNED issuer — the assertion's `iss` must equal this exactly.
+             *     For Cloudflare Access: `https://<team>.cloudflareaccess.com`.
+             */
+            issuer: string;
+            /** @description Team JWKS URL the assertion signature is verified against. */
+            jwks_url: string;
+        };
         UpsertMemberRequest: {
             role: components["schemas"]["BoardRole"];
             /** Format: uuid */
@@ -15094,6 +15294,20 @@ export interface components {
             enabled?: boolean;
             issuer: string;
             jit_provisioning?: boolean;
+            /**
+             * @description Declarative first-party preset (`google` | `entra` | `okta`).
+             *     When set, issuer + discovery_url are DERIVED from the preset
+             *     template + [`Self::preset_params`]; request values, when also
+             *     present, must match the derivation exactly (mix-up defense).
+             */
+            preset?: string | null;
+            /**
+             * @description Template parameters for the preset (e.g. `tenant` for Entra,
+             *     `domain` for Okta).
+             */
+            preset_params?: {
+                [key: string]: string;
+            } | null;
         };
         /** @description The full-replace mutation envelope (IF2). */
         UserSkillsMutationResponse: components["schemas"]["UserSkillsView"] & {
@@ -16374,6 +16588,222 @@ export interface operations {
             };
         };
     };
+    edge_sources_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EdgeSourceInfo"][];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    edge_source_upsert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertEdgeSourceRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EdgeSourceInfo"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    edge_source_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    edge_links_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EdgeLinkInfo"][];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    edge_link_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateEdgeLinkRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EdgeLinkInfo"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    edge_link_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+                link_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    edge_exchange: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EdgeExchangeResponse"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     handlers_login: {
         parameters: {
             query?: never;
@@ -16695,6 +17125,25 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    oidc_presets_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OidcPresetInfo"][];
+                };
             };
         };
     };

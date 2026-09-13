@@ -22,6 +22,7 @@ pub struct OidcProviderRow {
     pub client_secret_enc: Vec<u8>,
     pub jit_provisioning: bool,
     pub enabled: bool,
+    pub preset: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -34,6 +35,9 @@ pub struct NewOidcProvider<'a> {
     pub client_id: &'a str,
     pub client_secret_enc: &'a [u8],
     pub jit_provisioning: bool,
+    /// Name of the declarative first-party preset this provider was
+    /// created from (`google` | `entra` | `okta`), when any.
+    pub preset: Option<&'a str>,
 }
 
 /// Creates or updates a provider by (org, name). The secret is write-only:
@@ -57,12 +61,13 @@ where
         client_id,
         client_secret_enc,
         jit_provisioning,
+        preset,
     } = provider;
     let row: (Uuid,) = sqlx::query_as(
         r#"INSERT INTO oidc_providers
              (id, org_id, name, display_name, issuer, discovery_url,
-              client_id, client_secret_enc, jit_provisioning, enabled, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, $10)
+              client_id, client_secret_enc, jit_provisioning, enabled, created_by, preset)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, $10, $11)
            ON CONFLICT (org_id, name) DO UPDATE SET
              display_name = EXCLUDED.display_name,
              issuer = EXCLUDED.issuer,
@@ -70,6 +75,7 @@ where
              client_id = EXCLUDED.client_id,
              client_secret_enc = EXCLUDED.client_secret_enc,
              jit_provisioning = EXCLUDED.jit_provisioning,
+             preset = EXCLUDED.preset,
              updated_at = now()
            RETURNING id"#,
     )
@@ -83,6 +89,7 @@ where
     .bind(client_secret_enc)
     .bind(jit_provisioning)
     .bind(created_by)
+    .bind(preset)
     .fetch_one(executor)
     .await?;
     Ok(row.0)
@@ -97,6 +104,7 @@ pub struct ProviderMeta {
     pub client_id: String,
     pub jit_provisioning: bool,
     pub enabled: bool,
+    pub preset: Option<String>,
 }
 
 /// Metadata listing for admins — secrets excluded by construction.
@@ -107,7 +115,7 @@ where
     let rows = sqlx::query_as!(
         ProviderMeta,
         r#"SELECT id, name, display_name, issuer, discovery_url,
-                  client_id, jit_provisioning, enabled
+                  client_id, jit_provisioning, enabled, preset
            FROM oidc_providers WHERE org_id = $1 ORDER BY created_at"#,
         org_id
     )
@@ -123,7 +131,7 @@ where
     sqlx::query_as!(
         ProviderMeta,
         r#"SELECT id, name, display_name, issuer, discovery_url,
-                  client_id, jit_provisioning, enabled
+                  client_id, jit_provisioning, enabled, preset
            FROM oidc_providers WHERE org_id = $1 AND id = $2"#,
         org_id,
         id
@@ -145,7 +153,7 @@ where
     sqlx::query_as!(
         OidcProviderRow,
         r#"SELECT id, org_id, name, display_name, issuer, discovery_url,
-                  client_id, client_secret_enc, jit_provisioning, enabled, created_at
+                  client_id, client_secret_enc, jit_provisioning, enabled, preset, created_at
            FROM oidc_providers WHERE org_id = $1 AND id = $2"#,
         org_id,
         id

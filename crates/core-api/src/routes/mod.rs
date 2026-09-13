@@ -61,6 +61,7 @@ pub mod dev;
 pub mod dispatch;
 pub mod dispatch_connector;
 pub mod documents;
+pub mod edge;
 pub mod email_admin;
 pub mod events;
 pub mod export;
@@ -243,6 +244,10 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(&rp("/auth/oidc/{name}/login"), get(oidc::login_redirect))
         .route(&rp("/auth/oidc/{name}/callback"), get(oidc::callback))
         .route(&rp("/sso/exchange"), post(oidc::sso_exchange))
+        // Edge-assertion federation (Wave 13 lane 7): unauthenticated
+        // exchange of a proxy-signed JWT for tokens — deny-by-default
+        // (only ENABLED sources resolve), typed 401 reasons.
+        .route(&rp("/auth/edge/{name}/exchange"), post(edge::exchange))
         // Org user invite redemption (Wave 11 lane 2): public — the
         // one-time setup token is the credential; no JWT middleware.
         .route(
@@ -403,7 +408,22 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/auth/oidc/providers/{name}"),
             put(oidc::providers_upsert).delete(oidc::providers_delete),
         )
+        .route(&rp("/auth/oidc/presets"), get(oidc::presets_list))
         .route(&rp("/auth/oidc/{name}/link"), post(oidc::link_begin))
+        // Edge-assertion source admin + explicit links (Wave 13 lane 7)
+        .route(&rp("/auth/edge/sources"), get(edge::sources_list))
+        .route(
+            &rp("/auth/edge/sources/{name}"),
+            put(edge::sources_upsert).delete(edge::sources_delete),
+        )
+        .route(
+            &rp("/auth/edge/sources/{name}/links"),
+            get(edge::links_list).post(edge::links_create),
+        )
+        .route(
+            &rp("/auth/edge/sources/{name}/links/{link_id}"),
+            axum::routing::delete(edge::links_delete),
+        )
         // org user management (Wave 11 lane 2): directory is manager+,
         // mutations owner/admin, instant-first envelope, audited.
         .route(

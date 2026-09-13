@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM edge_assertion_configs WHERE id = $2 AND org_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8682cf0d76d56394df2adcbd68412f2eca8c409676c177aaeaf5306c78f63f04"
+}

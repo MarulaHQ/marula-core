@@ -13,6 +13,7 @@ use crate::auth::middleware::{authed, require_permission};
 use crate::auth::oidc_client::{
     decide_sso, issue_state_token, new_nonce, new_verifier, verify_state_token, SsoOutcome,
 };
+use crate::auth::presets;
 use crate::auth::{oidc_client, AuthedUser};
 use crate::error::{ApiError, ApiResult};
 use crate::routes::openapi::TokenPair;
@@ -26,6 +27,7 @@ use axum::{
 use core_domain::entities::{Actor, AuditEvent};
 use core_domain::policy::{Action, Module, Permission};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -73,6 +75,15 @@ pub struct UpsertProviderRequest {
     pub jit_provisioning: bool,
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// Declarative first-party preset (`google` | `entra` | `okta`).
+    /// When set, issuer + discovery_url are DERIVED from the preset
+    /// template + [`Self::preset_params`]; request values, when also
+    /// present, must match the derivation exactly (mix-up defense).
+    pub preset: Option<String>,
+    /// Template parameters for the preset (e.g. `tenant` for Entra,
+    /// `domain` for Okta).
+    #[serde(default)]
+    pub preset_params: Option<HashMap<String, String>>,
 }
 
 fn default_true() -> bool {
@@ -91,6 +102,47 @@ pub struct OidcProviderInfo {
     pub client_id: String,
     pub jit_provisioning: bool,
     pub enabled: bool,
+    /// Declarative preset this provider was created from, when any.
+    pub preset: Option<String>,
+}
+
+/// One entry of the declarative first-party preset catalog.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct OidcPresetInfo {
+    pub name: String,
+    pub display_name: String,
+    /// `{param}`-templated issuer the preset pins.
+    pub issuer_template: String,
+    pub discovery_template: String,
+    pub scopes: String,
+    /// Parameters the admin MUST provide (e.g. `tenant`, `domain`).
+    pub required_params: Vec<String>,
+    /// Where to register the redirect URI on the provider side.
+    pub redirect_guidance: String,
+}
+
+/// GET /api/auth/oidc/presets — the declarative preset catalog that
+/// drives the admin "add provider" UI. Pure data; no configuration.
+#[utoipa::path(operation_id = "oidc_presets_list", get, path = "/api/auth/oidc/presets",
+    tag = "auth", security(("bearer" = [])),
+    responses((status = 200, body = [OidcPresetInfo])))]
+pub async fn presets_list(extensions: Extensions) -> ApiResult<Json<Vec<OidcPresetInfo>>> {
+    let authed = authed::<AuthedUser>(&extensions)?;
+    require_sso_admin(&authed)?;
+    Ok(Json(
+        presets::OIDC_PRESETS
+            .iter()
+            .map(|p| OidcPresetInfo {
+                name: p.name.to_string(),
+                display_name: p.display_name.to_string(),
+                issuer_template: p.issuer_template.to_string(),
+                discovery_template: p.discovery_template.to_string(),
+                scopes: p.scopes.to_string(),
+                required_params: p.required_params.iter().map(|s| s.to_string()).collect(),
+                redirect_guidance: p.redirect_guidance.to_string(),
+            })
+            .collect(),
+    ))
 }
 
 /// GET /api/auth/oidc/providers — admin listing. Secrets excluded by type.
@@ -121,6 +173,7 @@ fn provider_meta_to_info(p: core_db::oidc::ProviderMeta) -> OidcProviderInfo {
         client_id: p.client_id,
         jit_provisioning: p.jit_provisioning,
         enabled: p.enabled,
+        preset: p.preset,
     }
 }
 
@@ -149,6 +202,44 @@ pub async fn providers_upsert(
             "provider name must be lowercase alphanumeric/'-' and client_secret required".into(),
         ));
     }
+
+    // Declarative presets (ID1): a preset DERIVES issuer + discovery_url
+    // from its templates; a mismatch between the request values and the
+    // derivation is refused rather than silently trusted.
+    let empty = HashMap::new();
+    let params = req.preset_params.as_ref().unwrap_or(&empty);
+    let (issuer, discovery_url, preset_name) = match &req.preset {
+        Some(preset) => {
+            let (issuer, discovery) =
+                presets::resolve_preset(preset, params).map_err(ApiError::Validation)?;
+            if !req.issuer.trim().is_empty() && req.issuer.trim_end_matches('/') != issuer {
+                return Err(ApiError::Validation(
+                    "issuer does not match the preset derivation; omit it or fix the preset params"
+                        .into(),
+                ));
+            }
+            if !req.discovery_url.trim().is_empty() && req.discovery_url.trim() != discovery {
+                return Err(ApiError::Validation(
+                    "discovery_url does not match the preset derivation; omit it or fix the preset params"
+                        .into(),
+                ));
+            }
+            (issuer, discovery, Some(preset.clone()))
+        }
+        None => {
+            if req.issuer.trim().is_empty() || req.discovery_url.trim().is_empty() {
+                return Err(ApiError::Validation(
+                    "issuer and discovery_url are required without a preset".into(),
+                ));
+            }
+            (
+                req.issuer.trim_end_matches('/').to_string(),
+                req.discovery_url.trim().to_string(),
+                None,
+            )
+        }
+    };
+
     let sealed = crate::crypto::seal(&state.config.secret_key, req.client_secret.as_bytes())
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("{e}")))?;
 
@@ -160,11 +251,12 @@ pub async fn providers_upsert(
         core_db::oidc::NewOidcProvider {
             name: &name,
             display_name: &req.display_name,
-            issuer: req.issuer.trim_end_matches('/'),
-            discovery_url: &req.discovery_url,
+            issuer: &issuer,
+            discovery_url: &discovery_url,
             client_id: &req.client_id,
             client_secret_enc: &sealed,
             jit_provisioning: req.jit_provisioning,
+            preset: preset_name.as_deref(),
         },
         user.id,
     )
@@ -181,6 +273,7 @@ pub async fn providers_upsert(
             entity_id: Some(id.to_string()),
             detail: serde_json::json!({
                 "name": name,
+                "preset": preset_name,
                 "jit": req.jit_provisioning,
                 "enabled": meta.enabled,
                 "secret_rotated": true,
@@ -356,7 +449,17 @@ pub struct CallbackQuery {
 #[serde(untagged)]
 enum SsoHandoff {
     Tokens(TokenPair),
-    Linked { linked: bool },
+    /// Org MFA policy applies to federated logins too (ID4): the same
+    /// `mfa_pending` bridge password login returns; POST
+    /// /api/auth/mfa/verify completes it.
+    MfaRequired {
+        mfa_required: bool,
+        mfa_token: String,
+        methods: Vec<String>,
+    },
+    Linked {
+        linked: bool,
+    },
 }
 
 /// GET /api/auth/oidc/{name}/callback — validates state signature/expiry/
@@ -448,6 +551,12 @@ pub async fn callback(
     // Canonicalize email case before matching/linking.
     if let Some(email) = &mut id_claims.email {
         *email = email.to_lowercase();
+    }
+    // Declarative preset attribute mapping (ID1): normalize the
+    // provider's claim shape into the canonical IdClaims BEFORE the
+    // conservative decision runs.
+    if let Some(preset) = full.preset.as_deref().and_then(presets::get_preset) {
+        (preset.map_claims)(&mut id_claims);
     }
 
     // --- decision ---------------------------------------------------------
@@ -580,27 +689,45 @@ pub async fn callback(
             None::<&'static str>,
         ),
         Path_::TokensFor(uid, note) => {
-            let tokens = issue_tokens(&state, uid, provider.org_id, None).await?;
-            let mut tx = org_tx(&state, provider.org_id).await?;
-            core_db::audit::insert(
-                &mut *tx,
-                &AuditEvent {
-                    id: Uuid::now_v7(),
-                    org_id: provider.org_id,
-                    actor: Actor::Human(uid),
-                    action: "auth.oidc_login_success".into(),
-                    entity_type: Some("user".into()),
-                    entity_id: Some(uid.to_string()),
-                    detail: serde_json::json!({
-                        "provider": name,
-                        "jit": note.map(|n| n == "provisioned").unwrap_or(false),
-                    }),
-                    ip: None,
-                    occurred_at: chrono::Utc::now(),
-                },
-            )
-            .await?;
-            (SsoHandoff::Tokens(tokens), uid, note)
+            // Org MFA policy applies regardless of identity source
+            // (ID4): the SAME gate password login uses, BEFORE tokens
+            // exist. A federated user with an enrolled second factor
+            // gets the mfa_pending bridge, never tokens directly.
+            if let Some((mfa_token, methods)) =
+                crate::auth::handlers::federated_mfa_gate(&state, uid, provider.org_id).await?
+            {
+                (
+                    SsoHandoff::MfaRequired {
+                        mfa_required: true,
+                        mfa_token,
+                        methods,
+                    },
+                    uid,
+                    note,
+                )
+            } else {
+                let tokens = issue_tokens(&state, uid, provider.org_id, None).await?;
+                let mut tx = org_tx(&state, provider.org_id).await?;
+                core_db::audit::insert(
+                    &mut *tx,
+                    &AuditEvent {
+                        id: Uuid::now_v7(),
+                        org_id: provider.org_id,
+                        actor: Actor::Human(uid),
+                        action: "auth.oidc_login_success".into(),
+                        entity_type: Some("user".into()),
+                        entity_id: Some(uid.to_string()),
+                        detail: serde_json::json!({
+                            "provider": name,
+                            "jit": note.map(|n| n == "provisioned").unwrap_or(false),
+                        }),
+                        ip: None,
+                        occurred_at: chrono::Utc::now(),
+                    },
+                )
+                .await?;
+                (SsoHandoff::Tokens(tokens), uid, note)
+            }
         }
     };
 
@@ -780,7 +907,16 @@ pub struct SsoExchangeRequest {
 #[serde(untagged)]
 pub enum SsoExchangeResponse {
     Tokens(TokenPair),
-    Linked { linked: bool },
+    /// Org MFA policy applies to federated logins (Wave 13 lane 7):
+    /// complete via POST /api/auth/mfa/verify with the bridge token.
+    MfaRequired {
+        mfa_required: bool,
+        mfa_token: String,
+        methods: Vec<String>,
+    },
+    Linked {
+        linked: bool,
+    },
 }
 
 /// POST /api/auth/sso/exchange — swaps the single-use callback code for
@@ -815,6 +951,15 @@ pub async fn sso_exchange(
         .map_err(|_| ApiError::Unauthorized("invalid sso code payload".into()))?;
     Ok(Json(match handoff {
         SsoHandoff::Tokens(tokens) => SsoExchangeResponse::Tokens(tokens),
+        SsoHandoff::MfaRequired {
+            mfa_required,
+            mfa_token,
+            methods,
+        } => SsoExchangeResponse::MfaRequired {
+            mfa_required,
+            mfa_token,
+            methods,
+        },
         SsoHandoff::Linked { linked } => SsoExchangeResponse::Linked { linked },
     }))
 }
