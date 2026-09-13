@@ -4,6 +4,9 @@ members = [
     "crates/core-api",
     "crates/core-billing",
     "crates/core-db",
+    # Perf program test infra (Wave 13 lane 8): reproducible seed generator,
+    # ticket-list p95 measurement, HTTP load runner, CI perf smoke.
+    "crates/perf-harness",
     "crates/core-documents",
     "crates/core-domain",
     "crates/core-events",

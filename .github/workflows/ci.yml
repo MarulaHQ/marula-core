@@ -159,6 +159,33 @@ jobs:
       - name: Live spec must equal the pinned golden
         run: MERIDIAN_API_BASE_URL=http://localhost:8080 cargo test -q -p meridian-cli --test golden_openapi
 
+  perf-smoke:
+    name: Perf smoke — ticket-list p95 budget @50k tickets/org (Wave 13 lane 8)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # pgvector/pgvector:pg17 — prod parity; the smoke measures the real
+        # RLS-scoped ticket-list query path against this service DB.
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: meridian_perf
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/meridian_perf
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # scripts/perf-smoke.sh sets MERIDIAN_PERF_SMOKE=1 (the test is
+      # env-gated so the plain `cargo test --workspace` sweep skips it).
+      # Budgets: 150ms p95 on the primary mixes; deep-page (OFFSET 40k)
+      # rides a 400ms regression tripwire — see docs/perf.md.
+      - run: ./scripts/perf-smoke.sh
+
   upgrade-matrix:
     name: N−2 upgrade matrix (U7 — restore fixture → migrate to HEAD)
     runs-on: ubuntu-latest
