@@ -214,7 +214,7 @@ async fn assets_flow_typed_taxonomy_links_vault_and_delete() {
         .clone();
     assert_eq!(server["is_system"], true);
     let layout_id = server["id"].as_str().unwrap().to_string();
-    let hostname_field = server["fields"]
+    let _hostname_field = server["fields"]
         .as_array()
         .unwrap()
         .iter()

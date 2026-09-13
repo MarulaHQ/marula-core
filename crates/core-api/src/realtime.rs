@@ -28,8 +28,29 @@
 //! registers in the contract registry — presence transitions ride the
 //! stream as lightweight frames with `type: "presence"`, a distinct kind
 //! from the typed contract events (see `routes::events`). Multi-replica
-//! story (follow-up): replicate presence via Redis pub/sub or pg NOTIFY
-//! fan-out of presence transitions; the frame shape stays identical.
+//! story (Wave 13 lane 10): every heartbeat is relayed to the OTHER
+//! core-api replicas over the dedicated pg NOTIFY channel
+//! [`PRESENCE_CHANNEL`] (`meridian_presence`, no new infra dependency —
+//! same LISTEN fan-out as contract events). Each replica applies the
+//! relayed heartbeat into its local store, so every replica converges on
+//! the same roster, TTLs it identically, and publishes the
+//! `type: "presence"` transition frame to its own subscribers with the
+//! frame shape IDENTICAL to the documented contract. The originating
+//! replica's own NOTIFY round-trips back as a harmless no-op (the entry
+//! already exists with the same editing flag — no duplicate frame).
+//!
+//! Resume (Wave 13 lane 10): every frame carries its event uuid as the
+//! SSE `id:` field (contract events use the outbox row's uuid; presence
+//! frames get a fresh per-frame uuid — replaying ephemeral presence is
+//! meaningless, so a presence cursor simply finds no outbox row and
+//! degrades to no replay). On reconnect a client sends `Last-Event-ID`;
+//! the server replays the events committed AFTER that cursor from the
+//! outbox ([`replay_after`]), bounded by [`REPLAY_BUFFER`]. The ledger
+//! dedupes by seq, so replayed frames are idempotent alongside live
+//! frames. Cutoff: when more than [`REPLAY_BUFFER`] events separate the
+//! cursor from now, NO replay is served — the client falls back to its
+//! full snapshot rehydration (the pre-resume behavior); an unknown cursor
+//! id degrades the same way.
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -41,6 +62,17 @@ use uuid::Uuid;
 
 /// The dedicated Postgres NOTIFY channel fed by migration 0068's trigger.
 pub const NOTIFY_CHANNEL: &str = "meridian_events";
+
+/// The dedicated Postgres NOTIFY channel for cross-replica presence
+/// relay (Wave 13 lane 10). Payload is one heartbeat's identity; see
+/// [`HeartbeatNotify`]. No migration needed — NOTIFY channels are
+/// runtime-only.
+pub const PRESENCE_CHANNEL: &str = "meridian_presence";
+
+/// Maximum number of outbox events replayed on `Last-Event-ID` resume.
+/// Past this bound the client is too stale for a replay to be useful —
+/// it rehydrates from snapshots instead (documented cutoff).
+pub const REPLAY_BUFFER: usize = 256;
 
 /// Connection cap per user — bounds fan-out memory per identity.
 pub const MAX_CONNECTIONS_PER_USER: usize = 8;
@@ -58,6 +90,17 @@ fn connection_cap() -> usize {
             .and_then(|v| v.parse().ok())
             .filter(|v| *v > 0)
             .unwrap_or(MAX_CONNECTIONS_PER_USER)
+    })
+}
+
+fn replay_buffer() -> usize {
+    static BUF: OnceLock<usize> = OnceLock::new();
+    *BUF.get_or_init(|| {
+        std::env::var("MERIDIAN_SSE_REPLAY_BUFFER")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|v| *v > 0)
+            .unwrap_or(REPLAY_BUFFER)
     })
 }
 
@@ -95,6 +138,12 @@ pub struct StreamFrame {
     /// Presence roster — present ONLY on `type: "presence"` frames.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub viewers: Option<Vec<PresenceViewer>>,
+    /// The event uuid carried as the SSE `id:` field (Wave 13 lane 10).
+    /// Contract events carry the outbox row's uuid; presence frames a
+    /// per-frame uuid. `serde(skip)` — the JSON wire contract above is
+    /// UNCHANGED; the uuid rides the SSE envelope only.
+    #[serde(skip)]
+    pub id: Option<Uuid>,
 }
 
 /// One presence viewer on an entity (roster + roster frames).
@@ -111,7 +160,6 @@ pub struct PresenceViewer {
 /// The parsed notify payload shape (migration 0068).
 #[derive(Debug, Clone, serde::Deserialize)]
 struct NotifyFrame {
-    #[allow(dead_code)]
     id: Uuid,
     org_id: Uuid,
     #[serde(rename = "type")]
@@ -310,6 +358,92 @@ impl PresenceStore {
         bucket.retain(|_, e| now.signed_duration_since(e.at).to_std().unwrap_or_default() < ttl);
     }
 
+    /// Shared upsert: applies one heartbeat (local or relayed from
+    /// another replica) at `hb.at`, prunes, and reports whether it was a
+    /// TRANSITION (new viewer or editing-flag flip) — transitions are
+    /// what get published as `type: "presence"` frames. A re-applied
+    /// heartbeat with an unchanged editing flag (e.g. the origin's own
+    /// NOTIFY round-trip) refreshes `at` silently — no duplicate frame.
+    fn apply_heartbeat(&self, hb: &HeartbeatNotify) -> (Vec<PresenceViewer>, bool) {
+        let HeartbeatNotify {
+            org_id,
+            user_id,
+            name,
+            entity,
+            entity_id,
+            editing,
+            at,
+        } = hb;
+        let editing = *editing;
+        let at = *at;
+        let user_id = *user_id;
+        let key = PresenceKey {
+            org_id: *org_id,
+            entity: entity.clone(),
+            entity_id: entity_id.clone(),
+        };
+        let mut transition = false;
+        let viewers = {
+            let mut inner = self.inner.lock().unwrap();
+            let bucket = inner.entry(key).or_default();
+            Self::prune(bucket, at);
+            match bucket.get_mut(&user_id) {
+                // STALE (last-write-wins): a relayed heartbeat can
+                // round-trip AFTER newer state for the same viewer exists
+                // locally — most importantly the ORIGIN's own NOTIFY
+                // arriving back after its local apply (and after any
+                // newer editing flip). Re-applying it would regress the
+                // editing flag and re-publish a phantom transition, so
+                // anything not strictly newer than the stored entry is a
+                // no-op.
+                Some(entry) if entry.at >= at => {}
+                Some(entry) if entry.editing == editing => {
+                    entry.at = at;
+                    entry.name = name.clone();
+                }
+                Some(entry) => {
+                    entry.at = at;
+                    entry.name = name.clone();
+                    entry.editing = editing;
+                    transition = true;
+                }
+                None => {
+                    bucket.insert(
+                        user_id,
+                        PresenceEntry {
+                            name: name.clone(),
+                            at,
+                            editing,
+                        },
+                    );
+                    transition = true;
+                }
+            }
+            roster_of(bucket)
+        };
+        (viewers, transition)
+    }
+
+    fn publish_transition(
+        &self,
+        org_id: Uuid,
+        entity: String,
+        entity_id: String,
+        at: DateTime<Utc>,
+        viewers: Vec<PresenceViewer>,
+    ) {
+        hub().publish(StreamFrame {
+            event_type: "presence".into(),
+            org_id,
+            entity,
+            entity_id: Some(entity_id),
+            seq: None,
+            at,
+            viewers: Some(viewers),
+            id: Some(Uuid::now_v7()),
+        });
+    }
+
     /// Upserts a heartbeat. On a transition (new viewer, or editing flag
     /// flip) publishes a lightweight presence frame to the org's stream
     /// subscribers. Returns the current roster.
@@ -322,54 +456,39 @@ impl PresenceStore {
         entity_id: String,
         editing: bool,
     ) -> Vec<PresenceViewer> {
-        let key = PresenceKey {
+        let now = Utc::now();
+        let hb = HeartbeatNotify {
             org_id,
+            user_id,
+            name,
             entity: entity.clone(),
             entity_id: entity_id.clone(),
+            editing,
+            at: now,
         };
-        let now = Utc::now();
-        let mut transition = false;
-        let viewers = {
-            let mut inner = self.inner.lock().unwrap();
-            let bucket = inner.entry(key).or_default();
-            Self::prune(bucket, now);
-            match bucket.get_mut(&user_id) {
-                Some(entry) if entry.editing == editing => {
-                    entry.at = now;
-                    entry.name = name;
-                }
-                Some(entry) => {
-                    entry.at = now;
-                    entry.name = name;
-                    entry.editing = editing;
-                    transition = true;
-                }
-                None => {
-                    bucket.insert(
-                        user_id,
-                        PresenceEntry {
-                            name,
-                            at: now,
-                            editing,
-                        },
-                    );
-                    transition = true;
-                }
-            }
-            roster_of(bucket)
-        };
+        let (viewers, transition) = self.apply_heartbeat(&hb);
         if transition {
-            hub().publish(StreamFrame {
-                event_type: "presence".into(),
-                org_id,
-                entity,
-                entity_id: Some(entity_id),
-                seq: None,
-                at: now,
-                viewers: Some(viewers.clone()),
-            });
+            self.publish_transition(org_id, entity, entity_id, now, viewers.clone());
         }
         viewers
+    }
+
+    /// Applies a heartbeat RELAYED from another replica (off
+    /// [`PRESENCE_CHANNEL`] by [`run_listener`]). Anchors the entry at the
+    /// ORIGIN's heartbeat timestamp so every replica TTLs identically,
+    /// and publishes the identical transition frame to this replica's
+    /// subscribers. Frame shape matches [`Self::heartbeat`] exactly.
+    pub fn apply_remote_heartbeat(&self, hb: HeartbeatNotify) {
+        let (viewers, transition) = self.apply_heartbeat(&hb);
+        if transition {
+            self.publish_transition(
+                hb.org_id,
+                hb.entity.clone(),
+                hb.entity_id.clone(),
+                hb.at,
+                viewers,
+            );
+        }
     }
 
     /// Current roster with expired entries pruned.
@@ -388,13 +507,45 @@ impl PresenceStore {
     }
 }
 
+/// One relayed heartbeat on [`PRESENCE_CHANNEL`] — the identity needed for
+/// every replica to converge its local store and TTL identically.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct HeartbeatNotify {
+    pub org_id: Uuid,
+    pub user_id: Uuid,
+    pub name: String,
+    pub entity: String,
+    pub entity_id: String,
+    pub editing: bool,
+    pub at: DateTime<Utc>,
+}
+
+/// Relays one heartbeat to all core-api replicas over pg NOTIFY. Never
+/// blocks the heartbeat response: callers fire-and-forget (log-only on
+/// failure — the local store is already updated, and a missed relay only
+/// delays cross-replica convergence by one heartbeat).
+pub async fn publish_heartbeat_notify(
+    pool: &sqlx::PgPool,
+    hb: &HeartbeatNotify,
+) -> Result<(), sqlx::Error> {
+    let payload = serde_json::to_string(hb).unwrap_or_default();
+    sqlx::query("SELECT pg_notify($1, $2)")
+        .bind(PRESENCE_CHANNEL)
+        .bind(payload)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 // --- listener ----------------------------------------------------------------
 
 /// Long-running dedicated LISTEN connection. Never per-request: ONE
 /// connection per process receives every `meridian_events` notification at
-/// commit time and fans it out through the hub. Reconnects with backoff;
-/// missed notifications during a disconnect are covered by the client's
-/// snapshot hydration on reconnect (at-least-once over the ledger).
+/// commit time and fans it out through the hub, AND every
+/// `meridian_presence` relayed heartbeat (cross-replica presence,
+/// Wave 13 lane 10). Reconnects with backoff; missed notifications during
+/// a disconnect are covered by the client's snapshot hydration on
+/// reconnect (at-least-once over the ledger) and by the next heartbeat.
 pub async fn run_listener(database_url: String) {
     let mut backoff = Duration::from_millis(250);
     loop {
@@ -415,25 +566,161 @@ pub async fn run_listener(database_url: String) {
 async fn listener_session(database_url: &str) -> Result<(), sqlx::Error> {
     let mut listener = sqlx::postgres::PgListener::connect(database_url).await?;
     listener.listen(NOTIFY_CHANNEL).await?;
+    listener.listen(PRESENCE_CHANNEL).await?;
     tracing::info!(
-        channel = NOTIFY_CHANNEL,
-        "contract-event listener connected"
+        channels = %format!("{NOTIFY_CHANNEL} + {PRESENCE_CHANNEL}"),
+        "contract-event + presence-relay listener connected"
     );
     loop {
         let notification = listener.recv().await?;
-        match serde_json::from_str::<NotifyFrame>(notification.payload()) {
-            Ok(n) => hub().publish(StreamFrame {
-                event_type: n.event_type,
-                org_id: n.org_id,
-                entity: n.entity,
-                entity_id: n.entity_id,
-                seq: n.seq,
-                at: n.at,
-                viewers: None,
-            }),
-            Err(e) => {
-                tracing::warn!(error = %e, "malformed notify payload on {NOTIFY_CHANNEL}")
+        match notification.channel() {
+            NOTIFY_CHANNEL => match serde_json::from_str::<NotifyFrame>(notification.payload()) {
+                Ok(n) => hub().publish(StreamFrame {
+                    id: Some(n.id),
+                    event_type: n.event_type,
+                    org_id: n.org_id,
+                    entity: n.entity,
+                    entity_id: n.entity_id,
+                    seq: n.seq,
+                    at: n.at,
+                    viewers: None,
+                }),
+                Err(e) => {
+                    tracing::warn!(error = %e, "malformed notify payload on {NOTIFY_CHANNEL}")
+                }
+            },
+            PRESENCE_CHANNEL => {
+                match serde_json::from_str::<HeartbeatNotify>(notification.payload()) {
+                    Ok(hb) => presence().apply_remote_heartbeat(hb),
+                    Err(e) => {
+                        tracing::warn!(error = %e, "malformed relayed heartbeat on {PRESENCE_CHANNEL}")
+                    }
+                }
             }
+            _ => {}
         }
     }
+}
+
+// --- Last-Event-ID resume replay ---------------------------------------------
+
+/// A replayable outbox row — exactly the identity a live frame carries,
+/// read back from the authoritative trail (the outbox IS the buffer).
+#[derive(sqlx::FromRow)]
+struct ReplayRow {
+    id: Uuid,
+    event_type: String,
+    entity: String,
+    entity_id: Option<String>,
+    occurred_at: DateTime<Utc>,
+    seq: Option<i64>,
+}
+
+/// Replays the events committed AFTER `last_event_id` for `org_id`
+/// (optionally narrowed to one entity instance), from the outbox — the
+/// authoritative trail, so replay is exact and the ledger's seq dedupe
+/// makes it idempotent against live frames. Bounds:
+///
+/// * Unknown cursor (never seen, or a presence-frame uuid): no replay.
+/// * More than [`replay_buffer()`] events after the cursor: no replay —
+///   the client fell past the buffer and rehydrates from snapshots.
+///
+/// Returns the frames in commit order with their ids attached, ready to
+/// be streamed as SSE events with the `id:` field set, plus whether the
+/// cursor fell PAST the replay buffer (so the endpoint can tell the
+/// client apart from a plain "nothing missed").
+pub async fn replay_after(
+    pool: &sqlx::PgPool,
+    org_id: Uuid,
+    scope: Option<(String, String)>,
+    last_event_id: &str,
+) -> (Vec<StreamFrame>, bool) {
+    let Ok(cursor) = Uuid::parse_str(last_event_id) else {
+        return (Vec::new(), false);
+    };
+    // The cursor must resolve to an outbox row IN THIS ORG. A miss (too
+    // old, foreign org, or an ephemeral presence uuid) degrades to no
+    // replay — the client's snapshot rehydration covers it.
+    let cursor_at: Option<DateTime<Utc>> =
+        sqlx::query_scalar("SELECT occurred_at FROM outbox_events WHERE id = $1 AND org_id = $2")
+            .bind(cursor)
+            .bind(org_id)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
+    let Some(cursor_at) = cursor_at else {
+        return (Vec::new(), false);
+    };
+
+    let limit = replay_buffer() as i64 + 1;
+    // seq is joined exactly the way migration 0068's trigger does, minus
+    // the text->uuid cast hazard: entity_write_seqs.entity_id is uuid, so
+    // compare uuid::text — a non-uuid outbox entity_id simply finds no
+    // counter and degrades to seq: null (same as the trigger).
+    let rows = match &scope {
+        Some((entity, entity_id)) => {
+            sqlx::query_as::<_, ReplayRow>(
+                r#"SELECT o.id, o.event_type, o.entity, o.entity_id, o.occurred_at,
+                      (SELECT w.seq FROM entity_write_seqs w
+                       WHERE w.org_id = o.org_id AND w.entity = o.entity
+                         AND w.entity_id::text = o.entity_id) AS seq
+               FROM outbox_events o
+               WHERE o.org_id = $1 AND o.occurred_at > $2
+                 AND o.entity = $3 AND o.entity_id = $4
+               ORDER BY o.occurred_at, o.id
+               LIMIT $5"#,
+            )
+            .bind(org_id)
+            .bind(cursor_at)
+            .bind(entity)
+            .bind(entity_id)
+            .bind(limit)
+            .fetch_all(pool)
+            .await
+        }
+        None => {
+            sqlx::query_as::<_, ReplayRow>(
+                r#"SELECT o.id, o.event_type, o.entity, o.entity_id, o.occurred_at,
+                      (SELECT w.seq FROM entity_write_seqs w
+                       WHERE w.org_id = o.org_id AND w.entity = o.entity
+                         AND w.entity_id::text = o.entity_id) AS seq
+               FROM outbox_events o
+               WHERE o.org_id = $1 AND o.occurred_at > $2
+               ORDER BY o.occurred_at, o.id
+               LIMIT $3"#,
+            )
+            .bind(org_id)
+            .bind(cursor_at)
+            .bind(limit)
+            .fetch_all(pool)
+            .await
+        }
+    };
+    let Ok(rows) = rows else {
+        tracing::warn!("resume replay query failed; client falls back to rehydration");
+        return (Vec::new(), false);
+    };
+    if rows.len() as i64 > replay_buffer() as i64 {
+        // Cutoff: too much history between cursor and now. Serve nothing
+        // (a partial replay that skips events would be worse than none) —
+        // the client's full snapshot rehydration is the recovery path.
+        tracing::info!(org_id = %org_id, "resume cursor past replay buffer; skipping replay");
+        return (Vec::new(), true);
+    }
+    (
+        rows.into_iter()
+            .map(|r| StreamFrame {
+                id: Some(r.id),
+                event_type: r.event_type,
+                org_id,
+                entity: r.entity,
+                entity_id: r.entity_id,
+                seq: r.seq,
+                at: r.occurred_at,
+                viewers: None,
+            })
+            .collect(),
+        false,
+    )
 }

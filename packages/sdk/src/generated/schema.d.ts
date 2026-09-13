@@ -2922,9 +2922,13 @@ export interface paths {
         /**
          * GET /api/events/stream — live contract-event + presence frames.
          * @description Response is `text/event-stream`: `data:` frames are the StreamFrame
-         *     JSON documented above; comment heartbeats every 15s keep intermediaries
-         *     from closing an idle connection. A per-user connection cap (8) guards
-         *     fan-out memory; over the cap the request is a typed 429.
+         *     JSON documented above, each carrying its event uuid as the SSE `id:`
+         *     field; comment heartbeats every 15s keep intermediaries from closing
+         *     an idle connection. A per-user connection cap (8) guards fan-out
+         *     memory; over the cap the request is a typed 429. A `Last-Event-ID`
+         *     header triggers a bounded outbox replay of the events missed while
+         *     disconnected (see the resume section above); past the replay buffer
+         *     the client falls back to full snapshot rehydration.
          */
         get: operations["events_stream"];
         put?: never;
@@ -21042,7 +21046,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description text/event-stream of StreamFrame JSON data lines with comment heartbeats */
+            /** @description text/event-stream of StreamFrame JSON data lines with id: fields and comment heartbeats; honors Last-Event-ID for bounded resume replay */
             200: {
                 headers: {
                     [name: string]: unknown;
