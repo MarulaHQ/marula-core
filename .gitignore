@@ -26,6 +26,8 @@ Thumbs.db
 
 # Shared cargo target dir (agent worktree build cache)
 .kilo/target-shared/
+# Lane-drifted private target caches (DX6 violation artifacts, reclaimed at merge)
+.kilo/target-shared*/
 
 # Graphify knowledge graph (machine-generated; hooks rebuild it locally)
 graphify-out/
