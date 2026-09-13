@@ -146,6 +146,10 @@ use utoipa::OpenApi;
         crate::routes::report_defs::get_one,
         crate::routes::report_defs::update,
         crate::routes::report_defs::remove,
+        // R6 builder: field catalog + stored-spec runs
+        crate::routes::report_defs::catalog,
+        crate::routes::report_defs::run,
+        crate::routes::report_defs::run_spec,
         // scheduled report delivery (TASKLIST R4)
         crate::routes::report_schedules::list,
         crate::routes::report_schedules::create,
@@ -866,6 +870,12 @@ use utoipa::OpenApi;
         core_reports::MeasureSpec,
         core_reports::Aggregate,
         core_reports::VizHint,
+        // R6 builder catalog DTOs
+        crate::routes::report_defs::ReportCatalog,
+        crate::routes::report_defs::CatalogView,
+        crate::routes::report_defs::CatalogColumn,
+        crate::routes::report_defs::ReportDefinitionRunQuery,
+        crate::routes::report_defs::RunSpecRequest,
         core_reports::ViewId,
         core_reports::catalog::FilterOp,
         crate::routes::report_defs::DefinitionScope,

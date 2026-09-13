@@ -168,7 +168,7 @@ pub async fn report(
             })
             .into_response())
         }
-        true => Ok(csv_response(kind, &compiled.columns, decoded)),
+        true => Ok(csv_response(kind.slug(), &compiled.columns, decoded)),
     }
 }
 
@@ -240,7 +240,7 @@ fn tag_pool_err(phase: &'static str) -> impl Fn(sqlx::Error) -> sqlx::Error {
 /// explicit and keeps correctness even for roles whose privileges later
 /// drift. There is deliberately NO other execution mechanism — statements
 /// go verbatim to Postgres.
-async fn run_rows(
+pub(crate) async fn run_rows(
     pool: &PgPool,
     sql: &str,
     binds: &[Bind],
@@ -279,7 +279,7 @@ async fn run_summary(
 
 /// Decodes a main-result row according to its declared output types. All
 /// timestamps/dates ride their standard serde encodings (RFC3339 / YYYY-MM-DD).
-fn row_json(row: &sqlx::postgres::PgRow, columns: &[OutputColumn]) -> Value {
+pub(crate) fn row_json(row: &sqlx::postgres::PgRow, columns: &[OutputColumn]) -> Value {
     let mut map = Map::new();
     for (i, c) in columns.iter().enumerate() {
         let col_name = row.columns()[i].name();
@@ -301,7 +301,7 @@ fn row_json(row: &sqlx::postgres::PgRow, columns: &[OutputColumn]) -> Value {
 
 /// Fallback decodes summary blocks dynamically off PG type OIDs/names so
 /// per-kind summary column lists stay compiler-internal.
-fn dynamic_row_json(row: &sqlx::postgres::PgRow) -> Value {
+pub(crate) fn dynamic_row_json(row: &sqlx::postgres::PgRow) -> Value {
     let mut map = Map::new();
     for col in row.columns() {
         let name = col.name();
@@ -367,7 +367,11 @@ fn next_cursor_for_kind(
 
 /// CSV rendering with stable column order == compiled output order. Rows are
 /// materialized pages (≤500), then encoded incrementally.
-fn csv_response(kind: ReportKind, columns: &[OutputColumn], rows: Vec<Value>) -> Response {
+pub(crate) fn csv_response(
+    kind_slug: &str,
+    columns: &[OutputColumn],
+    rows: Vec<Value>,
+) -> Response {
     let header_vals: Vec<String> = columns.iter().map(|c| csv_cell(&c.name)).collect();
 
     let body_lines: Vec<String> = rows
@@ -390,7 +394,7 @@ fn csv_response(kind: ReportKind, columns: &[OutputColumn], rows: Vec<Value>) ->
             ),
             (
                 axum::http::header::CONTENT_DISPOSITION,
-                format!("attachment; filename=\"{}.csv\"", kind.slug()),
+                format!("attachment; filename=\"{kind_slug}.csv\""),
             ),
         ],
         payload,

@@ -5418,6 +5418,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/report-catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/report-catalog — the fixed field catalog for the R6 builder
+         *     (ADR 0001): per-view projected columns + filterable inventory with value
+         *     classes. Static data served from the same Rust constants the compiler
+         *     validates against, so the UI can never offer an identifier the backend
+         *     would reject.
+         */
+        get: operations["report_catalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/report-definitions": {
         parameters: {
             query?: never;
@@ -5467,6 +5490,31 @@ export interface paths {
          *     path; the write trail keeps the deleted snapshot (undo substrate).
          */
         delete: operations["report_definitions_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/report-definitions/{id}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/report-definitions/{id}/run — compile-on-demand execution of a
+         *     visible stored definition's spec (R6 builder runs). The spec re-validates
+         *     through the registry, compiles via `ReportSpec::compile_windowed`
+         *     (identifiers stay enum-matched catalog constants; values bind as `$N`
+         *     parameters), and executes against the reporting pool inside an
+         *     org-bound transaction. Non-admins are structurally self-scoped exactly
+         *     like the prebuilt kinds.
+         */
+        get: operations["report_definitions_run"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -5542,6 +5590,28 @@ export interface paths {
         get: operations["report_schedules_deliveries"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/run-spec": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/reports/run-spec — execute an INLINE spec (R6 builder preview).
+         *     Same compile/execute/RBAC seam as running a stored definition; the spec
+         *     never touches storage and identifiers re-validate against the static
+         *     catalog before compilation.
+         */
+        post: operations["report_run_spec"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8275,6 +8345,15 @@ export interface components {
             /** Format: date */
             from?: string | null;
         };
+        /**
+         * @description One catalog column: the static identifier plus its value class slug
+         *     (`uuid | text | timestamp | date | int | bigint | bool`). The slug is
+         *     what the builder UI keys operand typing on.
+         */
+        CatalogColumn: {
+            name: string;
+            value_type: string;
+        };
         /** @description Instant-first mutation response (IF2) for catalog mutations. */
         CatalogItemMutationResponse: components["schemas"]["CatalogItemView"] & {
             mutation: components["schemas"]["MutationMeta"];
@@ -8320,6 +8399,17 @@ export interface components {
             group_name?: string | null;
             /** @description Substring search over name/sku/category/group. */
             search?: string | null;
+        };
+        /**
+         * @description The field catalog of ONE versioned view: every projected column plus the
+         *     narrower filterable inventory. Identifiers here are the ONLY ones a
+         *     builder may reference — the server re-validates every spec against the
+         *     same Rust catalog at save and run time.
+         */
+        CatalogView: {
+            columns: components["schemas"]["CatalogColumn"][];
+            filterable: components["schemas"]["CatalogColumn"][];
+            view: components["schemas"]["ViewId"];
         };
         /**
          * @description Instant-first mutation response (IF2): category fields at the top level
@@ -13990,6 +14080,10 @@ export interface components {
             /** @description Full replacement set (an empty set clears every skill). */
             skills: components["schemas"]["SkillInput"][];
         };
+        /** @description GET /api/report-catalog envelope. */
+        ReportCatalog: {
+            views: components["schemas"]["CatalogView"][];
+        };
         /** @description GET /api/report-definitions envelope. */
         ReportDefinitionList: {
             definitions: components["schemas"]["ReportDefinitionView"][];
@@ -14000,6 +14094,29 @@ export interface components {
          */
         ReportDefinitionMutationResponse: components["schemas"]["ReportDefinitionView"] & {
             mutation: components["schemas"]["MutationMeta"];
+        };
+        /**
+         * @description Query surface for running a stored definition (mirrors the prebuilt
+         *     kinds' loose GET shape; irrelevant fields ignored).
+         */
+        ReportDefinitionRunQuery: {
+            /** @description `"csv"` streams text/csv instead of the JSON envelope. */
+            format?: string | null;
+            /**
+             * Format: date
+             * @description Inclusive window start (UTC day, YYYY-MM-DD). Default: 30 trailing days.
+             */
+            from?: string | null;
+            /**
+             * Format: int64
+             * @description Page size, clamped to [1, 500].
+             */
+            limit?: number | null;
+            /**
+             * Format: date
+             * @description Inclusive window end (UTC day). Max span with `from`: 366 days.
+             */
+            to?: string | null;
         };
         /**
          * @description A stored report definition with its registry-validated spec
@@ -14363,6 +14480,30 @@ export interface components {
             entity_kind: components["schemas"]["EntityKind"];
             rows: components["schemas"]["RowReport"][];
             summary: components["schemas"]["ChunkSummaryWire"];
+        };
+        /**
+         * @description POST /api/reports/run-spec body: an inline spec (validated through the
+         *     same registry as stored definitions) plus the run window. This is the
+         *     builder's PREVIEW-before-save surface — nothing is persisted.
+         */
+        RunSpecRequest: {
+            /**
+             * Format: date
+             * @description Inclusive window start (UTC day, YYYY-MM-DD). Default: 30 trailing days.
+             */
+            from?: string | null;
+            /**
+             * Format: int64
+             * @description Page size, clamped to [1, 500].
+             */
+            limit?: number | null;
+            /** @description The registry-validated report spec. */
+            spec: components["schemas"]["ReportSpec"];
+            /**
+             * Format: date
+             * @description Inclusive window end (UTC day). Max span with `from`: 366 days.
+             */
+            to?: string | null;
         };
         /**
          * @description Outcome of the malware scan that runs between webhook receipt and
@@ -26865,6 +27006,25 @@ export interface operations {
             };
         };
     };
+    report_catalog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportCatalog"];
+                };
+            };
+        };
+    };
     report_definitions_list: {
         parameters: {
             query?: never;
@@ -27044,6 +27204,51 @@ export interface operations {
             };
             /** @description version conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    report_definitions_run: {
+        parameters: {
+            query?: {
+                /** @description Inclusive window start (UTC day, YYYY-MM-DD). Default: 30 trailing days. */
+                from?: string | null;
+                /** @description Inclusive window end (UTC day). Max span with `from`: 366 days. */
+                to?: string | null;
+                /** @description Page size, clamped to [1, 500]. */
+                limit?: number | null;
+                /** @description `"csv"` streams text/csv instead of the JSON envelope. */
+                format?: string | null;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Report page (JSON envelope or CSV stream) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportPage"];
+                };
+            };
+            /** @description not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description spec failed registry validation or invalid window */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -27268,6 +27473,36 @@ export interface operations {
             };
             /** @description not in scope */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    report_run_spec: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunSpecRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportPage"];
+                };
+            };
+            /** @description spec failed registry validation or invalid window */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
