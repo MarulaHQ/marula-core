@@ -51,18 +51,11 @@ fn require_manager(principal: &core_domain::entities::Principal) -> ApiResult<()
 }
 
 fn parse_role(s: &str) -> ApiResult<BuiltinRole> {
-    let normalized = s.trim().to_lowercase();
-    Ok(match normalized.as_str() {
-        "owner" => BuiltinRole::Owner,
-        "admin" => BuiltinRole::Admin,
-        "dispatcher" => BuiltinRole::Dispatcher,
-        "technician" => BuiltinRole::Technician,
-        "read_only" | "readonly" | "read-only" => BuiltinRole::ReadOnly,
-        other => {
-            return Err(ApiError::Validation(format!(
-                "unknown org role '{other}': expected one of owner, admin, dispatcher, technician, read_only"
-            )))
-        }
+    BuiltinRole::parse_preset(s).ok_or_else(|| {
+        ApiError::Validation(format!(
+            "unknown org role '{s}': expected one of owner, admin, dispatcher, \
+             senior_tech, technician, bookkeeper, auditor, read_only"
+        ))
     })
 }
 
@@ -159,7 +152,7 @@ pub struct InviteInfo {
 pub struct InviteUserRequest {
     pub email: String,
     pub display_name: String,
-    /// Builtin org role: owner, admin, dispatcher, technician, read_only.
+    /// Builtin org role preset: owner, admin, dispatcher, senior_tech, technician, bookkeeper, auditor, read_only.
     pub role: String,
     #[serde(default)]
     pub timezone: Option<String>,
@@ -364,7 +357,7 @@ pub struct SetUserStatusRequest {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct SetUserRoleRequest {
-    /// Builtin org role: owner, admin, dispatcher, technician, read_only.
+    /// Builtin org role preset: owner, admin, dispatcher, senior_tech, technician, bookkeeper, auditor, read_only.
     pub role: String,
     /// Instant-first autosave parameters (IF1): idempotency key + version.
     #[serde(flatten, default)]

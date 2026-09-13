@@ -37,7 +37,7 @@ import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { money } from "../../../lib/format";
 
-type CatalogItem = components["schemas"]["CatalogItem"];
+type CatalogItem = components["schemas"]["CatalogItemView"];
 
 interface CatalogForm {
   name: string;
@@ -122,7 +122,7 @@ export default function CatalogPage(): ReactNode {
       unit: item.unit,
       currency: item.currency,
       unitPriceMajor: (item.unit_price_minor / 100).toFixed(2),
-      costMajor: item.cost_minor === 0 ? "" : (item.cost_minor / 100).toFixed(2),
+      costMajor: item.cost_minor == null || item.cost_minor === 0 ? "" : (item.cost_minor / 100).toFixed(2),
       category: item.category ?? "",
       groupName: item.group_name ?? "",
       sku: item.sku ?? "",
@@ -354,7 +354,7 @@ export default function CatalogPage(): ReactNode {
                 <Td>{item.sku ?? "—"}</Td>
                 <Td>{item.unit}</Td>
                 <Td>{money(item.unit_price_minor, item.currency)}</Td>
-                <Td>{money(item.cost_minor, item.currency)}</Td>
+                <Td>{item.cost_minor === null || item.cost_minor === undefined ? <span style={{ color: "var(--m-text-muted)" }}>—</span> : money(item.cost_minor, item.currency)}</Td>
                 <Td>{item.taxable ? "Yes" : "No"}</Td>
                 <Td>
                   <StatusTag tone={item.active ? "success" : "neutral"}>

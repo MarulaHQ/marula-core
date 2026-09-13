@@ -6,7 +6,7 @@
 //! everything the org has customized (custom field definitions, per-board
 //! workflow statuses/transitions, automation rules, webhook subscriptions
 //! with filters, API-key metadata minus secrets, org settings-registry
-//! overrides, SLA calendars/policies/ladders).
+//! overrides, SLA calendars/policies/ladders, org-owned role rows).
 //!
 //! Consumers: backup documentation, the upgrade preflight (`meridian
 //! upgrade --check`, U6) and the org-data export (D1, which generalizes

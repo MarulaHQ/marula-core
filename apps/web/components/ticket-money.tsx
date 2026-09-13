@@ -5,7 +5,7 @@
 // `invoice_line_id` is read-only (the server refuses billed-line
 // mutations with a typed 409) and renders with a lock affordance.
 // Totals row sums billable value. Everything is gated behind
-// `special:view_financials` — without it the tab renders a typed
+// `financial:read` — without it the tab renders a typed
 // not-available state, never a dead surface. Edits ride the instant-first
 // envelope (optimistic patch + authoritative reconcile).
 // Non-purpose: no invoice-run authoring here — the billing side consumes

@@ -857,7 +857,7 @@ export default function TicketWorkspacePage() {
     );
 
   const renderMoneyTab = (): ReactNode => {
-    const canViewFinancials = auth.me?.permissions.includes("special:view_financials") ?? false;
+    const canViewFinancials = auth.me?.permissions.includes("financial:read") ?? false;
     if (!canViewFinancials) {
       return (
         <div className="p-3">

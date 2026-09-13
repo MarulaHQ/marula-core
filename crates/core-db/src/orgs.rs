@@ -218,30 +218,22 @@ pub fn permissions_for_builtin(role: BuiltinRole) -> serde_json::Value {
 }
 
 /// The default role set shipped with every org: (name, builtin, grants, system).
+/// RB1 (ADR 0004): the full eight-preset roster — every org carries rows
+/// for all shipped presets on the same matrix as custom roles; orgs fork
+/// them, the canonical rows stay restorable.
 pub fn default_roles() -> Vec<(String, Option<BuiltinRole>, serde_json::Value, bool)> {
     [
-        BuiltinRole::Owner,
-        BuiltinRole::Admin,
-        BuiltinRole::Dispatcher,
-        BuiltinRole::Technician,
-        BuiltinRole::ReadOnly,
+        (BuiltinRole::Owner, "Owner"),
+        (BuiltinRole::Admin, "Admin"),
+        (BuiltinRole::Dispatcher, "Dispatcher"),
+        (BuiltinRole::SeniorTech, "Senior Tech"),
+        (BuiltinRole::Technician, "Technician"),
+        (BuiltinRole::Bookkeeper, "Bookkeeper"),
+        (BuiltinRole::Auditor, "Auditor"),
+        (BuiltinRole::ReadOnly, "Read Only"),
     ]
     .into_iter()
-    .map(|b| {
-        (
-            match b {
-                BuiltinRole::Owner => "Owner",
-                BuiltinRole::Admin => "Admin",
-                BuiltinRole::Dispatcher => "Dispatcher",
-                BuiltinRole::Technician => "Technician",
-                BuiltinRole::ReadOnly => "Read Only",
-            }
-            .to_string(),
-            Some(b),
-            permissions_for_builtin(b),
-            true,
-        )
-    })
+    .map(|(b, name)| (name.to_string(), Some(b), permissions_for_builtin(b), true))
     .collect()
 }
 

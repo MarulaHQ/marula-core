@@ -47,6 +47,16 @@ fn commercial(action: Action) -> Permission {
     }
 }
 
+/// RB2 (ADR 0004): contract rates are financial data. Every rate-bearing
+/// surface (list/detail/preview, and the mutations that carry rate
+/// fields) additionally requires `financial:read` — dispatchers and
+/// technicians hold the commercial matrix but NOT financial visibility
+/// by default. Removal stays commercial-gated only: deleting is not a
+/// rate read.
+fn financial_read() -> Permission {
+    Permission::ViewFinancials
+}
+
 /// Upper bound on a preview window: the engine is deterministic but an
 /// unbounded scan is not a contract. One leap year of daily granularity.
 const MAX_PREVIEW_DAYS: i64 = 366;
@@ -318,6 +328,7 @@ pub async fn create(
 ) -> ApiResult<Json<ContractMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::Create))?;
+    require_permission(&authed.principal, financial_read())?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
 
@@ -437,6 +448,7 @@ pub async fn list(
 ) -> ApiResult<Json<Vec<Contract>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::View))?;
+    require_permission(&authed.principal, financial_read())?;
     let filters = core_db::contracts::ContractFilters {
         client_id: q.client_id,
         status: q.status,
@@ -470,6 +482,7 @@ pub async fn get_one(
 ) -> ApiResult<Json<ContractDetail>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::View))?;
+    require_permission(&authed.principal, financial_read())?;
     // RLS-scoped read (pool carries no app.org_id GUC).
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     core_db::set_org_and_user(
@@ -503,6 +516,7 @@ pub async fn patch(
 ) -> ApiResult<Json<ContractMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::Edit))?;
+    require_permission(&authed.principal, financial_read())?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
 
@@ -684,6 +698,7 @@ pub async fn preview_contract(
 ) -> ApiResult<Json<BillingEvaluation>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::View))?;
+    require_permission(&authed.principal, financial_read())?;
     let org_id = authed.principal.user.org_id;
     let (from, to) = parse_preview_window(&q)?;
 
@@ -730,6 +745,7 @@ pub async fn preview_org(
 ) -> ApiResult<Json<OrgBillingPreview>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::View))?;
+    require_permission(&authed.principal, financial_read())?;
     let org_id = authed.principal.user.org_id;
     let (from, to) = parse_preview_window(&q)?;
 

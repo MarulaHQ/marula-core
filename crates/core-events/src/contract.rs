@@ -455,14 +455,14 @@ use core_domain::events::{
     ProjectMilestoneCompleted, ProjectPhaseCompleted, ProjectPhaseCreated, ProjectPhaseUpdated,
     ProjectTaskCompleted, ProjectTaskCreated, ProjectTaskUpdated, ProjectTemplateRemoved,
     ProjectTemplateUpdated, ProjectUpdated, ProjectViewRemoved, ProjectViewUpdated, QuoteAccepted,
-    QuoteConverted, QuoteCreated, QuoteDeclined, QuoteExpired, QuoteSent, QuoteUpdated,
-    SchedulingLinkCreated, SchedulingLinkRevoked, SchedulingLinkScheduled, SchedulingLinkViewed,
-    SiteCreated, SiteUpdated, TagCreated, TagDeleted, TagUpdated, TicketAssigned, TicketBoardMoved,
-    TicketChecklistUpdated, TicketCommentAdded, TicketCostLineAdded, TicketCostLineRemoved,
-    TicketCreated, TicketExpenseRecorded, TicketExpenseRemoved, TicketLinkChanged, TicketMerged,
-    TicketReverted, TicketStatusChanged, TicketTagsChanged, TimeEntryCreated, TimerPaused,
-    TimerStarted, TimerStopped, TravelDraftSubmitted, UserActivated, UserDeactivated, UserInvited,
-    UserRoleChanged,
+    QuoteConverted, QuoteCreated, QuoteDeclined, QuoteExpired, QuoteSent, QuoteUpdated, RoleForked,
+    RoleRestored, SchedulingLinkCreated, SchedulingLinkRevoked, SchedulingLinkScheduled,
+    SchedulingLinkViewed, SiteCreated, SiteUpdated, TagCreated, TagDeleted, TagUpdated,
+    TicketAssigned, TicketBoardMoved, TicketChecklistUpdated, TicketCommentAdded,
+    TicketCostLineAdded, TicketCostLineRemoved, TicketCreated, TicketExpenseRecorded,
+    TicketExpenseRemoved, TicketLinkChanged, TicketMerged, TicketReverted, TicketStatusChanged,
+    TicketTagsChanged, TimeEntryCreated, TimerPaused, TimerStarted, TimerStopped,
+    TravelDraftSubmitted, UserActivated, UserDeactivated, UserInvited, UserRoleChanged,
 };
 use core_domain::money::{CurrencyCode, Money};
 use core_domain::policy::BoardRole;
@@ -1146,6 +1146,32 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
                 user_id: su(4),
                 from_role: Some("technician".into()),
                 to_role: "dispatcher".into(),
+            }
+        ),
+    },
+    // -- role directory + preset lifecycle (Wave 13 lane 6, RB1) ------------
+    PublishedEvent {
+        event_type: types::ROLE_FORKED,
+        entity: "role",
+        variant: "default",
+        shape: typed_shape!(
+            RoleForked,
+            RoleForked {
+                role_id: su(30),
+                name: "Dispatcher (custom)".into(),
+                from_builtin: Some("dispatcher".into()),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::ROLE_RESTORED,
+        entity: "role",
+        variant: "default",
+        shape: typed_shape!(
+            RoleRestored,
+            RoleRestored {
+                role_id: su(30),
+                builtin: "dispatcher".into(),
             }
         ),
     },

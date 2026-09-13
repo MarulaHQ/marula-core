@@ -351,6 +351,7 @@ async fn owner_manifest_round_trip_and_no_secret_leakage() {
         "settings",
         "sla",
         "report_definitions",
+        "roles",
     ] {
         assert!(
             sections.get(section).is_some(),

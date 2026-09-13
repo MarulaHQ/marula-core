@@ -5405,6 +5405,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/roles — the org's roles plus the canonical preset + portal
+         *     tier rosters (manager+).
+         */
+        get: operations["roles_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/roles/{id}/fork": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/roles/{id}/fork — duplicate a role (typically a preset) into
+         *     a mutable custom copy on the same matrix. The origin row is untouched.
+         */
+        post: operations["roles_fork"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/roles/{id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/roles/{id}/restore — reset a preset row's permission array to
+         *     the canonical shipped set (RB1: the presets stay canonical). Custom
+         *     roles and forks are org-owned data and are never restorable.
+         */
+        post: operations["roles_restore"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/scheduling-groups": {
         parameters: {
             query?: never;
@@ -7935,13 +7996,26 @@ export interface components {
             /** Format: date */
             from?: string | null;
         };
-        /** @description One catalog item. `unit_price_minor` and `cost_minor` share `currency`. */
-        CatalogItem: {
+        /** @description Instant-first mutation response (IF2) for catalog mutations. */
+        CatalogItemMutationResponse: components["schemas"]["CatalogItemView"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        /**
+         * @description RB2 (ADR 0004): a catalog item as the CALLER may see it. `unit_price`
+         *     is the commercial surface; `cost_minor` (and the gross margin derived
+         *     from it) is financial data — it serializes `null` for callers without
+         *     `financial:read` (dispatchers and technicians by default), which is
+         *     the "those values render blank" rule. The write trail keeps full
+         *     fidelity server-side; only client-facing views redact.
+         */
+        CatalogItemView: {
             active: boolean;
             category?: string | null;
-            /** Format: int64 */
-            cost_minor: number;
-            /** Format: date-time */
+            /**
+             * Format: int64
+             * @description `null` without `financial:read` (RB2, ADR 0004).
+             */
+            cost_minor?: number | null;
             created_at: string;
             /** Format: uuid */
             created_by?: string | null;
@@ -7953,19 +8027,12 @@ export interface components {
             name: string;
             /** Format: uuid */
             org_id: string;
-            /** @description Optional SKU; unique per org (case-insensitive) when present. */
             sku?: string | null;
             taxable: boolean;
-            /** @description Unit of measure the price applies to ("each", "hour", "month"). */
             unit: string;
             /** Format: int64 */
             unit_price_minor: number;
-            /** Format: date-time */
             updated_at: string;
-        };
-        /** @description Instant-first mutation response (IF2) for catalog mutations. */
-        CatalogItemMutationResponse: components["schemas"]["CatalogItem"] & {
-            mutation: components["schemas"]["MutationMeta"];
         };
         CatalogListQuery: {
             /** @description `None` = all items (active + archived). */
@@ -10428,6 +10495,13 @@ export interface components {
         } | {
             bool: boolean;
         };
+        ForkRoleRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * @description Name of the custom copy. Must not collide with an existing role
+             *     name (typed 409 `role_name_taken`).
+             */
+            name: string;
+        };
         /** @description One `fx_rates` row: append-only; corrections add rows, never rewrite. */
         FxRateEntry: {
             as_of_date: string;
@@ -10624,7 +10698,7 @@ export interface components {
         InviteUserRequest: components["schemas"]["MutationParams"] & {
             display_name: string;
             email: string;
-            /** @description Builtin org role: owner, admin, dispatcher, technician, read_only. */
+            /** @description Builtin org role preset: owner, admin, dispatcher, senior_tech, technician, bookkeeper, auditor, read_only. */
             role: string;
             timezone?: string | null;
         };
@@ -11230,6 +11304,22 @@ export interface components {
             /** @description Visualization hint slug (`bar` | `line` | `pie` | `table`). */
             viz: string;
         };
+        /** @description One org-owned role row of the manifest (a custom role or a forked copy). */
+        ManifestRole: {
+            /** @description Shipped preset tag, `null` for org-created roles. */
+            builtin?: string | null;
+            /** @description Fork origin preset tag, `null` unless the row is a forked copy. */
+            forked_from?: string | null;
+            /** Format: uuid */
+            id: string;
+            is_system: boolean;
+            name: string;
+            /**
+             * @description The full matrix vocabulary (`{"matrix": {"module", "action"}}`
+             *     entries plus bare special strings) — verbatim for the preflight.
+             */
+            permissions: unknown;
+        };
         /**
          * @description Section container. All fields are always present; empty org state is an
          *     empty array, never an absent key. New sections append here.
@@ -11267,6 +11357,15 @@ export interface components {
              *     reference deprecated view or column constructs (policy §5).
              */
             report_definitions: components["schemas"]["ManifestReportDefinition"][];
+            /**
+             * @description Role rows (Wave 13 lane 6, RB1 — ADR 0004: role rows are
+             *     customizations-as-data covered by U5/U6 like any other section).
+             *     This section is the ORG-OWNED rows only: custom roles and forked
+             *     copies (including forked presets with their origin tag). Shipped
+             *     preset rows are default state, not customization — they stay
+             *     canonical and restorable, so the preflight sees no drift.
+             */
+            roles: components["schemas"]["ManifestRole"][];
             /**
              * @description Org-scope settings-registry overrides (user-scope rows are per-user
              *     preferences, not org customization).
@@ -12521,6 +12620,19 @@ export interface components {
             /** Format: int64 */
             offset?: number;
         };
+        /**
+         * @description One portal tier in the preset roster (RB1). Portal authorization is
+         *     deliberately NOT the staff matrix (see `core_domain::policy`) — the
+         *     tiers render here as data with their capability keys, but they are
+         *     per-contact settings, never staff `roles` rows and never forkable.
+         */
+        PortalTierView: {
+            /** @description Capability keys from the tier×capability matrix (`policy::portal_tier_allows`). */
+            capabilities: string[];
+            description: string;
+            name: string;
+            tier: string;
+        };
         PortalUser: {
             /** Format: uuid */
             client_id: string;
@@ -12571,6 +12683,17 @@ export interface components {
             name: string;
             /** Format: uuid */
             user_id: string;
+        };
+        /**
+         * @description The canonical definition of one shipped preset (RB1): the presets stay
+         *     canonical even though every org carries its own rows — restore resets
+         *     a row to this set.
+         */
+        PresetView: {
+            builtin: string;
+            description: string;
+            name: string;
+            permissions: unknown;
         };
         PreviewQuery: {
             /**
@@ -13623,6 +13746,7 @@ export interface components {
              */
             version: number;
         };
+        RestoreRoleRequest: components["schemas"]["MutationParams"];
         RetireTaxonomyNodeRequest: components["schemas"]["MutationParams"];
         /** @description What the revert restored. */
         RevertDetail: {
@@ -13649,6 +13773,45 @@ export interface components {
              * @description The write-trail `seq` to step back over (from the undo stack).
              */
             seq: number;
+        };
+        /**
+         * @description Instant-first mutation response (IF2): the role at the top level plus
+         *     the additive `mutation` metadata.
+         */
+        RoleMutationResponse: components["schemas"]["RoleView"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        /**
+         * @description One org role row (preset or custom). `permissions` is the raw matrix
+         *     vocabulary: `{"matrix": {"module", "action"}}` entries plus bare
+         *     special strings (`"financial:read"`, `"special:manage_users"`, …).
+         */
+        RoleView: {
+            /** @description Shipped preset tag (owner, admin, …), `null` for org-created roles. */
+            builtin?: string | null;
+            /** @description For a forked copy: the preset tag it was seeded from. */
+            forked_from?: string | null;
+            /**
+             * Format: int64
+             * @description Active staff holding this role.
+             */
+            holders: number;
+            /** Format: uuid */
+            id: string;
+            /** @description Preset rows are system data: restorable, never editable in place. */
+            is_system: boolean;
+            name: string;
+            /** Format: uuid */
+            org_id: string;
+            permissions: unknown;
+        };
+        RolesListResponse: {
+            /** @description The portal tiers (client contacts; a separate authorization model). */
+            portal_tiers: components["schemas"]["PortalTierView"][];
+            /** @description The canonical shipped presets (the restore source of truth). */
+            presets: components["schemas"]["PresetView"][];
+            /** @description Every org role: presets (system rows) + org-created custom roles. */
+            roles: components["schemas"]["RoleView"][];
         };
         /**
          * @description Wire format selector for an import payload.
@@ -13950,7 +14113,7 @@ export interface components {
             edges: components["schemas"]["TransitionEdge"][];
         };
         SetUserRoleRequest: components["schemas"]["MutationParams"] & {
-            /** @description Builtin org role: owner, admin, dispatcher, technician, read_only. */
+            /** @description Builtin org role preset: owner, admin, dispatcher, senior_tech, technician, bookkeeper, auditor, read_only. */
             role: string;
         };
         SetUserStatusRequest: components["schemas"]["MutationParams"] & {
@@ -18444,7 +18607,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CatalogItem"][];
+                    "application/json": components["schemas"]["CatalogItemView"][];
                 };
             };
         };
@@ -18502,7 +18665,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CatalogItem"];
+                    "application/json": components["schemas"]["CatalogItemView"];
                 };
             };
             /** @description not visible in scope */
@@ -26145,6 +26308,117 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ReportPage"];
                 };
+            };
+        };
+    };
+    roles_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RolesListResponse"];
+                };
+            };
+            /** @description requires manage_users or manage_roles */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    roles_fork: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForkRoleRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleMutationResponse"];
+                };
+            };
+            /** @description role not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description role name taken or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    roles_restore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RestoreRoleRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleMutationResponse"];
+                };
+            };
+            /** @description role not visible in scope, or not a preset */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

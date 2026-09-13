@@ -1,5 +1,6 @@
 // /settings/team — the org user directory (Wave 11 lane 10 close-out of
-// the lane 2 backend, migration 0047).
+// the lane 2 backend, migration 0047) + the preset-role roster (Wave 13
+// lane 6, RB1 — ADR 0004).
 //
 // Purpose: staff directory (paged GET /org/users), the invite flow (POST
 // /org/users returns the one-time `invite.setup_token` — copy/link dialog,
@@ -11,7 +12,11 @@
 // owner/admin (manage_users) — mutation controls render only for that
 // role and a 403 on read renders a typed not-available state, never a
 // dead button.
-// Non-purpose: no custom-role editor (Phase 5) and no auth/session admin.
+// Preset roles render through THIS surface (no parallel roles page): the
+// role pickers list the full eight-preset roster, and the Preset roles
+// card shows the canonical matrix, fork origins, and fork/restore actions
+// for manage_roles holders riding the instant-first envelope.
+// Non-purpose: no custom-role matrix editor (Phase 5) and no auth/session admin.
 "use client";
 
 import {
@@ -46,10 +51,23 @@ import { runEnvelopeMutation } from "../../../lib/envelope-write";
 type OrgUser = components["schemas"]["OrgUser"];
 type OrgUserListResponse = components["schemas"]["OrgUserListResponse"];
 type InviteInfo = components["schemas"]["InviteInfo"];
+type RolesListResponse = components["schemas"]["RolesListResponse"];
+type RoleView = components["schemas"]["RoleView"];
+type PresetView = components["schemas"]["PresetView"];
+type PortalTierView = components["schemas"]["PortalTierView"];
 
 const PAGE_SIZE = 50;
 
-const BUILTIN_ROLES = ["owner", "admin", "dispatcher", "technician", "read_only"] as const;
+const BUILTIN_ROLES = [
+  "owner",
+  "admin",
+  "dispatcher",
+  "senior_tech",
+  "technician",
+  "bookkeeper",
+  "auditor",
+  "read_only",
+] as const;
 type BuiltinRole = (typeof BUILTIN_ROLES)[number];
 
 const MANAGE_USERS = "special:manage_users";
@@ -59,7 +77,10 @@ const ROLE_HINT: Record<BuiltinRole, string> = {
   owner: "Full control incl. billing and the org itself",
   admin: "Everything except org-level ownership actions",
   dispatcher: "Schedules and assigns work",
+  senior_tech: "Escalation tier: full ticket + KB control, time approvals, no financial visibility",
   technician: "Works tickets",
+  bookkeeper: "Invoicing control and financial visibility, no ticket work",
+  auditor: "Read everything plus the audit trail; writes nothing",
   read_only: "View only",
 };
 
@@ -116,6 +137,12 @@ export default function TeamSettingsPage() {
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<{ userId: string; text: string } | null>(null);
 
+  // Preset-role roster (RB1): rows + canonical presets + portal tiers.
+  const [rolesData, setRolesData] = useState<RolesListResponse | null>(null);
+  const [rolesError, setRolesError] = useState<string | null>(null);
+  const [busyRoleId, setBusyRoleId] = useState<string | null>(null);
+  const [roleActionError, setRoleActionError] = useState<string | null>(null);
+
   const fetchPage = useCallback(
     async (offset: number, replace: boolean) => {
       setLoadError(null);
@@ -143,6 +170,80 @@ export default function TeamSettingsPage() {
   useEffect(() => {
     if (auth.status === "authed" && canRead) void fetchPage(0, true);
   }, [auth.status, canRead, fetchPage]);
+
+  const MANAGE_ROLES = "special:manage_roles";
+  const canManageRoles = me?.permissions.includes(MANAGE_ROLES) ?? false;
+
+  const fetchRoles = useCallback(async () => {
+    setRolesError(null);
+    const { data, error, response } = await api.api.GET("/api/v1/roles");
+    if (error !== undefined || data === undefined) {
+      if (response.status === 403) {
+        // Readers without roles-admin still see the directory; the roster
+        // card is manager+ via manage_users too — a 403 here means the
+        // caller holds neither grant, so leave the card absent.
+        setRolesData(null);
+        return;
+      }
+      setRolesError("Failed to load the role roster.");
+      return;
+    }
+    setRolesData(data);
+  }, []);
+
+  useEffect(() => {
+    if (auth.status === "authed" && canRead) void fetchRoles();
+  }, [auth.status, canRead, fetchRoles]);
+
+  /** Fork a preset into a custom copy on the same matrix (RB1). */
+  const forkRole = async (preset: PresetView, roleId: string) => {
+    const name = window.prompt(`Duplicate "${preset.name}" as a custom role`, `${preset.name} (custom)`);
+    if (name === null || name.trim() === "") return;
+    setBusyRoleId(roleId);
+    setRoleActionError(null);
+    const result = await runEnvelopeMutation({
+      describe: "Fork role",
+      entityId: roleId,
+      optimistic: () => setRolesData((prev) => prev),
+      revert: () => setRolesData((prev) => prev),
+      buildBody: (base) => ({ ...base, name: name.trim() }),
+      request: (client, body) =>
+        client.POST("/api/v1/roles/{id}/fork", { params: { path: { id: roleId } }, body }),
+      versions: (response) => [[roleId, response.mutation.version]],
+    });
+    setBusyRoleId(null);
+    if (!result.ok) {
+      setRoleActionError(
+        result.reason === "role_name_taken"
+          ? `A role named "${name.trim()}" already exists.`
+          : result.message ?? "The fork was rejected.",
+      );
+      return;
+    }
+    void fetchRoles();
+  };
+
+  /** Restore a drifted preset row to the canonical shipped matrix (RB1). */
+  const restoreRole = async (role: RoleView) => {
+    setBusyRoleId(role.id);
+    setRoleActionError(null);
+    const result = await runEnvelopeMutation({
+      describe: "Restore role",
+      entityId: role.id,
+      optimistic: () => setRolesData((prev) => prev),
+      revert: () => setRolesData((prev) => prev),
+      buildBody: (base) => ({ ...base }),
+      request: (client, body) =>
+        client.POST("/api/v1/roles/{id}/restore", { params: { path: { id: role.id } }, body }),
+      versions: (response) => [[role.id, response.mutation.version]],
+    });
+    setBusyRoleId(null);
+    if (!result.ok) {
+      setRoleActionError(result.message ?? "The restore was rejected.");
+      return;
+    }
+    void fetchRoles();
+  };
 
   /** Direct invite call that KEEPS the response body — the one-time setup
    * token exists ONLY in the POST response (no read-back), so this cannot
@@ -502,6 +603,129 @@ export default function TeamSettingsPage() {
           ) : null}
         </Card>
       )}
+
+      {rolesError !== null ? (
+        <p role="alert" className="text-[13px]">
+          {rolesError}
+        </p>
+      ) : null}
+
+      {rolesData !== null ? (
+        <Card className="overflow-x-auto">
+          <div className="grid gap-3 p-4">
+            <div>
+              <h2 className="text-[15px] font-semibold">Preset roles</h2>
+              <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+                The shipped roles on the same permission matrix as custom roles. Fork to customize —
+                presets stay canonical and restorable.
+              </p>
+            </div>
+            {roleActionError !== null ? (
+              <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
+                {roleActionError}
+              </p>
+            ) : null}
+            <Table>
+              <thead>
+                <tr>
+                  <Th>Preset</Th>
+                  <Th>Purpose</Th>
+                  <Th>Grants</Th>
+                  <Th>Members</Th>
+                  {canManageRoles ? <Th className="text-right">Actions</Th> : null}
+                </tr>
+              </thead>
+              <tbody>
+                {rolesData.presets.map((preset) => {
+                  const row = rolesData.roles.find((r) => r.builtin === preset.builtin);
+                  const drifted =
+                    row !== undefined &&
+                    JSON.stringify(row.permissions) !== JSON.stringify(preset.permissions);
+                  return (
+                    <Tr key={preset.builtin}>
+                      <Td className="text-[13px] font-medium">
+                        {preset.name}
+                        {row?.forked_from != null ? (
+                          <span
+                            className="ml-1 text-[11px]"
+                            style={{ color: "var(--m-text-muted)" }}
+                          >
+                            (fork of {row.forked_from})
+                          </span>
+                        ) : null}
+                      </Td>
+                      <Td className="text-[13px]">{preset.description}</Td>
+                      <Td className="text-[13px]">
+                        {preset.permissions === undefined ||
+                        !Array.isArray(preset.permissions)
+                          ? 0
+                          : (preset.permissions as unknown[]).length}{" "}
+                        grants
+                      </Td>
+                      <Td className="text-[13px]">{row?.holders ?? 0}</Td>
+                      {canManageRoles ? (
+                        <Td className="text-right">
+                          <div className="flex justify-end gap-2">
+                            {row ? (
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                disabled={busyRoleId === row.id}
+                                onClick={() => void forkRole(preset, row.id)}
+                              >
+                                Duplicate
+                              </Button>
+                            ) : null}
+                            {drifted && row ? (
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                disabled={busyRoleId === row.id}
+                                onClick={() => void restoreRole(row)}
+                              >
+                                Restore
+                              </Button>
+                            ) : null}
+                          </div>
+                        </Td>
+                      ) : null}
+                    </Tr>
+                  );
+                })}
+              </tbody>
+            </Table>
+            <div>
+              <h3 className="text-[13px] font-semibold">Portal tiers</h3>
+              <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+                Client-contact tiers — a separate authorization model from staff roles; assigned per
+                portal user in the portal admin.
+              </p>
+            </div>
+            <Table>
+              <thead>
+                <tr>
+                  <Th>Tier</Th>
+                  <Th>Capabilities</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {rolesData.portal_tiers.map((tier: PortalTierView) => (
+                  <Tr key={tier.tier}>
+                    <Td className="text-[13px] font-medium">{tier.name}</Td>
+                    <Td className="text-[13px]">
+                      {tier.capabilities.map((c) => (
+                        <Tag key={c} tone="outline">
+                          {c}
+                        </Tag>
+                      ))}
+                    </Td>
+                  </Tr>
+                ))}
+              </tbody>
+            </Table>
+          </div>
+        </Card>
+      ) : null}
     </div>
   );
 }

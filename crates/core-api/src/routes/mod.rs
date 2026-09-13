@@ -89,6 +89,7 @@ pub mod recurring;
 pub mod report_defs;
 pub mod report_schedules;
 pub mod reports;
+pub mod roles;
 pub mod scheduling;
 pub mod scheduling_links;
 pub mod search;
@@ -438,6 +439,11 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/org/users/{id}/role"),
             axum::routing::patch(org_users::set_role),
         )
+        // role directory + preset lifecycle (Wave 13 lane 6, RB1): the
+        // shipped presets are data rows; fork/restore ride the envelope.
+        .route(&rp("/roles"), get(roles::list))
+        .route(&rp("/roles/{id}/fork"), post(roles::fork))
+        .route(&rp("/roles/{id}/restore"), post(roles::restore))
         // ticket taxonomy (Wave 11 lane 3): classification-only trees,
         // full org CRUD (soft retire), instant-first envelope, audited.
         .route(

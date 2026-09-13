@@ -21,6 +21,13 @@ pub mod types {
     pub const USER_DEACTIVATED: &str = "user.deactivated";
     /// A staff user's builtin org role changed.
     pub const USER_ROLE_CHANGED: &str = "user.role_changed";
+    /// A shipped preset role was forked into a custom copy (RB1, ADR
+    /// 0004): the preset row is untouched, the org now owns a mutable
+    /// duplicate. `from_builtin` names the preset the copy came from.
+    pub const ROLE_FORKED: &str = "role.forked";
+    /// A shipped preset role row was restored to its canonical permission
+    /// set (RB1, ADR 0004) — the presets stay canonical, orgs fork.
+    pub const ROLE_RESTORED: &str = "role.restored";
     pub const CLIENT_CREATED: &str = "client.created";
     pub const CLIENT_UPDATED: &str = "client.updated";
     /// A client workflow override was set or explicitly disabled (Wave 12
@@ -539,6 +546,24 @@ pub struct UserActivated {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserDeactivated {
     pub user_id: UserId,
+}
+
+/// A preset (or any) role was forked into a custom copy (payload for
+/// `role.forked`). `from_builtin` is the shipped preset the copy was
+/// seeded from, `None` for forks of org-created roles.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoleForked {
+    pub role_id: UserId,
+    pub name: String,
+    pub from_builtin: Option<String>,
+}
+
+/// A shipped preset role row was restored to its canonical permission set
+/// (payload for `role.restored`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoleRestored {
+    pub role_id: UserId,
+    pub builtin: String,
 }
 
 /// A staff user's builtin org role changed (payload for

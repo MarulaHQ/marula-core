@@ -6,7 +6,7 @@
 // applied / partially applied / fully applied are DERIVED from the
 // counters (applied_minor, refunded_minor, remaining). The detail drawer
 // shows the application ledger (GET /{id}). Actions are owner/admin
-// commercial actions (`special:view_financials` gate); mutations ride the
+// commercial actions (`financial:read` gate); mutations ride the
 // instant-first envelope and reconcile from the typed responses.
 // Rejections (insufficient remaining, not payable, has allocations,
 // version conflicts) render inline with their typed reason.
@@ -51,7 +51,7 @@ type CreditNoteDetail = components["schemas"]["CreditNoteDetail"];
 type Client = components["schemas"]["Client"];
 type Invoice = components["schemas"]["Invoice"];
 
-const VIEW_FINANCIALS = "special:view_financials";
+const VIEW_FINANCIALS = "financial:read";
 
 /** Lifecycle is derived, never stored (only issued | void exist). */
 function lifecycleOf(note: CreditNote): { label: string; tone: "success" | "warning" | "danger" | "neutral" } {

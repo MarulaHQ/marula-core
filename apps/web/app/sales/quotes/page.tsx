@@ -47,7 +47,7 @@ import { money } from "../../../lib/format";
 type Quote = components["schemas"]["Quote"];
 type QuoteStatus = components["schemas"]["QuoteStatus"];
 type QuoteLineInput = components["schemas"]["QuoteLineInput"];
-type CatalogItem = components["schemas"]["CatalogItem"];
+type CatalogItem = components["schemas"]["CatalogItemView"];
 type Client = components["schemas"]["Client"];
 
 type QuoteAction = "send" | "accept" | "decline" | "expire" | "convert-to-invoice";

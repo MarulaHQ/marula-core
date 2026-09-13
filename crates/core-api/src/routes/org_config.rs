@@ -33,9 +33,19 @@ fn admin(action: Action) -> Permission {
     }
 }
 
-/// Valid RBAC levels (the org-users lane's builtin roles). Levels outside
-/// this set cannot exist in the stored matrix.
-const RBAC_LEVELS: &[&str] = &["owner", "admin", "dispatcher", "technician", "read_only"];
+/// Valid RBAC levels for the pod-visibility matrix: every shipped preset
+/// role (RB1, ADR 0004 — migration 0071) plus the historical five. Levels
+/// outside this set cannot exist in the stored matrix.
+const RBAC_LEVELS: &[&str] = &[
+    "owner",
+    "admin",
+    "dispatcher",
+    "senior_tech",
+    "technician",
+    "bookkeeper",
+    "auditor",
+    "read_only",
+];
 
 const MAX_POD_ENTRIES: usize = 64;
 const MAX_POD_KEY_LEN: usize = 64;

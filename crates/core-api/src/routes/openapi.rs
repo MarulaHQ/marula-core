@@ -235,6 +235,10 @@ use utoipa::OpenApi;
         crate::routes::org_users::set_status,
         crate::routes::org_users::set_role,
         crate::routes::org_users::accept_invite,
+        // role directory + preset lifecycle (Wave 13 lane 6, RB1)
+        crate::routes::roles::list,
+        crate::routes::roles::fork,
+        crate::routes::roles::restore,
         // ticket taxonomy (Wave 11 lane 3)
         crate::routes::taxonomy::list_types,
         crate::routes::taxonomy::create_type,
@@ -772,6 +776,14 @@ use utoipa::OpenApi;
         crate::routes::org_users::SetUserStatusRequest,
         crate::routes::org_users::SetUserRoleRequest,
         crate::routes::org_users::AcceptInviteRequest,
+        // role directory + preset lifecycle (Wave 13 lane 6, RB1)
+        crate::routes::roles::RoleView,
+        crate::routes::roles::PresetView,
+        crate::routes::roles::PortalTierView,
+        crate::routes::roles::RolesListResponse,
+        crate::routes::roles::ForkRoleRequest,
+        crate::routes::roles::RestoreRoleRequest,
+        crate::routes::roles::RoleMutationResponse,
         // ticket taxonomy (Wave 11 lane 3)
         crate::routes::taxonomy::TaxonomyNodeView,
         crate::routes::taxonomy::ListTaxonomyQuery,

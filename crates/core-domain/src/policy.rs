@@ -25,8 +25,8 @@ pub enum Module {
     Documents,
     /// Staff password vault (docs-platform v1, migration 0053).
     /// Owner/Admin hold the full matrix; Technician can use the vault
-    /// (view/create/edit — credentials are working material); Dispatcher
-    /// and Read-Only hold view. Reveal additionally requires edit
+    /// (view/create/edit — credentials are working material); Dispatcher,
+    /// Auditor, and Read-Only hold view. Reveal additionally requires edit
     /// (enforced in the route, not the matrix).
     Passwords,
     Reporting,
@@ -135,7 +135,12 @@ impl Permission {
                 Permission::ManageRoles => "special:manage_roles".into(),
                 Permission::ManageBoards => "special:manage_boards".into(),
                 Permission::ApproveTime => "special:approve_time".into(),
-                Permission::ViewFinancials => "special:view_financials".into(),
+                // ADR 0004 (RB2): financial visibility is its OWN permission
+                // with its own wire key — `financial:read` gates cost rates,
+                // contract rates, and margin panels. It is deliberately NOT
+                // namespaced under `special:` because it is a matrix-peer
+                // grant orgs legitimately fork into custom roles.
+                Permission::ViewFinancials => "financial:read".into(),
                 Permission::ManageBilling => "special:manage_billing".into(),
                 Permission::ManagePlugins => "special:manage_plugins".into(),
                 Permission::ManageApiKeys => "special:manage_api_keys".into(),
@@ -154,8 +159,12 @@ impl std::fmt::Display for Permission {
 }
 
 /// Built-in roles. Custom roles are arbitrary permission sets stored per org;
-/// these four ship as defaults so a new org works with zero configuration
-/// (defaults-first doctrine).
+/// these ship as defaults so a new org works with zero configuration
+/// (defaults-first doctrine). ADR 0004 (RB1): the presets are canonical
+/// DATA — every org carries `roles` rows for them (seeded at creation,
+/// backfilled by migration 0071) and their permission arrays are the same
+/// matrix vocabulary custom roles use; orgs fork them into custom copies
+/// and restore the canonical rows, never edit the preset in place.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
@@ -164,6 +173,19 @@ pub enum BuiltinRole {
     Admin,
     Dispatcher,
     Technician,
+    /// Escalation tier above Technician: full ticket + KB control (a
+    /// senior tech closes and prunes without admin help), time-entry
+    /// approval rights, and NO financial visibility — cost rates stay
+    /// gated by `financial:read` (ADR 0004 RB2).
+    SeniorTech,
+    /// Money-focused preset: full invoicing control plus contract/catalog
+    /// price visibility through `financial:read`. Deliberately narrow
+    /// elsewhere — a bookkeeper does not work tickets.
+    Bookkeeper,
+    /// Compliance preset: read everything (the full view matrix) plus the
+    /// audit trail. Writes nothing, sees the trail. (The read_only preset
+    /// stays untouched: a plain viewer holds no audit access.)
+    Auditor,
     ReadOnly,
 }
 
@@ -174,7 +196,40 @@ impl BuiltinRole {
             BuiltinRole::Admin => "admin",
             BuiltinRole::Dispatcher => "dispatcher",
             BuiltinRole::Technician => "technician",
+            BuiltinRole::SeniorTech => "senior_tech",
+            BuiltinRole::Bookkeeper => "bookkeeper",
+            BuiltinRole::Auditor => "auditor",
             BuiltinRole::ReadOnly => "read_only",
+        }
+    }
+
+    /// Every shipped preset in roster order (the row the roles surface
+    /// renders, in ADR 0004's listing order).
+    pub const PRESETS: [BuiltinRole; 8] = [
+        BuiltinRole::Owner,
+        BuiltinRole::Admin,
+        BuiltinRole::Dispatcher,
+        BuiltinRole::SeniorTech,
+        BuiltinRole::Technician,
+        BuiltinRole::Bookkeeper,
+        BuiltinRole::Auditor,
+        BuiltinRole::ReadOnly,
+    ];
+
+    /// Parses a preset name (accepts the storage spellings plus common
+    /// variants; mirrors the directory picker's tolerance for `read_only`).
+    pub fn parse_preset(s: &str) -> Option<Self> {
+        let normalized = s.trim().to_lowercase();
+        match normalized.as_str() {
+            "owner" => Some(BuiltinRole::Owner),
+            "admin" => Some(BuiltinRole::Admin),
+            "dispatcher" => Some(BuiltinRole::Dispatcher),
+            "senior_tech" | "senior-tech" | "senior tech" => Some(BuiltinRole::SeniorTech),
+            "technician" => Some(BuiltinRole::Technician),
+            "bookkeeper" => Some(BuiltinRole::Bookkeeper),
+            "auditor" => Some(BuiltinRole::Auditor),
+            "read_only" | "readonly" | "read-only" => Some(BuiltinRole::ReadOnly),
+            _ => None,
         }
     }
 
@@ -283,6 +338,107 @@ impl BuiltinRole {
                         action: Action::View,
                     },
                 ]);
+                p
+            }
+            // Senior Tech: everything a Technician holds, escalated — the
+            // full ticket + KB matrix (close/prune authority), time-entry
+            // approval (special:approve_time), and still NO financial:read.
+            // Cost visibility is not a seniority perk (ADR 0004 RB2).
+            BuiltinRole::SeniorTech => {
+                let mut p = full_matrix(&[Module::Tickets, Module::Kb]);
+                p.extend(
+                    full_matrix(&[Module::Passwords])
+                        .into_iter()
+                        .filter(|perm| {
+                            matches!(
+                                perm,
+                                Permission::Matrix {
+                                    action: Action::View | Action::Create | Action::Edit,
+                                    ..
+                                }
+                            )
+                        }),
+                );
+                p.extend([
+                    Permission::Matrix {
+                        module: Module::Clients,
+                        action: Action::View,
+                    },
+                    Permission::Matrix {
+                        module: Module::Time,
+                        action: Action::View,
+                    },
+                    Permission::Matrix {
+                        module: Module::Time,
+                        action: Action::Create,
+                    },
+                    Permission::Matrix {
+                        module: Module::Time,
+                        action: Action::Edit,
+                    },
+                    Permission::Matrix {
+                        module: Module::Scheduling,
+                        action: Action::View,
+                    },
+                    Permission::Matrix {
+                        module: Module::Scheduling,
+                        action: Action::Edit,
+                    },
+                    Permission::Matrix {
+                        module: Module::Reporting,
+                        action: Action::View,
+                    },
+                ]);
+                p.extend(specials(&[Permission::ApproveTime]));
+                p
+            }
+            // Bookkeeper: the money role. Full invoicing control (invoice
+            // runs, voids, payments, credit-note work), commercial price
+            // visibility, time reads (to cross-check billed hours), report
+            // views + exports (the month-end pack), and the two financial
+            // specials: `financial:read` + `special:manage_billing`. No
+            // ticket-working grants at all.
+            BuiltinRole::Bookkeeper => {
+                let mut p = full_matrix(&[Module::Invoicing]);
+                p.extend([
+                    Permission::Matrix {
+                        module: Module::Clients,
+                        action: Action::View,
+                    },
+                    Permission::Matrix {
+                        module: Module::Commercial,
+                        action: Action::View,
+                    },
+                    Permission::Matrix {
+                        module: Module::Time,
+                        action: Action::View,
+                    },
+                    Permission::Matrix {
+                        module: Module::Reporting,
+                        action: Action::View,
+                    },
+                    Permission::Matrix {
+                        module: Module::Reporting,
+                        action: Action::Export,
+                    },
+                ]);
+                p.extend(specials(&[
+                    Permission::ViewFinancials,
+                    Permission::ManageBilling,
+                ]));
+                p
+            }
+            // Auditor: the whole view matrix (every module) plus the audit
+            // trail, and nothing else — write nothing, see the trail.
+            BuiltinRole::Auditor => {
+                let mut p = Module::ALL
+                    .iter()
+                    .map(|m| Permission::Matrix {
+                        module: *m,
+                        action: Action::View,
+                    })
+                    .collect::<Vec<_>>();
+                p.extend(specials(&[Permission::ViewAuditLog]));
                 p
             }
             BuiltinRole::ReadOnly => Module::ALL
@@ -488,30 +644,64 @@ pub enum PortalAction {
     RequestAppointment,
 }
 
+impl PortalAction {
+    /// Wire key for the portal-tier preset registry (roles surface).
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            PortalAction::ViewTickets => "view_tickets",
+            PortalAction::PostReply => "post_reply",
+            PortalAction::ViewInHouseUpdates => "view_in_house_updates",
+            PortalAction::ViewInvoices => "view_invoices",
+            PortalAction::PayInvoice => "pay_invoice",
+            PortalAction::ViewKb => "view_kb",
+            PortalAction::RequestAppointment => "request_appointment",
+        }
+    }
+
+    /// Every portal capability, stable order for the registry.
+    pub const ALL: [PortalAction; 7] = [
+        PortalAction::ViewTickets,
+        PortalAction::PostReply,
+        PortalAction::ViewInHouseUpdates,
+        PortalAction::ViewInvoices,
+        PortalAction::PayInvoice,
+        PortalAction::ViewKb,
+        PortalAction::RequestAppointment,
+    ];
+}
+
+/// The tier×capability matrix in isolation. Single source of truth: the
+/// portal tier presets in the roles surface (RB1, ADR 0004) render their
+/// capability lists from this table, and `check_portal` enforces it — the
+/// rendered roster and the enforced rules cannot drift apart.
+pub const fn portal_tier_allows(role: crate::entities::PortalRole, action: PortalAction) -> bool {
+    use crate::entities::PortalRole;
+    match action {
+        PortalAction::ViewTickets
+        | PortalAction::PostReply
+        | PortalAction::ViewInvoices
+        | PortalAction::PayInvoice
+        | PortalAction::ViewKb
+        | PortalAction::RequestAppointment => true,
+        PortalAction::ViewInHouseUpdates => matches!(role, PortalRole::ItManager),
+    }
+}
+
 /// The single portal authorization entry point. Denials carry the reason
 /// for audit + API error surfaces. Note that client/board scoping is NOT
 /// decided here — callers must additionally constrain queries to the
 /// authenticated portal user's client_id and exposed boards; this function
 /// decides what the TIER may do, the query layer decides WHICH rows exist.
 pub fn check_portal(role: crate::entities::PortalRole, action: PortalAction) -> PolicyDecision {
-    use crate::entities::PortalRole;
-    match action {
-        PortalAction::ViewTickets
-        | PortalAction::PostReply
-        // Portal v2 surfaces: every tier sees its own client's invoices,
-        // the client-facing KB, and may request schedule slots. Tier
-        // differences remain a tickets-visibility concept (in-house
-        // updates); money and scheduling are client-wide abilities.
-        | PortalAction::ViewInvoices
-        | PortalAction::PayInvoice
-        | PortalAction::ViewKb
-        | PortalAction::RequestAppointment => PolicyDecision::Allowed,
-        PortalAction::ViewInHouseUpdates => match role {
-            PortalRole::ItManager => PolicyDecision::Allowed,
-            PortalRole::Contact | PortalRole::Approver => PolicyDecision::Denied {
-                reason: "in-house updates are visible to the IT-manager tier only".into(),
-            },
-        },
+    if portal_tier_allows(role, action) {
+        PolicyDecision::Allowed
+    } else {
+        PolicyDecision::Denied {
+            reason: format!(
+                "portal tier '{}' does not include this capability",
+                role.as_str()
+            ),
+        }
     }
 }
 
@@ -627,6 +817,202 @@ mod tests {
                 );
             }
         }
+    }
+
+    // --- RB1 preset roster (ADR 0004, Wave 13 lane 6) ---------------------
+
+    /// The audit preset: full view matrix + the audit trail special, and
+    /// every write action denied. Reveal-style edits (passwords) stay out
+    /// because edit is never granted.
+    #[test]
+    fn auditor_sees_everything_including_audit_trail_but_writes_nothing() {
+        let auditor = BuiltinRole::Auditor.permissions();
+        for m in Module::ALL {
+            assert!(
+                check(
+                    &auditor,
+                    Permission::Matrix {
+                        module: m,
+                        action: Action::View
+                    }
+                )
+                .is_allowed(),
+                "{m:?}:view should be granted"
+            );
+            for a in [Action::Create, Action::Edit, Action::Delete, Action::Export] {
+                assert!(
+                    check(
+                        &auditor,
+                        Permission::Matrix {
+                            module: m,
+                            action: a
+                        }
+                    )
+                    .is_allowed()
+                    .not(),
+                    "{m:?}:{a:?} should be denied for auditor"
+                );
+            }
+        }
+        assert!(check(&auditor, Permission::ViewAuditLog).is_allowed());
+        assert!(check(&auditor, Permission::ViewFinancials)
+            .is_allowed()
+            .not());
+    }
+
+    /// A plain read-only viewer holds NO audit-trail access — that is what
+    /// distinguishes the auditor preset from read_only.
+    #[test]
+    fn read_only_holds_no_audit_trail_access() {
+        assert!(check(
+            &BuiltinRole::ReadOnly.permissions(),
+            Permission::ViewAuditLog
+        )
+        .is_allowed()
+        .not());
+    }
+
+    /// The bookkeeper preset: full invoicing control + the two financial
+    /// specials, and no ticket-working grants.
+    #[test]
+    fn bookkeeper_runs_invoicing_and_sees_financials_but_never_works_tickets() {
+        let bookkeeper = BuiltinRole::Bookkeeper.permissions();
+        assert!(check(&bookkeeper, Permission::ViewFinancials).is_allowed());
+        assert!(check(&bookkeeper, Permission::ManageBilling).is_allowed());
+        for a in Action::ALL {
+            assert!(
+                check(
+                    &bookkeeper,
+                    Permission::Matrix {
+                        module: Module::Invoicing,
+                        action: a
+                    }
+                )
+                .is_allowed(),
+                "invoicing:{a:?} should be granted"
+            );
+        }
+        assert!(check(
+            &bookkeeper,
+            Permission::Matrix {
+                module: Module::Tickets,
+                action: Action::Create
+            }
+        )
+        .is_allowed()
+        .not());
+        assert!(check(
+            &bookkeeper,
+            Permission::Matrix {
+                module: Module::Tickets,
+                action: Action::Edit
+            }
+        )
+        .is_allowed()
+        .not());
+    }
+
+    /// The senior-tech preset: a strict super-set of Technician (minus new
+    /// grants the technician never had), with ticket close authority and
+    /// time approvals — but deliberately NO financial visibility.
+    #[test]
+    fn senior_tech_escalates_tickets_and_time_but_not_financials() {
+        let tech = BuiltinRole::Technician.permissions();
+        let senior = BuiltinRole::SeniorTech.permissions();
+        for p in &tech {
+            assert!(
+                senior.contains(p),
+                "senior tech must hold every technician grant ({})",
+                p.key()
+            );
+        }
+        assert!(check(
+            &senior,
+            Permission::Matrix {
+                module: Module::Tickets,
+                action: Action::Delete
+            }
+        )
+        .is_allowed());
+        assert!(check(
+            &senior,
+            Permission::Matrix {
+                module: Module::Tickets,
+                action: Action::Export
+            }
+        )
+        .is_allowed());
+        assert!(check(&senior, Permission::ApproveTime).is_allowed());
+        // The RB2 headline: no preset below owner/admin carries financial:read
+        // unless it is the bookkeeper.
+        assert!(check(&senior, Permission::ViewFinancials)
+            .is_allowed()
+            .not());
+        assert!(check(&tech, Permission::ViewFinancials).is_allowed().not());
+        assert!(check(
+            &BuiltinRole::Dispatcher.permissions(),
+            Permission::ViewFinancials
+        )
+        .is_allowed()
+        .not());
+    }
+
+    /// The shipped preset roster is exactly the eight ADR-0004 roles and
+    /// every one parses from its storage spelling (round-trip).
+    #[test]
+    fn preset_roster_is_pinned_and_round_trips() {
+        assert_eq!(BuiltinRole::PRESETS.len(), 8);
+        for role in BuiltinRole::PRESETS {
+            assert_eq!(BuiltinRole::parse_preset(role.as_str()), Some(role));
+        }
+        assert_eq!(
+            BuiltinRole::parse_preset("Senior Tech"),
+            Some(BuiltinRole::SeniorTech)
+        );
+        assert_eq!(BuiltinRole::parse_preset("nope"), None);
+    }
+
+    /// `financial:read` is its own wire key (ADR 0004 RB2) — not a
+    /// `special:` name, so custom roles address it like a matrix grant.
+    #[test]
+    fn financial_permission_carries_the_financial_read_key() {
+        assert_eq!(Permission::ViewFinancials.key(), "financial:read");
+    }
+
+    // --- RB1 portal tier roster -------------------------------------------
+
+    /// The portal tier matrix rendered by the roles surface must agree
+    /// with the enforcement entry point for EVERY tier × capability cell.
+    #[test]
+    fn portal_tier_registry_agrees_with_enforcement() {
+        use crate::entities::PortalRole;
+        for tier in [
+            PortalRole::Contact,
+            PortalRole::Approver,
+            PortalRole::ItManager,
+        ] {
+            for action in PortalAction::ALL {
+                let enforced = check_portal(tier, action).is_allowed();
+                let registry = portal_tier_allows(tier, action);
+                assert_eq!(
+                    enforced, registry,
+                    "portal registry drift: {tier:?} × {action:?}"
+                );
+            }
+        }
+    }
+
+    /// The two lower tiers never widen to in-house updates, whatever the
+    /// registry refactor does (pinning the v1 invariant at the matrix).
+    #[test]
+    fn portal_it_manager_widening_stays_exact() {
+        use crate::entities::PortalRole;
+        assert!(portal_tier_allows(
+            PortalRole::ItManager,
+            PortalAction::ViewInHouseUpdates
+        ));
+        assert!(portal_tier_allows(PortalRole::Contact, PortalAction::ViewInHouseUpdates).not());
+        assert!(portal_tier_allows(PortalRole::Approver, PortalAction::ViewInHouseUpdates).not());
     }
 
     trait Not {

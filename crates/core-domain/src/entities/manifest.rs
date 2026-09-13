@@ -94,6 +94,32 @@ pub struct ManifestSections {
     /// so a migration touching those constructs transforms the rows in the
     /// same transaction (§4.5).
     pub client_workflow_overrides: Vec<ManifestClientWorkflowOverride>,
+    /// Role rows (Wave 13 lane 6, RB1 — ADR 0004: role rows are
+    /// customizations-as-data covered by U5/U6 like any other section).
+    /// This section is the ORG-OWNED rows only: custom roles and forked
+    /// copies (including forked presets with their origin tag). Shipped
+    /// preset rows are default state, not customization — they stay
+    /// canonical and restorable, so the preflight sees no drift.
+    pub roles: Vec<ManifestRole>,
+}
+
+/// One org-owned role row of the manifest (a custom role or a forked copy).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ManifestRole {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub id: uuid::Uuid,
+    pub name: String,
+    /// Shipped preset tag, `null` for org-created roles.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>, nullable = true))]
+    pub builtin: Option<String>,
+    pub is_system: bool,
+    /// Fork origin preset tag, `null` unless the row is a forked copy.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>, nullable = true))]
+    pub forked_from: Option<String>,
+    /// The full matrix vocabulary (`{"matrix": {"module", "action"}}`
+    /// entries plus bare special strings) — verbatim for the preflight.
+    pub permissions: serde_json::Value,
 }
 
 /// The two classification trees of one org.

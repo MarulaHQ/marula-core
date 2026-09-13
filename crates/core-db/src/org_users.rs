@@ -36,9 +36,7 @@ pub struct OrgUserEntry {
 const DIRECTORY_COLS: &str = "u.id, u.org_id, u.email, u.display_name, u.is_active, u.created_at, \
      (SELECT r.builtin FROM user_roles ur JOIN roles r ON r.id = ur.role_id \
       WHERE ur.user_id = u.id AND r.builtin IS NOT NULL \
-      ORDER BY CASE r.builtin \
-        WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 WHEN 'dispatcher' THEN 2 \
-        WHEN 'technician' THEN 3 ELSE 4 END \
+      ORDER BY preset_builtin_precedence(r.builtin) \
       LIMIT 1) AS org_role";
 
 fn entry_from_row(row: sqlx::postgres::PgRow) -> DbResult<OrgUserEntry> {
@@ -272,10 +270,8 @@ pub async fn set_builtin_role(
 ) -> DbResult<Option<String>> {
     let previous: Option<String> = sqlx::query_scalar(
         "SELECT r.builtin FROM user_roles ur JOIN roles r ON r.id = ur.role_id \
-         WHERE ur.user_id = $1 AND r.org_id = $2 AND r.builtin IS NOT NULL \
-         ORDER BY CASE r.builtin \
-           WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 WHEN 'dispatcher' THEN 2 \
-           WHEN 'technician' THEN 3 ELSE 4 END \
+          WHERE ur.user_id = $1 AND r.org_id = $2 AND r.builtin IS NOT NULL \
+          ORDER BY preset_builtin_precedence(r.builtin) \
          LIMIT 1",
     )
     .bind(user_id)

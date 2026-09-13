@@ -58,6 +58,7 @@ pub mod quotes;
 pub mod recurring;
 pub mod report_defs;
 pub mod report_schedules;
+pub mod roles;
 pub mod scheduling;
 pub mod scheduling_links;
 pub mod search;

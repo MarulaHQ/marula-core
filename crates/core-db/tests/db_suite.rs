@@ -196,15 +196,10 @@ async fn org_registration_seeds_default_roles_board_and_sla_policy() {
         "fresh org starts at sequence base"
     );
 
-    // Five system builtin roles, keyed for assignment.
-    assert_eq!(s.roles.len(), 5);
-    for builtin in [
-        BuiltinRole::Owner,
-        BuiltinRole::Admin,
-        BuiltinRole::Dispatcher,
-        BuiltinRole::Technician,
-        BuiltinRole::ReadOnly,
-    ] {
+    // Eight system preset roles (RB1, ADR 0004 — migration 0071 roster),
+    // keyed for assignment.
+    assert_eq!(s.roles.len(), 8);
+    for builtin in BuiltinRole::PRESETS {
         assert!(
             s.roles.contains_key(builtin.as_str()),
             "missing {:?}",

@@ -134,8 +134,68 @@ pub struct ArchiveCatalogItemRequest {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct CatalogItemMutationResponse {
     #[serde(flatten)]
-    pub item: CatalogItem,
+    pub item: CatalogItemView,
     pub mutation: instant::MutationMeta,
+}
+
+/// RB2 (ADR 0004): a catalog item as the CALLER may see it. `unit_price`
+/// is the commercial surface; `cost_minor` (and the gross margin derived
+/// from it) is financial data — it serializes `null` for callers without
+/// `financial:read` (dispatchers and technicians by default), which is
+/// the "those values render blank" rule. The write trail keeps full
+/// fidelity server-side; only client-facing views redact.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CatalogItemView {
+    #[schema(value_type = uuid::Uuid)]
+    pub id: Uuid,
+    #[schema(value_type = uuid::Uuid)]
+    pub org_id: Uuid,
+    pub name: String,
+    #[schema(nullable = true)]
+    pub sku: Option<String>,
+    #[schema(nullable = true)]
+    pub description: Option<String>,
+    pub unit: String,
+    pub currency: String,
+    pub unit_price_minor: i64,
+    /// `null` without `financial:read` (RB2, ADR 0004).
+    #[schema(nullable = true)]
+    pub cost_minor: Option<i64>,
+    pub taxable: bool,
+    #[schema(nullable = true)]
+    pub category: Option<String>,
+    #[schema(nullable = true)]
+    pub group_name: Option<String>,
+    pub active: bool,
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub created_by: Option<Uuid>,
+    #[schema(value_type = String)]
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    #[schema(value_type = String)]
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl CatalogItemView {
+    fn view(item: CatalogItem, financial: bool) -> Self {
+        Self {
+            id: item.id,
+            org_id: item.org_id,
+            name: item.name,
+            sku: item.sku,
+            description: item.description,
+            unit: item.unit,
+            currency: item.currency,
+            unit_price_minor: item.unit_price_minor,
+            cost_minor: financial.then_some(item.cost_minor),
+            taxable: item.taxable,
+            category: item.category,
+            group_name: item.group_name,
+            active: item.active,
+            created_by: item.created_by,
+            created_at: item.created_at,
+            updated_at: item.updated_at,
+        }
+    }
 }
 
 // --- handlers ---------------------------------------------------------------
@@ -148,13 +208,13 @@ pub struct CatalogItemMutationResponse {
     tag = "commercial",
     security(("bearer" = [])),
     params(CatalogListQuery),
-    responses((status = 200, body = [CatalogItem]))
+    responses((status = 200, body = [CatalogItemView]))
 )]
 pub async fn list(
     State(state): State<AppState>,
     extensions: Extensions,
     Query(q): Query<CatalogListQuery>,
-) -> ApiResult<Json<Vec<CatalogItem>>> {
+) -> ApiResult<Json<Vec<CatalogItemView>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::View))?;
     let filters = core_db::catalog::CatalogItemFilters {
@@ -171,13 +231,19 @@ pub async fn list(
     )
     .await
     .map_err(ApiError::from)?;
+    let financial =
+        core_domain::policy::check(&authed.principal.permissions, Permission::ViewFinancials)
+            .is_allowed();
     let items = core_db::catalog::list_catalog_items(
         &mut *tx,
         authed.principal.user.org_id,
         &filters,
         LIST_LIMIT,
     )
-    .await?;
+    .await?
+    .into_iter()
+    .map(|item| CatalogItemView::view(item, financial))
+    .collect();
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(items))
 }
@@ -191,7 +257,7 @@ pub async fn list(
     security(("bearer" = [])),
     params(("id" = Uuid, Path)),
     responses(
-        (status = 200, body = CatalogItem),
+        (status = 200, body = CatalogItemView),
         (status = 404, description = "not visible in scope")
     )
 )]
@@ -199,7 +265,7 @@ pub async fn get_one(
     State(state): State<AppState>,
     extensions: Extensions,
     Path(id): Path<Uuid>,
-) -> ApiResult<Json<CatalogItem>> {
+) -> ApiResult<Json<CatalogItemView>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::View))?;
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
@@ -210,11 +276,14 @@ pub async fn get_one(
     )
     .await
     .map_err(ApiError::from)?;
+    let financial =
+        core_domain::policy::check(&authed.principal.permissions, Permission::ViewFinancials)
+            .is_allowed();
     let item = core_db::catalog::get_catalog_item(&mut *tx, authed.principal.user.org_id, id)
         .await
         .map_err(ApiError::from)?;
     tx.commit().await.map_err(ApiError::from)?;
-    Ok(Json(item))
+    Ok(Json(CatalogItemView::view(item, financial)))
 }
 
 /// POST /api/catalog-items — create through the instant-first write path.
@@ -259,6 +328,9 @@ pub async fn create(
         updated_at: chrono::Utc::now(),
     };
     item.validate().map_err(ApiError::from)?;
+    let financial =
+        core_domain::policy::check(&authed.principal.permissions, Permission::ViewFinancials)
+            .is_allowed();
     let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
     let key = req.instant.idempotency_key.clone();
 
@@ -334,7 +406,10 @@ pub async fn create(
         .await?;
         Ok((
             ctx,
-            MutationOutcome::Applied(CatalogItemMutationResponse { item, mutation }),
+            MutationOutcome::Applied(CatalogItemMutationResponse {
+                item: CatalogItemView::view(item, financial),
+                mutation,
+            }),
         ))
     })
     .await?;
@@ -368,6 +443,9 @@ pub async fn update(
     require_permission(&authed.principal, commercial(Action::Edit))?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
+    let financial =
+        core_domain::policy::check(&authed.principal.permissions, Permission::ViewFinancials)
+            .is_allowed();
     let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
     let key = req.instant.idempotency_key.clone();
 
@@ -483,7 +561,7 @@ pub async fn update(
         Ok((
             ctx,
             MutationOutcome::Applied(CatalogItemMutationResponse {
-                item: after,
+                item: CatalogItemView::view(after, financial),
                 mutation,
             }),
         ))
@@ -519,6 +597,9 @@ pub async fn archive(
     require_permission(&authed.principal, commercial(Action::Edit))?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
+    let financial =
+        core_domain::policy::check(&authed.principal.permissions, Permission::ViewFinancials)
+            .is_allowed();
     let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
     let key = req.instant.idempotency_key.clone();
 
@@ -596,7 +677,7 @@ pub async fn archive(
         Ok((
             ctx,
             MutationOutcome::Applied(CatalogItemMutationResponse {
-                item: after,
+                item: CatalogItemView::view(after, financial),
                 mutation,
             }),
         ))

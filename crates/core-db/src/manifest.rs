@@ -28,7 +28,7 @@ use core_domain::entities::manifest::{
     CustomizationManifest, ManifestApiKey, ManifestAutomationRule, ManifestBoard,
     ManifestBoardStatus, ManifestClientWorkflowOverride, ManifestCustomField,
     ManifestEscalationStep, ManifestReportDefinition, ManifestSections, ManifestSetting,
-    ManifestSla, ManifestSlaCalendar, ManifestSlaPolicy, ManifestTaxonomy,
+    ManifestSla, ManifestSlaCalendar, ManifestSlaPolicy, ManifestRole, ManifestTaxonomy,
     ManifestTaxonomyCategory, ManifestTaxonomyType, ManifestTransition, ManifestWebhook,
 };
 use core_domain::status::TicketStatusCategory;
@@ -63,6 +63,7 @@ pub async fn load_customization_manifest(
         report_definitions: load_report_definitions(&mut *conn, org_id).await?,
         taxonomy: load_taxonomy(&mut *conn, org_id).await?,
         client_workflow_overrides: load_client_workflow_overrides(&mut *conn, org_id).await?,
+        roles: load_roles(&mut *conn, org_id).await?,
     };
     Ok(CustomizationManifest {
         manifest_version: MANIFEST_VERSION,
@@ -545,5 +546,34 @@ async fn load_client_workflow_overrides(
     out.sort_by(|a, b| {
         (&a.client_name, &a.key, a.client_id).cmp(&(&b.client_name, &b.key, b.client_id))
     });
+    Ok(out)
+}
+
+// --- roles (Wave 13 lane 6, RB1) --------------------------------------------------
+
+/// ORG-OWNED role rows only: custom roles and forked copies. Shipped
+/// preset rows are default state (canonical + restorable), never
+/// customization, so the preflight sees no preset drift here.
+async fn load_roles(conn: &mut PgConnection, org_id: Uuid) -> DbResult<Vec<ManifestRole>> {
+    let rows = sqlx::query!(
+        r#"SELECT id, name, builtin, is_system, forked_from, permissions
+           FROM roles
+           WHERE org_id = $1 AND NOT (is_system AND builtin IS NOT NULL)"#,
+        org_id
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut out: Vec<ManifestRole> = rows
+        .into_iter()
+        .map(|r| ManifestRole {
+            id: r.id,
+            name: r.name,
+            builtin: r.builtin,
+            is_system: r.is_system,
+            forked_from: r.forked_from,
+            permissions: r.permissions,
+        })
+        .collect();
+    out.sort_by(|a, b| (&a.name, a.id).cmp(&(&b.name, b.id)));
     Ok(out)
 }
