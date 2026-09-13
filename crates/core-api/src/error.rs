@@ -16,6 +16,7 @@
 //! `org_slug_taken`, `edge_source_unknown`, `edge_assertion_invalid`, `edge_identity_unlinked`, `user_email_taken`, `role_name_taken`,
 //! `sku_taken`, `quote_number_taken`, `stage_name_taken`,
 //! `category_name_taken`, `settings_key_taken`, `alert_source_ref_taken`,
+//! `calendar_sync_connection_name_taken`,
 //! `already_seeded`, `version_conflict`, `idempotency_key_reused`,
 //! `pre_close_checklist_blocked`, `dispatch_move_conflict`,
 //! `import_chunk_rejected`,
@@ -285,6 +286,11 @@ fn map_unique_constraint(constraint: &str) -> Option<(&'static str, &'static str
         "uq_time_entry_approval_seq" => Some((
             "time_entry_approval_conflict",
             "this approval decision conflicts with one recorded at the same moment",
+        )),
+        // Wave 14 lane 2 (two-way calendar sync).
+        "calendar_sync_connections_org_id_user_id_name_key" => Some((
+            "calendar_sync_connection_name_taken",
+            "a calendar-sync connection with this name already exists for this user",
         )),
         _ => None,
     }
@@ -708,6 +714,7 @@ mod tests {
             "uq_ticket_categories_child_name",
             "settings_key_unique",
             "idx_alert_sources_ref",
+            "calendar_sync_connections_org_id_user_id_name_key",
         ];
         let mut seen = std::collections::HashSet::new();
         for constraint in known {
@@ -719,8 +726,8 @@ mod tests {
         }
         // The two taxonomy constraints deliberately SHARE one reason code
         // (`category_name_taken` — root-name and child-name collisions are
-        // the same UX problem), so 10 constraints map to 9 distinct codes.
-        assert_eq!(seen.len(), 9, "unexpected reason-code fan-out: {seen:?}");
+        // the same UX problem), so 11 constraints map to 10 distinct codes.
+        assert_eq!(seen.len(), 10, "unexpected reason-code fan-out: {seen:?}");
         assert_eq!(
             map_unique_constraint("uq_ticket_categories_root_name").map(|(k, _)| k),
             map_unique_constraint("uq_ticket_categories_child_name").map(|(k, _)| k)

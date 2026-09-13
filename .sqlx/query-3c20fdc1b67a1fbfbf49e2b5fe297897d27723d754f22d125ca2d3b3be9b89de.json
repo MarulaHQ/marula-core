@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE calendar_sync_events SET exclusion_id = NULL\n             WHERE org_id = $1 AND connection_id = $2 AND external_uid = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3c20fdc1b67a1fbfbf49e2b5fe297897d27723d754f22d125ca2d3b3be9b89de"
+}

@@ -441,7 +441,8 @@ use core_domain::events::{
     AppointmentUpdated, AttachmentAdded, AttachmentDeleted, AttachmentLinked, AvailabilityChanged,
     BoardFavoriteToggled, BoardGroupCreated, BoardGroupRemoved, BoardGroupUpdated,
     BoardMembershipRemoved, BoardMembershipUpdated, BoardStatusAdded, BoardStatusRemoved,
-    BoardStatusUpdated, BoardTransitionsUpdated, CalendarExclusionChanged, CatalogItemArchived,
+    BoardStatusUpdated, BoardTransitionsUpdated, CalendarExclusionChanged,
+    CalendarSyncCompleted, CalendarSyncConnectionUpdated, CatalogItemArchived,
     CatalogItemCreated, CatalogItemUpdated, ClientCreated, ClientUpdated,
     ClientWorkflowOverrideCleared, ClientWorkflowOverrideSet, ConfigItemCreated,
     ConfigItemMergeUndone, ConfigItemMerged, ConfigItemUpdated, ContactCreated, ContactUpdated,
@@ -1841,6 +1842,44 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
         shape: typed_shape!(
             CalendarExclusionChanged,
             CalendarExclusionChanged { user_id: su(4) }
+        ),
+    },
+    // -- two-way calendar sync (Wave 14 lane 2) --------------------------------
+    // (The raw outbound feed token never appears in any event — only its
+    // SHA-256 hash is stored.)
+    PublishedEvent {
+        event_type: types::CALENDAR_SYNC_CONNECTION_UPDATED,
+        entity: "calendar_sync_connection",
+        variant: "default",
+        shape: typed_shape!(
+            CalendarSyncConnectionUpdated,
+            CalendarSyncConnectionUpdated {
+                connection_id: su(49),
+                user_id: su(4),
+                provider: "ical".into(),
+                direction: "two_way".into(),
+                status: "active".into(),
+                last_error: None,
+                occurred_at: st(16),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::CALENDAR_SYNC_COMPLETED,
+        entity: "calendar_sync_connection",
+        variant: "default",
+        shape: typed_shape!(
+            CalendarSyncCompleted,
+            CalendarSyncCompleted {
+                connection_id: su(49),
+                user_id: su(4),
+                imported: 3,
+                updated: 1,
+                released: 2,
+                overlaps: 1,
+                duplicates: 0,
+                synced_at: st(17),
+            }
         ),
     },
     // -- attachments ----------------------------------------------------------

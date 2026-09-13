@@ -1,0 +1,16 @@
+{
+  "event_type": "calendar.sync_connection_updated",
+  "entity": "calendar_sync_connection",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "connection_id": "00000000-0000-0000-0000-000000000031",
+    "direction": "two_way",
+    "last_error": null,
+    "occurred_at": "2023-11-14T22:13:36Z",
+    "provider": "ical",
+    "status": "active",
+    "user_id": "00000000-0000-0000-0000-000000000004"
+  }
+}

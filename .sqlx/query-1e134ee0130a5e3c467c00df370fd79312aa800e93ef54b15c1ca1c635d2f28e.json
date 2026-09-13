@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE calendar_sync_connections SET feed_token_hash = $3, updated_at = now()\n         WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1e134ee0130a5e3c467c00df370fd79312aa800e93ef54b15c1ca1c635d2f28e"
+}

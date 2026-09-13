@@ -25,6 +25,7 @@ name = "dump-openapi"
 path = "src/bin/dump_openapi.rs"
 
 [dependencies]
+async-trait = { workspace = true }
 core-db = { path = "../core-db" }
 core-domain = { path = "../core-domain", features = ["openapi"] }
 core-billing = { path = "../core-billing" }

@@ -1115,6 +1115,13 @@ async fn member_free(
             .into_iter()
             .map(|b| (b.starts_at, b.ends_at)),
     );
+    // External busy time (two-way calendar sync, Wave 14 lane 2): the
+    // same book-time double-check as portal bookings — synced busy time
+    // is just more busy time to the availability math.
+    busy.extend(
+        core_db::calendar_sync::list_busy_spans_between(&mut *tx, org_id, user_id, from, to)
+            .await?,
+    );
     let exclusions: Vec<CalendarExclusion> =
         core_db::scheduling::list_calendar_exclusions_for_users_between(
             &mut *tx, org_id, &ids, from, to,
@@ -1309,6 +1316,17 @@ pub async fn public_book(
                 .await?
                 .into_iter()
                 .map(|b| (b.starts_at, b.ends_at)),
+            );
+            // External busy time counts here too — the same gate.
+            busy.extend(
+                core_db::calendar_sync::list_busy_spans_between(
+                    &mut *tx.tx,
+                    org_id,
+                    user_id,
+                    busy_span_start,
+                    busy_span_end,
+                )
+                .await?,
             );
             if core_domain::scheduling::conflict_indices(
                 busy_span_start,

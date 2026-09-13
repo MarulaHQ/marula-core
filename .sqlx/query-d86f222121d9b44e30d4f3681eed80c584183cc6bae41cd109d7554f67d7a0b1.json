@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE calendar_sync_events SET sequence = $3, title = $4, starts_at = $5,\n                     ends_at = $6, exclusion_id = $7, last_seen_at = now()\n                 WHERE org_id = $1 AND connection_id = $2 AND external_uid = $8",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int4",
+        "Text",
+        "Timestamptz",
+        "Timestamptz",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d86f222121d9b44e30d4f3681eed80c584183cc6bae41cd109d7554f67d7a0b1"
+}

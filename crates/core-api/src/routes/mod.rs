@@ -50,6 +50,7 @@ pub mod board_access;
 pub mod boards;
 pub mod byok;
 pub mod calendar;
+pub mod calendar_sync;
 pub mod catalog;
 pub mod checklists;
 pub mod clients;
@@ -365,7 +366,10 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // Scheduling links (Wave 11 lane 4): unauthenticated, token-
         // scoped public booking surface; the handler resolves the org
         // scope itself (alerts pattern).
-        .merge(scheduling_links::public_routes(gen));
+        .merge(scheduling_links::public_routes(gen))
+        // Calendar sync (Wave 14 lane 2): the unauthenticated, token-
+        // scoped OUTBOUND feed — the external calendar subscribes to it.
+        .merge(calendar_sync::public_routes(gen));
 
     let protected = Router::new()
         .route(&rp("/me"), get(auth_handlers::me))
@@ -1059,6 +1063,28 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/scheduling/conflict-check"),
             post(scheduling::conflict_check),
+        )
+        // Two-way calendar sync (Wave 14 lane 2)
+        .route(
+            &rp("/calendar-sync"),
+            get(calendar_sync::list_connections).post(calendar_sync::create_connection),
+        )
+        .route(
+            &rp("/calendar-sync/{id}"),
+            axum::routing::patch(calendar_sync::update_connection)
+                .delete(calendar_sync::delete_connection),
+        )
+        .route(
+            &rp("/calendar-sync/{id}/rotate-token"),
+            post(calendar_sync::rotate_token),
+        )
+        .route(
+            &rp("/calendar-sync/{id}/sync"),
+            post(calendar_sync::run_sync),
+        )
+        .route(
+            &rp("/calendar-sync/{id}/events"),
+            get(calendar_sync::list_events),
         )
         .route(&rp("/calendar/day"), get(calendar::calendar_day))
         .route(&rp("/calendar/week"), get(calendar::calendar_week))

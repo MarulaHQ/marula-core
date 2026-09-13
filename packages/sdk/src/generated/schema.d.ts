@@ -1643,6 +1643,133 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/calendar-sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/calendar-sync — the caller's (or target user's) connections. */
+        get: operations["calendar_sync_list"];
+        put?: never;
+        /**
+         * POST /api/calendar-sync — create a connection. Outbound-capable
+         *     directions get a feed token generated immediately (returned once).
+         */
+        post: operations["calendar_sync_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/calendar-sync/feed/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/calendar-sync/feed/{token} — the OUTBOUND direction: the
+         *     user's live appointments as a subscribable iCalendar document.
+         *     Unauthenticated but token-scoped and rate-limited (the scheduling-links
+         *     pattern); the token resolves org + user, then the read is org-scoped.
+         */
+        get: operations["public_calendar_sync_feed"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/calendar-sync/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/calendar-sync/{id} — the connection, its mirror rows, and
+         *     the exclusion rows the sync owns all go away (external busy time
+         *     frees the calendar).
+         */
+        delete: operations["calendar_sync_delete"];
+        options?: never;
+        head?: never;
+        /** PATCH /api/calendar-sync/{id} — edit name/direction/feed_url/status. */
+        patch: operations["calendar_sync_update"];
+        trace?: never;
+    };
+    "/api/v1/calendar-sync/{id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/calendar-sync/{id}/events — the inbound mirror (the
+         *     conflict/duplicate surface Wave 14 lane 7 renders).
+         */
+        get: operations["calendar_sync_events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/calendar-sync/{id}/rotate-token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/calendar-sync/{id}/rotate-token — invalidates the old
+         *     outbound feed URL and returns the new raw token once.
+         */
+        post: operations["calendar_sync_rotate_token"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/calendar-sync/{id}/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/calendar-sync/{id}/sync — poll now (manual trigger; the
+         *     worker lane calls the same seam on its schedule). Network fetch
+         *     happens OUTSIDE the transaction; the apply + poll-state record + event
+         *     emission run inside ONE org transaction.
+         */
+        post: operations["calendar_sync_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/calendar/day": {
         parameters: {
             query?: never;
@@ -8418,6 +8545,84 @@ export interface components {
             /** Format: uuid */
             user_id: string;
         };
+        /** @description One external-calendar connection for one user's calendar. */
+        CalendarSyncConnection: {
+            /** Format: date-time */
+            created_at: string;
+            direction: components["schemas"]["CalendarSyncDirection"];
+            /**
+             * @description Outbound: relative feed path clients render against the API
+             *     origin; the raw token itself is never readable again.
+             */
+            feed_path?: string | null;
+            /** @description Inbound: the external iCal URL the provider polls. */
+            feed_url?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** @description Last poll failure message (fixed provider-side copy, no internals). */
+            last_error?: string | null;
+            /**
+             * Format: date-time
+             * @description RFC 3339 timestamp of the last successful poll.
+             */
+            last_synced_at?: string | null;
+            name: string;
+            /** Format: uuid */
+            org_id: string;
+            /** @description The provider seam discriminator ('ical' is the first-party provider). */
+            provider: string;
+            status: components["schemas"]["CalendarSyncStatus"];
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: uuid */
+            user_id: string;
+        };
+        /**
+         * @description What a connection does: `outbound` serves the org's appointments to
+         *     the external calendar (private token-scoped iCal feed), `inbound`
+         *     polls the external feed for busy time, `two_way` does both.
+         * @enum {string}
+         */
+        CalendarSyncDirection: "outbound" | "inbound" | "two_way";
+        /**
+         * @description The inbound mirror of one external event. `exclusion_id` names the
+         *     `calendar_exclusions` row the event currently feeds into the 2.12
+         *     availability foundation (NULL while not busy — cancelled or transparent).
+         */
+        CalendarSyncEvent: {
+            /** Format: uuid */
+            connection_id: string;
+            /** Format: date-time */
+            ends_at: string;
+            /** Format: uuid */
+            exclusion_id?: string | null;
+            /** @description The external event's UID — the duplicate key per connection. */
+            external_uid: string;
+            /** Format: date-time */
+            first_seen_at: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            last_seen_at: string;
+            /** Format: uuid */
+            org_id: string;
+            /**
+             * Format: int32
+             * @description Highest external sequence wins on re-poll.
+             */
+            sequence: number;
+            /** Format: date-time */
+            starts_at: string;
+            title?: string | null;
+            /** Format: uuid */
+            user_id: string;
+        };
+        /**
+         * @description Connection health: `error` records the last poll failure while the
+         *     connection stays configured; writes resume when a poll succeeds.
+         * @enum {string}
+         */
+        CalendarSyncStatus: "active" | "error" | "disabled";
         CalendarViewResponse: {
             /** @description Present on personal views only (templates are per-user). */
             availability_windows: components["schemas"]["AvailabilityWindow"][];
@@ -8922,6 +9127,15 @@ export interface components {
             starts_at: string;
             title: string;
         };
+        ConnectionView: {
+            /** Format: uuid */
+            connection: string;
+            /**
+             * @description The raw outbound feed token — returned ONLY here (creation) and
+             *     by the rotate endpoint. Never readable again afterwards.
+             */
+            feed_token?: string | null;
+        };
         /** @description One booking as the connector sees it. */
         ConnectorAppointment: {
             /** Format: uuid */
@@ -9334,6 +9548,21 @@ export interface components {
         CreateClientRequest: components["schemas"]["MutationParams"] & {
             name: string;
             notes?: string | null;
+        };
+        CreateConnectionRequest: {
+            /** @description `outbound` | `inbound` | `two_way`. */
+            direction: string;
+            /** @description Required for inbound/two_way: the external iCal URL to poll. */
+            feed_url?: string | null;
+            name: string;
+            /** @description Provider discriminator; 'ical' is the only one today. */
+            provider?: string;
+            /**
+             * Format: uuid
+             * @description Whose calendar. Defaults to the caller; another user requires
+             *     owner/admin.
+             */
+            user_id?: string | null;
         };
         CreateContactRequest: {
             email?: string | null;
@@ -10704,6 +10933,11 @@ export interface components {
             step_index: number;
             /** @description 'risk' | 'breach' | 'escalate' — bound to existing notification kinds. */
             trigger_kind: string;
+        };
+        EventsListResponse: {
+            /** Format: uuid */
+            connection_id: string;
+            events: components["schemas"]["CalendarSyncEvent"][];
         };
         ExpenseMutationResponse: {
             expense: components["schemas"]["TicketExpense"];
@@ -15133,6 +15367,28 @@ export interface components {
         SubmitResponse: components["schemas"]["TimeEntry"];
         /** @description POST /api/dispatch/travel-drafts/{id}/submit body. */
         SubmitTravelDraftRequest: components["schemas"]["MutationParams"];
+        SyncForceQuery: {
+            /** @description Force a poll even when the connection is disabled (admin repair). */
+            force?: boolean;
+        };
+        SyncOutcomeResponse: {
+            /** Format: uuid */
+            connection_id: string;
+            /** @description The apply counters, wire-shaped (SyncOutcome is an internal struct). */
+            outcome: components["schemas"]["SyncOutcomeWire"];
+        };
+        SyncOutcomeWire: {
+            /** Format: int64 */
+            duplicates: number;
+            /** Format: int64 */
+            imported: number;
+            /** Format: int64 */
+            overlaps: number;
+            /** Format: int64 */
+            released: number;
+            /** Format: int64 */
+            updated: number;
+        };
         /** @description An org-wide tag: a flat named label with an optional display color. */
         Tag: {
             color?: string | null;
@@ -16088,6 +16344,14 @@ export interface components {
             name?: string | null;
             /** Format: int32 */
             position?: number | null;
+        };
+        UpdateConnectionRequest: {
+            /** @description `outbound` | `inbound` | `two_way`. */
+            direction?: string | null;
+            feed_url?: string | null;
+            name?: string | null;
+            /** @description `active` | `disabled` | `error`. */
+            status?: string | null;
         };
         UpdateCostLineRequest: components["schemas"]["MutationParams"] & {
             billable?: boolean | null;
@@ -19404,6 +19668,231 @@ export interface operations {
                 content?: never;
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    calendar_sync_list: {
+        parameters: {
+            query?: {
+                /** @description Whose windows. Defaults to the caller; another user requires owner/admin. */
+                user_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarSyncConnection"][];
+                };
+            };
+        };
+    };
+    calendar_sync_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateConnectionRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionView"];
+                };
+            };
+        };
+    };
+    public_calendar_sync_feed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/calendar": string;
+                };
+            };
+            /** @description unknown token */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    calendar_sync_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    calendar_sync_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateConnectionRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarSyncConnection"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    calendar_sync_events: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventsListResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    calendar_sync_rotate_token: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionView"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    calendar_sync_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                /** @description Force a poll even when the connection is disabled (admin repair). */
+                force: boolean;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncOutcomeResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description external calendar unreachable/unreadable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

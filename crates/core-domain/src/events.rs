@@ -210,6 +210,14 @@ pub mod types {
     pub const SCHEDULING_LINK_VIEWED: &str = "scheduling_link.viewed";
     pub const SCHEDULING_LINK_SCHEDULED: &str = "scheduling_link.scheduled";
     pub const SCHEDULING_LINK_REVOKED: &str = "scheduling_link.revoked";
+    /// Two-way calendar sync (Wave 14 lane 2). Connection lifecycle (a
+    /// connection was created/updated/disabled or a poll failed →
+    /// `status: "error"`), and the outcome of one inbound sync run
+    /// (import counters + the overlaps the conflict rule reports). The
+    /// raw outbound feed token NEVER appears in any event — only its
+    /// SHA-256 hash is stored.
+    pub const CALENDAR_SYNC_CONNECTION_UPDATED: &str = "calendar.sync_connection_updated";
+    pub const CALENDAR_SYNC_COMPLETED: &str = "calendar.sync_completed";
     /// Attachments (TASKLIST 2.14): added on upload/extraction, linked
     /// when bound to a comment, deleted when a row (and possibly its
     /// content-addressed object) goes away.
@@ -981,6 +989,46 @@ pub struct OnCallChanged {
 pub struct CalendarExclusionChanged {
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub user_id: crate::ids::UserId,
+}
+
+/// `calendar.sync_connection_updated` — a calendar-sync connection was
+/// created, updated, disabled, or its last poll failed (`status: "error"`
+/// with `last_error` set). Carries the connection's identity and health;
+/// the outbound feed token never appears here.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct CalendarSyncConnectionUpdated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub connection_id: crate::ids::CalendarSyncConnectionId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub user_id: crate::ids::UserId,
+    pub provider: String,
+    /// `outbound` | `inbound` | `two_way`.
+    pub direction: String,
+    /// `active` | `error` | `disabled`.
+    pub status: String,
+    pub last_error: Option<String>,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// `calendar.sync_completed` — one inbound sync run finished: how much
+/// busy time was imported/updated/released and how many overlaps the
+/// conflict rule reported (overlaps are surfaced, never blocked).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct CalendarSyncCompleted {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub connection_id: crate::ids::CalendarSyncConnectionId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub user_id: crate::ids::UserId,
+    pub imported: i64,
+    pub updated: i64,
+    pub released: i64,
+    pub overlaps: i64,
+    pub duplicates: i64,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub synced_at: DateTime<Utc>,
 }
 
 // --- projects line (TASKLIST Phase 3, migration 0030) ------------------------

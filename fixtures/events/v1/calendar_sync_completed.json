@@ -1,0 +1,17 @@
+{
+  "event_type": "calendar.sync_completed",
+  "entity": "calendar_sync_connection",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "connection_id": "00000000-0000-0000-0000-000000000031",
+    "duplicates": 0,
+    "imported": 3,
+    "overlaps": 1,
+    "released": 2,
+    "synced_at": "2023-11-14T22:13:37Z",
+    "updated": 1,
+    "user_id": "00000000-0000-0000-0000-000000000004"
+  }
+}

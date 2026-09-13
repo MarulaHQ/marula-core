@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE calendar_sync_connections SET\n             name = COALESCE($3, name),\n             direction = COALESCE($4::text::calendar_sync_direction, direction),\n             feed_url = CASE WHEN $5 THEN $6 ELSE feed_url END,\n             status = COALESCE($7::text::calendar_sync_status, status),\n             updated_at = now()\n           WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Bool",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c62dd7a893de6a3074f907f44692ac15cd96382ee7c033b70218596e810adc89"
+}

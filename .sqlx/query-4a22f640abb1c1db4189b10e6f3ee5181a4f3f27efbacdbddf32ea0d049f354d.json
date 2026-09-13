@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE calendar_sync_connections SET\n             sync_token = COALESCE($3, sync_token),\n             status = CASE WHEN $4 THEN 'active'::calendar_sync_status\n                           ELSE 'error'::calendar_sync_status END,\n             last_error = $5,\n             last_synced_at = CASE WHEN $4 THEN $6 ELSE last_synced_at END,\n             updated_at = now()\n           WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Bool",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4a22f640abb1c1db4189b10e6f3ee5181a4f3f27efbacdbddf32ea0d049f354d"
+}

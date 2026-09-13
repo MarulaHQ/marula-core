@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*)::bigint AS \"n!\" FROM calendar_sync_events e\n           JOIN appointments a ON a.org_id = e.org_id AND a.user_id = e.user_id\n             AND a.status <> 'cancelled'\n             AND a.starts_at < e.ends_at AND e.starts_at < a.ends_at\n           WHERE e.org_id = $1 AND e.connection_id = $2 AND e.exclusion_id IS NOT NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "d83e2c40514d74b104eb86b9e39ecb35a26558f1a11c4a15f0a88eeaed44edbd"
+}

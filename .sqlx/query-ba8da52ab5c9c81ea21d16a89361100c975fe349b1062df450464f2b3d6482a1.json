@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM calendar_sync_events WHERE org_id = $1 AND connection_id = $2\n                 AND external_uid = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ba8da52ab5c9c81ea21d16a89361100c975fe349b1062df450464f2b3d6482a1"
+}

@@ -46,6 +46,10 @@ pub type PasswordId = Uuid;
 pub type PasswordHistoryId = Uuid;
 pub type ContractId = Uuid;
 pub type AppointmentId = Uuid;
+/// A calendar-sync connection (Wave 14 lane 2).
+pub type CalendarSyncConnectionId = Uuid;
+/// One mirrored external calendar event.
+pub type CalendarSyncEventId = Uuid;
 pub type CalendarId = Uuid;
 pub type ProjectId = Uuid;
 pub type PhaseId = Uuid;
