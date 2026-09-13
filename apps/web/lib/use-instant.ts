@@ -72,8 +72,10 @@ export function useInstantCollection<T>(
 }
 
 /**
- * Refcounted subscription to socket channels for this view (e.g.
- * `board:<id>`, `user:<me>`, `org:<org>`). Empty arrays are ignored so
+ * Refcounted live-leg subscription for this view. The SSE stream is
+ * org-wide — one connection serves every channel a view used to pick
+ * individually (board:<id>, user:<id>, org:<id>), so any non-empty
+ * subscription keeps the org stream open. Empty arrays are ignored so
  * pages can await ids discovered by hydration.
  */
 export function useInstantChannels(channels: string[]): void {
@@ -81,10 +83,8 @@ export function useInstantChannels(channels: string[]): void {
   const joined = channels.filter((c) => c !== "").sort().join("|");
   useEffect(() => {
     if (joined === "") return;
-    const offs = joined.split("|").map((c) => runtime.socket.subscribe(c));
-    return () => {
-      for (const off of offs) off();
-    };
+    const off = runtime.stream.subscribeOrg();
+    return off;
   }, [runtime, joined]);
 }
 
@@ -157,37 +157,43 @@ export function useOutbox(): OutboxState {
   return state;
 }
 
-/** Connection health for the recovery banner (Wave 13 lane 2).
+/** Connection health for the recovery banner (Wave 13 lane 2 + lane 9).
  *
- * Reports `{ status, online, pending }` — `status` from the instant
- * socket's live leg, `online` from the browser's network state, `pending`
- * the durable queue depth. Components decide what to show from this trio;
- * the socket only connects once something subscribes, so pages without
- * instant channels naturally report a quiet `closed` here. */
+ * Reports `{ status, online, pending, resyncing }` — `status` from the
+ * SSE stream's live leg, `online` from the browser's network state,
+ * `pending` the durable queue depth, `resyncing` true while a reconnect
+ * with a Last-Event-ID cursor is rehydrating caches past the replay
+ * buffer (a brief honest "catching up", never an error). The stream only
+ * connects once something subscribes, so pages without instant channels
+ * naturally report a quiet `closed` here. */
 export function useConnectionState(): {
   status: "connecting" | "open" | "closed";
   online: boolean;
   pending: number;
+  resyncing: boolean;
 } {
   const runtime = instantRuntime();
   const [status, setStatus] = useState<"connecting" | "open" | "closed">(
-    () => runtime.socket.statusNow(),
+    () => runtime.stream.statusNow(),
   );
+  const [resyncing, setResyncing] = useState(() => runtime.stream.resyncingNow());
   const [online, setOnline] = useState(() =>
     typeof navigator === "undefined" ? true : navigator.onLine,
   );
   const { pending } = useOutbox();
   useEffect(() => {
-    const offStatus = runtime.socket.onStatus(setStatus);
+    const offStatus = runtime.stream.onStatus(setStatus);
+    const offResync = runtime.stream.onResyncing(setResyncing);
     const goOnline = () => setOnline(true);
     const goOffline = () => setOnline(false);
     window.addEventListener("online", goOnline);
     window.addEventListener("offline", goOffline);
     return () => {
       offStatus();
+      offResync();
       window.removeEventListener("online", goOnline);
       window.removeEventListener("offline", goOffline);
     };
   }, [runtime]);
-  return { status, online, pending };
+  return { status, online, pending, resyncing };
 }

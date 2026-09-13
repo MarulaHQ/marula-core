@@ -58,6 +58,15 @@ interface Entry {
   dirtyAgain: boolean;
 }
 
+/** Bounded identity LRU: at-least-once delivery (org + ticket scope
+ * overlap, Last-Event-ID replay racing live frames) dedupes by frame
+ * identity instead of revalidating twice. */
+const DEDUPE_CAPACITY = 256;
+
+function frameKey(event: InstantEvent): string {
+  return `${event.type}|${event.entity}|${event.entity_id ?? ""}|${event.seq ?? ""}|${event.occurred_at}`;
+}
+
 export class InstantStore {
   readonly ledger = new EntityLedger();
   private readonly entries = new Map<string, Entry>();
@@ -138,12 +147,51 @@ export class InstantStore {
 
   /** Routes one live event to interested collections as a delta. */
   applyEvent(event: InstantEvent): void {
+    const key = frameKey(event);
+    if (this.recentFrames.has(key)) return;
+    this.recentFrames.add(key);
+    if (this.recentFrames.size > DEDUPE_CAPACITY) {
+      const oldest = this.recentOrder.shift();
+      if (oldest !== undefined) this.recentFrames.delete(oldest);
+    }
+    this.recentOrder.push(key);
     for (const [key, entry] of this.entries) {
       if (!entry.hydrated) continue;
       if (!entry.spec.relevant(event)) continue;
       entry.queuedEvents.push(event);
       this.scheduleDrain(key, entry);
     }
+  }
+
+  private readonly recentFrames = new Set<string>();
+  private readonly recentOrder: string[] = [];
+
+  /**
+   * The reconnect fallback sweep (instant-first live leg): re-snapshots
+   * every HYDRATED collection once. Used when a stream reconnect carried
+   * a Last-Event-ID cursor — replay covers the bounded gap, and past the
+   * replay buffer this sweep is the documented recovery; the seq ledger
+   * makes the two mutually idempotent. Never-hydrated entries stay put
+   * (their first `ensure` will fetch fresh anyway).
+   */
+  async rehydrateAll(): Promise<void> {
+    const sweeps: Promise<unknown>[] = [];
+    for (const entry of this.entries.values()) {
+      if (!entry.hydrated || entry.inflight !== null) continue;
+      entry.inflight = entry.spec
+        .hydrate()
+        .then((data) => {
+          if (entry.hydrated) {
+            entry.data = data;
+            this.notify();
+          }
+        })
+        .finally(() => {
+          entry.inflight = null;
+        });
+      sweeps.push(entry.inflight);
+    }
+    await Promise.all(sweeps);
   }
 
   /**

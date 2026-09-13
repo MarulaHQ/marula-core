@@ -48,15 +48,15 @@ describe("ConnectionBanner", () => {
   });
 
   it("reports reconnecting when the live leg is down but the queue is empty", () => {
-    // No channels and no queue: the banner stays quiet (socket not in use).
+    // No channels and no queue: the banner stays quiet (stream not in use).
     const quiet = render(<ConnectionBanner />);
     expect(quiet.container.textContent).toBe("");
     quiet.unmount();
-    // Simulate a lost wire after use: a channel subscriber plus seeded
+    // Simulate a lost wire after use: a live-leg subscriber plus seeded
     // tokens puts the live leg into its connecting/reconnecting state.
     seedAuthTokens();
     const runtime = instantRuntime();
-    const off = runtime.socket.subscribe("board:b1");
+    const off = runtime.stream.subscribeOrg();
     render(<ConnectionBanner />);
     expect(screen.getByText("Reconnecting…")).toBeTruthy();
     off();

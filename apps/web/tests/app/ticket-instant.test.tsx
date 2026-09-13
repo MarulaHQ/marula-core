@@ -18,24 +18,6 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({ id: TICKET_ID }),
 }));
 
-class FakeWebSocket {
-  static instances: FakeWebSocket[] = [];
-  url: string;
-  sent: string[] = [];
-  constructor(url: string) {
-    this.url = url;
-    FakeWebSocket.instances.push(this);
-  }
-  send(data: string) {
-    this.sent.push(data);
-  }
-  close() {}
-  addEventListener() {}
-  removeEventListener() {}
-  onopen: unknown = null;
-  onclose: unknown = null;
-  onmessage: unknown = null;
-}
 
 const BOARD_ID = "00000000-0000-4000-8000-00000000b001";
 const TICKET_ID = "00000000-0000-4000-8000-00000000t001";
@@ -94,6 +76,7 @@ function setupApi() {
   mock.on("GET", `/api/v1/tickets/${TICKET_ID}/sla`, () => ({ json: null }));
   mock.on("GET", `/api/v1/tickets/${TICKET_ID}/attachments`, () => ({ json: [] }));
   mock.on("GET", "/api/v1/tickets/my-work", () => ({ json: [] }));
+  mock.on("POST", "/api/v1/presence/heartbeat", () => ({ json: { viewers: [] } }));
   mock.on("GET", `/api/v1/boards/${BOARD_ID}/statuses`, () => ({
     json: [
       { id: STATUS_NEW, board_id: BOARD_ID, name: "New", category: "open", sort_order: 0 },
@@ -182,8 +165,6 @@ function page() {
 beforeEach(() => {
   window.localStorage.clear();
   seedAuthTokens();
-  vi.stubGlobal("WebSocket", FakeWebSocket);
-  FakeWebSocket.instances = [];
   __resetInstantRuntimeForTests();
 });
 
@@ -261,10 +242,11 @@ describe("/tickets/[id] — optimistic writes with authoritative reconcile", () 
     fireEvent.click(screen.getByTestId("ticket-status-change"));
     fireEvent.click(within(screen.getByRole("menu")).getByRole("button", { name: "New" }));
     // The optimistic render flipped, then the typed rejection reverted it.
+    // version_conflict surfaces as reconcile copy (lane 9), never a toast.
     await waitFor(() => {
       expect(
         screen.getAllByRole("alert").map((el) => el.textContent ?? "").join("\n"),
-      ).toContain("That status change is not allowed by this board's workflow");
+      ).toContain("Someone else updated this while you were editing");
     });
     // Status bar agrees on the authoritative (unchanged) status.
     await waitFor(() => {

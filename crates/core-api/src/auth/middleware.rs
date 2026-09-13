@@ -123,13 +123,35 @@ pub async fn require_auth(
         return Ok(next.run(request).await);
     }
 
-    let token = request
-        .headers()
-        .get(AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .ok_or_else(|| ApiError::Unauthorized("missing bearer token".into()))?
-        .to_string();
+    // SSE browser clients (native EventSource) cannot set request
+    // headers, so the events stream accepts `?token=` as a fallback —
+    // the same posture as the /ws upgrade (crates/realtime ws.rs).
+    // Scoped to the stream path only: every other endpoint keeps
+    // header-only auth so tokens never leak into URLs/ logs elsewhere.
+    let query_token = if request.uri().path() == "/api/events/stream" {
+        request
+            .uri()
+            .query()
+            .and_then(|q| {
+                q.split('&').find_map(|pair| {
+                    let (k, v) = pair.split_once('=')?;
+                    (k == "token").then(|| v.to_string())
+                })
+            })
+            .filter(|v| !v.is_empty())
+    } else {
+        None
+    };
+    let token = query_token
+        .or_else(|| {
+            request
+                .headers()
+                .get(AUTHORIZATION)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.strip_prefix("Bearer "))
+                .map(|v| v.to_string())
+        })
+        .ok_or_else(|| ApiError::Unauthorized("missing bearer token".into()))?;
 
     let claims = crate::auth::jwt::verify_access_token(&state.config, &token)
         .ok_or_else(|| ApiError::Unauthorized("invalid or expired token".into()))?;

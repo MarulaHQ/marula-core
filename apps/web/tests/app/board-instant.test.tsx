@@ -1,5 +1,6 @@
 // Board page through the instant layer: hydrate-once (IF4), deltas over
-// the board channel (IF5), no loading flash on known data.
+// the org-wide SSE stream (IF5, Wave 13 lane 9), no loading flash on
+// known data.
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { AuthProvider } from "../../lib/api";
@@ -17,24 +18,6 @@ vi.mock("next/navigation", () => ({
 
 // Never-connecting socket stand-in: page tests drive events through the
 // runtime's test seam instead of a live wire.
-class FakeWebSocket {
-  static instances: FakeWebSocket[] = [];
-  url: string;
-  sent: string[] = [];
-  constructor(url: string) {
-    this.url = url;
-    FakeWebSocket.instances.push(this);
-  }
-  send(data: string) {
-    this.sent.push(data);
-  }
-  close() {}
-  addEventListener() {}
-  removeEventListener() {}
-  onopen: unknown = null;
-  onclose: unknown = null;
-  onmessage: unknown = null;
-}
 
 const BOARD_ID = "00000000-0000-4000-8000-00000000b001";
 const TICKET_A = {
@@ -84,8 +67,6 @@ function page() {
 beforeEach(() => {
   window.localStorage.clear();
   seedAuthTokens();
-  vi.stubGlobal("WebSocket", FakeWebSocket);
-  FakeWebSocket.instances = [];
   __resetInstantRuntimeForTests();
 });
 
@@ -111,7 +92,7 @@ describe("/boards/[id] — instant read model", () => {
     expect(mock.callsTo("GET", `/api/v1/boards/${BOARD_ID}/statuses`)).toHaveLength(1);
   });
 
-  it("applies a board-channel ticket event as a per-ticket delta", async () => {
+  it("applies an org-stream ticket event as a per-ticket delta", async () => {
     const mock = setupApi([TICKET_A]);
     const created = {
       ...TICKET_A,
@@ -128,20 +109,17 @@ describe("/boards/[id] — instant read model", () => {
     render(page());
     await screen.findByText("First ticket", {}, { timeout: 5000 });
 
-    // Deliver one wire frame as the hub would.
-    instantRuntime().socket.deliver(
+    // Deliver one SSE frame as the stream would (org-wide scope).
+    instantRuntime().stream.deliver(
       JSON.stringify({
-        type: "event",
-        channel: `board:${BOARD_ID}`,
-        event: {
-          id: "e1",
-          type: "ticket.created",
-          entity: "ticket",
-          entity_id: created.id,
-          occurred_at: "2026-08-30T10:00:00Z",
-          payload: { ticket_id: created.id, board_id: BOARD_ID },
-        },
+        type: "ticket.created",
+        org_id: ME_FIXTURE.org_id,
+        entity: "ticket",
+        entity_id: created.id,
+        seq: 2,
+        at: "2026-08-30T10:00:00Z",
       }),
+      null,
     );
 
     await waitFor(() => {
@@ -162,25 +140,16 @@ describe("/boards/[id] — instant read model", () => {
     render(page());
     await screen.findByText("First ticket", {}, { timeout: 5000 });
 
-    instantRuntime().socket.deliver(
+    instantRuntime().stream.deliver(
       JSON.stringify({
-        type: "event",
-        channel: `board:${BOARD_ID}`,
-        event: {
-          id: "e3",
-          type: "ticket.status_changed",
-          entity: "ticket",
-          entity_id: TICKET_A.id,
-          occurred_at: "2026-08-30T10:02:00Z",
-          payload: {
-            ticket_id: TICKET_A.id,
-            board_id: BOARD_ID,
-            assignee_id: ME_FIXTURE.user_id,
-            from_category: "open",
-            to_category: "in_progress",
-          },
-        },
+        type: "ticket.status_changed",
+        org_id: ME_FIXTURE.org_id,
+        entity: "ticket",
+        entity_id: TICKET_A.id,
+        seq: 3,
+        at: "2026-08-30T10:02:00Z",
       }),
+      null,
     );
 
     await waitFor(() => {
@@ -196,19 +165,15 @@ describe("/boards/[id] — instant read model", () => {
     render(page());
     await screen.findByText("First ticket", {}, { timeout: 5000 });
 
-    instantRuntime().socket.deliver(
+    instantRuntime().stream.deliver(
       JSON.stringify({
-        type: "event",
-        channel: `board:${BOARD_ID}`,
-        event: {
-          id: "e2",
-          type: "notification.created",
-          entity: "notification",
-          entity_id: "n1",
-          occurred_at: "2026-08-30T10:01:00Z",
-          payload: { user_id: ME_FIXTURE.user_id },
-        },
+        type: "notification.created",
+        org_id: ME_FIXTURE.org_id,
+        entity: "notification",
+        entity_id: "n1",
+        at: "2026-08-30T10:01:00Z",
       }),
+      null,
     );
     await new Promise((r) => setTimeout(r, 20));
     expect(mock.callsTo("GET", "/api/v1/tickets")).toHaveLength(1);

@@ -253,3 +253,30 @@ describe("InstantStore — seq-keyed mutation reconcile (IF5)", () => {
     expect(seen).toHaveLength(1);
   });
 });
+
+describe("InstantStore — at-least-once delivery dedupe + rehydrateAll (lane 9)", () => {
+  it("drops a duplicated frame identity (org + ticket scope overlap, replays)", async () => {
+    const store = new InstantStore();
+    const revalidate = vi.fn(async (data: { items: Row[] }) => data);
+    await store.ensure("k", listSpec(async () => ({ items: [] }), revalidate));
+    const frame = event({ seq: 7 });
+    store.applyEvent(frame);
+    store.applyEvent(event({ seq: 7, channel: "ticket:t1" }));
+    // A genuinely different frame still gets through.
+    store.applyEvent(event({ seq: 8 }));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(revalidate).toHaveBeenCalledTimes(2);
+  });
+
+  it("rehydrateAll() re-snapshots only hydrated collections once each", async () => {
+    const store = new InstantStore();
+    const hydrateA = vi.fn(async () => ({ items: [{ id: "t1", title: "A" }] }));
+    const hydrateB = vi.fn(async () => ({ items: [] }));
+    await store.ensure("a", listSpec(hydrateA));
+    // b's first hydrate is its `ensure` — the sweep must not re-run it.
+    void store.ensure("b", listSpec(hydrateB)).catch(() => undefined);
+    await store.rehydrateAll();
+    expect(hydrateA).toHaveBeenCalledTimes(2);
+    expect(hydrateB).toHaveBeenCalledTimes(1);
+  });
+});
