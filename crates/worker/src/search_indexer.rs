@@ -16,10 +16,13 @@
 //!
 //! Non-purpose: no embeddings/vector ranking (Stage 3 grows that behind
 //! the same sink seam), no backfills beyond live events, and no client-
-//! portal visibility rules (staff-only results for now).
+//! portal visibility rules (staff-only results; the KB article leg
+//! mirrors PUBLISHED articles only — portal exposure is the read-layer
+//! gate, drafts and archived articles stay out of the index entirely).
 
 use crate::config::WorkerConfig;
 use core_db::search::SearchKind;
+use core_domain::entities::KbArticleStatus;
 use core_events::{Envelope, EVENT_STREAM};
 use redis::streams::{StreamReadOptions, StreamReadReply};
 use redis::AsyncCommands;
@@ -242,13 +245,20 @@ pub async fn resolve_target(
         Target::Article(id) => {
             match or_gone(core_db::kb::get_article(pool, org_id, id).await).await? {
                 None => None,
-                Some(a) => Some(upsert_op(
+                // The index carries PUBLISHED articles only — the entity
+                // contract binds "searchable" to the published state
+                // (draft = staff authoring, archived = retired), so a
+                // draft or archived article drops its index entry here.
+                // Portal-facing gating is the article/category flag pair,
+                // enforced at the portal read layer (never in the index).
+                Some(a) if a.status == KbArticleStatus::Published => Some(upsert_op(
                     SearchKind::KbArticle,
                     id,
                     a.category_id,
                     a.title,
                     a.body,
                 )),
+                Some(_) => None,
             }
         }
         Target::Document(id) => {

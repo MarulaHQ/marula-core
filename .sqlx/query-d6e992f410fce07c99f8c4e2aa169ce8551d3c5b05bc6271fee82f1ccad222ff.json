@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE kb_external_documents\n           SET last_verified_at = $3, last_verified_status = $4, updated_at = now()\n           WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d6e992f410fce07c99f8c4e2aa169ce8551d3c5b05bc6271fee82f1ccad222ff"
+}

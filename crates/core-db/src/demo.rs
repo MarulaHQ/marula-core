@@ -1285,7 +1285,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         r#"INSERT INTO search_index (id, org_id, entity_kind, entity_id, parent_id, title, body)
            SELECT md5('kb' || k.id::text)::uuid, k.org_id, 'kb_article', k.id,
                   NULL, k.title, coalesce(k.body, '')
-           FROM kb_articles k WHERE k.org_id = $1
+           FROM kb_articles k WHERE k.org_id = $1 AND k.status = 'published'
            ON CONFLICT (org_id, entity_kind, entity_id) DO UPDATE SET
              title = EXCLUDED.title, body = EXCLUDED.body, indexed_at = now()"#,
         r#"INSERT INTO search_index (id, org_id, entity_kind, entity_id, parent_id, title, body)

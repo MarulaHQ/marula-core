@@ -1,0 +1,77 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT b.id, b.org_id, b.article_id, b.url, b.provider_id, b.provider_slug, b.title,\n                  b.created_by, b.created_at, b.updated_at\n           FROM kb_embeds b\n           JOIN kb_articles a ON a.id = b.article_id AND a.org_id = b.org_id\n           LEFT JOIN kb_categories c ON c.id = a.category_id AND c.org_id = a.org_id\n           WHERE b.org_id = $1 AND b.article_id = $2\n             AND a.status = 'published' AND a.client_visible\n             AND COALESCE(c.client_visible, false)\n             AND b.provider_id IS NOT NULL\n           ORDER BY b.created_at, b.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "article_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "provider_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "provider_slug",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "477a9d65dff6251d22e2d5d3bc15c916ec6651544f9af73f79cf905d08aef279"
+}

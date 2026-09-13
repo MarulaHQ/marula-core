@@ -17,6 +17,7 @@
 //! the crate owns rules, not storage or transport.
 
 pub mod import;
+pub mod rich;
 
 use core_domain::entities::{KbArticle, KbArticleStatus, KbCategory};
 

@@ -1,0 +1,89 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT e.id, e.org_id, e.article_id, e.title, e.url, e.url_kind, e.permission_note,\n                  e.last_verified_at, e.last_verified_status, e.created_by, e.created_at, e.updated_at\n           FROM kb_external_documents e\n           JOIN kb_articles a ON a.id = e.article_id AND a.org_id = e.org_id\n           LEFT JOIN kb_categories c ON c.id = a.category_id AND c.org_id = a.org_id\n           WHERE e.org_id = $1 AND e.article_id = $2\n             AND a.status = 'published' AND a.client_visible\n             AND COALESCE(c.client_visible, false)\n           ORDER BY e.created_at, e.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "article_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "url_kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "permission_note",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "last_verified_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "last_verified_status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 10,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 11,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "b847bd84df7b4a9f502048bd244220a44c167ea616c0edee6980cf75c9629c88"
+}

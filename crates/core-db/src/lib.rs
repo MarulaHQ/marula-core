@@ -40,6 +40,7 @@ pub mod fx;
 pub mod imports;
 pub mod invoices;
 pub mod kb;
+pub mod kb_rich;
 pub mod manifest;
 pub mod mfa;
 pub mod notifications;

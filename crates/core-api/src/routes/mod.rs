@@ -70,6 +70,7 @@ pub mod imports;
 pub mod internal;
 pub mod invoices;
 pub mod kb;
+pub mod kb_rich;
 pub mod manifest;
 pub mod notifications;
 pub mod oidc;
@@ -700,6 +701,41 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             get(kb::get_article)
                 .patch(kb::update_article)
                 .delete(kb::delete_article),
+        )
+        // KB rich content (Wave 13 lane 4, KB1/KB2): oEmbed allowlist
+        // registry + per-article embeds + linked external documents.
+        // Mutations instant-first; resolution goes through the registry
+        // only — raw arbitrary iframes are never allowed (ADR 0004).
+        .route(
+            &rp("/kb/embed-providers"),
+            get(kb_rich::list_providers).post(kb_rich::create_provider),
+        )
+        .route(
+            &rp("/kb/embed-providers/{id}"),
+            axum::routing::patch(kb_rich::update_provider).delete(kb_rich::delete_provider),
+        )
+        .route(&rp("/kb/embeds/resolve"), post(kb_rich::resolve_embed))
+        .route(
+            &rp("/kb/articles/{article_id}/embeds"),
+            get(kb_rich::list_embeds).post(kb_rich::create_embed),
+        )
+        .route(
+            &rp("/kb/embeds/{id}"),
+            axum::routing::delete(kb_rich::delete_embed),
+        )
+        .route(
+            &rp("/kb/external-documents"),
+            get(kb_rich::list_external_documents).post(kb_rich::create_external_document),
+        )
+        .route(
+            &rp("/kb/external-documents/{id}"),
+            get(kb_rich::get_external_document)
+                .patch(kb_rich::update_external_document)
+                .delete(kb_rich::delete_external_document),
+        )
+        .route(
+            &rp("/kb/external-documents/{id}/link-check"),
+            post(kb_rich::link_check_external_document),
         )
         // documents with immutable versions (TASKLIST D4): edits and
         // restores APPEND versions; instant-first mutations.

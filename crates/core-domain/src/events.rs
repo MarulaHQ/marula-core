@@ -214,6 +214,21 @@ pub mod types {
     pub const KB_ARTICLE_CREATED: &str = "kb_article.created";
     pub const KB_ARTICLE_UPDATED: &str = "kb_article.updated";
     pub const KB_ARTICLE_DELETED: &str = "kb_article.deleted";
+    /// KB rich content (Wave 13 lane 4, migration 0069; ADR 0004): the
+    /// oEmbed allowlist registry, per-article embed instances, and linked
+    /// external documents. Payloads ride the KB pattern (untyped additive
+    /// JSON; the row is the read model). `link_checked` records the
+    /// link-check outcome — the note/columns are data, never a side
+    /// effect of reads.
+    pub const KB_EMBED_PROVIDER_CREATED: &str = "kb_embed_provider.created";
+    pub const KB_EMBED_PROVIDER_UPDATED: &str = "kb_embed_provider.updated";
+    pub const KB_EMBED_PROVIDER_DELETED: &str = "kb_embed_provider.deleted";
+    pub const KB_EMBED_CREATED: &str = "kb_embed.created";
+    pub const KB_EMBED_DELETED: &str = "kb_embed.deleted";
+    pub const KB_EXTERNAL_DOCUMENT_CREATED: &str = "kb_external_document.created";
+    pub const KB_EXTERNAL_DOCUMENT_UPDATED: &str = "kb_external_document.updated";
+    pub const KB_EXTERNAL_DOCUMENT_DELETED: &str = "kb_external_document.deleted";
+    pub const KB_EXTERNAL_DOCUMENT_LINK_CHECKED: &str = "kb_external_document.link_checked";
     /// DocumentVersion entities (TASKLIST D4): content changes arrive as
     /// NEW versions (update/restore), so every one of these re-indexes the
     /// document's current version. Documents are never deleted in v1, so

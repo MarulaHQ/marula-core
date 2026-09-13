@@ -3087,6 +3087,120 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             })
         ),
     },
+    // -- KB rich content (Wave 13 lane 4, migration 0069; ADR 0004) --------
+    // oEmbed allowlist registry + embed instances + linked external
+    // documents. Untyped additive JSON (KB pattern): the row is the read
+    // model; payloads carry identity + the field the consumer most often
+    // needs without a fetch.
+    PublishedEvent {
+        event_type: types::KB_EMBED_PROVIDER_CREATED,
+        entity: "kb_embed_provider",
+        variant: "default",
+        shape: untyped_shape!(
+            ["provider_id", "slug", "is_system"],
+            serde_json::json!({
+                "provider_id": su(70),
+                "slug": "youtube",
+                "is_system": true,
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::KB_EMBED_PROVIDER_UPDATED,
+        entity: "kb_embed_provider",
+        variant: "default",
+        shape: untyped_shape!(
+            ["provider_id", "slug", "enabled"],
+            serde_json::json!({
+                "provider_id": su(70),
+                "slug": "youtube",
+                "enabled": false,
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::KB_EMBED_PROVIDER_DELETED,
+        entity: "kb_embed_provider",
+        variant: "default",
+        shape: untyped_shape!(
+            ["provider_id"],
+            serde_json::json!({
+                "provider_id": su(70),
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::KB_EMBED_CREATED,
+        entity: "kb_embed",
+        variant: "default",
+        shape: untyped_shape!(
+            ["embed_id", "article_id", "provider_slug"],
+            serde_json::json!({
+                "embed_id": su(71),
+                "article_id": su(21),
+                "provider_slug": "youtube",
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::KB_EMBED_DELETED,
+        entity: "kb_embed",
+        variant: "default",
+        shape: untyped_shape!(
+            ["embed_id", "article_id"],
+            serde_json::json!({
+                "embed_id": su(71),
+                "article_id": su(21),
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::KB_EXTERNAL_DOCUMENT_CREATED,
+        entity: "kb_external_document",
+        variant: "default",
+        shape: untyped_shape!(
+            ["external_document_id", "article_id", "url_kind"],
+            serde_json::json!({
+                "external_document_id": su(72),
+                "article_id": su(21),
+                "url_kind": "sharepoint",
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::KB_EXTERNAL_DOCUMENT_UPDATED,
+        entity: "kb_external_document",
+        variant: "default",
+        shape: untyped_shape!(
+            ["external_document_id"],
+            serde_json::json!({
+                "external_document_id": su(72),
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::KB_EXTERNAL_DOCUMENT_DELETED,
+        entity: "kb_external_document",
+        variant: "default",
+        shape: untyped_shape!(
+            ["external_document_id"],
+            serde_json::json!({
+                "external_document_id": su(72),
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::KB_EXTERNAL_DOCUMENT_LINK_CHECKED,
+        entity: "kb_external_document",
+        variant: "default",
+        shape: untyped_shape!(
+            ["external_document_id", "status"],
+            serde_json::json!({
+                "external_document_id": su(72),
+                "status": "ok",
+            })
+        ),
+    },
     // -- alert ingestor ------------------------------------------------------
     PublishedEvent {
         event_type: types::ALERT_INGESTED,

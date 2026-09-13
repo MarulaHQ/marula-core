@@ -8,6 +8,9 @@ license.workspace = true
 core-domain = { path = "../core-domain" }
 thiserror = { workspace = true }
 chrono = { workspace = true }
+regex = { workspace = true }
+url = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
+uuid = { workspace = true }

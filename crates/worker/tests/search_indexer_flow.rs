@@ -421,6 +421,110 @@ async fn kb_article_events_index_content_and_deleted_drops_it() {
     );
 }
 
+/// KB indexing visibility gate (Wave 13 lane 4): the unified index
+/// mirrors PUBLISHED articles only — a draft stays out, the publish flip
+/// mirrors it, and the archive flip drops the entry again (flush ⇒
+/// Delete).
+#[tokio::test]
+async fn draft_and_archived_articles_stay_out_of_the_index() {
+    let pool = test_pool().await;
+    let s = seed_org(&pool, 121).await;
+    let article = fixed_uuid(124);
+    let author = fixed_uuid(125);
+
+    let mut tx = org_tx(&pool, s.org).await;
+    core_db::users::create_user(
+        &mut *tx,
+        author,
+        s.org,
+        "gate-kb@acme.test",
+        "Gate Author",
+        "argon2hash",
+        "UTC",
+    )
+    .await
+    .expect("author insert");
+    let article = core_db::kb::create_article(
+        &mut *tx,
+        s.org,
+        article,
+        None,
+        "Draft runbook",
+        "draft-runbook",
+        "Work in progress.",
+        core_domain::entities::KbArticleStatus::Draft,
+        true,
+        author,
+    )
+    .await
+    .expect("article insert");
+    tx.commit().await.expect("commit");
+
+    // Draft: the resolver returns None, which flush() reads as the
+    // delete leg — a draft never enters the index.
+    assert!(resolve_target(&pool, s.org, Target::Article(article.id))
+        .await
+        .expect("ok")
+        .is_none());
+
+    // Publish flip → the same event stream re-resolves to an upsert.
+    {
+        let mut tx = org_tx(&pool, s.org).await;
+        core_db::kb::update_article(
+            &mut *tx,
+            s.org,
+            article.id,
+            &core_db::kb::ArticlePatch {
+                status: Some(core_domain::entities::KbArticleStatus::Published),
+                updated_by: Some(author),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("publish");
+        tx.commit().await.expect("commit");
+    }
+    let op = resolve_target(&pool, s.org, Target::Article(article.id))
+        .await
+        .expect("resolve ok")
+        .expect("published ⇒ upsert");
+    assert!(matches!(op, IndexOp::Upsert { .. }));
+
+    // Archived again → the index entry must be dropped.
+    {
+        let mut tx = org_tx(&pool, s.org).await;
+        core_db::kb::update_article(
+            &mut *tx,
+            s.org,
+            article.id,
+            &core_db::kb::ArticlePatch {
+                status: Some(core_domain::entities::KbArticleStatus::Archived),
+                updated_by: Some(author),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("archive");
+        tx.commit().await.expect("commit");
+    }
+    let target = Target::Article(article.id);
+    assert!(resolve_target(&pool, s.org, target.clone())
+        .await
+        .expect("ok")
+        .is_none());
+    let sink = RecordingSink::default();
+    flush(&pool, &sink, vec![(s.org, target)])
+        .await
+        .expect("flush");
+    assert_eq!(
+        sink.recorded()[0].1,
+        vec![IndexOp::Delete {
+            entity_kind: "kb_article".into(),
+            entity_id: article.id
+        }]
+    );
+}
+
 /// DocumentVersion entities (D4): document events index the CURRENT
 /// version's content — a new version re-resolves to refreshed content.
 #[tokio::test]
