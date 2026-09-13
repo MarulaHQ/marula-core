@@ -461,7 +461,8 @@ use core_domain::events::{
     TemplateCreated, TemplateRemoved, TemplateUpdated, TicketAssigned, TicketBoardMoved,
     TicketChecklistUpdated, TicketCommentAdded, TicketCostLineAdded, TicketCostLineRemoved,
     TicketCreated, TicketExpenseRecorded, TicketExpenseRemoved, TicketLinkChanged, TicketMerged,
-    TicketReverted, TicketStatusChanged, TicketTagsChanged, TimeEntryCreated, TimerPaused,
+    TicketReverted, TicketStatusChanged, TicketTagsChanged, TimeEntryApprovalApproved,
+    TimeEntryApprovalRejected, TimeEntryApprovalSubmitted, TimeEntryCreated, TimerPaused,
     TimerStarted, TimerStopped, TravelDraftSubmitted, UserActivated, UserDeactivated, UserInvited,
     UserRoleChanged,
 };
@@ -1306,8 +1307,53 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
                     notes: Some("On-site visit".into()),
                     work_type: Some("onsite".into()),
                     timer_session_id: Some(su(15)),
+                    approval_status: None,
+                    approval_reason_code: None,
                     created_at: st(6),
                 },
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::TIME_ENTRY_APPROVAL_SUBMITTED,
+        entity: "time_entry",
+        variant: "default",
+        shape: typed_shape!(
+            TimeEntryApprovalSubmitted,
+            TimeEntryApprovalSubmitted {
+                entry_id: su(17),
+                ticket_id: su(1),
+                entry_user_id: su(4),
+                submitted_by: su(4),
+                submitted_at: st(7),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::TIME_ENTRY_APPROVAL_APPROVED,
+        entity: "time_entry",
+        variant: "default",
+        shape: typed_shape!(
+            TimeEntryApprovalApproved,
+            TimeEntryApprovalApproved {
+                entry_id: su(17),
+                approved_by: su(2),
+                decided_at: st(8),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::TIME_ENTRY_APPROVAL_REJECTED,
+        entity: "time_entry",
+        variant: "default",
+        shape: typed_shape!(
+            TimeEntryApprovalRejected,
+            TimeEntryApprovalRejected {
+                entry_id: su(17),
+                rejected_by: su(2),
+                reason_code: "missing_notes".into(),
+                note: Some("add the ticket reference".into()),
+                decided_at: st(8),
             }
         ),
     },

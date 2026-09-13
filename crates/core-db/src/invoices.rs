@@ -794,11 +794,12 @@ pub struct UnbilledEntryRow {
     pub entry_date: chrono::NaiveDate,
 }
 
-/// Billable, NOT-YET-BILLED time entries for one client within the
-/// inclusive date window, ascending by start time. The `NOT EXISTS`
+/// Billable, APPROVED, NOT-YET-BILLED time entries for one client within
+/// the inclusive date window, ascending by start time. The `NOT EXISTS`
 /// against the consumption links makes double-billing an entry
 /// impossible even across overlapping runs and across contracts sharing
-/// a client.
+/// a client; the approval filter (Wave 14 lane 1) means only approved
+/// work reaches an invoice.
 pub async fn list_unbilled_entries<'e, E>(
     executor: E,
     org_id: Uuid,
@@ -815,6 +816,7 @@ where
            JOIN tickets t ON t.id = te.ticket_id
            WHERE te.org_id = $1 AND t.client_id = $2
              AND te.billable
+             AND te.approval_status = 'approved'
              AND te.started_at::date >= $3 AND te.started_at::date <= $4
              AND NOT EXISTS (
                  SELECT 1 FROM invoice_time_entries l WHERE l.time_entry_id = te.id)

@@ -1,0 +1,14 @@
+{
+  "event_type": "time_entry.approval_submitted",
+  "entity": "time_entry",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "entry_id": "00000000-0000-0000-0000-000000000011",
+    "entry_user_id": "00000000-0000-0000-0000-000000000004",
+    "submitted_at": "2023-11-14T22:13:27Z",
+    "submitted_by": "00000000-0000-0000-0000-000000000004",
+    "ticket_id": "00000000-0000-0000-0000-000000000001"
+  }
+}

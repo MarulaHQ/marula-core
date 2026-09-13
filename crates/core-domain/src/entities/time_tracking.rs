@@ -6,6 +6,7 @@ use crate::error::DomainError;
 use crate::ids::{OrgId, TicketId, TimeEntryId, TimerSessionId, UserId};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 /// Why a timer segment ended. Preserved forever — the pause reason is
 /// billable-work metadata, not a transient UI state.
@@ -46,6 +47,206 @@ impl TimerSegment {
     pub fn elapsed_secs(&self, now: DateTime<Utc>) -> i64 {
         let end = self.ended_at.unwrap_or(now);
         (end - self.started_at).num_seconds().max(0)
+    }
+}
+
+/// Approval lifecycle of a time entry (Wave 14 lane 1): `draft` entries
+/// are still being worked on, `submitted` waits in the approver queue,
+/// `approved` entries are the only ones billing reads may consume, and
+/// `rejected` entries carry a typed rejection reason until reopened.
+/// Entries consumed by an invoice are additionally LOCKED (enforced by
+/// the persistence layer) regardless of status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalStatus {
+    Draft,
+    Submitted,
+    Approved,
+    Rejected,
+}
+
+impl ApprovalStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            ApprovalStatus::Draft => "draft",
+            ApprovalStatus::Submitted => "submitted",
+            ApprovalStatus::Approved => "approved",
+            ApprovalStatus::Rejected => "rejected",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "draft" => ApprovalStatus::Draft,
+            "submitted" => ApprovalStatus::Submitted,
+            "approved" => ApprovalStatus::Approved,
+            "rejected" => ApprovalStatus::Rejected,
+            _ => return None,
+        })
+    }
+}
+
+/// Closed rejection vocabulary (Wave 14 lane 1): approvers reject with a
+/// machine-readable reason code, never prose-only. `other` may carry the
+/// free-text explanation on the decision record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum TimeRejectionReason {
+    MissingNotes,
+    WrongTicket,
+    IncorrectDuration,
+    DuplicateEntry,
+    NonBillableWork,
+    PolicyViolation,
+    Other,
+}
+
+impl TimeRejectionReason {
+    pub const ALL: &'static [TimeRejectionReason] = &[
+        TimeRejectionReason::MissingNotes,
+        TimeRejectionReason::WrongTicket,
+        TimeRejectionReason::IncorrectDuration,
+        TimeRejectionReason::DuplicateEntry,
+        TimeRejectionReason::NonBillableWork,
+        TimeRejectionReason::PolicyViolation,
+        TimeRejectionReason::Other,
+    ];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            TimeRejectionReason::MissingNotes => "missing_notes",
+            TimeRejectionReason::WrongTicket => "wrong_ticket",
+            TimeRejectionReason::IncorrectDuration => "incorrect_duration",
+            TimeRejectionReason::DuplicateEntry => "duplicate_entry",
+            TimeRejectionReason::NonBillableWork => "non_billable_work",
+            TimeRejectionReason::PolicyViolation => "policy_violation",
+            TimeRejectionReason::Other => "other",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        TimeRejectionReason::ALL
+            .iter()
+            .copied()
+            .find(|r| r.as_str() == s)
+    }
+}
+
+/// One approval-lifecycle transition, applied by
+/// [`TimeEntry::apply_approval_action`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApprovalAction {
+    Submit,
+    Approve,
+    Reject,
+    Reopen,
+}
+
+/// The audit-trail action of a [`TimeEntryApprovalRecord`] (append-only
+/// decision trail; differs from [`ApprovalAction`] in that it names the
+/// recorded past, not the requested transition).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum TimeApprovalAction {
+    Submitted,
+    Approved,
+    Rejected,
+    Reopened,
+}
+
+impl TimeApprovalAction {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            TimeApprovalAction::Submitted => "submitted",
+            TimeApprovalAction::Approved => "approved",
+            TimeApprovalAction::Rejected => "rejected",
+            TimeApprovalAction::Reopened => "reopened",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "submitted" => TimeApprovalAction::Submitted,
+            "approved" => TimeApprovalAction::Approved,
+            "rejected" => TimeApprovalAction::Rejected,
+            "reopened" => TimeApprovalAction::Reopened,
+            _ => return None,
+        })
+    }
+}
+
+/// One append-only approval decision (the audit row behind the queue's
+/// history view). `seq` is monotonic per entry — the client's ordering key.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TimeEntryApprovalRecord {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub id: Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub org_id: OrgId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub time_entry_id: TimeEntryId,
+    pub seq: i32,
+    pub action: TimeApprovalAction,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub actor_id: UserId,
+    /// Typed [`TimeRejectionReason`] wire code on rejections, else None.
+    pub reason_code: Option<String>,
+    pub note: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// A queue/history projection: the entry plus its approval metadata
+/// (who/when submitted, who/when decided).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TimeEntryQueueItem {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub entry: TimeEntry,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub submitted_by: Option<UserId>,
+    pub submitted_at: Option<DateTime<Utc>>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub decided_by: Option<UserId>,
+    pub decided_at: Option<DateTime<Utc>>,
+    /// True once the entry is consumed by an invoice — frozen forever.
+    pub locked: bool,
+}
+
+impl ApprovalStatus {
+    /// The pure approval state machine: draft → submitted → approved |
+    /// rejected → (reopen) → draft. Approved is terminal until an invoice
+    /// consumes the entry (the lock, enforced by the persistence layer).
+    pub fn transition(self, action: ApprovalAction) -> Result<ApprovalStatus, DomainError> {
+        use ApprovalAction::*;
+        let next = match (self, action) {
+            (ApprovalStatus::Draft, Submit) | (ApprovalStatus::Rejected, Submit) => {
+                ApprovalStatus::Submitted
+            }
+            (ApprovalStatus::Submitted, Approve) => ApprovalStatus::Approved,
+            (ApprovalStatus::Submitted, Reject) => ApprovalStatus::Rejected,
+            (ApprovalStatus::Rejected, Reopen) => ApprovalStatus::Draft,
+            (ApprovalStatus::Approved, _) => {
+                return Err(DomainError::Validation(
+                    "entry is approved and locked".into(),
+                ))
+            }
+            (ApprovalStatus::Submitted, ApprovalAction::Reopen)
+            | (ApprovalStatus::Draft, _)
+            | (ApprovalStatus::Submitted, ApprovalAction::Submit)
+            | (ApprovalStatus::Rejected, ApprovalAction::Approve)
+            | (ApprovalStatus::Rejected, ApprovalAction::Reject) => {
+                return Err(DomainError::Validation(format!(
+                    "cannot {:?} an entry in state {}",
+                    action,
+                    self.as_str()
+                )))
+            }
+        };
+        Ok(next)
     }
 }
 
@@ -194,6 +395,15 @@ pub struct TimeEntry {
     /// Origin: timer-derived entries keep their session for audit.
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub timer_session_id: Option<TimerSessionId>,
+    /// Approval lifecycle state. `None` on legacy snapshots (pre-approval
+    /// rows and old event payloads) and treated as [`ApprovalStatus::Draft`]
+    /// by the workflow; new writes always carry the status.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>))]
+    pub approval_status: Option<ApprovalStatus>,
+    /// Typed rejection reason (the [`TimeRejectionReason`] wire code) when
+    /// the entry was rejected; cleared on resubmit.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>))]
+    pub approval_reason_code: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -220,8 +430,45 @@ impl TimeEntry {
             notes,
             work_type: None,
             timer_session_id: Some(session.id),
+            approval_status: Some(ApprovalStatus::Draft),
+            approval_reason_code: None,
             created_at: now,
         })
+    }
+
+    /// The effective approval status: legacy `None` reads as draft.
+    pub fn approval(&self) -> ApprovalStatus {
+        self.approval_status.unwrap_or(ApprovalStatus::Draft)
+    }
+
+    /// Applies one approval transition to this entry, keeping the typed
+    /// rejection reason in sync (set on reject, cleared on submit/approve/
+    /// reopen). Pure — persistence and audit rows belong to the caller.
+    pub fn apply_approval_action(
+        &mut self,
+        action: ApprovalAction,
+        reason_code: Option<TimeRejectionReason>,
+    ) -> Result<ApprovalStatus, DomainError> {
+        if action == ApprovalAction::Reject && reason_code.is_none() {
+            return Err(DomainError::Validation(
+                "a rejection requires a typed reason code".into(),
+            ));
+        }
+        if let Some(code) = reason_code {
+            if action != ApprovalAction::Reject {
+                return Err(DomainError::Validation(
+                    "reason codes only apply to rejections".into(),
+                ));
+            }
+            let _ = code;
+        }
+        let next = self.approval().transition(action)?;
+        self.approval_status = Some(next);
+        self.approval_reason_code = match action {
+            ApprovalAction::Reject => reason_code.map(|c| c.as_str().to_string()),
+            _ => None,
+        };
+        Ok(next)
     }
 }
 
@@ -284,6 +531,93 @@ mod tests {
         s.stop(t0 + Duration::seconds(61), None).unwrap();
         let e = TimeEntry::from_session(&s, t0 + Duration::seconds(61), None, true).unwrap();
         assert_eq!(e.minutes, 2);
+    }
+
+    #[test]
+    fn approval_lifecycle_happy_path() {
+        let (t0, org, user, ticket) = base();
+        let mut s = TimerSession::start(org, user, ticket, t0);
+        s.stop(t0 + Duration::minutes(30), None).unwrap();
+        let mut e = TimeEntry::from_session(&s, t0 + Duration::minutes(30), None, true).unwrap();
+        assert_eq!(e.approval(), ApprovalStatus::Draft);
+        e.apply_approval_action(ApprovalAction::Submit, None)
+            .unwrap();
+        assert_eq!(e.approval(), ApprovalStatus::Submitted);
+        e.apply_approval_action(ApprovalAction::Approve, None)
+            .unwrap();
+        assert_eq!(e.approval(), ApprovalStatus::Approved);
+        // Approved is terminal — no further transition is legal.
+        assert!(e
+            .apply_approval_action(ApprovalAction::Submit, None)
+            .is_err());
+        assert!(e
+            .apply_approval_action(ApprovalAction::Reject, Some(TimeRejectionReason::Other))
+            .is_err());
+        assert!(e
+            .apply_approval_action(ApprovalAction::Reopen, None)
+            .is_err());
+    }
+
+    #[test]
+    fn rejection_requires_typed_reason_and_reopen_clears_it() {
+        let (t0, org, user, ticket) = base();
+        let mut s = TimerSession::start(org, user, ticket, t0);
+        s.stop(t0 + Duration::minutes(10), None).unwrap();
+        let mut e = TimeEntry::from_session(&s, t0 + Duration::minutes(10), None, true).unwrap();
+        e.apply_approval_action(ApprovalAction::Submit, None)
+            .unwrap();
+        // A rejection without a typed reason code is refused.
+        assert!(e
+            .apply_approval_action(ApprovalAction::Reject, None)
+            .is_err());
+        e.apply_approval_action(
+            ApprovalAction::Reject,
+            Some(TimeRejectionReason::MissingNotes),
+        )
+        .unwrap();
+        assert_eq!(e.approval(), ApprovalStatus::Rejected);
+        assert_eq!(e.approval_reason_code.as_deref(), Some("missing_notes"));
+        // Reason codes never ride non-rejection actions.
+        assert!(e
+            .apply_approval_action(ApprovalAction::Reopen, Some(TimeRejectionReason::Other))
+            .is_err());
+        e.apply_approval_action(ApprovalAction::Reopen, None)
+            .unwrap();
+        assert_eq!(e.approval(), ApprovalStatus::Draft);
+        assert!(e.approval_reason_code.is_none());
+    }
+
+    #[test]
+    fn rejected_entry_can_be_resubmitted_directly() {
+        let (t0, org, user, ticket) = base();
+        let mut s = TimerSession::start(org, user, ticket, t0);
+        s.stop(t0 + Duration::minutes(5), None).unwrap();
+        let mut e = TimeEntry::from_session(&s, t0 + Duration::minutes(5), None, true).unwrap();
+        e.apply_approval_action(ApprovalAction::Submit, None)
+            .unwrap();
+        e.apply_approval_action(
+            ApprovalAction::Reject,
+            Some(TimeRejectionReason::WrongTicket),
+        )
+        .unwrap();
+        e.apply_approval_action(ApprovalAction::Submit, None)
+            .unwrap();
+        assert_eq!(e.approval(), ApprovalStatus::Submitted);
+        assert!(e.approval_reason_code.is_none());
+    }
+
+    #[test]
+    fn rejection_reason_vocabulary_is_closed() {
+        assert_eq!(
+            TimeRejectionReason::parse("missing_notes"),
+            Some(TimeRejectionReason::MissingNotes)
+        );
+        assert_eq!(TimeRejectionReason::parse("nonsense"), None);
+        assert_eq!(
+            ApprovalStatus::parse("approved"),
+            Some(ApprovalStatus::Approved)
+        );
+        assert_eq!(ApprovalStatus::parse("approved "), None);
     }
 
     proptest! {

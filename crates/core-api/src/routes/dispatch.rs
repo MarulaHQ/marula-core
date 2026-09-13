@@ -2290,6 +2290,8 @@ pub async fn travel_draft_submit(
             draft.distance, draft.distance_unit, draft.vehicle
         );
         let entry = core_domain::entities::TimeEntry {
+            approval_status: Some(core_domain::entities::ApprovalStatus::Draft),
+            approval_reason_code: None,
             id: Uuid::now_v7(),
             org_id: ctx.org_id,
             ticket_id: draft.ticket_id,

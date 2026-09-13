@@ -1035,6 +1035,8 @@ fn new_family_projections_agree_between_incoming_and_stored() {
         work_type: Some("remote".into()),
     });
     let entry = TimeEntry {
+        approval_status: None,
+        approval_reason_code: None,
         id: Uuid::now_v7(),
         org_id: Uuid::now_v7(),
         ticket_id: Uuid::now_v7(),

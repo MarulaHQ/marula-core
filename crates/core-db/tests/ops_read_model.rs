@@ -327,6 +327,8 @@ async fn seed_org_with_tranche_data(app: &PgPool, n: u64) -> Seeded {
     timers::insert_time_entry(
         &mut *tx,
         &TimeEntry {
+            approval_status: None,
+            approval_reason_code: None,
             id: fixed_uuid(n + 6),
             org_id: org,
             ticket_id: ticket,

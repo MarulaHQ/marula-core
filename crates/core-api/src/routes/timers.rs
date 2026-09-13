@@ -542,6 +542,8 @@ pub async fn create_entry(
     }
 
     let entry = TimeEntry {
+        approval_status: Some(core_domain::entities::ApprovalStatus::Draft),
+        approval_reason_code: None,
         id: Uuid::now_v7(),
         org_id,
         ticket_id: req.ticket_id,

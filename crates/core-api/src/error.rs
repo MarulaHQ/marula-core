@@ -21,6 +21,7 @@
 //! `import_chunk_rejected`,
 //! `migration_cursor_mismatch`, `migration_chunk_reused`, `rate_limited`,
 //! `task_dependencies_unsatisfied`, `undo_reverts_only`,
+//! `time_entry_locked`,
 //! `service_unavailable`, `internal_error`.
 //!
 //! The vocabulary above IS the machine-readable reason-code registry
@@ -205,6 +206,15 @@ pub enum ApiError {
         /// Seconds until the current fixed window resets.
         retry_after_secs: i64,
     },
+    /// Typed 409 for a time-entry mutation the invoicing lock refuses
+    /// (Wave 14 lane 1): once an entry is consumed by an invoice it is
+    /// frozen — no submit, decide, reopen, or content edit. Carries the
+    /// entry id so the client can flag the exact blocked row.
+    #[error("time entry is locked by invoicing")]
+    TimeEntryLocked {
+        /// The locked entry.
+        entry_id: Uuid,
+    },
     #[error("internal error")]
     Internal(#[from] anyhow::Error),
 }
@@ -269,6 +279,12 @@ fn map_unique_constraint(constraint: &str) -> Option<(&'static str, &'static str
         "templates_org_id_kind_slug_key" => Some((
             "template_slug_taken",
             "a template with this slug already exists for this kind",
+        )),
+        // Wave 14 lane 1 (time approvals): a concurrent decision raced the
+        // per-entry seq assignment — the caller replays the decision.
+        "uq_time_entry_approval_seq" => Some((
+            "time_entry_approval_conflict",
+            "this approval decision conflicts with one recorded at the same moment",
         )),
         _ => None,
     }
@@ -468,6 +484,12 @@ impl IntoResponse for ApiError {
                 "service_unavailable",
                 m.clone(),
                 None,
+            ),
+            ApiError::TimeEntryLocked { entry_id } => (
+                StatusCode::CONFLICT,
+                "time_entry_locked",
+                "time entry is locked by invoicing; nothing may change it".to_string(),
+                Some(json!({ "entry_id": entry_id })),
             ),
             ApiError::Internal(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,

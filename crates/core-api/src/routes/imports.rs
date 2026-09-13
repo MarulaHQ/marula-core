@@ -1993,6 +1993,8 @@ async fn commit_insert(
                 .ended_at
                 .unwrap_or_else(|| entry.started_at + chrono::Duration::minutes(entry.minutes));
             let row = core_domain::entities::TimeEntry {
+                approval_status: Some(core_domain::entities::ApprovalStatus::Draft),
+                approval_reason_code: None,
                 id,
                 org_id,
                 ticket_id,

@@ -1,0 +1,14 @@
+{
+  "event_type": "time_entry.approval_rejected",
+  "entity": "time_entry",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "decided_at": "2023-11-14T22:13:28Z",
+    "entry_id": "00000000-0000-0000-0000-000000000011",
+    "note": "add the ticket reference",
+    "reason_code": "missing_notes",
+    "rejected_by": "00000000-0000-0000-0000-000000000002"
+  }
+}

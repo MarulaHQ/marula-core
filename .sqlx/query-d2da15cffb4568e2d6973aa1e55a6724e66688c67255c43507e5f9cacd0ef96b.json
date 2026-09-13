@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, org_id, ticket_id, user_id, started_at, ended_at, minutes, billable,\n                  notes, work_type, timer_session_id, created_at\n           FROM time_entries WHERE org_id = $1 AND id = $2",
+  "query": "SELECT id, org_id, ticket_id, user_id, started_at, ended_at, minutes, billable,\n                  notes, work_type, timer_session_id, approval_status, approval_reason_code,\n                  created_at\n           FROM time_entries WHERE org_id = $1 AND id = $2",
   "describe": {
     "columns": [
       {
@@ -60,6 +60,16 @@
       },
       {
         "ordinal": 11,
+        "name": "approval_status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "approval_reason_code",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
         "name": "created_at",
         "type_info": "Timestamptz"
       }
@@ -82,8 +92,10 @@
       true,
       true,
       true,
+      false,
+      true,
       false
     ]
   },
-  "hash": "baa5d3a244b46109a7e2408d87613defe97da9967429b69617a4559d9351b297"
+  "hash": "d2da15cffb4568e2d6973aa1e55a6724e66688c67255c43507e5f9cacd0ef96b"
 }

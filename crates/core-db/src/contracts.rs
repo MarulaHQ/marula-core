@@ -358,8 +358,11 @@ pub struct BillableEntryRow {
     pub entry_date: chrono::NaiveDate,
 }
 
-/// Billable time entries for one client within the inclusive date window,
-/// ascending by start time (the engine re-buckets deterministically).
+/// Billable, APPROVED time entries for one client within the inclusive
+/// date window, ascending by start time (the engine re-buckets
+/// deterministically). Approval state is carried into billing reads (Wave
+/// 14 lane 1): unapproved work is never priced, so previews match what an
+/// invoice run will actually bill.
 pub async fn list_billable_entries<'e, E>(
     executor: E,
     org_id: Uuid,
@@ -376,6 +379,7 @@ where
            JOIN tickets t ON t.id = te.ticket_id
            WHERE te.org_id = $1 AND t.client_id = $2
              AND te.billable
+             AND te.approval_status = 'approved'
              AND te.started_at::date >= $3 AND te.started_at::date <= $4
            ORDER BY te.started_at, te.id"#,
         org_id,

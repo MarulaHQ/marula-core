@@ -10,6 +10,7 @@
 
 pub mod agent_platform;
 pub mod alerting;
+pub mod approvals;
 pub mod assets;
 pub mod attachments;
 pub mod audit;
