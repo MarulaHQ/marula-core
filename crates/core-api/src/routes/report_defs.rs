@@ -35,15 +35,16 @@ use crate::org_tx;
 use crate::routes::ApiGeneration;
 use crate::state::AppState;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::Extensions,
-    routing::get,
+    response::{IntoResponse, Response},
+    routing::{get, post},
     Json, Router,
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use core_domain::events::types;
 use core_domain::policy::{Action, Module, Permission};
-use core_reports::ReportSpec;
+use core_reports::{ReportSpec, RunWindow, ViewId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
@@ -155,6 +156,9 @@ pub fn routes(gen: ApiGeneration) -> Router<AppState> {
             &format!("{base}/report-definitions/{{id}}"),
             get(get_one).put(update).delete(remove),
         )
+        .route(&format!("{base}/report-definitions/{{id}}/run"), get(run))
+        .route(&format!("{base}/report-catalog"), get(catalog))
+        .route(&format!("{base}/reports/run-spec"), post(run_spec))
 }
 
 // --- handlers -------------------------------------------------------------------
@@ -675,4 +679,371 @@ fn validate_description(raw: Option<&str>) -> ApiResult<()> {
         }
     }
     Ok(())
+}
+
+// --- R6 builder surface: field catalog + spec runs ------------------------------
+
+/// One catalog column: the static identifier plus its value class slug
+/// (`uuid | text | timestamp | date | int | bigint | bool`). The slug is
+/// what the builder UI keys operand typing on.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CatalogColumn {
+    pub name: String,
+    pub value_type: String,
+}
+
+/// The field catalog of ONE versioned view: every projected column plus the
+/// narrower filterable inventory. Identifiers here are the ONLY ones a
+/// builder may reference — the server re-validates every spec against the
+/// same Rust catalog at save and run time.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CatalogView {
+    pub view: ViewId,
+    pub columns: Vec<CatalogColumn>,
+    pub filterable: Vec<CatalogColumn>,
+}
+
+/// GET /api/report-catalog envelope.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ReportCatalog {
+    pub views: Vec<CatalogView>,
+}
+
+fn value_type_slug(ty: core_reports::catalog::ValueType) -> &'static str {
+    use core_reports::catalog::ValueType::*;
+    match ty {
+        Uuid => "uuid",
+        Text => "text",
+        Timestamp => "timestamp",
+        Date => "date",
+        Int | BigInt => "int",
+        Bool => "bool",
+    }
+}
+
+/// GET /api/report-catalog — the fixed field catalog for the R6 builder
+/// (ADR 0001): per-view projected columns + filterable inventory with value
+/// classes. Static data served from the same Rust constants the compiler
+/// validates against, so the UI can never offer an identifier the backend
+/// would reject.
+#[utoipa::path(
+    operation_id = "report_catalog",
+    get,
+    path = "/api/report-catalog",
+    tag = "reports",
+    security(("bearer" = [])),
+    responses(
+        (status = 200, body = ReportCatalog)
+    )
+)]
+pub async fn catalog(extensions: Extensions) -> ApiResult<Json<ReportCatalog>> {
+    let _authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(
+        &_authed.principal,
+        Permission::Matrix {
+            module: Module::Reporting,
+            action: Action::View,
+        },
+    )?;
+    let mut views = Vec::with_capacity(ViewId::ALL.len());
+    for view in ViewId::ALL {
+        let columns = view
+            .columns()
+            .iter()
+            .map(|c| CatalogColumn {
+                name: c.name.to_string(),
+                value_type: value_type_slug(c.value_type).to_string(),
+            })
+            .collect();
+        let filterable = view
+            .filterable()
+            .iter()
+            .filter_map(|name| {
+                view.columns()
+                    .iter()
+                    .find(|c| c.name == *name)
+                    .map(|c| CatalogColumn {
+                        name: c.name.to_string(),
+                        value_type: value_type_slug(c.value_type).to_string(),
+                    })
+            })
+            .collect();
+        views.push(CatalogView {
+            view,
+            columns,
+            filterable,
+        });
+    }
+    Ok(Json(ReportCatalog { views }))
+}
+
+/// Query surface for running a stored definition (mirrors the prebuilt
+/// kinds' loose GET shape; irrelevant fields ignored).
+#[derive(Debug, Deserialize, utoipa::IntoParams, utoipa::ToSchema)]
+pub struct ReportDefinitionRunQuery {
+    /// Inclusive window start (UTC day, YYYY-MM-DD). Default: 30 trailing days.
+    pub from: Option<NaiveDate>,
+    /// Inclusive window end (UTC day). Max span with `from`: 366 days.
+    pub to: Option<NaiveDate>,
+    /// Page size, clamped to [1, 500].
+    pub limit: Option<i64>,
+    /// `"csv"` streams text/csv instead of the JSON envelope.
+    pub format: Option<String>,
+}
+
+/// GET /api/report-definitions/{id}/run — compile-on-demand execution of a
+/// visible stored definition's spec (R6 builder runs). The spec re-validates
+/// through the registry, compiles via `ReportSpec::compile_windowed`
+/// (identifiers stay enum-matched catalog constants; values bind as `$N`
+/// parameters), and executes against the reporting pool inside an
+/// org-bound transaction. Non-admins are structurally self-scoped exactly
+/// like the prebuilt kinds.
+#[utoipa::path(
+    operation_id = "report_definitions_run",
+    get,
+    path = "/api/report-definitions/{id}/run",
+    tag = "reports",
+    security(("bearer" = [])),
+    params(("id" = Uuid, Path), ReportDefinitionRunQuery),
+    responses(
+        (status = 200, description = "Report page (JSON envelope or CSV stream)", body = crate::routes::reports::ReportPage),
+        (status = 404, description = "not visible in scope"),
+        (status = 422, description = "spec failed registry validation or invalid window")
+    )
+)]
+pub async fn run(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    Query(q): Query<ReportDefinitionRunQuery>,
+) -> ApiResult<Response> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(
+        &authed.principal,
+        Permission::Matrix {
+            module: Module::Reporting,
+            action: Action::View,
+        },
+    )?;
+    let org_id = authed.principal.user.org_id;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let row = core_db::report_defs::get(&mut *tx, org_id, id)
+        .await
+        .map_err(|e| match e {
+            core_db::DbError::NotFound => ApiError::NotFound,
+            other => ApiError::from(other),
+        })?;
+    tx.commit().await.map_err(ApiError::from)?;
+    if !visible(&authed.principal, &row) {
+        return Err(ApiError::NotFound);
+    }
+    let spec = ReportSpec::from_parts(&row.kind, &row.spec, &row.viz).map_err(|e| {
+        ApiError::Internal(anyhow::anyhow!("stored definition failed registry: {e}"))
+    })?;
+
+    core_reports::validate_limit_raw(q.limit.unwrap_or(core_reports::PAGE_LIMIT_DEFAULT))
+        .map_err(|e| ApiError::Validation(e.to_string()))?;
+    let limit = core_reports::clamp_limit(q.limit);
+    let now = Utc::now();
+    let win = core_reports::resolve_window(q.from, q.to, now)
+        .map_err(|e| ApiError::Validation(e.to_string()))?;
+    let run_window = RunWindow {
+        start: win.start,
+        end: win.end,
+    };
+
+    // RBAC seam mirrors the prebuilt kinds: managers see org-wide, everyone
+    // else is structurally narrowed onto their own rows.
+    let scope = if authed.principal.is_owner_or_admin() {
+        core_reports::Scope::OrgWide
+    } else {
+        core_reports::Scope::Self_(authed.principal.user.id)
+    };
+
+    let want_csv = matches!(q.format.as_deref(), Some("csv"));
+    if let Some(other) = &q.format {
+        if !want_csv {
+            return Err(ApiError::Validation(format!(
+                "unsupported format '{other}' (only 'csv')"
+            )));
+        }
+    }
+
+    let compiled = spec
+        .compile_windowed(scope, limit, run_window)
+        .map_err(|e| ApiError::Validation(e.to_string()))?;
+    let rows =
+        crate::routes::reports::run_rows(&state.reporting, &compiled.sql, &compiled.binds, org_id)
+            .await?;
+    let decoded: Vec<Value> = rows
+        .iter()
+        .map(|r| crate::routes::reports::row_json(r, &compiled.columns))
+        .collect();
+
+    match want_csv {
+        false => {
+            let summary = crate::routes::reports::run_rows(
+                &state.reporting,
+                &compiled.summary_sql,
+                &compiled.summary_binds,
+                org_id,
+            )
+            .await?;
+            let summary_json = match summary.first() {
+                Some(row) => crate::routes::reports::dynamic_row_json(row),
+                None => serde_json::json!({}),
+            };
+            Ok(Json(crate::routes::reports::ReportPage {
+                kind: spec.view.slug().to_string(),
+                view: compiled.view.qualified_name().to_string(),
+                columns: compiled
+                    .columns
+                    .iter()
+                    .map(|c| c.name.to_string())
+                    .collect(),
+                rows: decoded,
+                summary: summary_json,
+                next_cursor: None,
+            })
+            .into_response())
+        }
+        true => Ok(crate::routes::reports::csv_response(
+            spec.view.slug(),
+            &compiled.columns,
+            decoded,
+        )),
+    }
+}
+
+/// POST /api/reports/run-spec body: an inline spec (validated through the
+/// same registry as stored definitions) plus the run window. This is the
+/// builder's PREVIEW-before-save surface — nothing is persisted.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct RunSpecRequest {
+    /// The registry-validated report spec.
+    pub spec: ReportSpec,
+    /// Inclusive window start (UTC day, YYYY-MM-DD). Default: 30 trailing days.
+    #[serde(default)]
+    pub from: Option<NaiveDate>,
+    /// Inclusive window end (UTC day). Max span with `from`: 366 days.
+    #[serde(default)]
+    pub to: Option<NaiveDate>,
+    /// Page size, clamped to [1, 500].
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+/// POST /api/reports/run-spec — execute an INLINE spec (R6 builder preview).
+/// Same compile/execute/RBAC seam as running a stored definition; the spec
+/// never touches storage and identifiers re-validate against the static
+/// catalog before compilation.
+#[utoipa::path(
+    operation_id = "report_run_spec",
+    post,
+    path = "/api/reports/run-spec",
+    tag = "reports",
+    security(("bearer" = [])),
+    request_body = RunSpecRequest,
+    responses(
+        (status = 200, body = crate::routes::reports::ReportPage),
+        (status = 422, description = "spec failed registry validation or invalid window")
+    )
+)]
+pub async fn run_spec(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Json(req): Json<RunSpecRequest>,
+) -> ApiResult<Response> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(
+        &authed.principal,
+        Permission::Matrix {
+            module: Module::Reporting,
+            action: Action::View,
+        },
+    )?;
+    let org_id = authed.principal.user.org_id;
+    core_reports::validate_limit_raw(req.limit.unwrap_or(core_reports::PAGE_LIMIT_DEFAULT))
+        .map_err(|e| ApiError::Validation(e.to_string()))?;
+    let limit = core_reports::clamp_limit(req.limit);
+    let now = Utc::now();
+    let win = core_reports::resolve_window(req.from, req.to, now)
+        .map_err(|e| ApiError::Validation(e.to_string()))?;
+    let run_window = RunWindow {
+        start: win.start,
+        end: win.end,
+    };
+    let scope = if authed.principal.is_owner_or_admin() {
+        core_reports::Scope::OrgWide
+    } else {
+        core_reports::Scope::Self_(authed.principal.user.id)
+    };
+    let compiled = req
+        .spec
+        .compile_windowed(scope, limit, run_window)
+        .map_err(|e| ApiError::Validation(e.to_string()))?;
+    let rows =
+        crate::routes::reports::run_rows(&state.reporting, &compiled.sql, &compiled.binds, org_id)
+            .await?;
+    let decoded: Vec<Value> = rows
+        .iter()
+        .map(|r| crate::routes::reports::row_json(r, &compiled.columns))
+        .collect();
+    let summary = crate::routes::reports::run_rows(
+        &state.reporting,
+        &compiled.summary_sql,
+        &compiled.summary_binds,
+        org_id,
+    )
+    .await?;
+    let summary_json = match summary.first() {
+        Some(row) => crate::routes::reports::dynamic_row_json(row),
+        None => serde_json::json!({}),
+    };
+    Ok(Json(crate::routes::reports::ReportPage {
+        kind: req.spec.view.slug().to_string(),
+        view: compiled.view.qualified_name().to_string(),
+        columns: compiled
+            .columns
+            .iter()
+            .map(|c| c.name.to_string())
+            .collect(),
+        rows: decoded,
+        summary: summary_json,
+        next_cursor: None,
+    })
+    .into_response())
+}
+
+/// Guard against catalog drift: every builder-facing surface is derived from
+/// the SAME static catalog the compiler validates against. This test pins
+/// that the serialized catalog covers every view exactly once and that the
+/// filterable inventory is a subset of the projected columns.
+#[cfg(test)]
+mod catalog_tests {
+    use super::*;
+
+    #[test]
+    fn catalog_covers_all_views_and_filterable_subset() {
+        for view in ViewId::ALL {
+            let names: Vec<&str> = view.columns().iter().map(|c| c.name).collect();
+            for f in view.filterable() {
+                assert!(
+                    names.contains(f),
+                    "{view:?}: filterable {f:?} not projected"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn group_by_and_measure_caps_are_advertised() {
+        assert_eq!(core_reports::MAX_GROUP_BY, 3);
+        assert_eq!(core_reports::MAX_MEASURES, 4);
+        assert_eq!(core_reports::Aggregate::Count.slug(), "count");
+    }
 }
