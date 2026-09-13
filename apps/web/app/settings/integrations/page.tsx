@@ -12,6 +12,7 @@
 // no connector installation consent flows.
 "use client";
 
+import { friendlyMutationText } from "../../../lib/error-copy";
 import {
   Button,
   Card,
@@ -97,7 +98,7 @@ export default function IntegrationsSettingsPage() {
       dispatchSelection({ type: "clear" });
       await refresh();
     } catch (e) {
-      setFormError(e instanceof Error ? e.message : String(e));
+      setFormError(friendlyMutationText(e));
     } finally {
       setBusy(false);
     }
@@ -132,7 +133,7 @@ export default function IntegrationsSettingsPage() {
       }
       await refresh();
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : String(e));
+      setActionError(friendlyMutationText(e));
     }
   };
 
@@ -154,7 +155,7 @@ export default function IntegrationsSettingsPage() {
       setRotatingId(null);
       await refresh();
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : String(e));
+      setActionError(friendlyMutationText(e));
     } finally {
       setRotateBusy(false);
     }
@@ -178,7 +179,7 @@ export default function IntegrationsSettingsPage() {
       });
       setLogCursors((prev) => new Map(prev).set(id, page.next_cursor ?? undefined));
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : String(e));
+      setActionError(friendlyMutationText(e));
     } finally {
       setLogLoading(null);
     }

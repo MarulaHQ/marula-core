@@ -10,6 +10,7 @@
 //! not implement), no interactive setup wizard yet (later Stage 0 work),
 //! and no `dev` harness command until apps/web exists to serve.
 
+use anyhow::Context as _;
 use clap::{Parser, Subcommand};
 use tokio::sync::watch;
 
@@ -112,8 +113,15 @@ async fn main() -> anyhow::Result<()> {
 async fn migrate() -> anyhow::Result<()> {
     let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| DEFAULT_DATABASE_URL.to_string());
     tracing::info!("applying migrations");
-    let pool = core_db::connect(&url).await?;
-    core_db::run_migrations(&pool).await?;
+    let pool = core_db::connect(&url).await.context(
+        "connecting to Postgres — set DATABASE_URL and make sure the \
+         database is reachable (dev compose: `docker compose up -d postgres`)",
+    )?;
+    core_db::run_migrations(&pool).await.context(
+        "running migrations — migrations must run as the schema owner \
+         (the compose `migrate` one-shot role), NOT as the RLS-scoped \
+         app role, which cannot CREATE TABLE on fresh installs",
+    )?;
     tracing::info!("migrations applied");
     Ok(())
 }
@@ -125,15 +133,32 @@ async fn upgrade_check(
     registry: Option<std::path::PathBuf>,
     database_url: Option<String>,
 ) -> anyhow::Result<()> {
-    let manifest_path = manifest
-        .ok_or_else(|| anyhow::anyhow!("--manifest <path> is required for upgrade --check"))?;
+    let manifest_path = manifest.ok_or_else(|| {
+        anyhow::anyhow!(
+            "--manifest <path> is required for upgrade --check — pass the \
+             org's U5 customization manifest (emit one first: \
+             `meridian fixture --manifest --org-id <uuid> --out m.json`)"
+        )
+    })?;
     let registry_path =
         registry.unwrap_or_else(|| std::path::PathBuf::from(upgrade::DEFAULT_REGISTRY_PATH));
 
-    let reg = upgrade::load_registry(&registry_path)
-        .map_err(|e| anyhow::anyhow!("loading registry: {e}"))?;
-    let manifest_json = upgrade::load_manifest(&manifest_path)
-        .map_err(|e| anyhow::anyhow!("loading manifest: {e}"))?;
+    let reg = upgrade::load_registry(&registry_path).map_err(|e| {
+        anyhow::anyhow!(
+            "loading the deprecation registry from {} failed: {e} — ship the \
+             repo's deprecations.json alongside the binary, or point \
+             --registry at it",
+            registry_path.display()
+        )
+    })?;
+    let manifest_json = upgrade::load_manifest(&manifest_path).map_err(|e| {
+        anyhow::anyhow!(
+            "loading the customization manifest from {} failed: {e} — \
+             regenerate it with `meridian fixture --manifest --org-id <uuid>` \
+             against the pre-upgrade database",
+            manifest_path.display()
+        )
+    })?;
     let findings = upgrade::scan_manifest(&reg, &manifest_json);
 
     println!(
@@ -264,7 +289,10 @@ async fn seed_demo(force: bool) -> anyhow::Result<()> {
         );
     }
     let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| DEFAULT_DATABASE_URL.to_string());
-    let pool = core_db::connect(&url).await?;
+    let pool = core_db::connect(&url).await.context(
+        "connecting to Postgres for the demo seed — set DATABASE_URL and \
+         start the dev compose stack (`docker compose up -d postgres`)",
+    )?;
     core_db::run_migrations(&pool).await?;
     let opts = dev_seal_key()?;
 
@@ -353,11 +381,26 @@ fn print_seed_summary(report: &core_db::demo::DemoSeedReport) {
 }
 
 async fn serve_worker() -> anyhow::Result<()> {
-    worker::run(worker::config::WorkerConfig::from_env(), shutdown_watch()).await
+    worker::run(worker::config::WorkerConfig::from_env(), shutdown_watch())
+        .await
+        .map_err(|e| {
+            e.context(
+                "worker exited — check the DATABASE_URL / REDIS_URL hints in \
+                 the error above; every loop the worker hosts reports to \
+                 /healthz, so an orchestrator can also restart the container",
+            )
+        })
 }
 
 async fn serve_realtime() -> anyhow::Result<()> {
-    realtime::run(realtime::config::RealtimeConfig::from_env()).await
+    realtime::run(realtime::config::RealtimeConfig::from_env())
+        .await
+        .map_err(|e| {
+            e.context(
+                "realtime hub failed — check DATABASE_URL and the WS bind \
+                 settings; browsers reconnect automatically once it is up",
+            )
+        })
 }
 
 /// A watch channel that flips true on Ctrl-C; both services use it for

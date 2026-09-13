@@ -12,6 +12,7 @@
 // detail chips and the ticket-list filter).
 "use client";
 
+import { rejectionText } from "../../../lib/error-copy";
 import {
   Button,
   Card,
@@ -130,7 +131,7 @@ export default function TagsSettingsPage() {
         setDialogError(
           result.message?.includes("duplicate") || result.reason === "conflict"
             ? "A tag with that name already exists."
-            : (result.message ?? "The tag was rejected."),
+            : (rejectionText(result, "The tag was rejected.")),
         );
         return;
       }
@@ -163,7 +164,7 @@ export default function TagsSettingsPage() {
         setDialogError(
           result.message?.includes("duplicate")
             ? "A tag with that name already exists."
-            : (result.message ?? "The change was rejected."),
+            : (rejectionText(result, "The change was rejected.")),
         );
         return;
       }
@@ -193,7 +194,7 @@ export default function TagsSettingsPage() {
     });
     setDeleteBusy(false);
     if (!result.ok) {
-      setDeleteError(result.message ?? "The delete was rejected.");
+      setDeleteError(rejectionText(result, "The delete was rejected."));
       return;
     }
     setDeleting(null);

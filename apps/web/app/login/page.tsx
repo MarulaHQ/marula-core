@@ -7,6 +7,7 @@
 // Non-purpose: no enrollment/management UI here (see /settings/security).
 "use client";
 
+import { friendlyMutationText } from "../../lib/error-copy";
 import { Button, Card, FieldHint, Input, Label } from "@meridian/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -39,6 +40,8 @@ export default function LoginPage() {
   const [orgSlug, setOrgSlug] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [providers, setProviders] = useState<PublicProvider[]>([]);
+  /** Server-suggested available slug behind the org_slug_taken 409. */
+  const [slugSuggestion, setSlugSuggestion] = useState<string | null>(null);
 
   // Config-driven SSO: only providers an operator enabled appear here.
   useEffect(() => {
@@ -60,8 +63,13 @@ export default function LoginPage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    await attempt();
+  }
+
+  async function attempt(slugOverride?: string) {
     setBusy(true);
     setError(null);
+    setSlugSuggestion(null);
     try {
       if (mode === "signin") {
         const result = await api.login({ email, password });
@@ -78,7 +86,7 @@ export default function LoginPage() {
         saveTokens(
           await api.register({
             org_name: orgName,
-            org_slug: orgSlug,
+            org_slug: slugOverride ?? orgSlug,
             email,
             password,
             display_name: displayName,
@@ -88,10 +96,25 @@ export default function LoginPage() {
       // Full navigation so AuthProvider re-bootstraps from the fresh tokens.
       window.location.assign("/today");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Authentication failed");
+      const envelope = (err as { body?: { error?: { suggestion?: unknown } } } | null)?.body;
+      const suggestion = envelope?.error?.suggestion;
+      if (typeof suggestion === "string" && suggestion !== "") {
+        setSlugSuggestion(suggestion);
+      }
+      setError(friendlyMutationText(err));
     } finally {
       setBusy(false);
     }
+  }
+
+  /** One-click accept of the org_slug_taken suggestion: swap the slug in
+   * and resubmit immediately (Wave 13 lane 1 follow-up). */
+  function acceptSuggestion() {
+    if (slugSuggestion === null) return;
+    setOrgSlug(slugSuggestion);
+    setSlugSuggestion(null);
+    setError(null);
+    void attempt(slugSuggestion);
   }
 
   function ssoHref(provider: string): string {
@@ -186,6 +209,21 @@ export default function LoginPage() {
             <p className="text-xs" style={{ color: "var(--m-status-danger-fg)" }} role="alert">
               {error}
             </p>
+          )}
+          {slugSuggestion !== null && (
+            <div className="flex items-center gap-2 text-xs" role="status">
+              <span style={{ color: "var(--m-text-secondary)" }}>
+                Available: <strong>{slugSuggestion}</strong>
+              </span>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={acceptSuggestion}
+              >
+                Use {slugSuggestion}
+              </Button>
+            </div>
           )}
           <Button type="submit" variant="primary" disabled={busy}>
             {busy ? "Working…" : mode === "signin" ? "Sign in" : "Create organization"}

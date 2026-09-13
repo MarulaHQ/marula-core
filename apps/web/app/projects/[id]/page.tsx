@@ -10,6 +10,7 @@
 // the link-up is a later lane).
 "use client";
 
+import { rejectionText } from "../../../lib/error-copy";
 import {
   Button,
   Card,
@@ -170,10 +171,9 @@ export default function ProjectDetailPage() {
     if (!result.ok) {
       void refresh();
       setActionError(
-        result.message ??
-          (result.reason === "dependency_not_ready"
-            ? "Dependencies must complete first."
-            : "The completion was rejected. The task is unchanged."),
+        result.reason === "dependency_not_ready"
+          ? "Dependencies must complete first."
+          : rejectionText(result, "The completion was rejected. The task is unchanged."),
       );
       return;
     }
@@ -206,7 +206,7 @@ export default function ProjectDetailPage() {
     });
     if (!result.ok) {
       void refresh();
-      setActionError(result.message ?? "The phase completion was rejected.");
+      setActionError(rejectionText(result, "The phase completion was rejected."));
       return;
     }
     void refresh();
@@ -259,7 +259,7 @@ export default function ProjectDetailPage() {
     });
     setBusy(false);
     if (!result.ok) {
-      setActionError(result.message ?? "The phase was rejected. Nothing was saved.");
+      setActionError(rejectionText(result, "The phase was rejected. Nothing was saved."));
       return;
     }
     setPhaseOpen(false);
@@ -320,7 +320,7 @@ export default function ProjectDetailPage() {
     });
     setBusy(false);
     if (!result.ok) {
-      setActionError(result.message ?? "The task was rejected. Nothing was saved.");
+      setActionError(rejectionText(result, "The task was rejected. Nothing was saved."));
       return;
     }
     setTaskOpen(false);
@@ -358,7 +358,7 @@ export default function ProjectDetailPage() {
     setBusy(false);
     setDepTaskId(null);
     if (!result.ok) {
-      setActionError(result.message ?? "The dependency set was rejected (cycle or foreign task?).");
+      setActionError(rejectionText(result, "The dependency set was rejected (cycle or foreign task?)."));
       return;
     }
     void refresh();

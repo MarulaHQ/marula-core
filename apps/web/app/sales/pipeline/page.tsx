@@ -14,6 +14,7 @@
 // deal detail). Currency entry is minor units (cents).
 "use client";
 
+import { rejectionText } from "../../../lib/error-copy";
 import {
   Button,
   Card,
@@ -125,7 +126,7 @@ export default function PipelinePage(): ReactNode {
           }),
       });
       if (result.ok === false) {
-        setMoveError(result.message ?? "The stage move was rejected.");
+        setMoveError(rejectionText(result, "The stage move was rejected."));
       }
     },
     [],
@@ -184,7 +185,7 @@ export default function PipelinePage(): ReactNode {
     });
     setCreateBusy(false);
     if (result.ok === false) {
-      setCreateError(result.message ?? "Could not create the deal.");
+      setCreateError(rejectionText(result, "Could not create the deal."));
       return;
     }
     setCreateOpen(false);

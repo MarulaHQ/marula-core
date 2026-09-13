@@ -12,6 +12,7 @@
 // live on the ticket workspace and the layout-level dock.
 "use client";
 
+import { friendlyMutationText } from "../../lib/error-copy";
 import type { components } from "@meridian/sdk";
 import { Button, Spinner, Tag } from "@meridian/ui";
 import { useRouter } from "next/navigation";
@@ -104,7 +105,7 @@ export default function TodayPage() {
       if (gaps.data) setGap(gaps.data);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Load failed");
+      setError(friendlyMutationText(err, "Load failed"));
     }
   }, []);
 
@@ -338,7 +339,7 @@ function QuickLogForm({
       if (apiError !== undefined) throw new Error("could not save the entry");
       onDone();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Save failed");
+      setError(friendlyMutationText(err, "Save failed"));
     } finally {
       setBusy(false);
     }

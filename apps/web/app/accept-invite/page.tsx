@@ -18,6 +18,7 @@ import { Suspense, useEffect, useState, type ReactNode } from "react";
 
 import { saveTokens } from "../../lib/api";
 import { api } from "../../lib/api";
+import { OFFLINE_RETRY_COPY } from "../../lib/error-copy";
 
 function AcceptInviteInner(): ReactNode {
   const router = useRouter();
@@ -69,7 +70,7 @@ function AcceptInviteInner(): ReactNode {
       setDone(true);
       window.location.assign("/today");
     } catch {
-      setError("Network error — try again.");
+      setError(OFFLINE_RETRY_COPY);
     } finally {
       setBusy(false);
     }

@@ -14,6 +14,7 @@
 
 import { api } from "./api";
 import { newIdempotencyKey } from "./instant/instant-write";
+import { friendlyMutationError } from "./error-copy";
 
 type ApiClient = typeof api.api;
 
@@ -47,6 +48,10 @@ export interface EnvelopeResult {
   /** IF3 machine reason on rejection, when the server sent one. */
   reason?: string;
   message?: string;
+  /** Friendly user copy from the central reason-code map (error-copy). */
+  friendly?: string;
+  /** True when the failure was offline/timeout (safe to retry later). */
+  transient?: boolean;
 }
 
 function reasonOf(error: unknown): { reason?: string; message?: string } {
@@ -98,7 +103,14 @@ export async function runEnvelopeMutation<P extends { idempotency_key?: string |
     if (result.error !== undefined) {
       options.revert();
       const parsed = reasonOf(result.error);
-      return { ok: false, reason: parsed.reason, message: parsed.message };
+      const friendly = friendlyMutationError(result.error);
+      return {
+        ok: false,
+        reason: parsed.reason,
+        message: parsed.message,
+        friendly: friendly.text,
+        transient: friendly.transient,
+      };
     }
     if (options.versions !== undefined && result.data !== undefined) {
       for (const [id, version] of options.versions(result.data)) {
@@ -108,8 +120,15 @@ export async function runEnvelopeMutation<P extends { idempotency_key?: string |
     return { ok: true };
   } catch (error) {
     options.revert();
+    const friendly = friendlyMutationError(error);
     const parsed = reasonOf(error);
-    return { ok: false, message: parsed.message ?? "Network error — try again." };
+    return {
+      ok: false,
+      reason: parsed.reason,
+      message: parsed.message ?? friendly.text,
+      friendly: friendly.text,
+      transient: friendly.transient,
+    };
   }
 }
 

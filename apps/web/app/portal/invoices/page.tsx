@@ -7,6 +7,7 @@
 // Non-purpose: no dunning internals (staff-only), no dispute flows.
 "use client";
 
+import { friendlyMutationText } from "../../../lib/error-copy";
 import { Button, EmptyState, Spinner, StatusTag, type StatusTone } from "@meridian/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -42,7 +43,7 @@ export default function PortalInvoicesPage() {
         if (!cancelled) setRows(invoices);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load invoices");
+        if (!cancelled) setError(friendlyMutationText(err, "Failed to load invoices"));
       });
     return () => {
       cancelled = true;

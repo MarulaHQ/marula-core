@@ -10,6 +10,7 @@
 // the invoice run's contract evaluation.
 "use client";
 
+import { rejectionText } from "../../../lib/error-copy";
 import {
   Button,
   Card,
@@ -151,7 +152,7 @@ export default function InvoiceDetailPage() {
     });
     setPayBusy(false);
     if (!result.ok) {
-      setPayError(result.message ?? "The payment was rejected.");
+      setPayError(rejectionText(result, "The payment was rejected."));
       return;
     }
     setPayOpen(false);
@@ -197,7 +198,7 @@ export default function InvoiceDetailPage() {
       setDunningError(
         result.reason === "dunning_not_forward"
           ? "Dunning moves forward only."
-          : (result.message ?? "The transition was rejected."),
+          : (rejectionText(result, "The transition was rejected.")),
       );
       return;
     }
@@ -228,7 +229,7 @@ export default function InvoiceDetailPage() {
     });
     setVoidBusy(false);
     if (!result.ok) {
-      setActionNote(result.message ?? "Void was rejected.");
+      setActionNote(rejectionText(result, "Void was rejected."));
       return;
     }
     setActionNote("Invoice voided.");

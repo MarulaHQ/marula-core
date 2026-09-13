@@ -17,6 +17,7 @@
 // no SLA/calendar concerns — those live on their own pages.
 "use client";
 
+import { friendlyMutationText } from "../../../lib/error-copy";
 import {
   Button,
   Card,
@@ -245,7 +246,7 @@ export default function WorkflowSettingsPage() {
       }
       setSavedSection("statuses");
     } catch (e) {
-      setSectionError((prev) => ({ ...prev, statuses: e instanceof Error ? e.message : String(e) }));
+      setSectionError((prev) => ({ ...prev, statuses: friendlyMutationText(e) }));
     } finally {
       setSavingSection(null);
     }
@@ -264,7 +265,7 @@ export default function WorkflowSettingsPage() {
       setTransitions(res.data);
       setSavedSection("matrix");
     } catch (e) {
-      setSectionError((prev) => ({ ...prev, matrix: e instanceof Error ? e.message : String(e) }));
+      setSectionError((prev) => ({ ...prev, matrix: friendlyMutationText(e) }));
     } finally {
       setSavingSection(null);
     }
@@ -290,7 +291,7 @@ export default function WorkflowSettingsPage() {
       dispatchChecklist({ type: "set-require-close", value: view.require_checklist_close });
       setSavedSection("checklist");
     } catch (e) {
-      setSectionError((prev) => ({ ...prev, checklist: e instanceof Error ? e.message : String(e) }));
+      setSectionError((prev) => ({ ...prev, checklist: friendlyMutationText(e) }));
     } finally {
       setSavingSection(null);
     }

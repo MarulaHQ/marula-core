@@ -74,12 +74,28 @@ async function sdkRequest(
   try {
     // One bounded boundary: openapi-fetch's per-path overloads collapse
     // here; paths come from typed write specs built against MeridianPaths.
+    // A bounded timeout keeps a hung connection from wedging the replay
+    // loop: the op stays queued and the next reconnect retries it. (A
+    // raced timer instead of an AbortSignal: the signal rides Request
+    // construction, which some embedded fetch stubs reject.)
     const opts = { body } as unknown as Parameters<typeof api.api.POST>[1];
     const call = api.api[method] as (
       p: string,
       o: typeof opts,
     ) => Promise<RawResult>;
-    raw = await call(path, opts);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new DOMException("request timed out", "TimeoutError")),
+        REQUEST_TIMEOUT_MS,
+      );
+    });
+    raw = await Promise.race([
+      call(path, opts),
+      timeout,
+    ]).finally(() => {
+      if (timer !== null) clearTimeout(timer);
+    });
   } catch {
     return { outcome: "network" };
   }
@@ -88,6 +104,9 @@ async function sdkRequest(
   }
   return { outcome: "accepted", mutation: mutationOf(raw.data) };
 }
+
+/** Replay requests abandon after 15s (network outcome → op stays queued). */
+const REQUEST_TIMEOUT_MS = 15_000;
 
 function buildRuntime(): Runtime {
   const bus = new EventBus();

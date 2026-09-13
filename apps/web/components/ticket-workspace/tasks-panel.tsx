@@ -13,6 +13,7 @@
 
 "use client";
 
+import { rejectionText } from "../../lib/error-copy";
 import type { components } from "@meridian/sdk";
 import { Button, Input } from "@meridian/ui";
 import { useState, type ReactNode } from "react";
@@ -55,7 +56,7 @@ export function TasksPanel({
     // keeps the item unchecked so it re-enters the open set.
     const result = await onSetState(item.id, { checked: false, na });
     if (!result.ok) {
-      setRowError(result.message ?? "Could not update that item");
+      setRowError(rejectionText(result, "Could not update that item"));
     }
   }
 
@@ -66,7 +67,7 @@ export function TasksPanel({
     const na = checked ? false : (item.na ?? false);
     const result = await onSetState(item.id, { checked, na });
     if (!result.ok) {
-      setRowError(result.message ?? "Could not update that item");
+      setRowError(rejectionText(result, "Could not update that item"));
     }
   }
 

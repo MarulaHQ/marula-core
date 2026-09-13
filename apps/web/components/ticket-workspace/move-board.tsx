@@ -12,6 +12,7 @@
 // Non-purpose: no board/status administration (that lives in Settings).
 "use client";
 
+import { rejectionText } from "../../lib/error-copy";
 import { Button, Checkbox, Dialog, DialogActions, DialogContent, FieldHint, Label, Spinner, StatusTag } from "@meridian/ui";
 import type { components } from "@meridian/sdk";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
@@ -193,12 +194,14 @@ export function MoveBoardDialog({
       // Pre-select the first option so a second click is a real retry.
       setStatusId(result.conflictStatuses?.[0]?.id ?? "");
       setError(
-        result.message ??
+        rejectionText(
+          result,
           `This ticket is ${CATEGORY_LABEL[ticket.category]}, and the target board has no matching status. Choose one to move to.`,
+        ),
       );
       return;
     }
-    setError(result.message ?? "The move was rejected.");
+    setError(rejectionText(result, "The move was rejected."));
   };
 
   return (

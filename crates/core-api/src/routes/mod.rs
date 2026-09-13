@@ -191,11 +191,17 @@ pub fn build_router(state: AppState) -> Router {
     // Typed rejections (Wave 13 lane 1) sit just inside telemetry: every
     // text/plain framework rejection (raw serde/query text) is rewritten
     // onto the IF3 envelope before it leaves the process.
+    //
+    // Correlation ids (Wave 13 lane 2) sit just inside those: every request
+    // gets a `correlation_id` span field + an echoed `x-correlation-id`
+    // response header, so a client-reported failure pairs with exactly one
+    // grep-able server log line.
     Router::new()
         .merge(api)
         .merge(internal)
         .merge(docs)
         .merge(dev)
+        .layer(middleware::from_fn(crate::otel_http::correlate))
         .layer(middleware::from_fn(crate::error::typed_rejections))
         .layer(middleware::from_fn(crate::otel_http::track))
         .with_state(state)

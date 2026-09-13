@@ -8,6 +8,7 @@
 // searcher would hit it.
 "use client";
 
+import { rejectionText } from "../../lib/error-copy";
 import {
   Button,
   Card,
@@ -304,7 +305,7 @@ function CategoryForm({ category, onDone }: { category: KbCategory | null; onDon
           });
     setBusy(false);
     if (!result.ok) {
-      setError(result.message ?? "The category was rejected.");
+      setError(rejectionText(result, "The category was rejected."));
       return;
     }
     onDone();
@@ -416,7 +417,7 @@ function ArticleEditor({
           });
     setBusy(false);
     if (!result.ok) {
-      setError(result.message ?? "The article was rejected.");
+      setError(rejectionText(result, "The article was rejected."));
       return;
     }
     onDone();

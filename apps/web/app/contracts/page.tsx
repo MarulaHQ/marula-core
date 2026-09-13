@@ -9,6 +9,7 @@
 // pages link to the per-contract billing preview).
 "use client";
 
+import { rejectionText } from "../../lib/error-copy";
 import {
   Button,
   Card,
@@ -198,7 +199,7 @@ export default function ContractsPage() {
     });
     setCreating(false);
     if (!result.ok) {
-      setCreateError(result.message ?? "The contract was rejected. Nothing was saved.");
+      setCreateError(rejectionText(result, "The contract was rejected. Nothing was saved."));
       return;
     }
     setCreateOpen(false);

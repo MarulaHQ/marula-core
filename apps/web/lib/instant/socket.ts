@@ -63,6 +63,11 @@ export class InstantSocket {
     };
   }
 
+  /** The current status without subscribing (banner initial render). */
+  statusNow(): ConnectionStatus {
+    return this.status;
+  }
+
   /** Refcounted subscribe; the frame goes out once the wire is open. */
   subscribe(channel: string): () => void {
     const refs = (this.channels.get(channel) ?? 0) + 1;

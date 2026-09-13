@@ -17,6 +17,7 @@
 // (TicketMoney).
 "use client";
 
+import { rejectionText } from "../lib/error-copy";
 import type { components } from "@meridian/sdk";
 import {
   Button,
@@ -348,7 +349,7 @@ export function TicketLinksPanel({
       setCreateError(
         result.message?.includes("cannot link to itself")
           ? "A ticket cannot link to itself."
-          : (result.message ?? "The link was rejected."),
+          : (rejectionText(result, "The link was rejected.")),
       );
       return;
     }
@@ -383,7 +384,7 @@ export function TicketLinksPanel({
         }) as Promise<{ data?: unknown; error?: unknown; response: Response }>,
     });
     if (!result.ok) {
-      setLoadError(result.message ?? "The link removal was rejected.");
+      setLoadError(rejectionText(result, "The link removal was rejected."));
       return;
     }
     void refresh();

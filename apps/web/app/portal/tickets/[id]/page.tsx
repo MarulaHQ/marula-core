@@ -8,6 +8,7 @@
 // composition — portal v1 is strictly view + reply.
 "use client";
 
+import { friendlyMutationText } from "../../../../lib/error-copy";
 import { Button, Card, Label, Spinner, StatusTag, Tag, Textarea, type StatusTone } from "@meridian/ui";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -60,7 +61,7 @@ export default function PortalTicketPage() {
     try {
       setDetail(await portalApi.getTicket(params.id));
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : "Failed to load this request");
+      setLoadError(friendlyMutationText(err, "Failed to load this request"));
     }
   }, [params.id]);
 
@@ -79,7 +80,7 @@ export default function PortalTicketPage() {
       await load();
       threadEndRef.current?.scrollIntoView({ block: "end" });
     } catch (err) {
-      setReplyError(err instanceof Error ? err.message : "Reply failed");
+      setReplyError(friendlyMutationText(err, "Reply failed"));
     } finally {
       setSending(false);
     }

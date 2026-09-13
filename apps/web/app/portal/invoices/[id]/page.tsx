@@ -5,6 +5,7 @@
 // amount — the copy below says exactly that.
 "use client";
 
+import { friendlyMutationText } from "../../../../lib/error-copy";
 import { Button, Card, CardContent, CardHeader, Spinner, StatusTag } from "@meridian/ui";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -47,7 +48,7 @@ export default function PortalInvoiceDetailPage() {
         setAmount((d.invoice.outstanding_minor / 100).toFixed(2));
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load invoice");
+        if (!cancelled) setError(friendlyMutationText(err, "Failed to load invoice"));
       });
     return () => {
       cancelled = true;
@@ -80,7 +81,7 @@ export default function PortalInvoiceDetailPage() {
       );
       setNotes("");
     } catch (err: unknown) {
-      setNotice(err instanceof Error ? err.message : "Recording the payment failed; try again.");
+      setNotice(friendlyMutationText(err, "Recording the payment failed; try again."));
     } finally {
       setPaying(false);
     }

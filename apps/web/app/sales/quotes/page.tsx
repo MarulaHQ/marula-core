@@ -12,6 +12,7 @@
 // billing ledger; the invoice surfaces on /billing).
 "use client";
 
+import { rejectionText } from "../../../lib/error-copy";
 import {
   Button,
   Card,
@@ -204,7 +205,7 @@ export default function QuotesPage(): ReactNode {
     setBusyQuoteId(null);
     if (result.ok === false) {
       setActionError(
-        `Could not ${action.replaceAll("-", " ")} quote ${quote.number}: ${result.message ?? "rejected."}`,
+        `Could not ${action.replaceAll("-", " ")} quote ${quote.number}: ${rejectionText(result, "rejected.")}`,
       );
       return;
     }
@@ -228,7 +229,7 @@ export default function QuotesPage(): ReactNode {
     });
     setBusyQuoteId(null);
     if (result.ok === false) {
-      setActionError(`Could not convert quote ${quote.number}: ${result.message ?? "rejected."}`);
+      setActionError(`Could not convert quote ${quote.number}: ${rejectionText(result, "rejected.")}`);
       return;
     }
     await refreshQuotes();
@@ -298,7 +299,7 @@ export default function QuotesPage(): ReactNode {
     });
     setCreateBusy(false);
     if (result.ok === false) {
-      setCreateError(result.message ?? "Could not create the quote.");
+      setCreateError(rejectionText(result, "Could not create the quote."));
       return;
     }
     setCreateOpen(false);

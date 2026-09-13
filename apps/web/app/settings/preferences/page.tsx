@@ -12,6 +12,7 @@
 // notification preference table (owned by the notifications lane).
 "use client";
 
+import { friendlyMutationText } from "../../../lib/error-copy";
 import { Button, Card, FieldHint, Label, Textarea } from "@meridian/ui";
 import { useTheme } from "@meridian/ui";
 import type { Theme } from "@meridian/ui";
@@ -128,7 +129,7 @@ export default function UserPreferencesPage() {
       setRegistryTheme(next);
       setSaved(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(friendlyMutationText(e));
     } finally {
       setSaving(false);
     }

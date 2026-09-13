@@ -9,6 +9,7 @@
 // steps are later-tier scope; this skeleton ships the flow mechanics.
 "use client";
 
+import { friendlyMutationText } from "../../lib/error-copy";
 import { Button, Card, FieldHint, Input, Label } from "@meridian/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -69,7 +70,7 @@ export default function WelcomeWizardPage() {
       await completeWizard();
       setStep(2);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(friendlyMutationText(e));
     } finally {
       setBusy(false);
     }
@@ -82,7 +83,7 @@ export default function WelcomeWizardPage() {
       await completeWizard();
       router.replace("/today");
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(friendlyMutationText(e));
       setBusy(false);
     }
   };

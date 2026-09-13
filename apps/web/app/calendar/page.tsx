@@ -14,6 +14,7 @@
 // timezone; the API stays UTC everywhere.
 "use client";
 
+import { friendlyMutationText } from "../../lib/error-copy";
 import { Button, Card, Dialog, DialogActions, DialogContent, FieldHint, Input, Label } from "@meridian/ui";
 import { useEffect, useMemo, useState } from "react";
 import { api, useRequireAuth } from "../../lib/api";
@@ -330,7 +331,7 @@ function NewAppointmentDialog({
       setTitle("");
       setTicketId("");
     } catch (e) {
-      onError(e instanceof Error ? e.message : String(e));
+      onError(friendlyMutationText(e));
     } finally {
       setSaving(false);
     }

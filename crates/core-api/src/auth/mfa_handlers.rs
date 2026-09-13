@@ -30,6 +30,17 @@ const CHALLENGE_TTL_SECS: i64 = 300;
 
 type Tx = sqlx::Transaction<'static, sqlx::Postgres>;
 
+/// Maps a webauthn_rs ceremony failure onto fixed human copy. The library
+/// error text (challenge/attestation internals) is logged server-side
+/// only — it never crosses the wire as 422 validation copy (Wave 13
+/// lane-1 follow-up).
+fn webauthn_rejection(e: crate::auth::webauthn_service::WebauthnError) -> ApiError {
+    tracing::debug!(error = %e, "webauthn ceremony failed; fixed copy sent to client");
+    ApiError::Validation(
+        "the passkey could not be verified — try again, and make sure you're using the same passkey you registered".into(),
+    )
+}
+
 fn ctx_from_config(state: &AppState) -> ApiResult<CeremonyContext> {
     CeremonyContext::new(
         &state.config.webauthn_rp_id,
@@ -628,7 +639,7 @@ pub async fn webauthn_register_finish(
 
     let passkey = ctx
         .finish_registration(&response, &reg_state)
-        .map_err(|e| ApiError::Validation(e.to_string()))?;
+        .map_err(webauthn_rejection)?;
 
     let label = req.label.unwrap_or_else(|| "Passkey".to_string());
     let cred_id_b64 = data_encoding::BASE64URL_NOPAD.encode(passkey.cred_id());
@@ -841,7 +852,7 @@ pub async fn webauthn_login_finish(
 
     let result = ctx
         .finish_authentication(&response, &auth_state)
-        .map_err(|e| ApiError::Validation(e.to_string()))?;
+        .map_err(webauthn_rejection)?;
     let used_cred_id = data_encoding::BASE64URL_NOPAD.encode(result.cred_id());
 
     core_db::mfa::touch_webauthn_credential(&mut *tx, &used_cred_id).await?;

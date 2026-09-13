@@ -10,6 +10,7 @@
 // live on /documents/[id].
 "use client";
 
+import { rejectionText } from "../../lib/error-copy";
 import {
   Button,
   Card,
@@ -321,7 +322,7 @@ function CreateDocumentForm({
     });
     setBusy(false);
     if (!result.ok) {
-      setError(result.message ?? "The document was rejected.");
+      setError(rejectionText(result, "The document was rejected."));
       return;
     }
     onDone();
@@ -518,7 +519,7 @@ function LayoutEditForm({
           });
     setBusy(false);
     if (!result.ok) {
-      setError(result.message ?? "The type was rejected.");
+      setError(rejectionText(result, "The type was rejected."));
       return;
     }
     onDone();

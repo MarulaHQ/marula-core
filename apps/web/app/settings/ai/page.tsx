@@ -22,6 +22,7 @@ import {
 import type { components } from "@meridian/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
+import { rejectionText } from "../../../lib/error-copy";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 
 type ByokOverviewResponse = components["schemas"]["ByokOverviewResponse"];
@@ -92,7 +93,7 @@ export default function AiSettingsPage() {
     });
     setBusyProvider(null);
     if (!result.ok) {
-      setActionError(result.message ?? `Saving the ${provider} key was rejected.`);
+      setActionError(rejectionText(result, `Saving the ${provider} key was rejected.`));
       return;
     }
     setKeyDrafts((prev) => ({ ...prev, [provider]: "" }));

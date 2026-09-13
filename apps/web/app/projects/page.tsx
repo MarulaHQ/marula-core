@@ -7,6 +7,7 @@
 // view switchers land with those views per the UI backlog.
 "use client";
 
+import { rejectionText } from "../../lib/error-copy";
 import {
   Button,
   Card,
@@ -152,7 +153,7 @@ export default function ProjectsPage() {
     });
     setCreating(false);
     if (!result.ok) {
-      setCreateError(result.message ?? "The project was rejected. Nothing was saved.");
+      setCreateError(rejectionText(result, "The project was rejected. Nothing was saved."));
       return;
     }
     setCreateOpen(false);

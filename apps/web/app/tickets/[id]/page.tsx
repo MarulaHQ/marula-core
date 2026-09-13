@@ -23,6 +23,7 @@
 // Non-purpose: no board editing and no admin actions here.
 "use client";
 
+import { rejectionText } from "../../../lib/error-copy";
 import type { components } from "@meridian/sdk";
 import { snapshotOf } from "@meridian/sdk";
 import {
@@ -242,7 +243,7 @@ export default function TicketWorkspacePage() {
           }),
       }).then((result) => {
         if (result.ok === false) {
-          setPodAdminError(result.message ?? "Could not save the pod visibility matrix");
+          setPodAdminError(rejectionText(result, "Could not save the pod visibility matrix"));
         }
       });
     },
@@ -318,7 +319,7 @@ export default function TicketWorkspacePage() {
       },
     });
     if (result.status === "rejected") {
-      throw new Error(result.message ?? "Change rejected");
+      throw new Error(rejectionText(result, "Change rejected"));
     }
   }
 
@@ -463,7 +464,7 @@ export default function TicketWorkspacePage() {
         },
       });
       if (result.status === "rejected") {
-        throw new Error(result.message ?? "Could not post note");
+        throw new Error(rejectionText(result, "Could not post note"));
       }
       if (result.status === "queued") {
         return;
@@ -561,7 +562,7 @@ export default function TicketWorkspacePage() {
       },
     });
     if (result.status === "rejected") {
-      setError(result.message ?? "Could not add checklist item");
+      setError(rejectionText(result, "Could not add checklist item"));
       return;
     }
     if (result.status === "accepted" && result.mutation !== null) {
@@ -637,7 +638,7 @@ export default function TicketWorkspacePage() {
       },
     });
     if (result.status === "rejected") {
-      const message = result.message ?? "Could not update checklist item";
+      const message = rejectionText(result, "Could not update checklist item");
       setError(message);
       return { ok: false, message };
     }

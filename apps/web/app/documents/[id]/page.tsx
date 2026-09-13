@@ -8,6 +8,7 @@
 // (cross-entity links).
 "use client";
 
+import { rejectionText } from "../../../lib/error-copy";
 import {
   Button,
   Card,
@@ -161,7 +162,7 @@ export default function DocumentDetailPage() {
     });
     setBusy(false);
     if (!result.ok) {
-      setError(result.message ?? "The save was rejected — the document may have changed. Reload and retry.");
+      setError(rejectionText(result, "The save was rejected — the document may have changed. Reload and retry."));
       return;
     }
     setSummary("");
@@ -200,7 +201,7 @@ export default function DocumentDetailPage() {
     });
     setBusy(false);
     if (!result.ok) {
-      setError(result.message ?? "The update was rejected.");
+      setError(rejectionText(result, "The update was rejected."));
       return;
     }
     setEditMeta(false);
@@ -233,7 +234,7 @@ export default function DocumentDetailPage() {
     });
     setBusy(false);
     if (!result.ok) {
-      setError(result.message ?? "The restore was rejected.");
+      setError(rejectionText(result, "The restore was rejected."));
       return;
     }
     setRestoreTarget(null);

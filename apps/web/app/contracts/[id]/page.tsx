@@ -10,6 +10,7 @@
 // /billing); no contract deletion UI beyond the status lifecycle.
 "use client";
 
+import { rejectionText } from "../../../lib/error-copy";
 import {
   Button,
   Card,
@@ -149,7 +150,7 @@ export default function ContractDetailPage() {
     });
     setSaving(false);
     if (!result.ok) {
-      setSaveError(result.message ?? "The save was rejected (stale version?). Reload and retry.");
+      setSaveError(rejectionText(result, "The save was rejected (stale version?). Reload and retry."));
       void load();
       return;
     }

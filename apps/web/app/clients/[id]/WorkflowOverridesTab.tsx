@@ -11,6 +11,7 @@
 // registry surfaces); the resolver stays the single source of truth.
 "use client";
 
+import { rejectionText } from "../../../lib/error-copy";
 import {
   Button,
   Card,
@@ -117,7 +118,7 @@ export default function WorkflowOverridesTab({ clientId }: { clientId: string })
     });
     setBusyKey(null);
     if (result.ok === false) {
-      setError(`${key}: ${result.message ?? "the server rejected this override."}`);
+      setError(`${key}: ${rejectionText(result, "the server rejected this override.")}`);
       return;
     }
     await refresh();

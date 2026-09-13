@@ -40,6 +40,7 @@ import {
 import type { components } from "@meridian/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
+import { OFFLINE_RETRY_COPY, reasonCopy } from "../../../lib/error-copy";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 
 type OrgUser = components["schemas"]["OrgUser"];
@@ -69,7 +70,8 @@ function roleTone(role: string | null | undefined): "success" | "warning" | "neu
 }
 
 /** Friendly copy for the typed self-deactivation (422) and
- * last-active-owner (409) rejections. */
+ * last-active-owner (409) rejections; other typed reasons fall through to
+ * the central reason-code map (lib/error-copy) instead of raw messages. */
 function friendlyUserError(reason: string | undefined, message: string | undefined): string {
   const m = (message ?? "").toLowerCase();
   if (m.includes("cannot deactivate your own account")) {
@@ -83,6 +85,9 @@ function friendlyUserError(reason: string | undefined, message: string | undefin
   }
   if (reason === "forbidden") {
     return "Only owners and admins can manage users.";
+  }
+  if (reason !== undefined) {
+    return reasonCopy(reason, { message });
   }
   return message ?? "The change was rejected.";
 }
@@ -171,7 +176,7 @@ export default function TeamSettingsPage() {
       setInviteRole("technician");
       void fetchPage(0, true);
     } catch {
-      setInviteError("Network error — try again.");
+      setInviteError(OFFLINE_RETRY_COPY);
     } finally {
       setInviteBusy(false);
     }

@@ -10,6 +10,7 @@
 // invoice actions live on /billing/[id].
 "use client";
 
+import { rejectionText } from "../../lib/error-copy";
 import {
   Button,
   Card,
@@ -192,7 +193,7 @@ export default function BillingPage() {
     });
     setRunning(false);
     if (!result.ok) {
-      setRunError(result.message ?? "The run was rejected. Nothing was issued.");
+      setRunError(rejectionText(result, "The run was rejected. Nothing was issued."));
       return;
     }
     setRunOpen(false);

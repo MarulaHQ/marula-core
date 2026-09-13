@@ -8,6 +8,7 @@
 // shows the hint; rule editing follows the visibility-rules backend UI).
 "use client";
 
+import { rejectionText } from "../../lib/error-copy";
 import {
   Button,
   Card,
@@ -105,7 +106,7 @@ export default function ClientsPage() {
     });
     setCreating(false);
     if (!result.ok) {
-      setCreateError(result.message ?? "The client was rejected. Nothing was saved.");
+      setCreateError(rejectionText(result, "The client was rejected. Nothing was saved."));
       return;
     }
     setCreateOpen(false);

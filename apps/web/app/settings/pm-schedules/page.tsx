@@ -12,6 +12,7 @@
 // ticket-template editor beyond title/body/priority.
 "use client";
 
+import { rejectionText } from "../../../lib/error-copy";
 import {
   Button,
   Card,
@@ -276,7 +277,7 @@ export default function PmSchedulesSettingsPage() {
       });
       setFormBusy(false);
       if (!result.ok) {
-        setFormError(result.message ?? "The schedule was rejected.");
+        setFormError(rejectionText(result, "The schedule was rejected."));
         return;
       }
     } else {
@@ -321,7 +322,7 @@ export default function PmSchedulesSettingsPage() {
       });
       setFormBusy(false);
       if (!result.ok) {
-        setFormError(result.message ?? "The change was rejected.");
+        setFormError(rejectionText(result, "The change was rejected."));
         return;
       }
     }
@@ -344,7 +345,7 @@ export default function PmSchedulesSettingsPage() {
         client.PATCH("/api/v1/pm-schedules/{id}", { params: { path: { id: schedule.id } }, body }),
     });
     if (!result.ok) {
-      setLoadError(result.message ?? "The change was rejected.");
+      setLoadError(rejectionText(result, "The change was rejected."));
       void refresh();
     }
   };
@@ -367,7 +368,7 @@ export default function PmSchedulesSettingsPage() {
         }) as Promise<{ data?: unknown; error?: unknown; response: Response }>,
     });
     if (!result.ok) {
-      setLoadError(result.message ?? "The delete was rejected.");
+      setLoadError(rejectionText(result, "The delete was rejected."));
       void refresh();
     }
   };

@@ -201,12 +201,12 @@ export class MeridianClient {
     });
     if (response.status === 204 || path === "/api/v1/auth/logout") {
       if (!response.ok && path !== "/api/v1/auth/logout") {
-        throw new Error(`${path} failed (${response.status}): ${await safeError(response)}`);
+        throw await meridianError(path, response);
       }
       return { access_token: "", refresh_token: "", session_id: "", expires_in: 0 };
     }
     if (!response.ok) {
-      throw new Error(`${path} failed (${response.status}): ${await safeError(response)}`);
+      throw await meridianError(path, response);
     }
     const tokens = (await response.json()) as TokenPair;
     this.setTokens(tokens);
@@ -214,11 +214,37 @@ export class MeridianClient {
   }
 }
 
-async function safeError(response: Response): Promise<string> {
-  try {
-    const body = (await response.json()) as { error?: { message?: string } };
-    return body.error?.message ?? response.statusText;
-  } catch {
-    return response.statusText;
+/**
+ * Typed auth-call failure carrying the IF3 envelope: `reason` is the
+ * machine code clients branch on, `body` the whole envelope (conflict
+ * extras like the `org_slug_taken` suggestion ride along), and `message`
+ * the server's fixed human copy — never raw JSON or framework text.
+ */
+export class MeridianApiError extends Error {
+  readonly path: string;
+  readonly status: number;
+  readonly reason?: string;
+  readonly body?: unknown;
+
+  constructor(path: string, status: number, message: string, body?: unknown) {
+    super(message);
+    this.name = "MeridianApiError";
+    this.path = path;
+    this.status = status;
+    this.reason = reasonOf(body);
+    this.body = body;
   }
+}
+
+function reasonOf(body: unknown): string | undefined {
+  const reason = (body as { error?: { reason?: unknown } } | null | undefined)?.error?.reason;
+  return typeof reason === "string" ? reason : undefined;
+}
+
+async function meridianError(path: string, response: Response): Promise<MeridianApiError> {
+  const body = (await response.json().catch(() => null)) as
+    | { error?: { message?: string } }
+    | null;
+  const message = body?.error?.message ?? response.statusText;
+  return new MeridianApiError(path, response.status, message, body);
 }

@@ -9,6 +9,7 @@
 // managed through the API's ConfigureBoard endpoints, not this page).
 "use client";
 
+import { rejectionText } from "../../../lib/error-copy";
 import type { components } from "@meridian/sdk";
 import {
   Button,
@@ -106,7 +107,7 @@ function NewTicketDialog({
     });
     setBusy(false);
     if (!result.ok) {
-      setError(result.message ?? "The ticket was rejected. Nothing was created.");
+      setError(rejectionText(result, "The ticket was rejected. Nothing was created."));
       return;
     }
     setOpen(false);

@@ -11,6 +11,7 @@
 // in a later wave.
 "use client";
 
+import { friendlyMutationText } from "../../../lib/error-copy";
 import {
   Button,
   Card,
@@ -227,7 +228,7 @@ export default function GeneralSettingsPage() {
       setDirtyKeys([]);
       setSaved(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(friendlyMutationText(e));
     } finally {
       setSaving(false);
     }

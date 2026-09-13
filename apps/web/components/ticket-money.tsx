@@ -12,6 +12,7 @@
 // GET /invoice-candidates read-only (Billing page).
 "use client";
 
+import { rejectionText } from "../lib/error-copy";
 import type { components } from "@meridian/sdk";
 import {
   Button,
@@ -145,7 +146,7 @@ export function TicketMoney({ ticketId }: { ticketId: string }) {
     });
     setClBusy(false);
     if (!result.ok) {
-      setClError(result.message ?? "The cost line was rejected.");
+      setClError(rejectionText(result, "The cost line was rejected."));
       return;
     }
     setClDesc("");
@@ -199,7 +200,7 @@ export function TicketMoney({ ticketId }: { ticketId: string }) {
     });
     setExBusy(false);
     if (!result.ok) {
-      setExError(result.message ?? "The expense was rejected.");
+      setExError(rejectionText(result, "The expense was rejected."));
       return;
     }
     setExDesc("");
@@ -229,7 +230,7 @@ export function TicketMoney({ ticketId }: { ticketId: string }) {
       setLoadError(
         result.message?.includes("already billed")
           ? "That line is already billed on an invoice and can no longer change."
-          : (result.message ?? "The change was rejected."),
+          : (rejectionText(result, "The change was rejected.")),
       );
     }
   };
@@ -256,7 +257,7 @@ export function TicketMoney({ ticketId }: { ticketId: string }) {
       setLoadError(
         result.message?.includes("already billed")
           ? "That expense is already billed on an invoice and can no longer change."
-          : (result.message ?? "The change was rejected."),
+          : (rejectionText(result, "The change was rejected.")),
       );
     }
   };
@@ -279,7 +280,7 @@ export function TicketMoney({ ticketId }: { ticketId: string }) {
         }) as Promise<{ data?: unknown; error?: unknown; response: Response }>,
     });
     if (!result.ok) {
-      setLoadError(result.message ?? "The removal was rejected.");
+      setLoadError(rejectionText(result, "The removal was rejected."));
     }
   };
 
@@ -301,7 +302,7 @@ export function TicketMoney({ ticketId }: { ticketId: string }) {
         }) as Promise<{ data?: unknown; error?: unknown; response: Response }>,
     });
     if (!result.ok) {
-      setLoadError(result.message ?? "The removal was rejected.");
+      setLoadError(rejectionText(result, "The removal was rejected."));
     }
   };
 

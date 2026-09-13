@@ -8,6 +8,7 @@
 // Non-purpose: no tag CRUD here (Settings → Tags owns that).
 "use client";
 
+import { rejectionText } from "../lib/error-copy";
 import type { components } from "@meridian/sdk";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@meridian/ui";
 import { useCallback, useEffect, useState } from "react";
@@ -94,7 +95,7 @@ export function TicketTags({
         }) as Promise<{ data?: unknown; error?: unknown; response: Response }>,
     });
     if (!result.ok) {
-      setError(result.message ?? "The tag could not be applied.");
+      setError(rejectionText(result, "The tag could not be applied."));
     }
     void refresh();
     onChanged?.();
@@ -118,7 +119,7 @@ export function TicketTags({
         }) as Promise<{ data?: unknown; error?: unknown; response: Response }>,
     });
     if (!result.ok) {
-      setError(result.message ?? "The tag could not be removed.");
+      setError(rejectionText(result, "The tag could not be removed."));
     }
     void refresh();
     onChanged?.();

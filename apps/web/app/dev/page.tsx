@@ -19,6 +19,7 @@
 import { Button, Card, Input, Label, Spinner } from "@meridian/ui";
 import { useCallback, useEffect, useState } from "react";
 import { apiBaseUrl, useRequireAuth } from "../../lib/api";
+import { reasonCopy } from "../../lib/error-copy";
 
 interface DevStatus {
   enabled?: boolean;
@@ -40,6 +41,8 @@ export default function DevPage() {
 
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** The typed IF3 reason of the last failed call (e.g. already_seeded). */
+  const [failReason, setFailReason] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
 
   const [hours, setHours] = useState("24");
@@ -63,25 +66,39 @@ export default function DevPage() {
     if (auth.status === "authed") void loadStatus();
   }, [auth.status, loadStatus]);
 
-  /** One POST/GET helper: catches, surfaces the error, pretty-prints the result. */
+  /** One POST/GET helper: catches, renders the typed reason as friendly
+   * copy (never the raw body as the failure line — the pretty JSON stays
+   * in the result panel), pretty-prints the result. */
   const call = useCallback(
     async (label: string, path: string, init?: RequestInit) => {
       setBusy(label);
       setNotice(null);
+      setFailReason(null);
       setResult(null);
       try {
         const response = await fetch(`${apiBaseUrl()}${path}`, init);
         const body = await response.json().catch(() => ({ note: "no body" }));
         if (!response.ok) {
-          setNotice(`${label} failed (HTTP ${response.status})`);
+          const reason =
+            typeof (body as { error?: { reason?: unknown } })?.error?.reason === "string"
+              ? (body as { error: { reason: string } }).error.reason
+              : null;
+          setFailReason(reason);
+          setNotice(
+            reason !== null
+              ? `${label}: ${reasonCopy(reason, (body as { error?: Record<string, unknown> }).error)}`
+              : `${label} failed (HTTP ${response.status})`,
+          );
         }
         setResult(JSON.stringify(body, null, 2));
-        if (path === "/api/dev/seed" || path === "/api/dev/reset-org") {
+        if (path.startsWith("/api/dev/seed") || path === "/api/dev/reset-org") {
           // The status line may have changed (seeded flag).
           void loadStatus();
         }
       } catch (error) {
-        setNotice(`${label} failed: ${String(error)}`);
+        setFailReason(null);
+        setNotice(`${label} failed: could not reach the API — check that core-api is running.`);
+        void error;
       } finally {
         setBusy(null);
       }
@@ -130,6 +147,21 @@ export default function DevPage() {
       {notice !== null && (
         <p role="alert" className="text-[13px]" style={{ color: "var(--m-danger, #b00)" }}>
           {notice}
+        </p>
+      )}
+
+      {failReason === "already_seeded" && (
+        <p className="flex flex-wrap items-center gap-2 text-[13px]" role="status">
+          <span style={{ color: "var(--m-text-secondary)" }}>
+            The demo org already has data. Force-reseed wipes it and starts over.
+          </span>
+          <Button
+            variant="secondary"
+            disabled={busy !== null}
+            onClick={() => void call("Force reseed", "/api/dev/seed?force=1", { method: "POST" })}
+          >
+            Wipe and reseed (force)
+          </Button>
         </p>
       )}
 

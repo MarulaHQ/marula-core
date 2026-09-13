@@ -12,6 +12,7 @@
 // open reveal dialog.
 "use client";
 
+import { rejectionText } from "../../lib/error-copy";
 import {
   Button,
   Card,
@@ -423,7 +424,7 @@ function VaultForm({
       });
       setBusy(false);
       if (!result.ok) {
-        setError(result.message ?? "The credential was rejected.");
+        setError(rejectionText(result, "The credential was rejected."));
         return;
       }
     } else {

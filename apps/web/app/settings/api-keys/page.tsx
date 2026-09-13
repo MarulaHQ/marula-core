@@ -11,6 +11,7 @@
 // design), no per-key usage analytics beyond last_used_at.
 "use client";
 
+import { friendlyMutationText } from "../../../lib/error-copy";
 import {
   Button,
   Card,
@@ -107,7 +108,7 @@ export default function ApiKeysSettingsPage() {
       setScopes(new Set());
       await refresh();
     } catch (e) {
-      setFormError(e instanceof Error ? e.message : String(e));
+      setFormError(friendlyMutationText(e));
     } finally {
       setBusy(false);
     }
@@ -122,7 +123,7 @@ export default function ApiKeysSettingsPage() {
       setConfirmingRevokeId(null);
       await refresh();
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : String(e));
+      setActionError(friendlyMutationText(e));
     }
   };
 

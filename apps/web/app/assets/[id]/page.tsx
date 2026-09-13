@@ -13,6 +13,7 @@
 // rejection rollback. Light+dark ride Workbench tokens only.
 "use client";
 
+import { rejectionText } from "../../../lib/error-copy";
 import {
   Button,
   Card,
@@ -383,7 +384,7 @@ export default function AssetDetailPage() {
       setFormError(
         result.reason === "version_conflict"
           ? "Someone else saved this asset first. Reload and retry."
-          : (result.message ?? "The server rejected this change. Check the fields and retry.")
+          : (rejectionText(result, "The server rejected this change. Check the fields and retry."))
       );
       void refreshAsset();
       return;

@@ -35,6 +35,7 @@ pub mod sla_sweep;
 pub mod time;
 pub mod webhook_out;
 
+use anyhow::Context as _;
 use axum::extract::State;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -51,8 +52,15 @@ pub async fn run(
     config: config::WorkerConfig,
     shutdown: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
-    let pool = core_db::connect(&config.database_url).await?;
-    let publisher = Publisher::connect(&config.redis_url).await?;
+    let pool = core_db::connect(&config.database_url).await.context(
+        "worker: connecting to Postgres — check DATABASE_URL and that the \
+         database is reachable (dev compose: `docker compose up -d postgres`)",
+    )?;
+    let publisher = Publisher::connect(&config.redis_url).await.context(
+        "worker: connecting to Redis — check REDIS_URL and that Redis is \
+         reachable (dev compose: `docker compose up -d redis`); the relay \
+         and automations loops cannot run without it",
+    )?;
     tracing::info!("worker connected; starting background loops");
 
     let relay_alive = Arc::new(AtomicBool::new(true));
@@ -281,7 +289,15 @@ pub async fn run(
     let app = Router::new()
         .route("/healthz", get(healthz))
         .with_state(Arc::new(health));
-    let listener = tokio::net::TcpListener::bind(&config.bind_addr).await?;
+    let listener = tokio::net::TcpListener::bind(&config.bind_addr)
+        .await
+        .with_context(|| {
+            format!(
+                "worker: binding health endpoint on {} — another process may \
+             already hold the port; check BIND_ADDR",
+                config.bind_addr
+            )
+        })?;
     tracing::info!(addr = %config.bind_addr, "worker health endpoint listening");
     axum::serve(listener, app)
         .with_graceful_shutdown(wait_for_shutdown(shutdown))

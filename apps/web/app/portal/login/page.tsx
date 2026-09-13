@@ -7,6 +7,7 @@
 // invite-only surface provisioned by the MSP.
 "use client";
 
+import { friendlyMutationText } from "../../../lib/error-copy";
 import { Button, Card, FieldHint, Input, Label } from "@meridian/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -32,7 +33,7 @@ export default function PortalLoginPage() {
       await portalApi.login(email.trim(), password);
       router.replace("/portal/tickets");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Sign-in failed");
+      setError(friendlyMutationText(err, "Sign-in failed"));
     } finally {
       setBusy(false);
     }

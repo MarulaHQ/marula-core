@@ -15,9 +15,10 @@ async fn main() -> anyhow::Result<()> {
     let config = std::sync::Arc::new(core_api::config::Config::from_env());
     tracing::info!(addr = %config.bind_addr, "starting core-api");
 
-    let pool = core_db::connect(&config.database_url)
-        .await
-        .context("connecting to Postgres")?;
+    let pool = core_db::connect(&config.database_url).await.context(
+        "connecting to Postgres — check DATABASE_URL and that the database \
+             is reachable (dev compose: `docker compose up -d postgres`)",
+    )?;
     // Startup migrations are OPT-IN (TASKLIST backend-gaps lane, 2026-09-10):
     // running them as `meridian_app` fails on fresh installs — Postgres 17
     // denies even `CREATE TABLE IF NOT EXISTS _sqlx_migrations` to the RLS
@@ -25,12 +26,16 @@ async fn main() -> anyhow::Result<()> {
     // one-shot as the OWNER before the API starts; native dev sets
     // RUN_MIGRATIONS=1 (or lets the migrate one-shot run first).
     if std::env::var("RUN_MIGRATIONS").as_deref() == Ok("1") {
-        core_db::run_migrations(&pool)
-            .await
-            .context("running migrations")?;
-        core_db::assert_rls_coverage(&pool)
-            .await
-            .context("RLS coverage check")?;
+        core_db::run_migrations(&pool).await.context(
+            "running migrations — on fresh installs these must run as the \
+             schema owner, not meridian_app: run the compose `migrate` \
+             one-shot first, or keep RUN_MIGRATIONS=1 only for native dev",
+        )?;
+        core_db::assert_rls_coverage(&pool).await.context(
+            "RLS coverage check — a table lacks row-level security; \
+                 see the RLS conventions block in crates/core-db before \
+                 adding tables to the allowlist",
+        )?;
         tracing::info!("migrations applied; RLS coverage verified");
     } else {
         tracing::info!(

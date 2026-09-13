@@ -7,6 +7,7 @@
 
 "use client";
 
+import { friendlyMutationText } from "../../lib/error-copy";
 import { Button, Card, Input, Label } from "@meridian/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -68,7 +69,7 @@ export default function MfaChallengePage() {
     try {
       await complete(await api.mfaVerify({ mfa_token: mfaToken, code }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Verification failed");
+      setError(friendlyMutationText(err, "Verification failed"));
     } finally {
       setBusy(false);
     }
@@ -127,7 +128,7 @@ export default function MfaChallengePage() {
       if (!finishResponse.ok) throw new Error(`passkey rejected (${finishResponse.status})`);
       await complete((await finishResponse.json()) as Parameters<typeof saveTokens>[0]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Passkey sign-in failed");
+      setError(friendlyMutationText(err, "Passkey sign-in failed"));
     } finally {
       setBusy(false);
     }

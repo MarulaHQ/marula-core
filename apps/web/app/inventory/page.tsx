@@ -12,6 +12,7 @@
 // documents; the merge queue only merges/splits records).
 "use client";
 
+import { rejectionText } from "../../lib/error-copy";
 import {
   Button,
   Card,
@@ -175,7 +176,7 @@ export default function InventoryPage(): ReactNode {
     setBusyId(null);
     if (result.ok === false) {
       setActionError(
-        `Could not ${accept ? "accept" : "reject"} candidate ${candidate.candidate_tag}: ${result.message ?? "rejected."}`,
+        `Could not ${accept ? "accept" : "reject"} candidate ${candidate.candidate_tag}: ${rejectionText(result, "rejected.")}`,
       );
       return;
     }
@@ -212,7 +213,7 @@ export default function InventoryPage(): ReactNode {
     });
     setBusyId(null);
     if (result.ok === false) {
-      setActionError(`Could not undo the merge: ${result.message ?? "rejected."}`);
+      setActionError(`Could not undo the merge: ${rejectionText(result, "rejected.")}`);
       return;
     }
     await refreshAll();

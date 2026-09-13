@@ -2,7 +2,7 @@
 //
 // Non-purpose: never imports server crates; generated code is regenerated,
 // never hand-edited.
-export { MeridianClient, snapshotOf } from "./client";
+export { MeridianClient, snapshotOf, MeridianApiError } from "./client";
 export type {
   MeridianClientOptions,
   MeridianPaths,

@@ -10,6 +10,7 @@
 // same chain at fan-out time.
 "use client";
 
+import { friendlyMutationText } from "../../../lib/error-copy";
 import {
   Button,
   Checkbox,
@@ -161,7 +162,7 @@ export default function NotificationPreferencesPage() {
       }
       setSavedAt(Date.now());
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(friendlyMutationText(e));
     } finally {
       setSaving(false);
     }

@@ -16,6 +16,7 @@ import { useEffect, useState } from "react";
 import { API_BASE, useAuth } from "../lib/api";
 import { NotificationDock } from "./notification-dock";
 import { OutboxDock } from "./instant/outbox-dock";
+import { ConnectionBanner } from "./instant/connection-banner";
 import { MainNav } from "./main-nav";
 
 // Surfaces that own their chrome (auth flows, the client portal) render no
@@ -140,6 +141,7 @@ export function AppHeader() {
         <MainNav />
       </div>
       <div className="flex shrink-0 items-center gap-1 md:gap-2">
+        <ConnectionBanner />
         <OutboxDock />
         <SearchLauncher />
         <NotificationDock />

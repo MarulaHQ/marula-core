@@ -14,6 +14,7 @@
 // keeps every receipt a ledger entry.
 "use client";
 
+import { rejectionText } from "../../../lib/error-copy";
 import {
   Button,
   Card,
@@ -194,8 +195,8 @@ function CreditNotesInner() {
     if (!result.ok) {
       setIssueError(
         result.message?.includes("already in org") || result.reason === "forbidden"
-          ? (result.message ?? "The credit note was rejected.")
-          : (result.message ?? "The credit note was rejected."),
+          ? (rejectionText(result, "The credit note was rejected."))
+          : (rejectionText(result, "The credit note was rejected.")),
       );
       return;
     }
@@ -266,7 +267,7 @@ function CreditNotesInner() {
     });
     setActionBusy(false);
     if (!result.ok) {
-      setActionError(result.message ?? "The action was rejected.");
+      setActionError(rejectionText(result, "The action was rejected."));
       return;
     }
     setAction(null);
@@ -292,7 +293,7 @@ function CreditNotesInner() {
       setRowNote(
         result.message?.includes("has allocations")
           ? "This credit has allocations — only a fully unallocated credit can be voided."
-          : (result.message ?? "The void was rejected."),
+          : (rejectionText(result, "The void was rejected.")),
       );
       return;
     }

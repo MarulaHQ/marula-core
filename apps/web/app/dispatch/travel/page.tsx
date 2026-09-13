@@ -12,6 +12,7 @@
 // the time-entry surface.
 "use client";
 
+import { rejectionText } from "../../../lib/error-copy";
 import {
   Button,
   Card,
@@ -198,7 +199,7 @@ export default function TravelDraftsPage() {
         });
     setBusy(false);
     if (!result.ok) {
-      setFormError(result.message ?? "The draft was rejected.");
+      setFormError(rejectionText(result, "The draft was rejected."));
       return;
     }
     setFormOpen(false);
@@ -229,7 +230,7 @@ export default function TravelDraftsPage() {
     });
     setSubmittingId(null);
     if (!result.ok) {
-      setActionError(result.message ?? "Submit was rejected.");
+      setActionError(rejectionText(result, "Submit was rejected."));
       return;
     }
     void refresh();

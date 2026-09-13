@@ -1,9 +1,10 @@
 // OutboxDock — the IF6 surfacing surface.
 //
 // Purpose: one quiet docked chip showing the durable offline queue count
-// plus the most recent per-op accepted/rejected results (typed IF3
-// reason codes when rejected). Chrome-quiet per docs/theme.md: tokens
-// only, no motion, dark-mode parity via the shared token set.
+// plus the most recent per-op accepted/rejected results (friendly copy
+// from the central reason-code map when rejected — never the raw reason
+// code or server JSON). Chrome-quiet per docs/theme.md: tokens only, no
+// motion, dark-mode parity via the shared token set.
 //
 // Non-purpose: no queue management (clearing/retrying is not offered —
 // replay is order-safe and automatic), no toasts.
@@ -13,6 +14,7 @@
 import { StatusTag } from "@meridian/ui";
 import { useState } from "react";
 import { useOutbox } from "../../lib/use-instant";
+import { reasonCopy } from "../../lib/error-copy";
 
 function outcomeTone(status: string): "success" | "danger" | "warning" {
   if (status === "accepted") return "success";
@@ -22,7 +24,7 @@ function outcomeTone(status: string): "success" | "danger" | "warning" {
 
 function outcomeLabel(status: string, reason?: string): string {
   if (status === "accepted") return "saved";
-  if (status === "rejected") return `rejected (${reason ?? "conflict"})`;
+  if (status === "rejected") return reasonCopy(reason ?? "conflict");
   return "queued";
 }
 

@@ -4,6 +4,7 @@
 // the calendar) or decline. Client copy stays honest about that.
 "use client";
 
+import { friendlyMutationText } from "../../../lib/error-copy";
 import { Button, EmptyState, Spinner, StatusTag, type StatusTone } from "@meridian/ui";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -69,7 +70,7 @@ export default function PortalSchedulePage() {
         if (!cancelled) setSlots(s);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load availability");
+        if (!cancelled) setError(friendlyMutationText(err, "Failed to load availability"));
       });
     portalApi
       .listAppointmentRequests()
@@ -77,7 +78,7 @@ export default function PortalSchedulePage() {
         if (!cancelled) setRequests(r);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load your requests");
+        if (!cancelled) setError(friendlyMutationText(err, "Failed to load your requests"));
       });
     return () => {
       cancelled = true;
@@ -109,7 +110,7 @@ export default function PortalSchedulePage() {
       setNotice("Request sent — your provider will confirm or suggest another time.");
       load();
     } catch (err: unknown) {
-      setNotice(err instanceof Error ? err.message : "Sending the request failed; try again.");
+      setNotice(friendlyMutationText(err, "Sending the request failed; try again."));
       load();
     } finally {
       setSubmitting(false);
@@ -121,7 +122,7 @@ export default function PortalSchedulePage() {
       await portalApi.cancelAppointmentRequest(id);
       load();
     } catch (err: unknown) {
-      setNotice(err instanceof Error ? err.message : "Cancelling failed; the request may already be decided.");
+      setNotice(friendlyMutationText(err, "Cancelling failed; the request may already be decided."));
     }
   }
 

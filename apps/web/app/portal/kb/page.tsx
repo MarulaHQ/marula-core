@@ -4,6 +4,7 @@
 // ever appear here — the server enforces it, the UI just reflects it.
 "use client";
 
+import { friendlyMutationText } from "../../../lib/error-copy";
 import { Button, EmptyState, Spinner } from "@meridian/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -34,7 +35,7 @@ export default function PortalKbPage() {
         if (!cancelled) setCategories(cats);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load topics");
+        if (!cancelled) setError(friendlyMutationText(err, "Failed to load topics"));
       });
     return () => {
       cancelled = true;
@@ -50,7 +51,7 @@ export default function PortalKbPage() {
         if (!cancelled) setArticles(rows);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load articles");
+        if (!cancelled) setError(friendlyMutationText(err, "Failed to load articles"));
       });
     return () => {
       cancelled = true;
@@ -70,7 +71,7 @@ export default function PortalKbPage() {
       const results = await portalApi.kbSearch(term);
       setHits(results.map((hit) => hit.article));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Search failed; try again.");
+      setError(friendlyMutationText(err, "Search failed; try again."));
     } finally {
       setSearching(false);
     }

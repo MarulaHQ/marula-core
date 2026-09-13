@@ -8,6 +8,7 @@
 // filtering beyond what portal v1 exposes.
 "use client";
 
+import { friendlyMutationText } from "../../../lib/error-copy";
 import { EmptyState, Spinner, StatusTag, type StatusTone } from "@meridian/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -76,7 +77,7 @@ export default function PortalTicketsPage() {
           );
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load tickets");
+        if (!cancelled) setError(friendlyMutationText(err, "Failed to load tickets"));
       });
     return () => {
       cancelled = true;

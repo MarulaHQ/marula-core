@@ -9,6 +9,7 @@
 
 "use client";
 
+import { friendlyMutationText } from "../../../lib/error-copy";
 import { Button, Card, FieldHint, Input, Label } from "@meridian/ui";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
@@ -121,7 +122,7 @@ export default function SecuritySettingsPage() {
       setSessions(list);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to load security state",
+        friendlyMutationText(err, "Failed to load security state"),
       );
     }
     // Providers are admin-scoped; a 403 simply hides the section.
@@ -147,7 +148,7 @@ export default function SecuritySettingsPage() {
       try {
         await action();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Request failed");
+        setError(friendlyMutationText(err, "Request failed"));
       } finally {
         setBusy(false);
       }

@@ -11,6 +11,7 @@
 // exists yet — deferred), no SLA evaluation or sweep logic here.
 "use client";
 
+import { friendlyMutationText } from "../../../lib/error-copy";
 import {
   Button,
   Card,
@@ -187,7 +188,7 @@ export default function SlaSettingsPage() {
       setCalError(null);
       await refresh();
     } catch (e) {
-      setCalError(e instanceof Error ? e.message : String(e));
+      setCalError(friendlyMutationText(e));
     } finally {
       setSavingCal(false);
     }
@@ -203,7 +204,7 @@ export default function SlaSettingsPage() {
       await refresh();
       startCreate();
     } catch (e) {
-      setCalError(e instanceof Error ? e.message : String(e));
+      setCalError(friendlyMutationText(e));
     }
   };
 
@@ -242,7 +243,7 @@ export default function SlaSettingsPage() {
       dispatchLadder({ type: "init", steps: res.data });
       setLadderSaved(true);
     } catch (e) {
-      setLadderError(e instanceof Error ? e.message : String(e));
+      setLadderError(friendlyMutationText(e));
     } finally {
       setSavingLadder(false);
     }

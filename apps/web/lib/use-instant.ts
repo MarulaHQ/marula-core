@@ -156,3 +156,38 @@ export function useOutbox(): OutboxState {
   }, [runtime]);
   return state;
 }
+
+/** Connection health for the recovery banner (Wave 13 lane 2).
+ *
+ * Reports `{ status, online, pending }` — `status` from the instant
+ * socket's live leg, `online` from the browser's network state, `pending`
+ * the durable queue depth. Components decide what to show from this trio;
+ * the socket only connects once something subscribes, so pages without
+ * instant channels naturally report a quiet `closed` here. */
+export function useConnectionState(): {
+  status: "connecting" | "open" | "closed";
+  online: boolean;
+  pending: number;
+} {
+  const runtime = instantRuntime();
+  const [status, setStatus] = useState<"connecting" | "open" | "closed">(
+    () => runtime.socket.statusNow(),
+  );
+  const [online, setOnline] = useState(() =>
+    typeof navigator === "undefined" ? true : navigator.onLine,
+  );
+  const { pending } = useOutbox();
+  useEffect(() => {
+    const offStatus = runtime.socket.onStatus(setStatus);
+    const goOnline = () => setOnline(true);
+    const goOffline = () => setOnline(false);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => {
+      offStatus();
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, [runtime]);
+  return { status, online, pending };
+}

@@ -11,6 +11,7 @@
 // Non-purpose: no filters/facets UI, no portal visibility logic.
 "use client";
 
+import { friendlyMutationText } from "../../lib/error-copy";
 import { Button, EmptyState, Input, Spinner, StatusTag } from "@meridian/ui";
 import type { components } from "@meridian/sdk";
 import Link from "next/link";
@@ -90,7 +91,7 @@ export default function SearchPage() {
       setError(null);
     } catch (err) {
       if (seq !== seqRef.current) return;
-      setError(err instanceof Error ? err.message : "Search failed");
+      setError(friendlyMutationText(err, "Search failed"));
     } finally {
       if (seq === seqRef.current) setLoading(false);
     }

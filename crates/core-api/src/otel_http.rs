@@ -22,6 +22,44 @@ use axum::response::Response;
 use std::time::Instant;
 use tracing::Instrument as _;
 
+/// The request-correlation middleware (Wave 13 lane 2): every request
+/// carries a `correlation_id` — an inbound `x-correlation-id` header when
+/// one is sane, else a fresh UUIDv7 — stamped onto the current request
+/// span and echoed back on the response. Client-reported failures and
+/// server log lines then share one id: an error envelope shown in the
+/// console pairs with exactly one grep-able server log.
+///
+/// Redaction stance: an inbound id is only echoed when it is a short
+/// ASCII alphanumeric/dash token (bounded length, no header injection);
+/// anything else is replaced by a server-generated id. The span attribute
+/// is the ONLY log surface — ids never touch route labels or metrics.
+pub async fn correlate(request: Request, next: Next) -> Response {
+    const MAX_ID_LEN: usize = 128;
+    let inbound = request
+        .headers()
+        .get("x-correlation-id")
+        .and_then(|v| v.to_str().ok())
+        .filter(|v| {
+            !v.is_empty()
+                && v.len() <= MAX_ID_LEN
+                && v.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+        })
+        .map(str::to_owned);
+    let correlation_id = inbound.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+
+    let span = tracing::Span::current();
+    span.record("correlation_id", correlation_id.as_str());
+
+    let mut response = next.run(request).await;
+    if let Ok(value) = axum::http::HeaderValue::from_str(&correlation_id) {
+        response.headers_mut().insert(
+            axum::http::HeaderName::from_static("x-correlation-id"),
+            value,
+        );
+    }
+    response
+}
+
 /// The outermost request-telemetry middleware. Applied LAST on the final
 /// router so it wraps everything (the span covers auth + handlers).
 pub async fn track(request: Request, next: Next) -> Response {
@@ -46,6 +84,8 @@ pub async fn track(request: Request, next: Next) -> Response {
         http.route = %route,
         // Stamped post-auth by `record_org`; empty until then.
         org_id = tracing::field::Empty,
+        // Stamped by `correlate` for every request (Wave 13 lane 2).
+        correlation_id = tracing::field::Empty,
     );
 
     let started = Instant::now();
@@ -121,5 +161,71 @@ mod tests {
             .await
             .expect("in-process call");
         assert_eq!(response.status(), 200);
+    }
+
+    /// Correlation ids: a request with no inbound header gets a fresh
+    /// UUIDv7 echoed on the response; a sane inbound id is honored
+    /// verbatim; a junk inbound id is replaced (never echoed).
+    #[tokio::test]
+    async fn correlate_generates_echoes_and_scrubs_ids() {
+        async fn handler() -> &'static str {
+            "ok"
+        }
+        let app = Router::new()
+            .route("/api/health", get(handler))
+            .layer(axum::middleware::from_fn(correlate));
+
+        let fresh = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/health")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let echoed = fresh
+            .headers()
+            .get("x-correlation-id")
+            .and_then(|v| v.to_str().ok())
+            .expect("fresh request still gets an id");
+        assert!(uuid::Uuid::parse_str(echoed).is_ok(), "{echoed} not a UUID");
+
+        let honor = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/health")
+                    .header("x-correlation-id", "abc-123-XYZ")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            honor.headers().get("x-correlation-id").unwrap(),
+            "abc-123-XYZ"
+        );
+
+        let scrubbed = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/health")
+                    // Space is not in the allowed set (valid as a header
+                    // value, but not a correlation id) — it must be
+                    // replaced by a server-generated id.
+                    .header("x-correlation-id", "bad id value")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let id = scrubbed
+            .headers()
+            .get("x-correlation-id")
+            .and_then(|v| v.to_str().ok())
+            .expect("scrubbed request still gets an id");
+        assert!(uuid::Uuid::parse_str(id).is_ok(), "{id} not a fresh UUID");
     }
 }

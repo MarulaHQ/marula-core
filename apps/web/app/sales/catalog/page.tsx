@@ -11,6 +11,7 @@
 // truth; inventory tracking lives with config items/assets).
 "use client";
 
+import { rejectionText } from "../../../lib/error-copy";
 import {
   Button,
   Card,
@@ -190,7 +191,7 @@ export default function CatalogPage(): ReactNode {
           }),
       });
       if (result.ok === false) {
-        setFormError(result.message ?? "Could not create the catalog item.");
+        setFormError(rejectionText(result, "Could not create the catalog item."));
         return;
       }
     } else {
@@ -244,7 +245,7 @@ export default function CatalogPage(): ReactNode {
           }),
       });
       if (result.ok === false) {
-        setFormError(result.message ?? "Could not save the catalog item.");
+        setFormError(rejectionText(result, "Could not save the catalog item."));
         return;
       }
     }
@@ -280,7 +281,7 @@ export default function CatalogPage(): ReactNode {
     });
     setBusyId(null);
     if (result.ok === false) {
-      setActionError(`Could not archive ${item.name}: ${result.message ?? "rejected."}`);
+      setActionError(`Could not archive ${item.name}: ${rejectionText(result, "rejected.")}`);
     }
   }
 
