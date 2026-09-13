@@ -26,14 +26,28 @@
 //! on reconnect, and duplicate frames are harmless under seq dedupe.
 //! Auth is the existing bearer/session middleware (`require_auth`) — the
 //! principal's org scopes every frame at fan-out.
+//!
+//! ## Resume (Wave 13 lane 10)
+//!
+//! Every frame carries its event uuid as the SSE `id:` field (contract
+//! events: the outbox row's uuid; presence frames: a per-frame uuid).
+//! On reconnect EventSource sends `Last-Event-ID` automatically; the
+//! server then REPLAYS the events committed after that cursor from the
+//! outbox (bounded by `realtime::REPLAY_BUFFER`, default 256), before the
+//! live stream resumes — the ledger dedupes by seq, so replayed and live
+//! frames interleave safely. Cutoff: a cursor further back than the
+//! replay buffer (or an unknown/foreign-org/presence cursor id) gets NO
+//! replay — the client falls back to its full snapshot rehydration, the
+//! pre-resume behavior.
 
 use crate::auth::middleware::authed;
 use crate::error::{ApiError, ApiResult};
 use crate::realtime;
 use axum::extract::Query;
-use axum::http::Extensions;
+use axum::http::{Extensions, HeaderMap};
 use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
 use axum::response::IntoResponse;
+use futures_util::StreamExt;
 use serde::Deserialize;
 use std::convert::Infallible;
 use std::time::Duration;
@@ -50,9 +64,13 @@ pub struct StreamQuery {
 /// GET /api/events/stream — live contract-event + presence frames.
 ///
 /// Response is `text/event-stream`: `data:` frames are the StreamFrame
-/// JSON documented above; comment heartbeats every 15s keep intermediaries
-/// from closing an idle connection. A per-user connection cap (8) guards
-/// fan-out memory; over the cap the request is a typed 429.
+/// JSON documented above, each carrying its event uuid as the SSE `id:`
+/// field; comment heartbeats every 15s keep intermediaries from closing
+/// an idle connection. A per-user connection cap (8) guards fan-out
+/// memory; over the cap the request is a typed 429. A `Last-Event-ID`
+/// header triggers a bounded outbox replay of the events missed while
+/// disconnected (see the resume section above); past the replay buffer
+/// the client falls back to full snapshot rehydration.
 #[utoipa::path(
     operation_id = "events_stream",
     get,
@@ -61,34 +79,77 @@ pub struct StreamQuery {
     security(("bearer" = [])),
     params(StreamQuery),
     responses(
-        (status = 200, description = "text/event-stream of StreamFrame JSON data lines with comment heartbeats", content_type = "text/event-stream"),
+        (status = 200, description = "text/event-stream of StreamFrame JSON data lines with id: fields and comment heartbeats; honors Last-Event-ID for bounded resume replay", content_type = "text/event-stream"),
         (status = 401, description = "missing or invalid bearer token"),
         (status = 429, description = "per-user connection cap reached; reconnect later"),
     )
 )]
 pub async fn stream(
     extensions: Extensions,
+    headers: HeaderMap,
     Query(q): Query<StreamQuery>,
+    axum::extract::State(state): axum::extract::State<crate::state::AppState>,
 ) -> ApiResult<axum::response::Response> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     let org_id = authed.principal.user.org_id;
     let scope = q.ticket.map(|id| ("ticket".to_string(), id.to_string()));
-    let Some(rx) = realtime::hub().subscribe(org_id, authed.principal.user.id, scope) else {
+    let Some(rx) = realtime::hub().subscribe(org_id, authed.principal.user.id, scope.clone())
+    else {
         return Err(ApiError::RateLimited {
             retry_after_secs: 30,
         });
     };
 
+    // Resume: replay committed-but-missed events BEFORE the live stream
+    // resumes. The subscriber is registered first, so anything committed
+    // during the replay query is already queued in the live buffer — no
+    // gap, only harmless at-least-once duplication (ledger dedupes by
+    // seq). A past-the-buffer or unknown cursor replays nothing.
+    let mut replay = Vec::new();
+    let mut cutoff = false;
+    if let Some(last_event_id) = headers.get("last-event-id").and_then(|v| v.to_str().ok()) {
+        let (frames, past_buffer) =
+            realtime::replay_after(&state.pool, org_id, scope.clone(), last_event_id).await;
+        replay = frames;
+        cutoff = past_buffer;
+    }
+
+    let replay_stream = futures_util::stream::iter(replay.into_iter().map(|frame| {
+        let id = frame.id.map(|u| u.to_string());
+        let data = serde_json::to_string(&frame).unwrap_or_else(|_| "{}".to_string());
+        Ok::<_, Infallible>(sse_frame(data, id))
+    }));
+    let cutoff_stream = if cutoff {
+        futures_util::stream::once(async {
+            Ok::<_, Infallible>(
+                SseEvent::default()
+                    .comment("resume cursor past the replay buffer; rehydrate from snapshots"),
+            )
+        })
+        .boxed()
+    } else {
+        futures_util::stream::empty::<Result<SseEvent, Infallible>>().boxed()
+    };
+
     let frames = futures_util::stream::unfold(rx, |mut rx| async move {
         rx.recv().await.map(|frame| {
+            let id = frame.id.map(|u| u.to_string());
             let data = serde_json::to_string(&*frame).unwrap_or_else(|_| "{}".to_string());
-            (Ok::<_, Infallible>(SseEvent::default().data(data)), rx)
+            (Ok::<_, Infallible>(sse_frame(data, id)), rx)
         })
     });
-    let body = Sse::new(frames).keep_alive(
+    let body = Sse::new(replay_stream.chain(cutoff_stream).chain(frames)).keep_alive(
         KeepAlive::new()
             .interval(Duration::from_secs(15))
             .text("ping"),
     );
     Ok(body.into_response())
+}
+
+fn sse_frame(data: String, id: Option<String>) -> SseEvent {
+    let event = SseEvent::default().data(data);
+    match id {
+        Some(id) => event.id(id),
+        None => event,
+    }
 }

@@ -821,9 +821,8 @@ pub async fn create_link(
         ))
     })
     .await?;
-    match outcome.into_response()? {
-        created @ CreatedLink { .. } => Ok((axum::http::StatusCode::CREATED, Json(created))),
-    }
+    let created @ CreatedLink { .. } = outcome.into_response()?;
+    Ok((axum::http::StatusCode::CREATED, Json(created)))
 }
 
 fn booking_path(token: &str) -> String {

@@ -8,10 +8,13 @@
 //! Transitions (join / editing flip) are pushed as lightweight
 //! `type: "presence"` stream frames — not contract events.
 //!
-//! Multi-replica note: the store is per-core-api-process, which matches
-//! the v1 single-core-api deployment. Multi-replica fan-out (Redis
-//! pub/sub or pg NOTIFY presence relay) is a documented follow-up; the
-//! frame shape stays identical.
+//! Multi-replica note (Wave 13 lane 10): the store is per-core-api-process
+//! but heartbeats are RELAYED to the other replicas over the pg NOTIFY
+//! channel `meridian_presence` (`realtime::publish_heartbeat_notify`) —
+//! each replica applies the relayed heartbeat locally, so rosters
+//! converge and transition frames carry the identical shape everywhere.
+//! Frame shape stays identical to the documented contract in
+//! `realtime.rs`.
 
 use crate::auth::middleware::authed;
 use crate::error::{ApiError, ApiResult};
@@ -87,19 +90,37 @@ fn roster(viewers: Vec<PresenceViewer>) -> PresenceRoster {
     )
 )]
 pub async fn heartbeat(
+    State(state): State<AppState>,
     extensions: Extensions,
     Json(req): Json<HeartbeatRequest>,
 ) -> ApiResult<Json<PresenceRoster>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     validate_entity(&req.entity, &req.entity_id)?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+    let notify = realtime::HeartbeatNotify {
+        org_id,
+        user_id,
+        name: authed.principal.user.display_name.clone(),
+        entity: req.entity.clone(),
+        entity_id: req.entity_id.clone(),
+        editing: req.editing,
+        at: chrono::Utc::now(),
+    };
     let viewers = realtime::presence().heartbeat(
-        authed.principal.user.org_id,
-        authed.principal.user.id,
-        authed.principal.user.display_name.clone(),
+        org_id,
+        user_id,
+        notify.name.clone(),
         req.entity,
         req.entity_id,
         req.editing,
     );
+    // Cross-replica relay: fire-and-forget after the local upsert — the
+    // response never waits on (or fails with) the relay; a missed relay
+    // only delays cross-replica convergence by one heartbeat.
+    if let Err(e) = realtime::publish_heartbeat_notify(&state.pool, &notify).await {
+        tracing::warn!(error = %e, "presence relay NOTIFY failed; this replica only");
+    }
     Ok(Json(roster(viewers)))
 }
 
