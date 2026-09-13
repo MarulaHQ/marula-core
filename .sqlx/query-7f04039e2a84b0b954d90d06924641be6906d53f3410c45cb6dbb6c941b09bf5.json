@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, name, builtin, is_system, forked_from, permissions\n           FROM roles\n           WHERE org_id = $1 AND NOT (is_system AND builtin IS NOT NULL)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "builtin",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "is_system",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "forked_from",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "permissions",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "7f04039e2a84b0b954d90d06924641be6906d53f3410c45cb6dbb6c941b09bf5"
+}
