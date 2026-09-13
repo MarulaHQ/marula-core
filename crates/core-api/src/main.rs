@@ -50,6 +50,12 @@ async fn main() -> anyhow::Result<()> {
             core_store::build(&choice)
         },
     };
+    // Live delivery (Wave 12 lane 12): ONE dedicated LISTEN connection per
+    // process receives `meridian_events` notifications (migration 0068)
+    // and fans contract events + presence frames out to SSE subscribers.
+    tokio::spawn(core_api::realtime::run_listener(
+        config.database_url.clone(),
+    ));
     let mut app = core_api::router(state);
 
     // Browser clients (apps/web) need CORS when served from another origin.

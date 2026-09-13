@@ -9,6 +9,7 @@ pub mod error;
 pub mod instant;
 pub mod org_tx;
 pub mod otel_http;
+pub mod realtime;
 pub mod routes;
 pub mod state;
 

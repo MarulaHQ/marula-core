@@ -62,6 +62,7 @@ pub mod dispatch;
 pub mod dispatch_connector;
 pub mod documents;
 pub mod email_admin;
+pub mod events;
 pub mod export;
 pub mod fx;
 pub mod imports;
@@ -79,6 +80,7 @@ pub mod pipeline;
 pub mod portal;
 pub mod portal_admin;
 pub mod portal_v2;
+pub mod presence;
 pub mod projects;
 pub mod provenance;
 pub mod quotes;
@@ -522,6 +524,16 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         )
         .route(&rp("/tickets/{id}/status"), post(tickets::change_status))
         .route(&rp("/tickets/{id}/sla"), get(tickets::sla_status))
+        // ephemeral presence (Wave 12 lane 12): who is viewing/editing
+        // what; in-memory TTL store, transitions ride the event stream.
+        .route(
+            &rp("/tickets/{id}/presence"),
+            get(presence::ticket_presence),
+        )
+        .route(&rp("/presence/heartbeat"), post(presence::heartbeat))
+        // live delivery (Wave 12 lane 12): SSE push of contract events +
+        // presence frames; dedicated pg LISTEN fan-out (migration 0068).
+        .route(&rp("/events/stream"), get(events::stream))
         // sla configuration (admin)
         .route(
             &rp("/sla/calendars"),
