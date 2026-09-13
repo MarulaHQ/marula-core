@@ -71,6 +71,17 @@ jobs:
       - uses: actions/checkout@v4
       - run: ./scripts/check-openapi-pins.sh
 
+  rls-pool-reads:
+    name: RLS pool-read gate (no new unscoped &state.pool reads in routes)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Wave 13 lane 3 (TASKLIST RLS-scope audit): every tenant read must
+      # ride an org-bound tx (set_org_and_user); allowlisted pre-auth
+      # SECURITY DEFINER bridges + dev-tools surfaces are the only raw-pool
+      # reads. New pool-reads fail review here.
+      - run: ./scripts/check-rls-pool-reads.sh
+
   rls-coverage:
     name: RLS coverage (every user-data table has a policy)
     runs-on: ubuntu-latest
