@@ -1,0 +1,28 @@
+[package]
+name = "perf-harness"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+core-db = { path = "../core-db" }
+core-domain = { path = "../core-domain" }
+sqlx = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+anyhow = { workspace = true }
+argon2 = { workspace = true }
+reqwest = { workspace = true }
+md-5 = "0.10"
+clap = { workspace = true }
+
+[dev-dependencies]
+testcontainers = { version = "0.23", features = ["reusable-containers"] }
+
+[[bin]]
+name = "perf-harness"
+path = "src/bin/perf-harness.rs"
