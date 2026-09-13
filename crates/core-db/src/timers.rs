@@ -188,7 +188,8 @@ where
                                   billable = $6, notes = $7, work_type = $8
            WHERE org_id = $1 AND id = $2
            RETURNING id, org_id, ticket_id, user_id, started_at, ended_at, minutes,
-                     billable, notes, work_type, timer_session_id, created_at"#,
+                     billable, notes, work_type, timer_session_id, approval_status,
+                     approval_reason_code, created_at"#,
         org_id,
         id,
         started_at,
@@ -213,6 +214,8 @@ where
         notes: row.notes,
         work_type: row.work_type,
         timer_session_id: row.timer_session_id,
+        approval_status: core_domain::entities::ApprovalStatus::parse(&row.approval_status),
+        approval_reason_code: row.approval_reason_code,
         created_at: row.created_at,
     })
 }
@@ -223,7 +226,8 @@ where
 {
     let row = sqlx::query!(
         r#"SELECT id, org_id, ticket_id, user_id, started_at, ended_at, minutes, billable,
-                  notes, work_type, timer_session_id, created_at
+                  notes, work_type, timer_session_id, approval_status, approval_reason_code,
+                  created_at
            FROM time_entries WHERE org_id = $1 AND id = $2"#,
         org_id,
         id
@@ -243,12 +247,15 @@ where
         notes: row.notes,
         work_type: row.work_type,
         timer_session_id: row.timer_session_id,
+        approval_status: core_domain::entities::ApprovalStatus::parse(&row.approval_status),
+        approval_reason_code: row.approval_reason_code,
         created_at: row.created_at,
     })
 }
 
 fn row_to_entry(row: sqlx::postgres::PgRow) -> TimeEntry {
     use sqlx::Row;
+    let approval_status: Option<String> = row.try_get("approval_status").unwrap_or(None);
     TimeEntry {
         id: row.get("id"),
         org_id: row.get("org_id"),
@@ -261,6 +268,10 @@ fn row_to_entry(row: sqlx::postgres::PgRow) -> TimeEntry {
         notes: row.get("notes"),
         work_type: row.get("work_type"),
         timer_session_id: row.get("timer_session_id"),
+        approval_status: approval_status
+            .as_deref()
+            .and_then(core_domain::entities::ApprovalStatus::parse),
+        approval_reason_code: row.get("approval_reason_code"),
         created_at: row.get("created_at"),
     }
 }
@@ -277,7 +288,8 @@ where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     let sql = r#"SELECT id, org_id, ticket_id, user_id, started_at, ended_at, minutes, billable,
-                        notes, work_type, timer_session_id, created_at
+                        notes, work_type, timer_session_id, approval_status, approval_reason_code,
+                        created_at
                   FROM time_entries
                  WHERE org_id = $1
                    AND ($2::uuid IS NULL OR ticket_id = $2)

@@ -40,6 +40,7 @@ pub mod agent_platform;
 pub mod alerts;
 pub mod api_keys;
 pub mod appointment_requests;
+pub mod approvals;
 pub mod assets;
 pub mod attachments;
 pub mod audit;
@@ -665,6 +666,18 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/time-entries"),
             get(timers::list_entries).post(timers::create_entry),
         )
+        // time-entry approval workflows (Wave 14 lane 1)
+        .route(&rp("/time-entries/{id}/submit"), post(approvals::submit))
+        .route(&rp("/time-entries/{id}/approvals"), get(approvals::history))
+        .route(
+            &rp("/time-entries/{id}/reopen"),
+            post(approvals::reopen_entry),
+        )
+        .route(
+            &rp("/time-entries/approvals/decide"),
+            post(approvals::decide),
+        )
+        .route(&rp("/time-entries/approvals/queue"), get(approvals::queue))
         // time discipline (settings + missing-time gap reports)
         .route(
             &rp("/time-settings"),

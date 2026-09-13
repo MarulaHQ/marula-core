@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT te.id, te.approval_status,\n                  EXISTS (SELECT 1 FROM invoice_time_entries l WHERE l.time_entry_id = te.id) AS \"locked!\"\n           FROM time_entries te WHERE te.org_id = $1 AND te.id = ANY($2)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "approval_status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "locked!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "62ba92673b8901b001ee60c33cb0f2ba5d8c29844accfb9f46274bdc8f09f794"
+}

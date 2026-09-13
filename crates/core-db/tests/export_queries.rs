@@ -204,6 +204,8 @@ async fn seed_full_org(db: &common::TestDb, n: u64) -> (Uuid, Uuid, Uuid, Vec<Uu
     core_db::timers::insert_time_entry(
         &mut *tx,
         &core_domain::entities::TimeEntry {
+            approval_status: None,
+            approval_reason_code: None,
             id: Uuid::now_v7(),
             org_id: org,
             ticket_id: ticket_ids[0],

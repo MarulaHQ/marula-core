@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT te.id, te.minutes, te.work_type, te.started_at::date AS \"entry_date!\"\n           FROM time_entries te\n           JOIN tickets t ON t.id = te.ticket_id\n           WHERE te.org_id = $1 AND t.client_id = $2\n             AND te.billable\n             AND te.started_at::date >= $3 AND te.started_at::date <= $4\n             AND NOT EXISTS (\n                 SELECT 1 FROM invoice_time_entries l WHERE l.time_entry_id = te.id)\n           ORDER BY te.started_at, te.id",
+  "query": "SELECT te.id, te.minutes, te.work_type, te.started_at::date AS \"entry_date!\"\n           FROM time_entries te\n           JOIN tickets t ON t.id = te.ticket_id\n           WHERE te.org_id = $1 AND t.client_id = $2\n             AND te.billable\n             AND te.approval_status = 'approved'\n             AND te.started_at::date >= $3 AND te.started_at::date <= $4\n             AND NOT EXISTS (\n                 SELECT 1 FROM invoice_time_entries l WHERE l.time_entry_id = te.id)\n           ORDER BY te.started_at, te.id",
   "describe": {
     "columns": [
       {
@@ -39,5 +39,5 @@
       null
     ]
   },
-  "hash": "2ba7ec8dcc3067c1daa9b38e3e5ee87c6781d15705c7901b45fd7019c0064668"
+  "hash": "0d9ea7eb14647346f1a3d6b49512731f9ffb0c51f422dc8470c032172154a6fc"
 }

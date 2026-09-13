@@ -1,0 +1,103 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE time_entries\n              SET approval_status = 'submitted',\n                  approval_submitted_at = $3, approval_submitted_by = $4,\n                  approval_reason_code = NULL\n            WHERE org_id = $1 AND id = $2\n              AND approval_status IN ('draft', 'rejected')\n              AND NOT EXISTS (\n                  SELECT 1 FROM invoice_time_entries l WHERE l.time_entry_id = time_entries.id)\n           RETURNING id, org_id, ticket_id, user_id, started_at, ended_at, minutes, billable,\n                     notes, work_type, timer_session_id, approval_status, approval_reason_code,\n                     created_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "ticket_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "started_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "ended_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "minutes",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "billable",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "notes",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "work_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "timer_session_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 11,
+        "name": "approval_status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "approval_reason_code",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "d384afbd6045a506408b406a131573bdf65d22430046fb56c00c5fdb74bec609"
+}

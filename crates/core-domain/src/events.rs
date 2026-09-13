@@ -99,6 +99,11 @@ pub mod types {
     pub const TIMER_STOPPED: &str = "timer.stopped";
     pub const TIME_ENTRY_CREATED: &str = "time_entry.created";
     pub const TIME_ENTRY_UPDATED: &str = "time_entry.updated";
+    /// Wave 14 lane 1 approval workflow: one event per lifecycle step,
+    /// emitted from the same transaction as the state change.
+    pub const TIME_ENTRY_APPROVAL_SUBMITTED: &str = "time_entry.approval_submitted";
+    pub const TIME_ENTRY_APPROVAL_APPROVED: &str = "time_entry.approval_approved";
+    pub const TIME_ENTRY_APPROVAL_REJECTED: &str = "time_entry.approval_rejected";
     pub const NOTIFICATION_CREATED: &str = "notification.created";
     /// Emitted when a user marks notifications read (single, bulk, or all).
     pub const NOTIFICATION_READ: &str = "notification.read";
@@ -781,6 +786,50 @@ pub struct TimerStopped {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TimeEntryCreated {
     pub entry: TimeEntry,
+}
+
+/// Wave 14 lane 1 — the entry owner (or an admin) pushed the entry into
+/// the approver queue. `submitted_by` may differ from `user_id` when an
+/// admin submits on someone's behalf.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TimeEntryApprovalSubmitted {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub entry_id: TimeEntryId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub ticket_id: TicketId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub entry_user_id: UserId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub submitted_by: UserId,
+    pub submitted_at: DateTime<Utc>,
+}
+
+/// An approver holding `special:approve_time` accepted the entry. Approved
+/// entries are the only ones billing reads may consume.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TimeEntryApprovalApproved {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub entry_id: TimeEntryId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub approved_by: UserId,
+    pub decided_at: DateTime<Utc>,
+}
+
+/// An approver rejected the entry with a typed reason code from the
+/// [`crate::entities::TimeRejectionReason`] vocabulary; `note` carries the
+/// optional free-text explanation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TimeEntryApprovalRejected {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub entry_id: TimeEntryId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub rejected_by: UserId,
+    pub reason_code: String,
+    pub note: Option<String>,
+    pub decided_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

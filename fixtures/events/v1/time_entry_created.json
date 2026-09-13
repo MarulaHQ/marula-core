@@ -6,6 +6,8 @@
   "pinned_in": "0.1.0",
   "payload": {
     "entry": {
+      "approval_reason_code": null,
+      "approval_status": null,
       "billable": true,
       "created_at": "2023-11-14T22:13:26Z",
       "ended_at": "2023-11-14T22:13:26Z",

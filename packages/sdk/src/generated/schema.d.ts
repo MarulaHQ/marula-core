@@ -6941,6 +6941,111 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/time-entries/approvals/decide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/time-entries/approvals/decide — bulk approve or bulk reject
+         *     (`special:approve_time`). Only entries currently in the queue apply;
+         *     every other id comes back with a per-item outcome. Emits one
+         *     `time_entry.approval_*` event per applied entry.
+         */
+        post: operations["time_entries_decide"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/time-entries/approvals/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/time-entries/approvals/queue — the approver queue (submitted
+         *     entries by default). Approvers (`special:approve_time`) see the org
+         *     queue and can filter `decided_by` for their own decision history;
+         *     everyone else sees only their own submissions.
+         */
+        get: operations["time_entries_queue"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/time-entries/{id}/approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/time-entries/:id/approvals — the append-only decision trail
+         *     (`seq` ascending). Approvers and owner/admins read any trail; other
+         *     users only their own entries'.
+         */
+        get: operations["time_entries_approval_history"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/time-entries/{id}/reopen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/time-entries/:id/reopen — move a rejected entry back to draft
+         *     (owner or admin) so it can be corrected and resubmitted.
+         */
+        post: operations["time_entries_reopen"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/time-entries/{id}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/time-entries/:id/submit — the entry owner (or an admin)
+         *     pushes a draft/rejected entry into the approver queue.
+         */
+        post: operations["time_entries_submit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/time-gaps": {
         parameters: {
             query?: never;
@@ -7600,6 +7705,16 @@ export interface components {
          * @enum {string}
          */
         AppointmentStatus: "scheduled" | "in_progress" | "done" | "cancelled";
+        /**
+         * @description Approval lifecycle of a time entry (Wave 14 lane 1): `draft` entries
+         *     are still being worked on, `submitted` waits in the approver queue,
+         *     `approved` entries are the only ones billing reads may consume, and
+         *     `rejected` entries carry a typed rejection reason until reopened.
+         *     Entries consumed by an invoice are additionally LOCKED (enforced by
+         *     the persistence layer) regardless of status.
+         * @enum {string}
+         */
+        ApprovalStatus: "draft" | "submitted" | "approved" | "rejected";
         ArchiveCatalogItemRequest: components["schemas"]["MutationParams"];
         ArticleListQuery: {
             /** Format: uuid */
@@ -8095,6 +8210,28 @@ export interface components {
         BookResponse: {
             appointment: components["schemas"]["Appointment"];
             mutation: components["schemas"]["MutationMeta"];
+        };
+        /**
+         * @description Per-item outcome of a bulk decision: applied entries carry the new
+         *     snapshot; refused entries name exactly why (not-in-queue, locked, or
+         *     not visible in scope), so the client flags rows instead of guessing.
+         */
+        BulkDecisionItem: {
+            entry?: null | components["schemas"]["TimeEntry"];
+            /** Format: uuid */
+            entry_id: string;
+            outcome: string;
+        };
+        BulkDecisionRequest: {
+            /** @description `approve` or `reject`. Rejections require a typed `reason_code`. */
+            decision: string;
+            entry_ids: string[];
+            note?: string | null;
+            /** @description Typed rejection vocabulary (`missing_notes`, `wrong_ticket`, ...). */
+            reason_code?: string | null;
+        };
+        BulkDecisionResponse: {
+            results: components["schemas"]["BulkDecisionItem"][];
         };
         BulkMoveRequest: {
             moves: components["schemas"]["MoveSpec"][];
@@ -13723,6 +13860,22 @@ export interface components {
             /** Format: uuid */
             ticket_id: string;
         };
+        QueueQuery: {
+            /**
+             * Format: uuid
+             * @description Per-approver decision history: entries this approver decided.
+             */
+            decided_by?: string | null;
+            /** Format: int64 */
+            limit?: number;
+            /** @description Filter by approval state; defaults to `submitted` (the queue). */
+            status?: string | null;
+            /**
+             * Format: uuid
+             * @description Narrow to one submitter.
+             */
+            user_id?: string | null;
+        };
         /**
          * @description One queued ticket: the day-view's queue row shape plus the explicit
          *     override when one exists.
@@ -14828,6 +14981,15 @@ export interface components {
              */
             session_id?: string | null;
         };
+        SubmitEntryRequest: {
+            /** @description Optional free-text context recorded on the decision trail. */
+            note?: string | null;
+        };
+        /**
+         * @description Instant-first mutation response (IF2): the full entry snapshot
+         *     (including its new approval state) plus the decision trail entry.
+         */
+        SubmitResponse: components["schemas"]["TimeEntry"];
         /** @description POST /api/dispatch/travel-drafts/{id}/submit body. */
         SubmitTravelDraftRequest: components["schemas"]["MutationParams"];
         /** @description An org-wide tag: a flat named label with an optional display color. */
@@ -15423,10 +15585,28 @@ export interface components {
             custom_fields: components["schemas"]["TicketCustomFieldValue"][];
         };
         /**
+         * @description The audit-trail action of a [`TimeEntryApprovalRecord`] (append-only
+         *     decision trail; differs from [`ApprovalAction`] in that it names the
+         *     recorded past, not the requested transition).
+         * @enum {string}
+         */
+        TimeApprovalAction: "submitted" | "approved" | "rejected" | "reopened";
+        /**
          * @description A durable, reviewable record of worked time. Created from a timer session
          *     or entered manually; subject to bulk review and approval workflows.
          */
         TimeEntry: {
+            /**
+             * @description Typed rejection reason (the [`TimeRejectionReason`] wire code) when
+             *     the entry was rejected; cleared on resubmit.
+             */
+            approval_reason_code?: string | null;
+            /**
+             * @description Approval lifecycle state. `None` on legacy snapshots (pre-approval
+             *     rows and old event payloads) and treated as [`ApprovalStatus::Draft`]
+             *     by the workflow; new writes always carry the status.
+             */
+            approval_status?: string | null;
             billable: boolean;
             /** Format: date-time */
             created_at: string;
@@ -15455,10 +15635,57 @@ export interface components {
             user_id: string;
             work_type?: string | null;
         };
+        /**
+         * @description One append-only approval decision (the audit row behind the queue's
+         *     history view). `seq` is monotonic per entry — the client's ordering key.
+         */
+        TimeEntryApprovalRecord: {
+            action: components["schemas"]["TimeApprovalAction"];
+            /** Format: uuid */
+            actor_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            note?: string | null;
+            /** Format: uuid */
+            org_id: string;
+            /** @description Typed [`TimeRejectionReason`] wire code on rejections, else None. */
+            reason_code?: string | null;
+            /** Format: int32 */
+            seq: number;
+            /** Format: uuid */
+            time_entry_id: string;
+        };
         /** @description Same additive envelope for the stop flow (time-entry body). */
         TimeEntryMutationResponse: components["schemas"]["TimeEntry"] & {
             mutation: components["schemas"]["MutationMeta"];
         };
+        /**
+         * @description A queue/history projection: the entry plus its approval metadata
+         *     (who/when submitted, who/when decided).
+         */
+        TimeEntryQueueItem: {
+            /** Format: date-time */
+            decided_at?: string | null;
+            /** Format: uuid */
+            decided_by?: string | null;
+            /** Format: uuid */
+            entry: string;
+            /** @description True once the entry is consumed by an invoice — frozen forever. */
+            locked: boolean;
+            /** Format: date-time */
+            submitted_at?: string | null;
+            /** Format: uuid */
+            submitted_by?: string | null;
+        };
+        /**
+         * @description Closed rejection vocabulary (Wave 14 lane 1): approvers reject with a
+         *     machine-readable reason code, never prose-only. `other` may carry the
+         *     free-text explanation on the decision record.
+         * @enum {string}
+         */
+        TimeRejectionReason: "missing_notes" | "wrong_ticket" | "incorrect_duration" | "duplicate_entry" | "non_billable_work" | "policy_violation" | "other";
         TimeSettingsResponse: {
             /**
              * Format: int32
@@ -30259,6 +30486,172 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["TimeEntry"];
                 };
+            };
+        };
+    };
+    time_entries_decide: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkDecisionRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkDecisionResponse"];
+                };
+            };
+            /** @description unknown rejection reason_code */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    time_entries_queue: {
+        parameters: {
+            query?: {
+                /** @description Filter by approval state; defaults to `submitted` (the queue). */
+                status?: string | null;
+                /** @description Narrow to one submitter. */
+                user_id?: string | null;
+                /** @description Per-approver decision history: entries this approver decided. */
+                decided_by?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimeEntryQueueItem"][];
+                };
+            };
+        };
+    };
+    time_entries_approval_history: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimeEntryApprovalRecord"][];
+                };
+            };
+            /** @description entry not visible in scope (not_found) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    time_entries_reopen: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmitResponse"];
+                };
+            };
+            /** @description entry locked by invoicing (time_entry_locked) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description only rejected entries can be reopened */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    time_entries_submit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitEntryRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmitResponse"];
+                };
+            };
+            /** @description entry not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description entry locked by invoicing (time_entry_locked) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description entry not in a submittable state */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
