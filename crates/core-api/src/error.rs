@@ -152,7 +152,12 @@ pub enum ApiError {
     /// generic conflict with the detail logged server-side only.
     #[error("{message}")]
     UniqueConflict {
-            /// Typed 401 for a federation (bundle) login refusal (Wave 13 lane
+        /// Machine-readable reason code (e.g. `user_email_taken`).
+        kind: &'static str,
+        /// Fixed human-readable message for the client.
+        message: &'static str,
+    },
+    /// Typed 401 for a federation (bundle) login refusal (Wave 13 lane
     /// 7): auth failures carry a registry reason code, not prose to
     /// parse. `reason` is the machine code clients branch on;
     /// `message` is fixed human copy. Verification internals (why a
@@ -164,11 +169,6 @@ pub enum ApiError {
     AuthDenied {
         /// Machine-readable reason code (e.g. `edge_assertion_invalid`).
         reason: &'static str,
-        /// Fixed human-readable message for the client.
-        message: &'static str,
-    },
-/// Machine-readable reason code (e.g. `user_email_taken`).
-        kind: &'static str,
         /// Fixed human-readable message for the client.
         message: &'static str,
     },
@@ -345,6 +345,10 @@ impl IntoResponse for ApiError {
             ApiError::Unauthorized(m) => {
                 (StatusCode::UNAUTHORIZED, "unauthorized", m.clone(), None)
             }
+            ApiError::AuthDenied {
+                reason,
+                message,
+            } => (StatusCode::UNAUTHORIZED, *reason, message.to_string(), None),
             ApiError::Forbidden(m) => (StatusCode::FORBIDDEN, "forbidden", m.clone(), None),
             ApiError::Validation(m) => (
                 StatusCode::UNPROCESSABLE_ENTITY,
