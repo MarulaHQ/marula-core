@@ -1,11 +1,14 @@
-// ConnectionBanner — offline / reconnecting recovery surface (Wave 13
-// lane 2, instant-first doctrine beyond IF6).
+// ConnectionBanner — offline / reconnecting / resyncing recovery surface
+// (Wave 13 lane 2 + lane 9).
 //
 // Purpose: ONE quiet chip next to the outbox dock telling the user the
 // connection state that matters to their queued writes: offline (changes
-// are saved locally and will replay), or reconnecting (the socket is
-// backing off; pending changes stay queued). Gone the moment the wire is
-// open and the browser is online — it is a status, never a dead end.
+// are saved locally and will replay), reconnecting (the stream is
+// backing off; pending changes stay queued), or resyncing (a reconnect
+// with a Last-Event-ID cursor is rehydrating caches past the replay
+// buffer — a brief honest "catching up", never an error). Gone the
+// moment the wire is open and the browser is online — a status, never a
+// dead end.
 //
 // Non-purpose: no retry buttons (replay is automatic and order-safe), no
 // modal treatment; chrome-quiet tokens only per docs/theme.md.
@@ -16,7 +19,7 @@ import { Tag } from "@meridian/ui";
 import { useConnectionState, useOutbox } from "../../lib/use-instant";
 
 export function ConnectionBanner() {
-  const { status, online, pending } = useConnectionState();
+  const { status, online, pending, resyncing } = useConnectionState();
   const { outcomes } = useOutbox();
 
   if (!online) {
@@ -25,6 +28,13 @@ export function ConnectionBanner() {
         {pending > 0
           ? `Offline — ${pending} ${pending === 1 ? "change" : "changes"} will sync when you're back`
           : "Offline — changes will sync when you're back"}
+      </Tag>
+    );
+  }
+  if (resyncing) {
+    return (
+      <Tag tone="warning" aria-live="polite">
+        Catching up with recent changes…
       </Tag>
     );
   }

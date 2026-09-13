@@ -1,11 +1,16 @@
-// Instant runtime — one assembly of store + event bus + socket + offline
-// queue + SDK transport for the whole app.
+// Instant runtime — one assembly of store + event bus + SSE stream +
+// offline queue + SDK transport for the whole app.
 //
 // Purpose: lazily construct the instant-layer singletons and wire the
-// flows: socket frames → bus → store deltas; queue replay on reconnect
-// and on browser-online; replay results reconcile the store through the
-// entity ledger. `__resetInstantRuntimeForTests` gives suites a clean
-// slate (the queue is the only durable piece — it reloads from storage).
+// flows: SSE stream frames (contract events) → bus → store deltas;
+// `type: "presence"` frames stay OUT of the reconcile path and reach the
+// presence rosters through the stream's own listeners; queue replay on
+// reconnect and on browser-online; replay results reconcile the store
+// through the entity ledger. A reconnect that carried a Last-Event-ID
+// cursor runs one idempotent rehydration sweep (the resume fallback past
+// the replay buffer). `__resetInstantRuntimeForTests` gives suites a
+// clean slate (the queue is the only durable piece — it reloads from
+// storage).
 //
 // Non-purpose: no React (use-instant.ts binds hooks), no page wiring.
 
@@ -17,29 +22,29 @@ import {
   type InvokeResult,
   type QueuedWrite,
 } from "./offline-queue";
-import { InstantSocket } from "./socket";
+import { InstantStream } from "./stream";
 import type { InstantTransport, InstantTransportResult } from "./instant-write";
 
 export interface Runtime {
   store: InstantStore;
   bus: EventBus;
-  socket: InstantSocket;
+  stream: InstantStream;
   queue: OfflineQueue;
   transport: InstantTransport;
 }
 
-function wsUrl(): string | null {
+/** SSE URL for one stream scope (null = org-wide), auth via `?token=` —
+ * EventSource cannot set headers; the server accepts the query token on
+ * the stream path only (same posture as the /ws upgrade). */
+function streamUrl(scope: string | null): string | null {
   const tokens = loadTokens();
   if (tokens === null) return null;
-  if (process.env.NEXT_PUBLIC_WS_URL) {
-    return `${process.env.NEXT_PUBLIC_WS_URL}?token=${tokens.access_token}`;
-  }
   const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
   const u = new URL(base);
-  u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
-  u.port = process.env.NEXT_PUBLIC_WS_PORT ?? "8081";
-  u.pathname = "/ws";
-  return `${u.toString()}?token=${tokens.access_token}`;
+  u.pathname = "/api/events/stream";
+  u.searchParams.set("token", tokens.access_token);
+  if (scope !== null) u.searchParams.set("ticket", scope);
+  return u.toString();
 }
 
 /** The IF3 typed error body, wherever openapi-fetch parked it. */
@@ -111,7 +116,11 @@ const REQUEST_TIMEOUT_MS = 15_000;
 function buildRuntime(): Runtime {
   const bus = new EventBus();
   const store = new InstantStore();
-  const socket = new InstantSocket({ url: wsUrl, bus });
+  const stream = new InstantStream({
+    url: streamUrl,
+    bus,
+    onResync: () => store.rehydrateAll(),
+  });
 
   const transport: InstantTransport = {
     request: (method, path, body) => sdkRequest(method, path, body),
@@ -144,21 +153,23 @@ function buildRuntime(): Runtime {
     invoke,
   });
 
-  // Live deltas: socket frames land on the bus; the store subscribes.
+  // Live deltas: SSE contract-event frames land on the bus; the store
+  // subscribes. Presence frames never touch the bus (ephemeral — the
+  // stream's presence listeners own them).
   bus.subscribe((event) => store.applyEvent(event));
   // Reconnect triggers: replay the durable queue when the wire returns
   // or the browser regains network. replay() is reentrancy-guarded.
-  socket.onStatus((status) => {
+  stream.onStatus((status) => {
     if (status === "open") void queue.replay();
   });
   if (typeof window !== "undefined") {
     window.addEventListener("online", () => {
-      socket.ensureConnected();
+      stream.ensureConnected();
       void queue.replay();
     });
   }
 
-  return { store, bus, socket, queue, transport };
+  return { store, bus, stream, queue, transport };
 }
 
 /** Test seam: a storage stand-in for non-DOM contexts. */
@@ -181,6 +192,6 @@ export function instantRuntime(): Runtime {
 
 /** Suite seam: discard the current runtime; a fresh one builds lazily. */
 export function __resetInstantRuntimeForTests(): void {
-  runtime?.socket.stop();
+  runtime?.stream.stop();
   runtime = null;
 }

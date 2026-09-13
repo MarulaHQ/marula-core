@@ -16,16 +16,6 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({ id: TICKET_ID }),
 }));
 
-class FakeWebSocket {
-  constructor(_url: string) {}
-  send() {}
-  close() {}
-  addEventListener() {}
-  removeEventListener() {}
-  onopen: unknown = null;
-  onclose: unknown = null;
-  onmessage: unknown = null;
-}
 
 const TICKET_ID = "00000000-0000-4000-8000-00000000t001";
 const BOARD_A = "00000000-0000-4000-8000-00000000b00a";
@@ -120,7 +110,6 @@ function setupApi(): { mock: MockApi; state: { ticket: Record<string, unknown> }
 beforeEach(() => {
   window.localStorage.clear();
   seedAuthTokens();
-  vi.stubGlobal("WebSocket", FakeWebSocket);
   __resetInstantRuntimeForTests();
 });
 

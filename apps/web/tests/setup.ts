@@ -36,6 +36,28 @@ if (!Element.prototype.hasPointerCapture) {
   Element.prototype.releasePointerCapture = () => {};
 }
 
+// Never-connecting EventSource shim: the instant layer's SSE live leg
+// (lib/instant/stream.ts). Page tests drive frames through the runtime's
+// `stream.deliver` test seam instead of a live wire; the shim exists so
+// `new EventSource(...)` never throws a ReferenceError under jsdom and
+// subscribers settle into the quiet "connecting" state.
+class FakeEventSource {
+  static instances: FakeEventSource[] = [];
+  readyState = 0;
+  url: string;
+  constructor(url: string) {
+    this.url = url;
+    FakeEventSource.instances.push(this);
+  }
+  close(): void {}
+  addEventListener(): void {}
+  removeEventListener(): void {}
+}
+
+if (typeof globalThis.EventSource === "undefined") {
+  globalThis.EventSource = FakeEventSource as unknown as typeof EventSource;
+}
+
 if (!window.matchMedia) {
   window.matchMedia = ((query: string) => ({
     matches: false,

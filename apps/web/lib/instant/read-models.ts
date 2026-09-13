@@ -65,9 +65,14 @@ export function makeBoardSpec(
       ]);
       return { statuses: statuses.data ?? [], tickets: tickets.data ?? [] };
     },
-    relevant: (event) =>
-      event.channel === boardChannel &&
-      (event.entity === "ticket" || event.entity === "board"),
+    relevant: (event) => {
+      // Board channel = the scoped WS legacy; `org:<id>` = the org-wide
+      // SSE stream (Wave 13 lane 9) — every org frame reaches every
+      // hydrated board, the entity filter keeps it cheap.
+      const delivered =
+        event.channel === boardChannel || event.channel.startsWith("org:");
+      return delivered && (event.entity === "ticket" || event.entity === "board");
+    },
     async revalidate(model, event, ctx) {
       if (event.entity === "board") {
         const { data } = await client.GET("/api/v1/boards/{id}/statuses", {

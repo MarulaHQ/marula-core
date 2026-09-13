@@ -79,6 +79,7 @@ import {
   canConfigurePods,
 } from "../../../components/ticket-workspace/pod-settings";
 import { TicketStatusBar } from "../../../components/ticket-status-bar";
+import { PresenceRoster } from "../../../components/instant/presence-roster";
 import {
   MoveBoardDialog,
   extractTargetStatuses,
@@ -291,7 +292,10 @@ export default function TicketWorkspacePage() {
       },
     });
     if (result.status === "rejected") {
-      setError("That status change is not allowed by this board's workflow");
+      // Reconcile copy, never an error toast: a typed version_conflict
+      // reads as "someone else's change landed — refresh and re-apply"
+      // (the optimistic patch is already reverted).
+      setError(rejectionText(result, "That status change is not allowed by this board's workflow"));
       return;
     }
     setError(null);
@@ -1015,6 +1019,7 @@ export default function TicketWorkspacePage() {
                     onChangeStatus={(id) => void changeStatus(id)}
                     onMoveBoard={canMoveBoard ? () => setMoveBoardOpen(true) : undefined}
                   />
+                  <PresenceRoster ticketId={ticket.id} />
                   <div className="flex flex-wrap items-center justify-between gap-2 px-3 pt-2">
                     <TicketTags
                       ticketId={ticket.id}
