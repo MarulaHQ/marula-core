@@ -29,6 +29,9 @@ targets=(
   # cargo incremental state — the single biggest silent grower (DX5)
   ".kilo/target-shared/debug/incremental"
   ".kilo/worktrees/*/target/debug/incremental"
+  ".kilo/target-shared-*/debug/incremental"
+  ".kilo/target-*/debug/incremental"
+  ".kilo/worktrees/*/target-*/debug/incremental"
   # next.js dev/build caches — fully regenerable
   "apps/web/.next"
   ".kilo/worktrees/*/apps/web/.next"
@@ -93,7 +96,7 @@ fi
 # is safe outside an active build: cargo rebuilds what it needs on demand.
 if [[ $DEEP -eq 1 ]]; then
   echo "== deep sweep =="
-  deep_dirs=("$ROOT"/.kilo/target-shared/debug(N) "$ROOT"/.kilo/worktrees/*/target(N) "$ROOT"/.kilo/worktrees/*/target-*(N))
+  deep_dirs=("$ROOT"/.kilo/target-shared/debug(N) "$ROOT"/.kilo/worktrees/*/target(N) "$ROOT"/.kilo/worktrees/*/target-*(N) "$ROOT"/.kilo/target-shared-*(N) "$ROOT"/.kilo/target-*(N))
   for dir in $deep_dirs; do
     echo "  $(du -sh "$dir" 2>/dev/null | cut -f1)  $dir"
   done
