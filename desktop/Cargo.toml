@@ -1,0 +1,25 @@
+[package]
+name = "meridian-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Double-clickable local Meridian test app: embedded Postgres + core-api in a Tauri shell"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+postgresql_embedded = { version = "0.20", features = ["tokio"] }
+tokio.workspace = true
+sqlx.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+axum.workspace = true
+tower-http.workspace = true
+hex.workspace = true
+libc = "0.2"
+core-api = { path = "../crates/core-api" }
+core-db = { path = "../crates/core-db" }
+core-store = { path = "../crates/core-store" }

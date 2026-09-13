@@ -39,3 +39,7 @@ target-dx11/
 lockfile: package-lock.json
 
 packages/sdk/package-lock.json
+
+# Desktop shell (ADR 0005): placeholder frontendDist + bundled resources
+desktop/resources/
+apps/web/out/

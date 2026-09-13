@@ -13,9 +13,9 @@ import { friendlyMutationText } from "../../../lib/error-copy";
 import { Button, Card, FieldHint, Input, Label } from "@meridian/ui";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useAuth, useRequireAuth } from "../../../lib/api";
+import { resolveApiBaseUrl, useAuth, useRequireAuth } from "../../../lib/api";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+const API_BASE = resolveApiBaseUrl();
 
 /** Request paths on the canonical versioned surface only — this helper
  * cannot target undocumented legacy aliases even by mistake. */

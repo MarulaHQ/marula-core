@@ -11,9 +11,9 @@ import { friendlyMutationText } from "../../lib/error-copy";
 import { Button, Card, FieldHint, Input, Label } from "@meridian/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { api, saveTokens, useAuth } from "../../lib/api";
+import { api, resolveApiBaseUrl, saveTokens, useAuth } from "../../lib/api";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+const API_BASE = resolveApiBaseUrl();
 
 interface PublicProvider {
   name: string;

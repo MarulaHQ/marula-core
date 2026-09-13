@@ -12,7 +12,7 @@
 // owns its own socket).
 "use client";
 
-import { api, loadTokens, useAuth } from "./api";
+import { api, loadTokens, resolveApiBaseUrl, useAuth } from "./api";
 import type { components } from "@meridian/sdk";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -20,7 +20,7 @@ export type TimerSession = components["schemas"]["TimerSession"];
 
 function wsUrl(): string {
   if (process.env.NEXT_PUBLIC_WS_URL) return process.env.NEXT_PUBLIC_WS_URL;
-  const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+  const base = resolveApiBaseUrl();
   const u = new URL(base);
   u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
   u.port = process.env.NEXT_PUBLIC_WS_PORT ?? "8081";

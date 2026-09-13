@@ -14,6 +14,8 @@ import { useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
+import { resolveApiBaseUrl } from "./api";
+
 /** Request paths on the canonical versioned surface only. The portal owns
  * hand-written transport (no generated client), so this is the narrow
  * anchor keeping it off undocumented legacy aliases forever. */
@@ -87,7 +89,7 @@ export function clearPortalTokens(): void {
   window.localStorage.removeItem(`${TOKENS_KEY}-exp`);
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+const API_BASE = resolveApiBaseUrl();
 
 /**
  * One fetch wrapper for every portal call: attaches the access token,

@@ -11,9 +11,9 @@ import { friendlyMutationText } from "../../lib/error-copy";
 import { Button, Card, Input, Label } from "@meridian/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { api, saveTokens } from "../../lib/api";
+import { api, resolveApiBaseUrl, saveTokens } from "../../lib/api";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+const API_BASE = resolveApiBaseUrl();
 
 function b64urlToBuffer(value: string): ArrayBuffer {
   const pad = value.length % 4 === 0 ? "" : "=".repeat(4 - (value.length % 4));

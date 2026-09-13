@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "desktop",
     "crates/core-api",
     "crates/core-billing",
     "crates/core-db",
@@ -40,6 +41,17 @@ members = [
     "connectors/m365-graph",
     "connectors/immybot",
 ]
+
+# Desktop lane (2026-09-13, ADR 0005): lighter release profile for the
+# double-clickable Meridian test app. opt-level=2 + thin LTO instead of
+# the default release settings keeps link times and .app size down —
+# desktop startup latency and incremental rebuilds matter more than the
+# last few percent of throughput that fat LTO buys a server binary.
+[profile.desktop]
+inherits = "release"
+opt-level = 2
+lto = "thin"
+strip = "symbols"
 
 [workspace.package]
 version = "0.1.0"

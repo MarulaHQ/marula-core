@@ -14,6 +14,13 @@ import type { ReactNode } from "react";
 
 const TOKENS_KEY = "meridian-tokens";
 
+declare global {
+  interface Window {
+    /** Injected by the desktop shell (desktop/src/main.rs, ADR 0005). */
+    __MERIDIAN_API_URL__?: string;
+  }
+}
+
 interface StoredTokens {
   access_token: string;
   refresh_token: string;
@@ -40,9 +47,16 @@ export function clearTokens(): void {
   window.localStorage.removeItem(TOKENS_KEY);
 }
 
+/** Desktop shell (ADR 0005) injects the embedded API base before page scripts run. */
+export function resolveApiBaseUrl(): string {
+  if (typeof window !== "undefined" && window.__MERIDIAN_API_URL__) {
+    return window.__MERIDIAN_API_URL__;
+  }
+  return process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+}
+
 function createClient(): MeridianClient {
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
-  return new MeridianClient({ baseUrl });
+  return new MeridianClient({ baseUrl: resolveApiBaseUrl() });
 }
 
 /** App-wide singleton; safe in the browser only (this app is fully client-rendered). */
@@ -171,11 +185,11 @@ function authHeaders(): HeadersInit {
 }
 
 export function apiBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+  return resolveApiBaseUrl();
 }
 
 /** Kept as API_BASE for callers binding to the documented constant. */
-export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+export const API_BASE = resolveApiBaseUrl();
 
 export interface UploadedAttachment {
   id: string;

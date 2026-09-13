@@ -10,9 +10,9 @@
 import { Button, Card } from "@meridian/ui";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
-import { api, saveTokens } from "../../lib/api";
+import { api, resolveApiBaseUrl, saveTokens } from "../../lib/api";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+const API_BASE = resolveApiBaseUrl();
 
 function SsoLanding() {
   const router = useRouter();

@@ -14,7 +14,7 @@
 //
 // Non-purpose: no React (use-instant.ts binds hooks), no page wiring.
 
-import { api, loadTokens } from "../api";
+import { api, loadTokens, resolveApiBaseUrl } from "../api";
 import { EventBus } from "./event-bus";
 import { InstantStore, type MutationMetaLike } from "./instant-store";
 import {
@@ -39,7 +39,7 @@ export interface Runtime {
 function streamUrl(scope: string | null): string | null {
   const tokens = loadTokens();
   if (tokens === null) return null;
-  const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+  const base = resolveApiBaseUrl();
   const u = new URL(base);
   u.pathname = "/api/events/stream";
   u.searchParams.set("token", tokens.access_token);

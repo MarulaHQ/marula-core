@@ -105,6 +105,57 @@ pub enum ScanChoice {
 }
 
 impl Config {
+    /// Dev JWT secret — the compose/dev default. The desktop local profile
+    /// pins it so the demo seed's at-rest seal key derives identically.
+    const DEV_JWT_SECRET: &'static str = "dev-only-insecure-secret-change-me";
+
+    /// Local/desktop profile (desktop crate, ADR 0005): a clean
+    /// constructor for the double-clickable test app — every external
+    /// integration is off (no SMTP/Postmark, no inbound webhook, no
+    /// S3/MinIO, no internal worker token, no OTel), dev tooling is on,
+    /// and the API binds loopback only. Callers inject the embedded
+    /// Postgres URL, API port, and object-store directory.
+    pub fn from_local(
+        database_url: String,
+        api_port: u16,
+        object_dir: std::path::PathBuf,
+    ) -> Self {
+        let jwt_secret = Self::DEV_JWT_SECRET.to_string();
+        Self {
+            database_url,
+            // core-api never connects to Redis in-process (the realtime
+            // hub rides Postgres LISTEN); the field exists for compose
+            // wiring, so an unreachable placeholder documents that.
+            redis_url: "redis://127.0.0.1:1/0".into(),
+            bind_addr: format!("127.0.0.1:{api_port}"),
+            jwt_secret,
+            access_ttl_secs: 900,
+            refresh_ttl_secs: 60 * 60 * 24 * 30,
+            cors_origin: None,
+            secret_key: derive_dev_key(Self::DEV_JWT_SECRET),
+            mfa_pending_ttl_secs: 300,
+            webauthn_rp_id: "localhost".into(),
+            webauthn_rp_origin: "tauri://localhost".into(),
+            public_base_url: format!("http://127.0.0.1:{api_port}"),
+            web_base_url: "tauri://localhost".into(),
+            email_inbound_hmac_secret: None,
+            email_internal_token: None,
+            email_transport: TransportKind::None,
+            email_scan_clamd_addr: None,
+            email_from_address: "support@meridian.local".into(),
+            email_from_name: None,
+            internal_token: None,
+            object_store: core_store::StoreChoice::Local(
+                object_dir.to_string_lossy().into_owned(),
+            ),
+            max_upload_bytes: core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES,
+            migration_rate_limit_per_min: 600,
+            dispatch_rate_limit_per_min: 600,
+            scheduling_links_rate_limit_per_min: 60,
+            dev_tools: true,
+        }
+    }
+
     #[must_use]
     pub fn scan_choice(&self) -> ScanChoice {
         match &self.email_scan_clamd_addr {
