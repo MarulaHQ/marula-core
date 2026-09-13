@@ -1,0 +1,115 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH sla AS (\n             SELECT o.assignee_id AS user_id,\n                    COUNT(*) FILTER (WHERE o.response_met IS NOT NULL)::bigint AS response_total,\n                    COUNT(*) FILTER (WHERE o.response_met IS TRUE)::bigint AS response_met,\n                    COUNT(*) FILTER (WHERE o.resolution_met IS NOT NULL)::bigint AS resolution_total,\n                    COUNT(*) FILTER (WHERE o.resolution_met IS TRUE)::bigint AS resolution_met,\n                    COUNT(*) FILTER (WHERE o.breached)::bigint AS breached\n             FROM ops.v1_sla_outcomes o\n             WHERE o.org_id = $1\n               AND o.assignee_id = ANY($2)\n               AND o.ticket_created_at >= $3\n               AND o.ticket_created_at < $4\n             GROUP BY o.assignee_id\n           ),\n           resp AS (\n             SELECT f.assignee_id AS user_id,\n                    COUNT(*)::bigint AS responses,\n                    PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY f.first_response_secs) AS median_secs,\n                    PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY f.first_response_secs) AS p95_secs\n             FROM ops.v1_first_response f\n             WHERE f.org_id = $1\n               AND f.assignee_id = ANY($2)\n               AND f.created_at >= $3\n               AND f.created_at < $4\n               AND f.first_response_secs IS NOT NULL\n             GROUP BY f.assignee_id\n           ),\n           res AS (\n             SELECT t.assignee_id AS user_id,\n                    COUNT(*)::bigint AS resolutions,\n                    PERCENTILE_CONT(0.5)\n                      WITHIN GROUP (ORDER BY EXTRACT(epoch FROM (t.resolved_at - t.created_at))) AS median_secs,\n                    PERCENTILE_CONT(0.95)\n                      WITHIN GROUP (ORDER BY EXTRACT(epoch FROM (t.resolved_at - t.created_at))) AS p95_secs\n             FROM ops.v1_tickets t\n             WHERE t.org_id = $1\n               AND t.assignee_id = ANY($2)\n               AND t.resolved_at IS NOT NULL\n               AND t.resolved_at >= $3\n               AND t.resolved_at < $4\n             GROUP BY t.assignee_id\n           ),\n           wk AS (\n             SELECT e.user_id,\n                    COUNT(*)::bigint AS approved_entries,\n                    COALESCE(SUM(e.minutes), 0)::bigint AS approved_minutes,\n                    COALESCE(SUM(e.minutes) FILTER (WHERE e.billable), 0)::bigint AS approved_billable_minutes\n             FROM ops.v1_time_entries e\n             WHERE e.org_id = $1\n               AND e.user_id = ANY($2)\n               AND e.started_at >= $3\n               AND e.started_at < $4\n               AND e.approval_status = 'approved'\n             GROUP BY e.user_id\n           )\n         SELECT u.id AS user_id,\n                u.display_name,\n                COALESCE(s.response_total, 0)::bigint AS response_total,\n                COALESCE(s.response_met, 0)::bigint AS response_met,\n                COALESCE(s.resolution_total, 0)::bigint AS resolution_total,\n                COALESCE(s.resolution_met, 0)::bigint AS resolution_met,\n                COALESCE(s.breached, 0)::bigint AS breached,\n                COALESCE(r.responses, 0)::bigint AS responses,\n                r.median_secs,\n                r.p95_secs,\n                COALESCE(res_.resolutions, 0)::bigint AS resolutions,\n                res_.median_secs AS median_resolution_secs,\n                res_.p95_secs AS p95_resolution_secs,\n                COALESCE(w.approved_entries, 0)::bigint AS approved_entries,\n                COALESCE(w.approved_minutes, 0)::bigint AS approved_minutes,\n                COALESCE(w.approved_billable_minutes, 0)::bigint AS approved_billable_minutes\n         FROM users u\n         LEFT JOIN sla s ON s.user_id = u.id\n         LEFT JOIN resp r ON r.user_id = u.id\n         LEFT JOIN res res_ ON res_.user_id = u.id\n         LEFT JOIN wk w ON w.user_id = u.id\n         WHERE u.org_id = $1 AND u.id = ANY($2)\n         ORDER BY u.display_name, u.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "display_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "response_total",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "response_met",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "resolution_total",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "resolution_met",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "breached",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "responses",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "median_secs",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 9,
+        "name": "p95_secs",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 10,
+        "name": "resolutions",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "median_resolution_secs",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 12,
+        "name": "p95_resolution_secs",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 13,
+        "name": "approved_entries",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 14,
+        "name": "approved_minutes",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 15,
+        "name": "approved_billable_minutes",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "2e6c8d4c01bd3f8e54730302af501025e881aac892ae868488ce3203a94fe2dd"
+}

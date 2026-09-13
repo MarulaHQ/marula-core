@@ -218,6 +218,11 @@ pub mod types {
     /// SHA-256 hash is stored.
     pub const CALENDAR_SYNC_CONNECTION_UPDATED: &str = "calendar.sync_connection_updated";
     pub const CALENDAR_SYNC_COMPLETED: &str = "calendar.sync_completed";
+    /// Coaching scorecards (Wave 14 lane 3): a staff member changed their
+    /// scorecard settings (currently the opt-in gamification toggle).
+    /// Scorecard METRICS are read-only aggregation — this is the only
+    /// scorecard mutation that emits.
+    pub const SCORECARD_SETTINGS_UPDATED: &str = "scorecard.settings_updated";
     /// Attachments (TASKLIST 2.14): added on upload/extraction, linked
     /// when bound to a comment, deleted when a row (and possibly its
     /// content-addressed object) goes away.
@@ -1029,6 +1034,19 @@ pub struct CalendarSyncCompleted {
     pub duplicates: i64,
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
     pub synced_at: DateTime<Utc>,
+}
+
+/// `scorecard.settings_updated` — a staff member changed their scorecard
+/// settings. `gamification_opt_in` is the R5 opt-in toggle: false keeps
+/// the scorecard a private coaching surface (the default).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ScorecardSettingsUpdated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub user_id: crate::ids::UserId,
+    pub gamification_opt_in: bool,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub occurred_at: DateTime<Utc>,
 }
 
 // --- projects line (TASKLIST Phase 3, migration 0030) ------------------------

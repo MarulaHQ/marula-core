@@ -457,9 +457,9 @@ use core_domain::events::{
     ProjectTemplateRemoved, ProjectTemplateUpdated, ProjectUpdated, ProjectViewRemoved,
     ProjectViewUpdated, QuoteAccepted, QuoteConverted, QuoteCreated, QuoteDeclined, QuoteExpired,
     QuoteSent, QuoteUpdated, RoleForked, RoleRestored, SchedulingLinkCreated,
-    SchedulingLinkRevoked, SchedulingLinkScheduled, SchedulingLinkViewed, SiteCreated, SiteUpdated,
-    TagCreated, TagDeleted, TagUpdated, TemplateCreated, TemplateRemoved, TemplateUpdated,
-    TicketAssigned, TicketBoardMoved, TicketChecklistUpdated, TicketCommentAdded,
+    SchedulingLinkRevoked, SchedulingLinkScheduled, SchedulingLinkViewed, ScorecardSettingsUpdated,
+    SiteCreated, SiteUpdated, TagCreated, TagDeleted, TagUpdated, TemplateCreated, TemplateRemoved,
+    TemplateUpdated, TicketAssigned, TicketBoardMoved, TicketChecklistUpdated, TicketCommentAdded,
     TicketCostLineAdded, TicketCostLineRemoved, TicketCreated, TicketExpenseRecorded,
     TicketExpenseRemoved, TicketLinkChanged, TicketMerged, TicketReverted, TicketStatusChanged,
     TicketTagsChanged, TimeEntryApprovalApproved, TimeEntryApprovalRejected,
@@ -1878,6 +1878,20 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
                 overlaps: 1,
                 duplicates: 0,
                 synced_at: st(17),
+            }
+        ),
+    },
+    // -- coaching scorecards (Wave 14 lane 3) ---------------------------------
+    PublishedEvent {
+        event_type: types::SCORECARD_SETTINGS_UPDATED,
+        entity: "scorecard_settings",
+        variant: "default",
+        shape: typed_shape!(
+            ScorecardSettingsUpdated,
+            ScorecardSettingsUpdated {
+                user_id: su(4),
+                gamification_opt_in: true,
+                occurred_at: st(18),
             }
         ),
     },
