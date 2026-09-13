@@ -21,6 +21,8 @@
 //! `import_chunk_rejected`,
 //! `migration_cursor_mismatch`, `migration_chunk_reused`, `rate_limited`,
 //! `task_dependencies_unsatisfied`, `undo_reverts_only`,
+//! `edge_source_unknown`, `edge_assertion_invalid`,
+//! `edge_identity_unlinked`,
 //! `service_unavailable`, `internal_error`.
 //!
 //! The vocabulary above IS the machine-readable reason-code registry
@@ -135,6 +137,21 @@ pub enum ApiError {
     /// silent rewrite of the whole record past the close.
     #[error("record is closed: only explicit per-field reverts are permitted")]
     UndoRevertsOnly,
+    /// Typed 401 for a federation (bundle) login refusal (Wave 13 lane
+    /// 7): auth failures carry a registry reason code, not prose to
+    /// parse. `reason` is the machine code clients branch on;
+    /// `message` is fixed human copy. Verification internals (why a
+    /// signature/issuer/audience check failed) are logged server-side
+    /// and never cross the wire — all invalid assertions collapse to
+    /// the single `edge_assertion_invalid` code so attackers cannot
+    /// fingerprint which check tripped.
+    #[error("{message}")]
+    AuthDenied {
+        /// Machine-readable reason code (e.g. `edge_assertion_invalid`).
+        reason: &'static str,
+        /// Fixed human-readable message for the client.
+        message: &'static str,
+    },
     /// Typed 409 for an org-slug collision at registration (Wave 13 lane
     /// 1): carries a suggested available slug so the client can offer
     /// one-click accept instead of an opaque 409. The raw constraint name
@@ -228,6 +245,19 @@ fn map_unique_constraint(constraint: &str) -> Option<(&'static str, &'static str
         "idx_alert_sources_ref" => Some((
             "alert_source_ref_taken",
             "an alert source with this ref already exists",
+        )),
+        // Wave 13 lane 7 (identity federation).
+        "oidc_providers_org_id_name_key" => Some((
+            "oidc_provider_name_taken",
+            "an OIDC provider with this name already exists",
+        )),
+        "edge_assertion_configs_org_id_name_key" => Some((
+            "edge_source_name_taken",
+            "an edge-assertion source with this name already exists",
+        )),
+        "federation_links_source_kind_source_id_subject_key" => Some((
+            "federation_link_taken",
+            "this federated identity is already linked to an account",
         )),
         _ => None,
     }
@@ -379,6 +409,9 @@ impl IntoResponse for ApiError {
             ),
             ApiError::UniqueConflict { kind, message } => {
                 (StatusCode::CONFLICT, *kind, message.to_string(), None)
+            }
+            ApiError::AuthDenied { reason, message } => {
+                (StatusCode::UNAUTHORIZED, *reason, message.to_string(), None)
             }
             ApiError::SlugTaken { suggestion } => (
                 StatusCode::CONFLICT,
@@ -588,6 +621,13 @@ mod tests {
                 },
                 "user_email_taken",
             ),
+            (
+                ApiError::AuthDenied {
+                    reason: "edge_assertion_invalid",
+                    message: "edge assertion rejected",
+                },
+                "edge_assertion_invalid",
+            ),
             (ApiError::AlreadySeeded, "already_seeded"),
             (
                 ApiError::MigrationCursorMismatch {
@@ -642,6 +682,9 @@ mod tests {
             "uq_ticket_categories_child_name",
             "settings_key_unique",
             "idx_alert_sources_ref",
+            "oidc_providers_org_id_name_key",
+            "edge_assertion_configs_org_id_name_key",
+            "federation_links_source_kind_source_id_subject_key",
         ];
         let mut seen = std::collections::HashSet::new();
         for constraint in known {
@@ -653,8 +696,8 @@ mod tests {
         }
         // The two taxonomy constraints deliberately SHARE one reason code
         // (`category_name_taken` — root-name and child-name collisions are
-        // the same UX problem), so 10 constraints map to 9 distinct codes.
-        assert_eq!(seen.len(), 9, "unexpected reason-code fan-out: {seen:?}");
+        // the same UX problem), so 13 constraints map to 12 distinct codes.
+        assert_eq!(seen.len(), 12, "unexpected reason-code fan-out: {seen:?}");
         assert_eq!(
             map_unique_constraint("uq_ticket_categories_root_name").map(|(k, _)| k),
             map_unique_constraint("uq_ticket_categories_child_name").map(|(k, _)| k)

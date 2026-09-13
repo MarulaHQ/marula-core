@@ -95,6 +95,7 @@ async fn rls_hides_new_auth_tables_without_and_across_org_scope() {
             client_id: "cid",
             client_secret_enc: &[9u8; 40],
             jit_provisioning: false,
+            preset: None,
         },
         user_a,
     )
@@ -477,6 +478,7 @@ async fn oidc_provider_meta_never_exposes_secret_and_links_are_unique() {
             client_id: "client-1",
             client_secret_enc: b"s3cr3t-bytes",
             jit_provisioning: false,
+            preset: None,
         },
         user,
     )

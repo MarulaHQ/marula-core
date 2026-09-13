@@ -620,6 +620,37 @@ pub(crate) async fn issue_tokens(
     })
 }
 
+/// The federated-login MFA gate (Wave 13 lane 7, invariant ID4): the org
+/// MFA policy — any enrolled second factor must be satisfied before
+/// tokens are issued — applies REGARDLESS of identity source. Password
+/// login and every federation bundle route their token issuance through
+/// this same gate; `None` means tokens may be issued directly.
+pub(crate) async fn federated_mfa_gate(
+    state: &AppState,
+    user_id: Uuid,
+    org_id: Uuid,
+) -> ApiResult<Option<(String, Vec<String>)>> {
+    let mut tx = state
+        .pool
+        .begin()
+        .await
+        .map_err(|e| ApiError::Internal(e.into()))?;
+    core_db::set_org(&mut tx, org_id).await?;
+    let caps = core_db::mfa::mfa_capabilities(&mut *tx, user_id).await?;
+    tx.commit()
+        .await
+        .map_err(|e| ApiError::Internal(e.into()))?;
+    if !caps.any() {
+        return Ok(None);
+    }
+    let mfa_token = jwt::issue_mfa_pending_token(&state.config, user_id, org_id)
+        .map_err(|e| ApiError::Internal(e.into()))?;
+    Ok(Some((
+        mfa_token,
+        caps.methods().into_iter().map(String::from).collect(),
+    )))
+}
+
 #[derive(Debug, serde::Serialize, ToSchema)]
 pub struct MeResponse {
     pub user_id: Uuid,
