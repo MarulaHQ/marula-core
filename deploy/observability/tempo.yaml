@@ -5,8 +5,9 @@
 # service graphs are OFF — dashboards chart meridian.* metrics from the
 # collector's Prometheus exporter instead.
 #
-# Non-purpose: not a production topology (no S3 backend, no quorum, no
-# retention management beyond local compaction defaults).
+# Non-purpose: not a production topology (no S3 backend, no quorum).
+# Retention: trace blocks are compacted and deleted after 24h so the
+# tempodata volume stays bounded (default block_retention is 14 days).
 
 server:
   http_listen_port: 3200
@@ -27,6 +28,10 @@ storage:
       path: /var/tempo/blocks
     wal:
       path: /var/tempo/wal
+
+compactor:
+  compaction_window: 1h
+  block_retention: 24h
 
 # Locally-run dev stack: accept everything.
 overrides:

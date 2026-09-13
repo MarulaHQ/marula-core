@@ -163,7 +163,16 @@ ingress:
 podSecurityContext:
   runAsNonRoot: true
 
-resources: {}
+# Global default resource envelope applied to every workload that doesn't
+# set its own `resources` (per-service values win). Keeps a runaway
+# component from starving the node; override per service for sizing.
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 512Mi
+
 nodeSelector: {}
 tolerations: []
 affinity: {}

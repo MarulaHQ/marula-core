@@ -13,14 +13,21 @@ ARG BIN=core-api
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
-RUN cargo build --release --bin ${BIN}
+# BuildKit cache mounts: the cargo registry and target dir persist across
+# image builds on the same builder, so lockfile-only changes don't trigger
+# a full re-download/recompile. The binary is copied out of the mount in
+# the same RUN (cache mounts are not visible to later layers).
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/src/target \
+    cargo build --release --bin ${BIN} \
+    && mkdir -p /out && cp target/release/${BIN} /out/${BIN}
 
 FROM debian:bookworm-slim
 ARG BIN=core-api
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
-COPY --from=build /src/target/release/${BIN} /usr/local/bin/${BIN}
+COPY --from=build /out/${BIN} /usr/local/bin/${BIN}
 # Shell form so ${BIN} resolves at build time per service.
 ENTRYPOINT /usr/local/bin/${BIN}
 CMD []

@@ -35,9 +35,22 @@
 
 name: meridian
 
+# Container stdout logs are the classic silent disk filler — every service
+# rotates through at most 3 x 10MB json-file logs. Local containers get
+# conservative memory ceilings so a runaway process dies instead of eating
+# the host (compose v2 applies mem_limit/cpus without swarm).
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   postgres:
     image: pgvector/pgvector:pg17
+    mem_limit: 1g
+    cpus: 2.0
+    logging: *default-logging
     environment:
       POSTGRES_USER: meridian
       POSTGRES_PASSWORD: meridian
@@ -54,6 +67,12 @@ services:
 
   redis:
     image: redis:7-alpine
+    mem_limit: 384m
+    cpus: 1.0
+    logging: *default-logging
+    # Fail writes loudly (noeviction) rather than silently evicting queue
+    # state; 192mb keeps the process inside its 384m ceiling.
+    command: ["redis-server", "--maxmemory", "192mb", "--maxmemory-policy", "noeviction"]
     ports:
       - "16379:6379"
     healthcheck:
@@ -63,6 +82,9 @@ services:
       retries: 20
 
   migrate:
+    mem_limit: 256m
+    cpus: 1.0
+    logging: *default-logging
     build:
       context: ..
       dockerfile: deploy/Dockerfile.rust
@@ -76,6 +98,9 @@ services:
         condition: service_healthy
 
   core-api:
+    mem_limit: 512m
+    cpus: 2.0
+    logging: *default-logging
     build:
       context: ..
       dockerfile: deploy/Dockerfile.rust
@@ -118,6 +143,9 @@ services:
         condition: service_healthy
 
   realtime:
+    mem_limit: 384m
+    cpus: 1.0
+    logging: *default-logging
     build:
       context: ..
       dockerfile: deploy/Dockerfile.rust
@@ -138,6 +166,9 @@ services:
         condition: service_healthy
 
   worker:
+    mem_limit: 512m
+    cpus: 1.0
+    logging: *default-logging
     build:
       context: ..
       dockerfile: deploy/Dockerfile.rust
@@ -166,6 +197,9 @@ services:
         condition: service_healthy
 
   web:
+    mem_limit: 512m
+    cpus: 1.0
+    logging: *default-logging
     build:
       context: ..
       dockerfile: deploy/Dockerfile.web
@@ -186,6 +220,9 @@ services:
   #   docker run --rm --network meridian_default --entrypoint /bin/sh minio/mc \
   #     -c "mc alias set m http://minio:9000 meridian meridian-dev-minio && mc mb --ignore-existing m/meridian"
   minio:
+    mem_limit: 512m
+    cpus: 1.0
+    logging: *default-logging
     image: minio/minio:latest
     profiles: ["stage2"]
     command: ["server", "/data", "--console-address", ":9001"]
@@ -204,6 +241,9 @@ services:
       retries: 12
 
   mailpit:
+    mem_limit: 256m
+    cpus: 0.5
+    logging: *default-logging
     image: axllent/mailpit:latest
     profiles: ["stage2"]
     ports:
@@ -220,6 +260,9 @@ services:
   # datasources + the "Meridian Starter" dashboard from
   # deploy/observability/. Config files: deploy/observability/*.yaml.
   otel-collector:
+    mem_limit: 256m
+    cpus: 0.5
+    logging: *default-logging
     image: otel/opentelemetry-collector-contrib:latest
     profiles: ["observability"]
     command: ["--config", "/etc/otel-collector/config.yaml"]
@@ -231,6 +274,9 @@ services:
       - "18899:18899" # Prometheus exposition (scrape target)
 
   tempo:
+    mem_limit: 512m
+    cpus: 1.0
+    logging: *default-logging
     image: grafana/tempo:latest
     profiles: ["observability"]
     command: ["-config.file", "/etc/tempo/tempo.yaml"]
@@ -241,6 +287,9 @@ services:
       - "3200:3200"   # HTTP API / query
 
   loki:
+    mem_limit: 512m
+    cpus: 1.0
+    logging: *default-logging
     image: grafana/loki:latest
     profiles: ["observability"]
     command: ["-config.file", "/etc/loki/loki.yaml"]
@@ -251,6 +300,9 @@ services:
       - "3100:3100"
 
   grafana:
+    mem_limit: 256m
+    cpus: 0.5
+    logging: *default-logging
     image: grafana/grafana:latest
     profiles: ["observability"]
     environment:

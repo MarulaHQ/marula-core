@@ -63,7 +63,7 @@ spec:
               port: 8082
             initialDelaySeconds: 5
             periodSeconds: 5
-          resources: {{- toYaml .Values.worker.resources | nindent 12 }}
+          resources: {{- toYaml (default .Values.worker.resources .Values.resources) | nindent 12 }}
       {{- with .Values.nodeSelector }}
       nodeSelector: {{- toYaml . | nindent 8 }}
       {{- end }}
