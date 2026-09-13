@@ -1,0 +1,13 @@
+{
+  "event_type": "template.created",
+  "entity": "template",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "from_builtin": "ticket_first_response",
+    "kind": "email",
+    "slug": "ticket_first_response",
+    "template_id": "00000000-0000-0000-0000-00000000001f"
+  }
+}

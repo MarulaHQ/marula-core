@@ -1,0 +1,12 @@
+{
+  "event_type": "template.removed",
+  "entity": "template",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "kind": "note",
+    "slug": "org_note_snippet",
+    "template_id": "00000000-0000-0000-0000-00000000001f"
+  }
+}

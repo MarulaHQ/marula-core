@@ -27,8 +27,8 @@ use crate::{DbError, DbResult};
 use core_domain::entities::manifest::{
     CustomizationManifest, ManifestApiKey, ManifestAutomationRule, ManifestBoard,
     ManifestBoardStatus, ManifestClientWorkflowOverride, ManifestCustomField,
-    ManifestEscalationStep, ManifestReportDefinition, ManifestSections, ManifestSetting,
-    ManifestSla, ManifestSlaCalendar, ManifestSlaPolicy, ManifestRole, ManifestTaxonomy,
+    ManifestEscalationStep, ManifestReportDefinition, ManifestRole, ManifestSections,
+    ManifestSetting, ManifestSla, ManifestSlaCalendar, ManifestSlaPolicy, ManifestTaxonomy,
     ManifestTaxonomyCategory, ManifestTaxonomyType, ManifestTransition, ManifestWebhook,
 };
 use core_domain::status::TicketStatusCategory;

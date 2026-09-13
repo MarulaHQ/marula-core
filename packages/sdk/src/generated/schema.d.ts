@@ -3417,6 +3417,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/kb/articles/{article_id}/embeds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/kb/articles/{article_id}/embeds */
+        get: operations["kb_list_article_embeds"];
+        put?: never;
+        /**
+         * POST /api/kb/articles/{article_id}/embeds — resolve-then-store;
+         *     instant-first (IF1/IF2).
+         */
+        post: operations["kb_create_embed"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/kb/articles/{id}": {
         parameters: {
             query?: never;
@@ -3480,6 +3501,150 @@ export interface paths {
         head?: never;
         /** PATCH /api/kb/categories/{id} — instant-first (IF1/IF2). */
         patch: operations["kb_update_category"];
+        trace?: never;
+    };
+    "/api/v1/kb/embed-providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/kb/embed-providers — system rows + the org's extensions. */
+        get: operations["kb_list_embed_providers"];
+        put?: never;
+        /**
+         * POST /api/kb/embed-providers — registry extension (admin-managed);
+         *     instant-first (IF1/IF2). System rows are shipped, never created here.
+         */
+        post: operations["kb_create_embed_provider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/kb/embed-providers/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/kb/embed-providers/{id} — org rows only. Deleting a
+         *     provider leaves its embeds in place with `provider_id` cleared (the
+         *     FK is ON DELETE SET NULL) so they degrade to blocked, never to
+         *     unvalidated.
+         */
+        delete: operations["kb_delete_embed_provider"];
+        options?: never;
+        head?: never;
+        /** PATCH /api/kb/embed-providers/{id} — org rows only; instant-first. */
+        patch: operations["kb_update_embed_provider"];
+        trace?: never;
+    };
+    "/api/v1/kb/embeds/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/kb/embeds/resolve — validate a URL against the allowlist
+         *     without attaching it to an article (live preview in the editor).
+         */
+        post: operations["kb_resolve_embed"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/kb/embeds/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** DELETE /api/kb/embeds/{id} */
+        delete: operations["kb_delete_embed"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/kb/external-documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/kb/external-documents */
+        get: operations["kb_list_external_documents"];
+        put?: never;
+        /** POST /api/kb/external-documents — instant-first (IF1/IF2). */
+        post: operations["kb_create_external_document"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/kb/external-documents/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/kb/external-documents/{id} */
+        get: operations["kb_get_external_document"];
+        put?: never;
+        post?: never;
+        /** DELETE /api/kb/external-documents/{id} */
+        delete: operations["kb_delete_external_document"];
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/kb/external-documents/{id} — instant-first (IF1/IF2). A
+         *     URL change resets the link-check columns: the old verification is
+         *     about the old URL.
+         */
+        patch: operations["kb_update_external_document"];
+        trace?: never;
+    };
+    "/api/v1/kb/external-documents/{id}/link-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/kb/external-documents/{id}/link-check — performs one
+         *     server-side HTTPS HEAD (GET fallback) and records the outcome as
+         *     data. `unreachable` covers DNS/TLS/timeouts/non-2xx; the endpoint
+         *     never fails on an unreachable link — the record is the result.
+         */
+        post: operations["kb_link_check_external_document"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/mcp/capabilities": {
@@ -6069,6 +6234,120 @@ export interface paths {
          *     already-retired node returns its current state.
          */
         post: operations["taxonomy_retire_type"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/templates — the org's templates (shipped defaults first, then
+         *     org-owned rows), optionally filtered by kind.
+         */
+        get: operations["templates_list"];
+        put?: never;
+        /**
+         * POST /api/templates — create an org-owned template (shipped defaults
+         *     are seed data; fork them instead of copying by hand).
+         */
+        post: operations["templates_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/templates/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/templates/{id} */
+        get: operations["templates_get"];
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/templates/{id} — remove an org-owned template. Shipped
+         *     defaults are immutable (typed 409 `template_immutable`).
+         */
+        delete: operations["templates_delete"];
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/templates/{id} — edit an org-owned template's content.
+         *     Shipped defaults are immutable (typed 409 `template_immutable`): fork
+         *     first, edit the fork.
+         */
+        patch: operations["templates_update"];
+        trace?: never;
+    };
+    "/api/v1/templates/{id}/fork": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/templates/{id}/fork — duplicate a template (typically a
+         *     shipped default) into a mutable org-owned copy. The origin row is
+         *     untouched.
+         */
+        post: operations["templates_fork"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/templates/{id}/render": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/templates/{id}/render — resolve the template's typed
+         *     variables against real entity context and return the rendered
+         *     subject/body. Out-of-vocabulary placeholders are typed 400s, never
+         *     silent empties (KB3).
+         */
+        post: operations["templates_render"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/templates/{id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/templates/{id}/restore — reset a shipped default's content to
+         *     the canonical copy (KB4: presets stay canonical, orgs fork). Org-owned
+         *     rows and forks are org-owned data and are never restorable.
+         */
+        post: operations["templates_restore"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8940,6 +9219,15 @@ export interface components {
              */
             user_id: string;
         };
+        CreateEmbedRequest: components["schemas"]["MutationParams"] & {
+            /** @description Fetch the provider title now; empty when the fetch is skipped. */
+            fetch?: boolean;
+            /**
+             * @description Must resolve against the allowlist — a create with an unmatched
+             *     URL is a typed 422, never a stored row.
+             */
+            url: string;
+        };
         CreateExclusionRequest: {
             /** Format: date-time */
             ends_at: string;
@@ -8955,6 +9243,25 @@ export interface components {
             billable?: boolean;
             currency: string;
             description: string;
+        };
+        CreateExternalDocumentRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * Format: uuid
+             * @description Optional attachment to one KB article. When attached, the row
+             *     rides that article's client-facing gate for portal reads.
+             */
+            article_id?: string | null;
+            /**
+             * @description Who may open the link and what they need (e.g. "M365 group
+             *     ACME-IT"). Documentation of access, never enforcement.
+             */
+            permission_note?: string;
+            title: string;
+            /**
+             * @description Absolute https URL; SharePoint/OneDrive/Drive-class hosts are
+             *     classified server-side — the client cannot lie about the kind.
+             */
+            url: string;
         };
         CreateFieldDefRequest: {
             kind: components["schemas"]["FieldKindWire"];
@@ -9123,6 +9430,18 @@ export interface components {
         /** @description POST /api/agent-proposals response: the stored proposal. */
         CreateProposalResponse: {
             proposal: components["schemas"]["AgentProposalView"];
+        };
+        CreateProviderRequest: components["schemas"]["MutationParams"] & {
+            enabled?: boolean;
+            /** @description Exact hosts this provider accepts (e.g. `["loom.com"]`). */
+            host_patterns: string[];
+            name: string;
+            /** @description oEmbed endpoint template; exactly one `{url}` placeholder, https. */
+            oembed_endpoint: string;
+            /** @description Stable per-org handle; derived from the name when omitted. */
+            slug?: string | null;
+            /** @description Regex over the full resource URL (Rust regex syntax). */
+            url_regex: string;
         };
         /** @description POST /api/migration/push/sessions body. */
         CreatePushSessionRequest: {
@@ -10112,6 +10431,26 @@ export interface components {
             /** @description Which transport adapter handled the message (postmark/smtp/…). */
             transport: string;
         };
+        EmbedMutationResponse: components["schemas"]["KbEmbed"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        /**
+         * @description The allowlist decision plus (optionally) the provider's own oEmbed
+         *     embed HTML, fetched server-side. `html` is present only when
+         *     `fetch=true` and the provider endpoint answers 2xx.
+         */
+        EmbedResolution: {
+            /**
+             * @description Sanctioned embed HTML straight from the provider's oEmbed endpoint.
+             *     Never client-supplied; only present when `fetch` was requested.
+             */
+            html?: string | null;
+            /** @description The percent-encoded oEmbed URL this resolution would fetch. */
+            oembed_url: string;
+            /** Format: uuid */
+            provider_id: string;
+            provider_slug: string;
+        };
         /**
          * @description Which entity family a batch targets. One batch = exactly one kind; the
          *     parent-before-child ordering across batches keeps foreign references
@@ -10369,6 +10708,24 @@ export interface components {
             user_id: string;
             work_type?: string | null;
         };
+        /**
+         * @description The closed external-document vocabulary. The classifier in `core-kb`
+         *     maps a URL to exactly one of these; `other` is the honest fallback for
+         *     any link that is neither SharePoint, OneDrive, nor Google Drive.
+         * @enum {string}
+         */
+        ExternalDocUrlKind: "sharepoint" | "onedrive" | "google_drive" | "other";
+        ExternalDocumentListQuery: {
+            /**
+             * Format: uuid
+             * @description Narrow to one article's attachments.
+             */
+            article_id?: string | null;
+        };
+        /** @description Instant-first mutation response (IF2) for external documents. */
+        ExternalDocumentMutationResponse: components["schemas"]["KbExternalDocument"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
         FavoriteRequest: {
             /** Format: uuid */
             board_id: string;
@@ -10501,6 +10858,10 @@ export interface components {
              *     name (typed 409 `role_name_taken`).
              */
             name: string;
+        };
+        ForkTemplateRequest: components["schemas"]["MutationParams"] & {
+            name: string;
+            slug: string;
         };
         /** @description One `fx_rates` row: append-only; corrections add rows, never rewrite. */
         FxRateEntry: {
@@ -11008,6 +11369,89 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        /**
+         * @description One embed instance attached to a KB article. Its sanction source is
+         *     the registry row resolved at write time (`provider_slug` snapshots the
+         *     handle; `provider_id` clears when the provider row is deleted, which
+         *     renders the embed as blocked until re-resolved).
+         */
+        KbEmbed: {
+            /** Format: uuid */
+            article_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            provider_id?: string | null;
+            provider_slug?: string | null;
+            title?: string;
+            /** Format: date-time */
+            updated_at: string;
+            url: string;
+        };
+        /**
+         * @description An oEmbed allowlist entry. `org_id` is `None` for the platform-shipped
+         *     system rows (`is_system`, immutable from the API); org rows are the
+         *     admin-managed registry extensions.
+         */
+        KbEmbedProvider: {
+            /** Format: date-time */
+            created_at: string;
+            enabled: boolean;
+            /** @description Exact host names this provider accepts. */
+            host_patterns: string[];
+            /** Format: uuid */
+            id: string;
+            is_system: boolean;
+            name: string;
+            /**
+             * @description oEmbed endpoint template; `{url}` is substituted once, and the
+             *     substituted value is always percent-encoded before the fetch.
+             */
+            oembed_endpoint: string;
+            /** Format: uuid */
+            org_id?: string | null;
+            /** @description Stable per-org handle (unique; system rows use the same space). */
+            slug: string;
+            /** Format: date-time */
+            updated_at: string;
+            /**
+             * @description Regex over the resource URL (Rust regex syntax); validated at
+             *     write time by the caller.
+             */
+            url_regex: string;
+        };
+        /**
+         * @description A linked external document (KB2): a SharePoint/OneDrive/Drive URL with
+         *     title, permission note, and the last link-check result. `article_id`
+         *     attaches it to an article — client-facing exposure rides that
+         *     article's client-visible gate; standalone rows are staff-only.
+         */
+        KbExternalDocument: {
+            /** Format: uuid */
+            article_id?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** Format: uuid */
+            id: string;
+            last_verified_at?: string | null;
+            last_verified_status?: string | null;
+            /** Format: uuid */
+            org_id: string;
+            permission_note?: string;
+            title: string;
+            /** Format: date-time */
+            updated_at: string;
+            url: string;
+            url_kind: components["schemas"]["ExternalDocUrlKind"];
+        };
         LadderStepSpec: {
             /**
              * Format: int64
@@ -11043,6 +11487,16 @@ export interface components {
         LinkBeginResponse: {
             authorize_url: string;
         };
+        /** @description The link-check response: the refreshed row plus the outcome. */
+        LinkCheckResponse: components["schemas"]["KbExternalDocument"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        /**
+         * @description Outcome of a link-check. `unreachable` covers DNS/TLS/HTTP failures —
+         *     the record exists but could not be verified.
+         * @enum {string}
+         */
+        LinkCheckStatus: "ok" | "unreachable";
         /**
          * @description Either endpoint of a link. Documents, passwords, and assets can link
          *     FROM; documents, passwords, clients, tickets, KB articles, and assets
@@ -12952,6 +13406,10 @@ export interface components {
             /** @description Opaque cursor for the next page; absent when exhausted. */
             next_cursor?: string | null;
         };
+        /** @description Instant-first mutation response (IF2) for provider rows. */
+        ProviderMutationResponse: components["schemas"]["KbEmbedProvider"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
         /**
          * @description What the public page needs to render the booking UI: the template's
          *     bookable shape plus a slot preview over the booking window. The
@@ -13499,6 +13957,19 @@ export interface components {
         RegistryResponse: {
             settings: components["schemas"]["DeclarationView"][];
         };
+        RenderTemplateRequest: {
+            /**
+             * Format: uuid
+             * @description The entity the variables resolve from: a ticket id for
+             *     ticket/note/email/workflow kinds, a project id for `project`, a
+             *     quote id for `quote_invoice`. `null` (or omitted) for `kb`.
+             */
+            context_id?: string | null;
+        };
+        RenderedTemplate: {
+            body: string;
+            subject?: string | null;
+        };
         ReparentCategoryRequest: components["schemas"]["MutationParams"] & {
             /**
              * Format: uuid
@@ -13686,6 +14157,15 @@ export interface components {
          * @enum {string}
          */
         ResolutionSource: "client_override" | "org_default" | "unset";
+        ResolveEmbedRequest: {
+            /**
+             * @description Fetch the provider's oEmbed HTML now (server-side, https, 10s
+             *     budget). Default false: registry-only resolution.
+             */
+            fetch?: boolean;
+            /** @description The embed URL to validate against the allowlist. */
+            url: string;
+        };
         ResolveRateQuery: {
             as_of: string;
             from: string;
@@ -13747,6 +14227,7 @@ export interface components {
             version: number;
         };
         RestoreRoleRequest: components["schemas"]["MutationParams"];
+        RestoreTemplateRequest: components["schemas"]["MutationParams"];
         RetireTaxonomyNodeRequest: components["schemas"]["MutationParams"];
         /** @description What the revert restored. */
         RevertDetail: {
@@ -14487,11 +14968,51 @@ export interface components {
              */
             utilization_percent: number;
         };
+        /**
+         * @description The closed variable vocabulary for one kind (editor UX + validation
+         *     source of truth: `core_domain::templates::variables_for_kind`).
+         */
+        TemplateKindVocabulary: {
+            kind: string;
+            variables: string[];
+        };
         TemplateListQuery: {
             /** @description Narrow the listing to one source system. */
             source_system?: string | null;
         };
         TemplateMutationResponse: components["schemas"]["ProjectTemplate"];
+        TemplateVariableView: {
+            key: string;
+            label: string;
+        };
+        /**
+         * @description One template row: a shipped default (`is_system` + `builtin`), a fork
+         *     (`forked_from`), or an org-created template.
+         */
+        TemplateView: {
+            body: string;
+            /** @description Shipped preset tag, `null` for org-created rows. */
+            builtin?: string | null;
+            created_at: string;
+            description: string;
+            /** @description For a forked copy: the origin's builtin tag. */
+            forked_from?: string | null;
+            /** Format: uuid */
+            id: string;
+            /**
+             * @description Shipped defaults are system data: immutable, restorable, never
+             *     editable or deletable in place — orgs fork.
+             */
+            is_system: boolean;
+            kind: string;
+            name: string;
+            /** Format: uuid */
+            org_id: string;
+            slug: string;
+            subject?: string | null;
+            updated_at: string;
+            variables: components["schemas"]["TemplateVariableView"][];
+        };
         TemplateViewResponse: {
             /** Format: date-time */
             created_at: string;
@@ -14506,6 +15027,11 @@ export interface components {
             source_system: string;
             /** Format: date-time */
             updated_at: string;
+        };
+        TemplatesListResponse: {
+            templates: components["schemas"]["TemplateView"][];
+            /** @description The closed per-kind variable vocabulary, for editors: kind → keys. */
+            vocabulary: components["schemas"]["TemplateKindVocabulary"][];
         };
         /** @description Request to test the connection to an AI provider. */
         TestConnectionRequest: {
@@ -15245,6 +15771,16 @@ export interface components {
             billable?: boolean | null;
             description?: string | null;
         };
+        UpdateExternalDocumentRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * Format: uuid
+             * @description `null` detaches the article; omit to leave it untouched.
+             */
+            article_id?: string | null;
+            permission_note?: string | null;
+            title?: string | null;
+            url?: string | null;
+        };
         UpdateFieldDefRequest: {
             name?: string | null;
             /** @description Replaces the option set for choice kinds. */
@@ -15289,6 +15825,13 @@ export interface components {
             quiet_until?: string | null;
             /** @description IANA timezone for the window; defaults to UTC. */
             timezone?: string | null;
+        };
+        UpdateProviderRequest: components["schemas"]["MutationParams"] & {
+            enabled?: boolean | null;
+            host_patterns?: string[] | null;
+            name?: string | null;
+            oembed_endpoint?: string | null;
+            url_regex?: string | null;
         };
         /**
          * @description PATCH /api/quotes/{id} body — draft-only. Absent fields keep their
@@ -22043,6 +22586,73 @@ export interface operations {
             };
         };
     };
+    kb_list_article_embeds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                article_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KbEmbed"][];
+                };
+            };
+        };
+    };
+    kb_create_embed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                article_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateEmbedRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmbedMutationResponse"];
+                };
+            };
+            /** @description article not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description url already attached or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description url is not on the allowlist */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     kb_get_article: {
         parameters: {
             query?: never;
@@ -22254,6 +22864,404 @@ export interface operations {
             };
             /** @description version conflict, slug reuse, or idempotency key reused */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    kb_list_embed_providers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KbEmbedProvider"][];
+                };
+            };
+        };
+    };
+    kb_create_embed_provider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateProviderRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderMutationResponse"];
+                };
+            };
+            /** @description slug already in use or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description provider shape rejected (hosts/regex/endpoint) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    kb_delete_embed_provider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description provider not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description system rows are not deletable */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    kb_update_embed_provider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateProviderRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderMutationResponse"];
+                };
+            };
+            /** @description provider not visible in scope (system rows are not patchable through the org filter) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description system-row edit, version conflict, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description provider shape rejected */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    kb_resolve_embed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveEmbedRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmbedResolution"];
+                };
+            };
+            /** @description url is not on the allowlist */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description provider oEmbed endpoint unreachable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    kb_delete_embed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description embed not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    kb_list_external_documents: {
+        parameters: {
+            query?: {
+                /** @description Narrow to one article's attachments. */
+                article_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KbExternalDocument"][];
+                };
+            };
+        };
+    };
+    kb_create_external_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateExternalDocumentRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExternalDocumentMutationResponse"];
+                };
+            };
+            /** @description attached article not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description title/url rejected by KB rules */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    kb_get_external_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KbExternalDocument"];
+                };
+            };
+            /** @description external document not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    kb_delete_external_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description external document not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    kb_update_external_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateExternalDocumentRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExternalDocumentMutationResponse"];
+                };
+            };
+            /** @description external document not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description title/url rejected by KB rules */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    kb_link_check_external_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkCheckResponse"];
+                };
+            };
+            /** @description external document not visible in scope */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -27619,6 +28627,328 @@ export interface operations {
                 };
             };
             /** @description node not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    templates_list: {
+        parameters: {
+            query?: {
+                /** @description filter to one template kind */
+                kind?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplatesListResponse"];
+                };
+            };
+            /** @description requires admin:view */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    templates_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTemplateRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateMutationResponse"];
+                };
+            };
+            /** @description validation failure (unknown kind, bad slug, out-of-vocabulary variable) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description requires admin:create */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description slug taken or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    templates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateView"];
+                };
+            };
+            /** @description requires admin:view */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description template not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    templates_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateMutationResponse"];
+                };
+            };
+            /** @description template not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description template immutable or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    templates_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateTemplateRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateMutationResponse"];
+                };
+            };
+            /** @description template not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description template immutable, version conflict, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    templates_fork: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForkTemplateRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateMutationResponse"];
+                };
+            };
+            /** @description template not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description slug taken or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    templates_render: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenderTemplateRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RenderedTemplate"];
+                };
+            };
+            /** @description out-of-vocabulary or malformed variable */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description requires admin:view */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description template or context entity not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    templates_restore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RestoreTemplateRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateMutationResponse"];
+                };
+            };
+            /** @description template not visible in scope, or not a shipped default */
             404: {
                 headers: {
                     [name: string]: unknown;

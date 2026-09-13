@@ -265,6 +265,11 @@ fn map_unique_constraint(constraint: &str) -> Option<(&'static str, &'static str
             "kb_embed_url_taken",
             "this embed url is already attached to the article",
         )),
+        // Wave 13 lane 5 (template registry).
+        "templates_org_id_kind_slug_key" => Some((
+            "template_slug_taken",
+            "a template with this slug already exists for this kind",
+        )),
         _ => None,
     }
 }
@@ -345,10 +350,9 @@ impl IntoResponse for ApiError {
             ApiError::Unauthorized(m) => {
                 (StatusCode::UNAUTHORIZED, "unauthorized", m.clone(), None)
             }
-            ApiError::AuthDenied {
-                reason,
-                message,
-            } => (StatusCode::UNAUTHORIZED, *reason, message.to_string(), None),
+            ApiError::AuthDenied { reason, message } => {
+                (StatusCode::UNAUTHORIZED, *reason, message.to_string(), None)
+            }
             ApiError::Forbidden(m) => (StatusCode::FORBIDDEN, "forbidden", m.clone(), None),
             ApiError::Validation(m) => (
                 StatusCode::UNPROCESSABLE_ENTITY,

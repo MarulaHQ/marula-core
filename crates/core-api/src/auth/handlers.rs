@@ -197,6 +197,7 @@ pub async fn register(
     // defaults-first baseline so pickers work with zero configuration.
     core_db::orgs::seed_default_taxonomy(&mut tx, org_id).await?;
     core_db::document_layouts::seed_default_document_layouts(&mut tx, org_id).await?;
+    core_db::templates::seed_default_templates(&mut tx, org_id).await?;
 
     core_db::users::create_user(
         &mut *tx,

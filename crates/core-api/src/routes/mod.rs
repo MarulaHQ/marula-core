@@ -98,6 +98,7 @@ pub mod settings;
 pub mod sla_admin;
 pub mod tags;
 pub mod taxonomy;
+pub mod templates;
 pub mod ticket_emails;
 pub mod ticket_links;
 pub mod tickets;
@@ -445,6 +446,19 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(&rp("/roles"), get(roles::list))
         .route(&rp("/roles/{id}/fork"), post(roles::fork))
         .route(&rp("/roles/{id}/restore"), post(roles::restore))
+        .route(
+            &rp("/templates"),
+            get(templates::list).post(templates::create),
+        )
+        .route(
+            &rp("/templates/{id}"),
+            get(templates::get)
+                .patch(templates::update)
+                .delete(templates::delete),
+        )
+        .route(&rp("/templates/{id}/fork"), post(templates::fork))
+        .route(&rp("/templates/{id}/restore"), post(templates::restore))
+        .route(&rp("/templates/{id}/render"), post(templates::render))
         // ticket taxonomy (Wave 11 lane 3): classification-only trees,
         // full org CRUD (soft retire), instant-first envelope, audited.
         .route(

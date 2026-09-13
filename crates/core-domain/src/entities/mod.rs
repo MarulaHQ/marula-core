@@ -28,6 +28,7 @@ pub mod quote;
 pub mod scheduling;
 pub mod scheduling_links;
 pub mod sla;
+pub mod templates;
 pub mod ticket;
 pub mod time_tracking;
 pub mod workflow_constructs;

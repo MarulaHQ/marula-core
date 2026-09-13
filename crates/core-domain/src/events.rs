@@ -7,6 +7,7 @@ use crate::ids::*;
 use crate::status::{NoteKind, Priority, TicketStatusCategory};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 /// Event type strings on the wire (`ticket.created`, `timer.started`, …).
 pub mod types {
@@ -28,6 +29,15 @@ pub mod types {
     /// A shipped preset role row was restored to its canonical permission
     /// set (RB1, ADR 0004) — the presets stay canonical, orgs fork.
     pub const ROLE_RESTORED: &str = "role.restored";
+    /// A template was created (org-created, or a fork of a shipped
+    /// default — KB3/KB4, ADR 0004 template registry).
+    pub const TEMPLATE_CREATED: &str = "template.created";
+    /// A template's content changed (edit of an org-owned row, or restore
+    /// of a forked preset row to its canonical copy).
+    pub const TEMPLATE_UPDATED: &str = "template.updated";
+    /// An org-owned template row was removed (shipped defaults are
+    /// immutable, never removable).
+    pub const TEMPLATE_REMOVED: &str = "template.removed";
     pub const CLIENT_CREATED: &str = "client.created";
     pub const CLIENT_UPDATED: &str = "client.updated";
     /// A client workflow override was set or explicitly disabled (Wave 12
@@ -579,6 +589,36 @@ pub struct RoleForked {
 pub struct RoleRestored {
     pub role_id: UserId,
     pub builtin: String,
+}
+
+/// A template row was created (payload for `template.created`) — an
+/// org-created template or a fork of a shipped default (KB3/KB4, ADR
+/// 0004). `from_builtin` names the shipped default the row was forked
+/// from, `None` for org-created rows.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TemplateCreated {
+    pub template_id: Uuid,
+    pub kind: String,
+    pub slug: String,
+    pub from_builtin: Option<String>,
+}
+
+/// A template's content changed (payload for `template.updated`) — an
+/// org-owned edit or a restore of a forked preset row to canonical.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TemplateUpdated {
+    pub template_id: Uuid,
+    pub kind: String,
+    pub slug: String,
+}
+
+/// An org-owned template row was removed (payload for
+/// `template.removed`). Shipped defaults are immutable and never removed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TemplateRemoved {
+    pub template_id: Uuid,
+    pub kind: String,
+    pub slug: String,
 }
 
 /// A staff user's builtin org role changed (payload for
