@@ -67,7 +67,11 @@ BIN="$TARGET_DIR/desktop/meridian-desktop"
 [ -f "$BIN" ] || { echo "expected binary at $BIN" >&2; exit 1; }
 
 echo "==> [4/4] assembling Meridian.app"
-APP="$TARGET_DIR/desktop/bundle/Meridian.app"
+# The double-clickable app lands in the repo-local dist/ (gitignored —
+# the bundle stays local; easy to find next to the checkout). Override
+# with MERIDIAN_DESKTOP_APP_DIR=/some/dir ./scripts/build-desktop.sh.
+APP_DIR="${MERIDIAN_DESKTOP_APP_DIR:-dist}"
+APP="$APP_DIR/Meridian.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/resources"
 cp "$BIN" "$APP/Contents/MacOS/meridian-desktop"
