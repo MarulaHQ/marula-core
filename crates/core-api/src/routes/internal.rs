@@ -530,8 +530,11 @@ pub async fn effects(
 ) -> ApiResult<Json<serde_json::Value>> {
     require_internal_token(&state, &headers)?;
     let actions: Vec<core_domain::automations::AutomationAction> =
-        serde_json::from_value(req.actions.clone())
-            .map_err(|e| ApiError::Validation(format!("malformed actions document: {e}")))?;
+        serde_json::from_value(req.actions.clone()).map_err(|e| {
+            // Raw serde text stays server-side (Wave 13 lane 1).
+            tracing::debug!(error = %e, "actions document failed to parse");
+            ApiError::Validation("actions document is malformed or has the wrong shape".into())
+        })?;
     core_domain::automations::validate_actions(&actions)?;
 
     let applied = org_tx::with_org_tx(&state, req.org_id, req.org_id, |mut ctx| async move {
@@ -1073,7 +1076,9 @@ pub async fn run_import_batch(
             .map_err(|e| ApiError::Internal(anyhow::anyhow!("chunk read: {e}")))?;
         let payload: crate::routes::imports::RowsPayload =
             serde_json::from_slice(&bytes).map_err(|e| {
-                ApiError::Conflict(format!("staged chunk {index} is not a valid chunk: {e}"))
+                // Raw serde text stays server-side (Wave 13 lane 1).
+                tracing::debug!(error = %e, "staged chunk failed to parse");
+                ApiError::Conflict(format!("staged chunk {index} is not a valid chunk"))
             })?;
         let (raw_rows, byte_len) = payload.decode()?;
         core_domain::import_core::enforce_limits(raw_rows.len(), byte_len)?;

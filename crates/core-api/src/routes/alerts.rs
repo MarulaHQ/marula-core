@@ -253,8 +253,11 @@ pub async fn ingest(
         return Err(ApiError::Unauthorized("invalid webhook signature".into()));
     }
 
-    let req: IngestAlertRequest = serde_json::from_slice(&body)
-        .map_err(|e| ApiError::Validation(format!("malformed alert payload: {e}")))?;
+    let req: IngestAlertRequest = serde_json::from_slice(&body).map_err(|e| {
+        // Raw serde text stays server-side (Wave 13 lane 1).
+        tracing::debug!(error = %e, "alert payload failed to parse");
+        ApiError::Validation("alert payload is malformed or has the wrong shape".into())
+    })?;
     validate_ingest(&req)?;
 
     let correlation_key = req

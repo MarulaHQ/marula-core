@@ -111,9 +111,12 @@ pub async fn seed(
             .await;
             Ok(Json(report))
         }
-        Err(core_db::demo::DemoError::AlreadySeeded(_)) => Err(ApiError::Conflict(
-            "demo org already seeded; POST /api/dev/seed?force=1 to wipe and reseed".into(),
-        )),
+        Err(core_db::demo::DemoError::AlreadySeeded(_)) => {
+            // Typed reason (Wave 13 lane 1): the ops page branches on
+            // `already_seeded` to offer the force-reseed second click —
+            // never on the prose.
+            Err(ApiError::AlreadySeeded)
+        }
         Err(e) => Err(ApiError::Internal(anyhow::anyhow!("dev seed failed: {e}"))),
     }
 }

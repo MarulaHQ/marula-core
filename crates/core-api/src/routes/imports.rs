@@ -71,7 +71,7 @@ impl RowsPayload {
                     ApiError::Validation("json_rows is required for format=json".into())
                 })?;
                 let byte_len = serde_json::to_vec(value)
-                    .map_err(|e| ApiError::Validation(format!("unserializable body: {e}")))?
+                    .map_err(|_| ApiError::Validation("body could not be encoded".into()))?
                     .len();
                 let rows = parse_json_chunk(value).map_err(ApiError::from)?;
                 Ok((rows, byte_len))
@@ -1324,7 +1324,7 @@ pub async fn create_template(
     let name = validate_template_label(&req.name, "name")?;
     let source_system = validate_template_label(&req.source_system, "source_system")?;
     let mapping = serde_json::to_value(&req.mapping)
-        .map_err(|e| ApiError::Validation(format!("unserializable mapping: {e}")))?;
+        .map_err(|_| ApiError::Validation("mapping could not be encoded".into()))?;
 
     let record = core_db::imports::ImportMappingTemplate {
         id: Uuid::now_v7(),
@@ -1461,7 +1461,7 @@ pub async fn update_template(
             validate_mapping(kind, mapping)
                 .map_err(|errors| ApiError::Validation(errors.join("; ")))?;
             serde_json::to_value(mapping)
-                .map_err(|e| ApiError::Validation(format!("unserializable mapping: {e}")))?
+                .map_err(|_| ApiError::Validation("mapping could not be encoded".into()))?
         }
         None => existing.mapping,
     };

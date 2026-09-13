@@ -346,7 +346,11 @@ pub(crate) async fn audit_best_effort(
         Ok::<(), ApiError>(())
     }
     .await;
-    let _ = result;
+    // Best effort, but LOUD (§6 — the audit trail is the security
+    // authority): a swallowed audit failure must at least log its cause.
+    if let Err(e) = result {
+        tracing::error!(error = %e, action = %event.action, "portal audit insert failed");
+    }
 }
 
 // --- profile ---------------------------------------------------------------

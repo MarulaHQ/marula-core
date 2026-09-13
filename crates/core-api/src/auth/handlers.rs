@@ -102,6 +102,41 @@ pub(crate) async fn audit_best_effort(
     let _ = core_db::audit::insert(&state.pool, &event).await;
 }
 
+/// Maps an `insert_org` failure onto the typed envelope. An
+/// `orgs_slug_key` unique violation becomes reason `org_slug_taken` with
+/// a suggested available slug (first free `-2`, `-3`, … suffix, probed on
+/// the POOL — the write tx is aborted by the constraint error and cannot
+/// answer reads). Any other failure passes through the registry mapping
+/// unchanged (e.g. duplicate owner email → `user_email_taken`).
+async fn slug_conflict_with_suggestion(
+    e: core_db::DbError,
+    slug: &str,
+    pool: &sqlx::PgPool,
+) -> ApiError {
+    let is_slug_key = matches!(
+        &e,
+        core_db::DbError::Sql(sqlx::Error::Database(db))
+            if db.constraint() == Some("orgs_slug_key")
+    );
+    if !is_slug_key {
+        return ApiError::from(e);
+    }
+    let mut suggestion = None;
+    for n in 2..10 {
+        let candidate = format!("{slug}-{n}");
+        let free = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM orgs WHERE slug = $1")
+            .bind(candidate.clone())
+            .fetch_one(pool)
+            .await;
+        if matches!(free, Ok(0)) {
+            suggestion = Some(candidate);
+            break;
+        }
+    }
+    tracing::info!(%slug, suggestion = ?suggestion, "org slug collision; returning typed org_slug_taken");
+    ApiError::SlugTaken { suggestion }
+}
+
 /// POST /api/auth/register — creates the org, its default roles/board/SLA
 /// policy, and the first user as Owner. One transaction: a half-created org
 /// can never exist.
@@ -144,14 +179,17 @@ pub async fn register(
         .map_err(|e| ApiError::Internal(e.into()))?;
     core_db::set_org(&mut tx, org_id).await?;
 
-    core_db::orgs::insert_org(
+    if let Err(e) = core_db::orgs::insert_org(
         &mut *tx,
         org_id,
         &req.org_name,
         &req.org_slug,
         req.ticket_prefix.as_deref().unwrap_or("MER"),
     )
-    .await?;
+    .await
+    {
+        return Err(slug_conflict_with_suggestion(e, &req.org_slug, &state.pool).await);
+    }
     let role_ids = core_db::orgs::seed_default_roles(&mut tx, org_id).await?;
     core_db::orgs::seed_default_board(&mut tx, org_id).await?;
     core_db::orgs::seed_default_sla_policy(&mut *tx, org_id).await?;

@@ -187,11 +187,16 @@ pub fn build_router(state: AppState) -> Router {
     // entire pipeline; the route TEMPLATE + status + duration become span
     // attrs and `meridian.http.*` metrics. Unmatched routes collapse to
     // the constant "unmatched" — never raw paths (redact module docs).
+    //
+    // Typed rejections (Wave 13 lane 1) sit just inside telemetry: every
+    // text/plain framework rejection (raw serde/query text) is rewritten
+    // onto the IF3 envelope before it leaves the process.
     Router::new()
         .merge(api)
         .merge(internal)
         .merge(docs)
         .merge(dev)
+        .layer(middleware::from_fn(crate::error::typed_rejections))
         .layer(middleware::from_fn(crate::otel_http::track))
         .with_state(state)
 }

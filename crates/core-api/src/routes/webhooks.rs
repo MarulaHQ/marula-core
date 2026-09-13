@@ -48,8 +48,12 @@ pub async fn email_inbound(
         return Err(ApiError::Unauthorized("invalid webhook signature".into()));
     }
 
-    let msg: core_mail::InboundEmail = serde_json::from_slice(&body)
-        .map_err(|e| ApiError::Validation(format!("malformed inbound payload: {e}")))?;
+    let msg: core_mail::InboundEmail = serde_json::from_slice(&body).map_err(|e| {
+        // Raw serde diagnostics stay server-side (Wave 13 lane 1); the
+        // envelope carries a fixed, parseable message instead.
+        tracing::warn!(error = %e, "inbound webhook payload failed to parse");
+        ApiError::Validation("inbound payload is malformed or has the wrong shape".into())
+    })?;
 
     let status = email::process_inbound(&state, msg).await?;
     Ok((StatusCode::ACCEPTED, Json(email::inbound_response(status))).into_response())

@@ -630,7 +630,7 @@ fn chunk_fingerprint(req: &PushChunkRequest) -> ApiResult<String> {
             })?;
             hasher.update(b"json");
             let bytes = serde_json::to_vec(value)
-                .map_err(|e| ApiError::Validation(format!("unserializable body: {e}")))?;
+                .map_err(|_| ApiError::Validation("body could not be encoded".into()))?;
             hasher.update(bytes);
         }
         core_domain::import_core::RowFormat::Csv => {
