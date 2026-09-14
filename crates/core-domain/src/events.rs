@@ -1058,6 +1058,10 @@ pub struct ScorecardSettingsUpdated {
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub user_id: crate::ids::UserId,
     pub gamification_opt_in: bool,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub occurred_at: DateTime<Utc>,
+}
+
 // --- plugin runtime v2 + marketplace registry (Wave 14 lane 5) ---------------
 // (Grant lists are capability KEYS only — the resolved permissions stay
 // server-side; a plugin's effective authority is always re-derived from
