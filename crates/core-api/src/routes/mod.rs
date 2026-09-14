@@ -81,6 +81,7 @@ pub mod org_config;
 pub mod org_users;
 pub mod passwords;
 pub mod pipeline;
+pub mod plugins;
 pub mod portal;
 pub mod portal_admin;
 pub mod portal_v2;
@@ -1097,6 +1098,33 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             get(calendar_sync::list_events),
         )
         .route(&rp("/calendar/day"), get(calendar::calendar_day))
+        // Plugin runtime v2 + marketplace registry (Wave 14 lane 5):
+        // catalog reads are plugins:view; every write is an explicit
+        // admin action (special:manage_plugins + owner/admin).
+        .route(
+            &rp("/plugins/catalog"),
+            get(plugins::list_catalog).post(plugins::publish_catalog_entry),
+        )
+        .route(
+            &rp("/plugins/catalog/{slug}"),
+            get(plugins::get_catalog_entry),
+        )
+        .route(
+            &rp("/plugins/catalog/{slug}/versions"),
+            post(plugins::append_catalog_version),
+        )
+        .route(
+            &rp("/plugins/catalog/{slug}/revoke"),
+            post(plugins::revoke_catalog_entry),
+        )
+        .route(
+            &rp("/plugins/installed"),
+            get(plugins::list_installs).post(plugins::create_install),
+        )
+        .route(
+            &rp("/plugins/installed/{id}"),
+            axum::routing::patch(plugins::update_install).delete(plugins::delete_install),
+        )
         .route(&rp("/calendar/week"), get(calendar::calendar_week))
         .route(&rp("/calendar/team"), get(calendar::calendar_team))
         .route(

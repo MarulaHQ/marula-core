@@ -4121,6 +4121,11 @@ dependencies = [
 [[package]]
 name = "plugin-host"
 version = "0.1.0"
+dependencies = [
+ "chrono",
+ "core-domain",
+ "uuid",
+]
 
 [[package]]
 name = "png"

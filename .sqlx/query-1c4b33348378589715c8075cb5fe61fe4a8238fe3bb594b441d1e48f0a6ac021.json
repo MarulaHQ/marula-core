@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE plugin_installs SET\n             status = COALESCE($3::text::plugin_install_status, status),\n             version = COALESCE($4, version),\n             granted_capabilities = COALESCE($5::jsonb, granted_capabilities),\n             updated_at = now()\n           WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1c4b33348378589715c8075cb5fe61fe4a8238fe3bb594b441d1e48f0a6ac021"
+}

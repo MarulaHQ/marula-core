@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE plugin_catalog SET revoked_at = $2, revoked_reason = $3, updated_at = now()\n         WHERE id = $1 AND revoked_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a7ada729fceb69f5dc87fb51f23d79c1469b0cb748a3e569616502ffa29e9128"
+}

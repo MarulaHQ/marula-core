@@ -1,0 +1,390 @@
+//! Marketplace registry persistence (Wave 14 lane 5): the global
+//! plugin catalog, per-version manifest snapshots, and org installs.
+//!
+//! Purpose: CRUD for `plugin_catalog` / `plugin_versions` /
+//! `plugin_installs` plus the registry-revocation cascade that marks
+//! every org install of a revoked entry revoked (deny-by-default — a
+//! revoked plugin never runs). Install = adoption of a catalog entry at
+//! a PINNED version; upgrades are explicit updates, never automatic.
+//!
+//! Non-purpose: capability meaning (core-domain owns the closed
+//! vocabulary and its mapping onto the permission matrix), invocation
+//! authorization (the runtime seam in `plugin-host` resolves grants
+//! through `core_domain::policy`), outbox emission (routes emit inside
+//! their transaction).
+
+use crate::{DbError, DbResult};
+use core_domain::entities::{
+    PluginCatalogEntry, PluginInstall, PluginInstallStatus, PluginVersion,
+};
+use sqlx::{PgConnection, Row};
+use uuid::Uuid;
+
+const CATALOG_COLS: &str = "id, slug, name, description, publisher, latest_version, \
+     interface_version, revoked_at, revoked_reason, created_at, updated_at";
+
+fn row_to_catalog_entry(row: &sqlx::postgres::PgRow) -> DbResult<PluginCatalogEntry> {
+    Ok(PluginCatalogEntry {
+        id: row.get("id"),
+        slug: row.get("slug"),
+        name: row.get("name"),
+        description: row.get("description"),
+        publisher: row.get("publisher"),
+        latest_version: row.get("latest_version"),
+        interface_version: row.get::<i32, _>("interface_version") as u32,
+        revoked_at: row.get("revoked_at"),
+        revoked_reason: row.get("revoked_reason"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+    })
+}
+
+const INSTALL_COLS: &str = "i.id, i.org_id, i.catalog_id, c.slug AS slug, i.version, \
+     i.status::text AS status, i.granted_capabilities, i.installed_by, i.installed_at, \
+     i.updated_at, i.revoked_at, i.revoked_by";
+
+fn row_to_install(row: &sqlx::postgres::PgRow) -> DbResult<PluginInstall> {
+    let status: String = row.get("status");
+    let granted: serde_json::Value = row.get("granted_capabilities");
+    let granted_capabilities = granted
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(PluginInstall {
+        id: row.get("id"),
+        org_id: row.get("org_id"),
+        catalog_id: row.get("catalog_id"),
+        slug: row.get("slug"),
+        version: row.get("version"),
+        status: PluginInstallStatus::parse(&status).ok_or_else(|| {
+            DbError::Conflict(format!("unknown plugin install status {status:?}"))
+        })?,
+        granted_capabilities,
+        installed_by: row.get("installed_by"),
+        installed_at: row.get("installed_at"),
+        updated_at: row.get("updated_at"),
+        revoked_at: row.get("revoked_at"),
+        revoked_by: row.get("revoked_by"),
+    })
+}
+
+// --- catalog -----------------------------------------------------------------
+
+/// Publishes a catalog entry plus its first version snapshot.
+/// Caller generates ids/timestamps; the entry's `latest_version` is
+/// written from the version row.
+pub async fn create_catalog_entry(
+    tx: &mut PgConnection,
+    entry: &PluginCatalogEntry,
+    version: &PluginVersion,
+) -> DbResult<()> {
+    sqlx::query!(
+        r#"INSERT INTO plugin_catalog (id, slug, name, description, publisher,
+                                       latest_version, interface_version)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)"#,
+        entry.id,
+        entry.slug,
+        entry.name,
+        entry.description,
+        entry.publisher,
+        version.version,
+        entry.interface_version as i32,
+    )
+    .execute(&mut *tx)
+    .await?;
+    insert_version(tx, version).await
+}
+
+pub async fn insert_version(tx: &mut PgConnection, version: &PluginVersion) -> DbResult<()> {
+    let manifest = serde_json::to_value(&version.manifest)
+        .map_err(|e| DbError::Conflict(format!("manifest does not serialize: {e}")))?;
+    sqlx::query!(
+        r#"INSERT INTO plugin_versions (id, catalog_id, version, manifest)
+           VALUES ($1, $2, $3, $4)"#,
+        version.id,
+        version.catalog_id,
+        version.version,
+        manifest,
+    )
+    .execute(&mut *tx)
+    .await?;
+    Ok(())
+}
+
+/// Appends a new version to a LIVE entry and moves `latest_version`.
+/// Unknown entries are NotFound; revoked entries accept no new
+/// versions (the row lock makes the check race-free).
+pub async fn append_version(
+    tx: &mut PgConnection,
+    catalog_id: Uuid,
+    version: &PluginVersion,
+) -> DbResult<()> {
+    let revoked_at: Option<chrono::DateTime<chrono::Utc>> =
+        sqlx::query_scalar("SELECT revoked_at FROM plugin_catalog WHERE id = $1 FOR UPDATE")
+            .bind(catalog_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(DbError::NotFound)?;
+    if revoked_at.is_some() {
+        return Err(DbError::Conflict(
+            "revoked catalog entries accept no new versions".into(),
+        ));
+    }
+    insert_version(tx, version).await?;
+    sqlx::query!(
+        "UPDATE plugin_catalog SET latest_version = $2, updated_at = now() WHERE id = $1",
+        catalog_id,
+        version.version,
+    )
+    .execute(&mut *tx)
+    .await?;
+    Ok(())
+}
+
+pub async fn get_catalog_entry(
+    executor: &mut PgConnection,
+    slug: &str,
+) -> DbResult<PluginCatalogEntry> {
+    let row = sqlx::query(&format!(
+        "SELECT {CATALOG_COLS} FROM plugin_catalog WHERE slug = $1"
+    ))
+    .bind(slug)
+    .fetch_one(executor)
+    .await?;
+    row_to_catalog_entry(&row)
+}
+
+pub async fn list_catalog(executor: &mut PgConnection) -> DbResult<Vec<PluginCatalogEntry>> {
+    let rows = sqlx::query(&format!(
+        "SELECT {CATALOG_COLS} FROM plugin_catalog ORDER BY slug"
+    ))
+    .fetch_all(executor)
+    .await?;
+    rows.iter().map(row_to_catalog_entry).collect()
+}
+
+/// The registry-level kill switch: stamps the entry revoked and marks
+/// every org install of it revoked in the same transaction (deny-by-
+/// default — a revoked plugin never runs). Returns the (install_id,
+/// org_id) pairs the cascade touched, for the route layer's event
+/// emission. Unknown entries are NotFound; double revoke is a Conflict.
+pub async fn revoke_catalog_entry(
+    tx: &mut PgConnection,
+    catalog_id: Uuid,
+    reason: &str,
+    now: chrono::DateTime<chrono::Utc>,
+) -> DbResult<Vec<(Uuid, Uuid)>> {
+    let updated = sqlx::query!(
+        "UPDATE plugin_catalog SET revoked_at = $2, revoked_reason = $3, updated_at = now()
+         WHERE id = $1 AND revoked_at IS NULL",
+        catalog_id,
+        now,
+        reason,
+    )
+    .execute(&mut *tx)
+    .await?;
+    if updated.rows_affected() == 0 {
+        let exists: Option<Uuid> =
+            sqlx::query_scalar("SELECT id FROM plugin_catalog WHERE id = $1")
+                .bind(catalog_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        return match exists {
+            Some(_) => Err(DbError::Conflict("catalog entry is already revoked".into())),
+            None => Err(DbError::NotFound),
+        };
+    }
+    let installs = sqlx::query!(
+        "UPDATE plugin_installs SET status = 'revoked', revoked_at = $2, updated_at = now()
+         WHERE catalog_id = $1 AND status <> 'revoked'
+         RETURNING id, org_id",
+        catalog_id,
+        now,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    Ok(installs.iter().map(|r| (r.id, r.org_id)).collect())
+}
+
+// --- versions ----------------------------------------------------------------
+
+fn manifest_from_row(row: &sqlx::postgres::PgRow) -> DbResult<PluginVersion> {
+    let manifest: serde_json::Value = row.get("manifest");
+    Ok(PluginVersion {
+        id: row.get("id"),
+        catalog_id: row.get("catalog_id"),
+        version: row.get("version"),
+        manifest: serde_json::from_value(manifest)
+            .map_err(|e| DbError::Conflict(format!("stored manifest does not parse: {e}")))?,
+        created_at: row.get("created_at"),
+    })
+}
+
+const VERSION_COLS: &str = "id, catalog_id, version, manifest, created_at";
+
+pub async fn get_version(
+    executor: &mut PgConnection,
+    catalog_id: Uuid,
+    version: &str,
+) -> DbResult<PluginVersion> {
+    let row = sqlx::query(&format!(
+        "SELECT {VERSION_COLS} FROM plugin_versions WHERE catalog_id = $1 AND version = $2"
+    ))
+    .bind(catalog_id)
+    .bind(version)
+    .fetch_one(executor)
+    .await?;
+    manifest_from_row(&row)
+}
+
+pub async fn list_versions(
+    executor: &mut PgConnection,
+    catalog_id: Uuid,
+) -> DbResult<Vec<PluginVersion>> {
+    let rows = sqlx::query(&format!(
+        "SELECT {VERSION_COLS} FROM plugin_versions WHERE catalog_id = $1 ORDER BY created_at, version"
+    ))
+    .bind(catalog_id)
+    .fetch_all(executor)
+    .await?;
+    rows.iter().map(manifest_from_row).collect()
+}
+
+// --- installs ----------------------------------------------------------------
+
+/// Inserts an org install. The route layer always creates DISABLED
+/// (deny-by-default); the DB default backs it up.
+pub async fn create_install(executor: &mut PgConnection, install: &PluginInstall) -> DbResult<()> {
+    let granted = serde_json::to_value(&install.granted_capabilities)
+        .map_err(|e| DbError::Conflict(format!("grants do not serialize: {e}")))?;
+    sqlx::query!(
+        r#"INSERT INTO plugin_installs (id, org_id, catalog_id, version, status,
+                                        granted_capabilities, installed_by)
+           VALUES ($1, $2, $3, $4, $5::text::plugin_install_status, $6::jsonb, $7)"#,
+        install.id,
+        install.org_id,
+        install.catalog_id,
+        install.version,
+        install.status.as_str(),
+        granted,
+        install.installed_by,
+    )
+    .execute(&mut *executor)
+    .await?;
+    Ok(())
+}
+
+pub async fn list_installs(
+    executor: &mut PgConnection,
+    org_id: Uuid,
+) -> DbResult<Vec<PluginInstall>> {
+    let rows = sqlx::query(&format!(
+        "SELECT {INSTALL_COLS} FROM plugin_installs i
+         JOIN plugin_catalog c ON c.id = i.catalog_id
+         WHERE i.org_id = $1 ORDER BY i.installed_at"
+    ))
+    .bind(org_id)
+    .fetch_all(executor)
+    .await?;
+    rows.iter().map(row_to_install).collect()
+}
+
+pub async fn get_install(
+    executor: &mut PgConnection,
+    org_id: Uuid,
+    install_id: Uuid,
+) -> DbResult<PluginInstall> {
+    let row = sqlx::query(&format!(
+        "SELECT {INSTALL_COLS} FROM plugin_installs i
+         JOIN plugin_catalog c ON c.id = i.catalog_id
+         WHERE i.org_id = $1 AND i.id = $2"
+    ))
+    .bind(org_id)
+    .bind(install_id)
+    .fetch_one(executor)
+    .await?;
+    row_to_install(&row)
+}
+
+/// Updates status / pinned version / grant set. `None` leaves a field
+/// unchanged. Refuses to touch a revoked install (revocation is
+/// terminal; re-install is the only path back). The row lock makes the
+/// revoked check race-free.
+pub async fn update_install(
+    tx: &mut PgConnection,
+    org_id: Uuid,
+    install_id: Uuid,
+    status: Option<PluginInstallStatus>,
+    version: Option<&str>,
+    granted_capabilities: Option<&[String]>,
+) -> DbResult<()> {
+    let current_status: String = sqlx::query_scalar(
+        "SELECT status::text FROM plugin_installs WHERE org_id = $1 AND id = $2 FOR UPDATE",
+    )
+    .bind(org_id)
+    .bind(install_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(DbError::NotFound)?;
+    if current_status == "revoked" {
+        return Err(DbError::Conflict(
+            "a revoked install is terminal; re-install to adopt the entry again".into(),
+        ));
+    }
+    let granted = granted_capabilities
+        .map(|caps| {
+            serde_json::to_value(caps)
+                .map_err(|e| DbError::Conflict(format!("grants do not serialize: {e}")))
+        })
+        .transpose()?;
+    sqlx::query!(
+        r#"UPDATE plugin_installs SET
+             status = COALESCE($3::text::plugin_install_status, status),
+             version = COALESCE($4, version),
+             granted_capabilities = COALESCE($5::jsonb, granted_capabilities),
+             updated_at = now()
+           WHERE org_id = $1 AND id = $2"#,
+        org_id,
+        install_id,
+        status.map(|s| s.as_str()),
+        version,
+        granted,
+    )
+    .execute(&mut *tx)
+    .await?;
+    Ok(())
+}
+
+pub async fn delete_install(
+    executor: &mut PgConnection,
+    org_id: Uuid,
+    install_id: Uuid,
+) -> DbResult<()> {
+    let result = sqlx::query!(
+        "DELETE FROM plugin_installs WHERE org_id = $1 AND id = $2",
+        org_id,
+        install_id,
+    )
+    .execute(&mut *executor)
+    .await?;
+    if result.rows_affected() == 0 {
+        return Err(DbError::NotFound);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn grant_list_round_trips_through_jsonb_shape() {
+        let caps = vec!["tickets.read".to_string(), "financial.read".to_string()];
+        let value = serde_json::to_value(&caps).unwrap();
+        assert!(value.is_array());
+    }
+}

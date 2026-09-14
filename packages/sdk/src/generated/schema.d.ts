@@ -4527,6 +4527,137 @@ export interface paths {
         patch: operations["pipeline_stages_update"];
         trace?: never;
     };
+    "/api/v1/plugins/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/plugins/catalog — the marketplace registry. */
+        get: operations["plugin_catalog_list"];
+        put?: never;
+        /**
+         * POST /api/plugins/catalog — publish a catalog entry with its first
+         *     version. Operator action on a self-hosted core (the catalog is
+         *     global); audited, and the manifest is validated against the closed
+         *     capability vocabulary and the pinned interface version BEFORE any
+         *     row exists.
+         */
+        post: operations["plugin_catalog_publish"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/catalog/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/plugins/catalog/{slug}. */
+        get: operations["plugin_catalog_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/catalog/{slug}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/plugins/catalog/{slug}/revoke — the registry kill switch.
+         *     Denies new installs and marks every existing install revoked
+         *     (deny-by-default: a revoked plugin never runs); one
+         *     `plugin.install_revoked` event per affected install.
+         */
+        post: operations["plugin_catalog_revoke"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/catalog/{slug}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/plugins/catalog/{slug}/versions — append a version to a
+         *     live entry (revoked entries accept no new versions).
+         */
+        post: operations["plugin_catalog_append_version"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/installed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/plugins/installed — this org's adoptions. */
+        get: operations["plugin_install_list"];
+        put?: never;
+        /**
+         * POST /api/plugins/installed — adopt a catalog entry at a pinned
+         *     version. Created DISABLED (deny-by-default); enabling is a separate
+         *     explicit admin action.
+         */
+        post: operations["plugin_install_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/installed/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/plugins/installed/{id} — uninstall (the adoption row
+         *     goes away; re-install is a fresh adoption).
+         */
+        delete: operations["plugin_install_delete"];
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/plugins/installed/{id} — enable/disable, upgrade the
+         *     pinned version, or adjust the grant set. Widening grants
+         *     re-validates against the NEW pinned manifest. Revoked installs are
+         *     terminal.
+         */
+        patch: operations["plugin_install_update"];
+        trace?: never;
+    };
     "/api/v1/pm-schedules": {
         parameters: {
             query?: never;
@@ -7862,6 +7993,10 @@ export interface components {
             revoked_at?: string | null;
             scopes: string[];
         };
+        AppendVersionRequest: {
+            manifest: components["schemas"]["PluginManifestBody"];
+            version: string;
+        };
         /** @description POST /api/credit-notes/{id}/apply body. */
         ApplyCreditNoteRequest: components["schemas"]["MutationParams"] & {
             /**
@@ -8779,6 +8914,21 @@ export interface components {
         CatalogColumn: {
             name: string;
             value_type: string;
+        };
+        CatalogEntryView: {
+            /** Format: date-time */
+            created_at: string;
+            description: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: int32 */
+            interface_version: number;
+            latest_version?: string | null;
+            name: string;
+            publisher: string;
+            revoked: boolean;
+            revoked_reason?: string | null;
+            slug: string;
         };
         /** @description Instant-first mutation response (IF2) for catalog mutations. */
         CatalogItemMutationResponse: components["schemas"]["CatalogItemView"] & {
@@ -11577,6 +11727,34 @@ export interface components {
              */
             status: string;
         };
+        InstallPluginRequest: {
+            /**
+             * @description Capability keys granted at install — a subset of the pinned
+             *     manifest's declared set. Unknown keys are rejected (closed
+             *     vocabulary).
+             */
+            granted_capabilities?: string[];
+            slug: string;
+            /** @description Pin the adopted version; defaults to the entry's latest. */
+            version?: string | null;
+        };
+        InstallView: {
+            /**
+             * @description The effective permission keys the grants resolve onto (the
+             *     EXISTING matrix vocabulary — `tickets:read`, `financial:read`,
+             *     …). Informational; enforcement re-derives from the same matrix.
+             */
+            effective_permissions: string[];
+            granted_capabilities: string[];
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            installed_at: string;
+            name: string;
+            slug: string;
+            status: components["schemas"]["PluginInstallStatus"];
+            version: string;
+        };
         InstantiateTemplateRequest: components["schemas"]["MutationParams"] & {
             /**
              * @description Resolves template `assignee_key`s to user ids at instantiation
@@ -13304,6 +13482,60 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        /**
+         * @description The CLOSED capability vocabulary a v2 manifest may declare and an
+         *     install may be granted. Capabilities are declarative names that map
+         *     onto the EXISTING permission matrix — a grant never creates a new
+         *     permission, it resolves to a standard [`Permission`] and every check
+         *     flows through `core_domain::policy` like any human actor's. There is
+         *     deliberately NO admin capability: `special:manage_plugins`, user
+         *     management, billing, and audit-log specials are human-only grants a
+         *     plugin can never hold (deny-by-default — the vocabulary simply has
+         *     no key for them).
+         * @enum {string}
+         */
+        PluginCapability: "TicketsRead" | "TicketsWrite" | "ClientsRead" | "ClientsWrite" | "TimeRead" | "TimeWrite" | "ProjectsRead" | "ProjectsWrite" | "KbRead" | "KbWrite" | "DocumentsRead" | "DocumentsWrite" | "ReportingRead" | "FinancialRead";
+        /**
+         * @description Install lifecycle. Deny-by-default: `Disabled` until an explicit
+         *     admin enable; `Revoked` is terminal (registry revocation or explicit
+         *     revoke) — a revoked install never runs again until re-installed.
+         * @enum {string}
+         */
+        PluginInstallStatus: "disabled" | "enabled" | "revoked";
+        /**
+         * @description The declarative manifest as submitted. `interface_version` is
+         *     server-pinned (the runtime speaks exactly one version), so a caller
+         *     cannot publish an entry the runtime would refuse.
+         */
+        PluginManifestBody: {
+            capabilities: string[];
+            description?: string;
+        };
+        /**
+         * @description The declarative v2 plugin manifest: name/version/capabilities — a
+         *     DATA document describing what a plugin IS and what it may ask for.
+         *     It is never executable content: the runtime executes nothing from a
+         *     manifest, and "install" only ever adopts a catalog entry's manifest
+         *     snapshot.
+         */
+        PluginManifestV2: {
+            /**
+             * @description The capabilities the plugin MAY be granted. Grants at install
+             *     time are a subset of this list — a grant outside the manifest's
+             *     declared set is rejected.
+             */
+            capabilities: string[];
+            description?: string;
+            /**
+             * Format: int32
+             * @description The interface version this manifest was written against; must
+             *     equal [`PLUGIN_RUNTIME_INTERFACE_VERSION`] or the runtime refuses
+             *     the entry.
+             */
+            interface_version: number;
+            name: string;
+            version: string;
+        };
         /** @description One append-only PM run ledger row. */
         PmRun: {
             /** Format: date-time */
@@ -13998,6 +14230,14 @@ export interface components {
             display_name: string;
             /** @description URL path segment for /api/auth/oidc/{name}/login. */
             name: string;
+        };
+        PublishCatalogEntryRequest: {
+            description?: string;
+            manifest: components["schemas"]["PluginManifestBody"];
+            name: string;
+            publisher: string;
+            slug: string;
+            version: string;
         };
         PublishSkillRequest: {
             /** @description `{capabilities: [...], prompts: [...], rules: [...]}`. */
@@ -14850,6 +15090,9 @@ export interface components {
              * @description The write-trail `seq` to step back over (from the undo stack).
              */
             seq: number;
+        };
+        RevokeCatalogEntryRequest: {
+            reason: string;
         };
         /**
          * @description Instant-first mutation response (IF2): the role at the top level plus
@@ -16607,6 +16850,17 @@ export interface components {
         UpdateGroupRequest: components["schemas"]["MutationParams"] & {
             description?: string | null;
             name?: string | null;
+        };
+        UpdateInstallRequest: {
+            granted_capabilities?: string[] | null;
+            /**
+             * @description `enabled` | `disabled` (the admin-enabled gate). `revoked` is
+             *     NOT settable here — revocation rides the dedicated revoke
+             *     surface so the audit trail names it.
+             */
+            status?: string | null;
+            /** @description Upgrade the pinned version (explicit, never automatic). */
+            version?: string | null;
         };
         UpdateLayoutRequest: components["schemas"]["MutationParams"] & {
             description?: string;
@@ -25755,6 +26009,271 @@ export interface operations {
             };
             /** @description validation failure */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_catalog_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogEntryView"][];
+                };
+            };
+        };
+    };
+    plugin_catalog_publish: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublishCatalogEntryRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogEntryView"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_catalog_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogEntryView"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_catalog_revoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevokeCatalogEntryRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogEntryView"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_catalog_append_version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AppendVersionRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogEntryView"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_install_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstallView"][];
+                };
+            };
+        };
+    };
+    plugin_install_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstallPluginRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstallView"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_install_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_install_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateInstallRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstallView"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -3,3 +3,8 @@ name = "plugin-host"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+
+[dependencies]
+core-domain = { path = "../core-domain" }
+uuid = { workspace = true }
+chrono = { workspace = true }
