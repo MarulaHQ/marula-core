@@ -64,6 +64,7 @@ pub mod report_schedules;
 pub mod roles;
 pub mod scheduling;
 pub mod scheduling_links;
+pub mod scorecards;
 pub mod search;
 pub mod settings;
 pub mod sla;

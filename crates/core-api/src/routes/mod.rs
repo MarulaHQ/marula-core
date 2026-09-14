@@ -95,6 +95,7 @@ pub mod reports;
 pub mod roles;
 pub mod scheduling;
 pub mod scheduling_links;
+pub mod scorecards;
 pub mod search;
 pub mod settings;
 pub mod sla_admin;
@@ -958,6 +959,15 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(&rp("/provenance"), get(provenance::list))
         // operational reports (TASKLIST R1): read-model views only
         .route(&rp("/reports/{kind}"), get(reports::report))
+        // coaching scorecards (Wave 14 lane 3, R5): aggregation over the
+        // read-model views; private-by-default (self only unless owner/admin)
+        .route(&rp("/scorecards"), get(scorecards::team))
+        .route(&rp("/scorecards/me"), get(scorecards::me))
+        .route(
+            &rp("/scorecards/me/settings"),
+            get(scorecards::get_settings).patch(scorecards::update_settings),
+        )
+        .route(&rp("/scorecards/{user_id}"), get(scorecards::get_user))
         // plugin runtime v1: signed webhooks OUT + API keys (admin;
         // x-api-key machine auth is handled inside require_auth)
         .route(

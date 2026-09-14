@@ -5988,6 +5988,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/scorecards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/scorecards?from&to — every active staff member's scorecard in
+         *     one org-wide read (owner/admin only; R5 private-by-default means a
+         *     plain tech never sees anyone else's card here, including via query
+         *     tricks — the scope is derived from the principal, never the request).
+         */
+        get: operations["scorecard_list_team"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scorecards/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/scorecards/me?from&to — the caller's own scorecard. */
+        get: operations["scorecard_get_own"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scorecards/me/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/scorecards/me/settings — the caller's scorecard settings
+         *     (absent row reads as the private-by-defaults).
+         */
+        get: operations["scorecard_get_settings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/scorecards/me/settings — flip the R5 opt-in gamification
+         *     toggle. Only ever touches the CALLER's row (no user_id in the body by
+         *     design); emits `scorecard.settings_updated` in the same transaction.
+         */
+        patch: operations["scorecard_update_settings"];
+        trace?: never;
+    };
+    "/api/v1/scorecards/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/scorecards/{user_id}?from&to — one member's scorecard; a
+         *     member may read their own, owner/admin may read anyone's.
+         */
+        get: operations["scorecard_get_user"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/search": {
         parameters: {
             query?: never;
@@ -10285,6 +10369,14 @@ export interface components {
          * @enum {string}
          */
         CreditNoteStatus: "issued" | "void";
+        /**
+         * @description CSAT inputs slot. The surveys-on-resolution source does not exist yet
+         *     (later TASKLIST item); the scorecard reserves the field and reports
+         *     `available: false` rather than inventing data.
+         */
+        CsatSection: {
+            available: boolean;
+        };
         CurateFieldsRequest: components["schemas"]["MutationParams"] & {
             /** @description Per-field human values; a `null` value un-curates the field. */
             fields: unknown;
@@ -14996,6 +15088,92 @@ export interface components {
          * @enum {string}
          */
         SchedulingLinkStatus: "active" | "revoked" | "used";
+        /** @description One staff member's scorecard over a window. */
+        Scorecard: {
+            csat: components["schemas"]["CsatSection"];
+            display_name: string;
+            resolution: components["schemas"]["ScorecardLatency"];
+            response: components["schemas"]["ScorecardLatency"];
+            sla: components["schemas"]["ScorecardSla"];
+            /** Format: uuid */
+            user_id: string;
+            window: components["schemas"]["ScorecardWindow"];
+            workload: components["schemas"]["ScorecardWorkload"];
+        };
+        /**
+         * @description First-staff-response latency block (seconds; staff-authored comments
+         *     only — portal replies are structurally excluded by the view).
+         */
+        ScorecardLatency: {
+            /** Format: int64 */
+            count: number;
+            /** Format: double */
+            median_seconds?: number | null;
+            /** Format: double */
+            p95_seconds?: number | null;
+        };
+        ScorecardResponse: components["schemas"]["Scorecard"];
+        ScorecardSettingsResponse: {
+            gamification_opt_in: boolean;
+            /** Format: uuid */
+            user_id: string;
+        };
+        /**
+         * @description SLA attainment block. `response_total`/`resolution_total` count only
+         *     tickets where BOTH the SLA target and the actual instant exist (the
+         *     three-valued metrics from `ops.v1_sla_outcomes`); attainment is the
+         *     met/total ratio, `None` when the total is zero.
+         */
+        ScorecardSla: {
+            /** Format: int64 */
+            breached: number;
+            /** Format: double */
+            resolution_attainment?: number | null;
+            /** Format: int64 */
+            resolution_met: number;
+            /** Format: int64 */
+            resolution_total: number;
+            /** Format: double */
+            response_attainment?: number | null;
+            /** Format: int64 */
+            response_met: number;
+            /** Format: int64 */
+            response_total: number;
+        };
+        ScorecardWindow: {
+            /**
+             * Format: date-time
+             * @description Inclusive start (UTC midnight).
+             */
+            from: string;
+            /**
+             * Format: date-time
+             * @description Exclusive end (UTC midnight of the day after `to`).
+             */
+            to: string;
+        };
+        /**
+         * @description Workload mix over APPROVED time entries only — drafts and rejected
+         *     entries are never scorecard truth (Wave 14 lane-1 approval contract).
+         */
+        ScorecardWorkload: {
+            /** Format: int64 */
+            approved_billable_minutes: number;
+            /** Format: int64 */
+            approved_entries: number;
+            /** Format: int64 */
+            approved_minutes: number;
+            /**
+             * Format: double
+             * @description billable / total approved minutes; `None` with no approved work.
+             */
+            billable_ratio?: number | null;
+            /**
+             * @description APPROVED minutes per work type; `work_type: null` groups
+             *     unclassified entries.
+             */
+            by_work_type: components["schemas"]["WorkTypeSlice"][];
+        };
         SearchQuery: {
             /** Format: int64 */
             limit?: number;
@@ -15489,6 +15667,11 @@ export interface components {
              * @description Exclusive window end (default: `from` + 8 days).
              */
             to?: string | null;
+        };
+        /** @description The team view: one scorecard per staff member, owner/admin only. */
+        TeamScorecardsResponse: {
+            scorecards: components["schemas"]["Scorecard"][];
+            window: components["schemas"]["ScorecardWindow"];
         };
         /** @description One technician across the whole horizon. */
         TechnicianCapacity: {
@@ -16535,6 +16718,13 @@ export interface components {
             site_id?: string | null;
             title?: string | null;
         };
+        UpdateScorecardSettingsRequest: {
+            /**
+             * @description R5's opt-in gamification toggle (streaks / leaderboards). Default
+             *     and privacy-preserving value: false.
+             */
+            gamification_opt_in: boolean;
+        };
         UpdateSettingRequest: {
             key: string;
             /** @description Must satisfy the declaration's kind or the request is rejected 422. */
@@ -16767,6 +16957,12 @@ export interface components {
             /** Format: uuid */
             id: string;
             url: string;
+        };
+        WorkTypeSlice: {
+            /** Format: int64 */
+            minutes: number;
+            /** @description `null` = unclassified entries. */
+            work_type?: string | null;
         };
     };
     responses: never;
@@ -28704,6 +28900,185 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ConflictCheckResponse"];
                 };
+            };
+        };
+    };
+    scorecard_list_team: {
+        parameters: {
+            query?: {
+                /** @description Inclusive window start (UTC day, YYYY-MM-DD). Default: 30 trailing days. */
+                from?: string | null;
+                /** @description Inclusive window end (UTC day). Max span with `from`: 366 days. */
+                to?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamScorecardsResponse"];
+                };
+            };
+            /** @description team scorecards are owner/admin only */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid window */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    scorecard_get_own: {
+        parameters: {
+            query?: {
+                /** @description Inclusive window start (UTC day, YYYY-MM-DD). Default: 30 trailing days. */
+                from?: string | null;
+                /** @description Inclusive window end (UTC day). Max span with `from`: 366 days. */
+                to?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScorecardResponse"];
+                };
+            };
+            /** @description missing reporting:view */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid window */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    scorecard_get_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScorecardSettingsResponse"];
+                };
+            };
+            /** @description missing reporting:view */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    scorecard_update_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateScorecardSettingsRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScorecardSettingsResponse"];
+                };
+            };
+            /** @description missing reporting:view */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    scorecard_get_user: {
+        parameters: {
+            query?: {
+                /** @description Inclusive window start (UTC day, YYYY-MM-DD). Default: 30 trailing days. */
+                from?: string | null;
+                /** @description Inclusive window end (UTC day). Max span with `from`: 366 days. */
+                to?: string | null;
+            };
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScorecardResponse"];
+                };
+            };
+            /** @description other members' scorecards are owner/admin only */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description member not in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid window */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

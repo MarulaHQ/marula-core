@@ -292,6 +292,12 @@ fn map_unique_constraint(constraint: &str) -> Option<(&'static str, &'static str
             "calendar_sync_connection_name_taken",
             "a calendar-sync connection with this name already exists for this user",
         )),
+        // Wave 14 lane 3 (coaching scorecards): a concurrent settings
+        // upsert raced — the caller re-reads and retries the toggle.
+        "uq_scorecard_settings_user" => Some((
+            "scorecard_settings_conflict",
+            "your scorecard settings were just updated elsewhere; reload and retry",
+        )),
         _ => None,
     }
 }

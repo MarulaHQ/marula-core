@@ -146,6 +146,12 @@ use utoipa::OpenApi;
         // with per-field write-trail provenance over migration 0043
         crate::routes::provenance::list,
         crate::routes::reports::report,
+        // coaching scorecards (Wave 14 lane 3, R5)
+        crate::routes::scorecards::me,
+        crate::routes::scorecards::team,
+        crate::routes::scorecards::get_user,
+        crate::routes::scorecards::get_settings,
+        crate::routes::scorecards::update_settings,
         crate::routes::report_defs::list,
         crate::routes::report_defs::create,
         crate::routes::report_defs::get_one,

@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO scorecard_settings (org_id, user_id, gamification_opt_in, created_at, updated_at)\n               VALUES ($1, $2, $3, $4, $4)\n               ON CONFLICT (org_id, user_id)\n               DO UPDATE SET gamification_opt_in = EXCLUDED.gamification_opt_in,\n                             updated_at = EXCLUDED.updated_at\n               RETURNING user_id, gamification_opt_in",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "gamification_opt_in",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Bool",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "5f4371e7e79259e3cc9e3f7180cf566bfbfb6645ed712769391e8334c5dab7d6"
+}
