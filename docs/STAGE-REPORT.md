@@ -346,3 +346,65 @@ lane DB; coordinator re-verified merges on main (fresh-DB migration chain
 0001–0067, db_suite 76, core-domain 255, connectors 60, core-events 22,
 conformance 12, web typecheck + vitest 177). Alpha gate = end of Wave 12 —
 CLOSED 2026-09-12.
+
+## Wave 13 — hardening + platform tranche (2026-09-13, LANDED)
+
+All 10 lanes merged (envelope-first ordering held: lane 1 alone, then tranches B/C):
+
+- **`p13-error-envelope` 916e54b** — typed IF3 error envelope: reason-code registry
+  (`core-api/src/error.rs`, 25 codes, conformance-tested), constraint-name registry
+  (`map_unique_constraint`) closing raw `orgs_slug_key`-class leaks, `typed_rejections`
+  middleware sanitizing all framework/serde rejections, portal audit swallow fix.
+- **`p13-web-graceful` 4a2f346** — web/console leg: reason→copy map
+  (`apps/web/lib/error-copy.ts`), ConnectionBanner offline/reconnecting states,
+  register one-click slug suggestion accept, dev-page `already_seeded` force-reseed,
+  correlation-id middleware (`otel_http::correlate`), mfa webauthn fixed copy.
+- **`p13-rls-audit` 8bf681d** — pool-read sweep found ZERO unscoped authed-user
+  stragglers (15 raw-pool reads all sanctioned pre-auth SECURITY DEFINER bridges,
+  allowlisted with rationale); CI grep gate `scripts/check-rls-pool-reads.sh` +
+  `rls-pool-reads` job (negative-tested).
+- **`p13-kb-rich` ec15c52** — KB1 oEmbed allowlist registry + KB2 linked external
+  documents (migration 0069), server-side link-check as data, published-only search
+  mirroring (draft/archived articles invisible to staff search AND portal).
+- **`p13-template-registry` 4a30cde** — KB3/KB4 `Template` entity (migration 0070):
+  closed-variable render engine, 7 shipped immutable defaults, fork/restore semantics.
+- **`p13-preset-roles` 1b1c3b9** — RB1 preset roles as data (migration 0071,
+  8-preset roster, forked_from + restore) + RB2 `financial:read` gating.
+- **`p13-identity-federation` dff2164** — ID1–ID4 (migration 0072): OIDC presets
+  (Google/Entra/Okta), Cf-Access edge-assertion auth, deny-by-default versioned
+  bundle interface, federated MFA gate.
+- **`p13-perf-baseline` 3358e87** — ticket-list p95 29.9ms @50k (budget 150ms,
+  ~5× headroom); CI `perf-smoke` job; `crates/perf-harness` seed/measure/load;
+  baselines in `docs/perf.md`.
+- **`p13-realtime-resume` fb2b266** — SSE resume (`Last-Event-ID` bounded outbox
+  replay, documented past-buffer cutoff) + presence multi-replica fan-out
+  (`meridian_presence` pg NOTIFY relay).
+- **`p13-realtime-ui` 0f870a1** — realtime web wiring: EventSource →
+  `/api/events/stream` feeding the instant reconcile path, presence rosters,
+  `version_conflict` as reconcile copy.
+
+Migration chain 0068→0072 complete. Wave 12's realtime lane follow-ups fully closed.
+
+## Wave 14 — Phase 4 opening tranche (2026-09-13 → 09-14, tranches A+B LANDED; C+D remain)
+
+- **Tranche A (all merged):** `p14-time-approvals` d995296 (migration 0073 —
+  approval state machine, decision trail, `ops.v1_time_entries` extended),
+  `p14-calendar-sync` 48076e5 (migration 0074 — `CalendarSyncProvider` seam +
+  first-party iCal, bidirectional), `p14-report-builder-v1` 327e516 (R6 builder UI,
+  field catalog, injection-proof `$N` run surfaces), `p14-docs-site` f5c20c2
+  (Diátaxis docs site, 19 pages, generated API reference + upgrade matrix with a
+  byte-identity check gate).
+- **Tranche B (all merged):** `p14-coaching-scorecards` a39a86e (migration 0075 —
+  R5 aggregation over `ops.v1_*` + staff-facing scorecard pages) and
+  `p14-plugin-v2` 98edd74 (migration 0076 — plugin runtime v2 + marketplace
+  registry, declarative capability grants on the existing permission matrix,
+  deny-by-default sandbox seam).
+- **Remaining:** lane 7 `p14-web-closeout` (tranche C — wires approvals, calendar
+  sync, scorecards into staff UI per the close-out doctrine) then lane 8
+  `p14-e2e-ci` (tranche D — Playwright E2E for the 10 core flows in both themes).
+
+**Verification posture:** every lane suite-green at close-out; coordinator
+re-verified merges on main (typecheck + pins byte-identical + migration lint).
+Offline-compile gap (missing `.sqlx` test-target entries) found and healed.
+DX6 drift hardening: setup script strips session `CARGO_TARGET_DIR` overrides,
+dev-clean reclaims drifted private caches.
