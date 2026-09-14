@@ -50,6 +50,10 @@ pub type AppointmentId = Uuid;
 pub type CalendarSyncConnectionId = Uuid;
 /// One mirrored external calendar event.
 pub type CalendarSyncEventId = Uuid;
+/// A marketplace registry catalog entry (Wave 14 lane 5).
+pub type PluginCatalogEntryId = Uuid;
+/// An org's install (adoption) of a catalog entry.
+pub type PluginInstallId = Uuid;
 pub type CalendarId = Uuid;
 pub type ProjectId = Uuid;
 pub type PhaseId = Uuid;

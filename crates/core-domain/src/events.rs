@@ -147,6 +147,19 @@ pub mod types {
     /// Capability-registry changes (deny-by-default MCP/agent surface):
     /// a capability was granted/re-dialed or revoked for the org.
     pub const MCP_CAPABILITY_UPDATED: &str = "mcp_capability.updated";
+    /// `calendar.sync_completed` — see the payload struct below.
+    /// Plugin runtime v2 + marketplace registry (Wave 14 lane 5): the
+    /// registry lifecycle. `plugin.catalog_entry_created` fires when a
+    /// catalog entry (declarative manifest snapshot — data, never code)
+    /// is published; `plugin.installed` when an org adopts an entry at a
+    /// pinned version (created DISABLED — deny-by-default);
+    /// `plugin.install_updated` on enable/disable/upgrade/grant change;
+    /// `plugin.install_revoked` when registry revocation or an explicit
+    /// revoke kills the install.
+    pub const PLUGIN_CATALOG_ENTRY_CREATED: &str = "plugin.catalog_entry_created";
+    pub const PLUGIN_INSTALLED: &str = "plugin.installed";
+    pub const PLUGIN_INSTALL_UPDATED: &str = "plugin.install_updated";
+    pub const PLUGIN_INSTALL_REVOKED: &str = "plugin.install_revoked";
     /// Emitted when an org- or user-scoped setting changes through the
     /// typed settings registry.
     pub const SETTING_UPDATED: &str = "setting.updated";
@@ -1045,8 +1058,79 @@ pub struct ScorecardSettingsUpdated {
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub user_id: crate::ids::UserId,
     pub gamification_opt_in: bool,
+// --- plugin runtime v2 + marketplace registry (Wave 14 lane 5) ---------------
+// (Grant lists are capability KEYS only — the resolved permissions stay
+// server-side; a plugin's effective authority is always re-derived from
+// the existing permission matrix at check time.)
+
+/// `plugin.catalog_entry_created` — a catalog entry was published with
+/// its declarative manifest snapshot. Capabilities are the manifest's
+/// DECLARED keys (what the plugin may ask for), never a grant.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PluginCatalogEntryCreated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub catalog_id: crate::ids::PluginCatalogEntryId,
+    pub slug: String,
+    pub name: String,
+    pub publisher: String,
+    pub version: String,
+    pub interface_version: i64,
+    pub capabilities: Vec<String>,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub created_at: DateTime<Utc>,
+}
+
+/// `plugin.installed` — an org adopted a catalog entry at a pinned
+/// version. Installs are created DISABLED; the event carries the granted
+/// capability keys (subset of the manifest's declared set).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PluginInstalled {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub install_id: crate::ids::PluginInstallId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub catalog_id: crate::ids::PluginCatalogEntryId,
+    pub slug: String,
+    pub version: String,
+    pub granted_capabilities: Vec<String>,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub installed_at: DateTime<Utc>,
+}
+
+/// `plugin.install_updated` — an install was enabled, disabled,
+/// upgraded to a new pinned version, or its granted capability set
+/// changed. Carries the post-change state.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PluginInstallUpdated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub install_id: crate::ids::PluginInstallId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub catalog_id: crate::ids::PluginCatalogEntryId,
+    pub slug: String,
+    pub version: String,
+    /// `disabled` | `enabled` | `revoked`.
+    pub status: String,
+    pub granted_capabilities: Vec<String>,
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
     pub occurred_at: DateTime<Utc>,
+}
+
+/// `plugin.install_revoked` — the install was killed: registry-level
+/// revocation of the catalog entry, or an explicit org revoke. A revoked
+/// install never runs again until re-installed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PluginInstallRevoked {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub install_id: crate::ids::PluginInstallId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub catalog_id: crate::ids::PluginCatalogEntryId,
+    pub slug: String,
+    pub reason: Option<String>,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub revoked_at: DateTime<Utc>,
 }
 
 // --- projects line (TASKLIST Phase 3, migration 0030) ------------------------

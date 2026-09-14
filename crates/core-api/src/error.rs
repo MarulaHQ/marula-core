@@ -298,6 +298,19 @@ fn map_unique_constraint(constraint: &str) -> Option<(&'static str, &'static str
             "scorecard_settings_conflict",
             "your scorecard settings were just updated elsewhere; reload and retry",
         )),
+        // Wave 14 lane 5 (plugin runtime v2 + marketplace registry).
+        "plugin_catalog_slug_key" => Some((
+            "plugin_slug_taken",
+            "a catalog entry with this slug already exists",
+        )),
+        "plugin_versions_catalog_id_version_key" => Some((
+            "plugin_version_taken",
+            "this version already exists for the catalog entry",
+        )),
+        "plugin_installs_org_id_catalog_id_key" => Some((
+            "plugin_already_installed",
+            "this plugin is already installed for this org",
+        )),
         _ => None,
     }
 }
@@ -721,6 +734,10 @@ mod tests {
             "settings_key_unique",
             "idx_alert_sources_ref",
             "calendar_sync_connections_org_id_user_id_name_key",
+            "uq_scorecard_settings_user",
+            "plugin_catalog_slug_key",
+            "plugin_versions_catalog_id_version_key",
+            "plugin_installs_org_id_catalog_id_key",
         ];
         let mut seen = std::collections::HashSet::new();
         for constraint in known {
@@ -732,8 +749,8 @@ mod tests {
         }
         // The two taxonomy constraints deliberately SHARE one reason code
         // (`category_name_taken` — root-name and child-name collisions are
-        // the same UX problem), so 11 constraints map to 10 distinct codes.
-        assert_eq!(seen.len(), 10, "unexpected reason-code fan-out: {seen:?}");
+        // the same UX problem), so 15 constraints map to 14 distinct codes.
+        assert_eq!(seen.len(), 14, "unexpected reason-code fan-out: {seen:?}");
         assert_eq!(
             map_unique_constraint("uq_ticket_categories_root_name").map(|(k, _)| k),
             map_unique_constraint("uq_ticket_categories_child_name").map(|(k, _)| k)

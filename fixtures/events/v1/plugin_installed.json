@@ -1,0 +1,17 @@
+{
+  "event_type": "plugin.installed",
+  "entity": "plugin_install",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "catalog_id": "00000000-0000-0000-0000-000000000032",
+    "granted_capabilities": [
+      "tickets.read"
+    ],
+    "install_id": "00000000-0000-0000-0000-000000000033",
+    "installed_at": "2023-11-14T22:13:39Z",
+    "slug": "ticket-summarizer",
+    "version": "1.0.0"
+  }
+}

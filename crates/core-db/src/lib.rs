@@ -53,6 +53,7 @@ pub mod orgs;
 pub mod outbox;
 pub mod passwords;
 pub mod pipeline;
+pub mod plugins;
 pub mod portal;
 pub mod projects;
 pub mod provenance;

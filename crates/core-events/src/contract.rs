@@ -465,6 +465,32 @@ use core_domain::events::{
     TicketTagsChanged, TimeEntryApprovalApproved, TimeEntryApprovalRejected,
     TimeEntryApprovalSubmitted, TimeEntryCreated, TimerPaused, TimerStarted, TimerStopped,
     TravelDraftSubmitted, UserActivated, UserDeactivated, UserInvited, UserRoleChanged,
+    BoardStatusUpdated, BoardTransitionsUpdated, CalendarExclusionChanged,
+    CalendarSyncCompleted, CalendarSyncConnectionUpdated, CatalogItemArchived,
+    CatalogItemCreated, CatalogItemUpdated, ClientCreated, ClientUpdated,
+    ClientWorkflowOverrideCleared, ClientWorkflowOverrideSet, ConfigItemCreated,
+    ConfigItemMergeUndone, ConfigItemMerged, ConfigItemUpdated, ContactCreated, ContactUpdated,
+    ContractCreated, ContractRemoved, ContractUpdated, CreditNoteApplied, CreditNoteIssued,
+    CreditNoteRefunded, DispatchQueueUpdated, DispatchStatusUpdated, FxBaseCurrencyChanged,
+    FxRateRecorded, ImportBatchFinished, ImportBatchStarted, InvoiceCreated, InvoiceDunningChanged,
+    InvoicePaymentRecorded, InvoiceRunCompleted, InvoiceVoided, MigrationPushSessionFinished,
+    MigrationPushSessionStarted, NotificationCreated, OnCallChanged, PipelineDealCreated,
+    PipelineDealStageChanged, PipelineDealUpdated, PipelineStageCreated, PipelineStageUpdated,
+    PmScheduleChanged, PmScheduleDeleted, PodVisibilityUpdated, PluginCatalogEntryCreated,
+    PluginInstallRevoked, PluginInstallUpdated, PluginInstalled, ProjectCreated,
+    ProjectMilestoneCompleted, ProjectPhaseCompleted, ProjectPhaseCreated, ProjectPhaseUpdated,
+    ProjectTaskCompleted, ProjectTaskCreated, ProjectTaskUpdated, ProjectTemplateRemoved,
+    ProjectTemplateUpdated, ProjectUpdated, ProjectViewRemoved, ProjectViewUpdated, QuoteAccepted,
+    QuoteConverted, QuoteCreated, QuoteDeclined, QuoteExpired, QuoteSent, QuoteUpdated, RoleForked,
+    RoleRestored, SchedulingLinkCreated, SchedulingLinkRevoked, SchedulingLinkScheduled,
+    SchedulingLinkViewed, SiteCreated, SiteUpdated, TagCreated, TagDeleted, TagUpdated,
+    TemplateCreated, TemplateRemoved, TemplateUpdated, TicketAssigned, TicketBoardMoved,
+    TicketChecklistUpdated, TicketCommentAdded, TicketCostLineAdded, TicketCostLineRemoved,
+    TicketCreated, TicketExpenseRecorded, TicketExpenseRemoved, TicketLinkChanged, TicketMerged,
+    TicketReverted, TicketStatusChanged, TicketTagsChanged, TimeEntryApprovalApproved,
+    TimeEntryApprovalRejected, TimeEntryApprovalSubmitted, TimeEntryCreated, TimerPaused,
+    TimerStarted, TimerStopped, TravelDraftSubmitted, UserActivated, UserDeactivated, UserInvited,
+    UserRoleChanged,
 };
 use core_domain::money::{CurrencyCode, Money};
 use core_domain::policy::BoardRole;
@@ -1892,6 +1918,72 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
                 user_id: su(4),
                 gamification_opt_in: true,
                 occurred_at: st(18),
+    // -- plugin runtime v2 + marketplace registry (Wave 14 lane 5) -----------
+    // (Grant lists are capability KEYS only; the resolved permissions stay
+    // server-side and are always re-derived from the existing matrix.)
+    PublishedEvent {
+        event_type: types::PLUGIN_CATALOG_ENTRY_CREATED,
+        entity: "plugin_catalog_entry",
+        variant: "default",
+        shape: typed_shape!(
+            PluginCatalogEntryCreated,
+            PluginCatalogEntryCreated {
+                catalog_id: su(50),
+                slug: "ticket-summarizer".into(),
+                name: "Ticket Summarizer".into(),
+                publisher: "meridian".into(),
+                version: "1.0.0".into(),
+                interface_version: 1,
+                capabilities: vec!["tickets.read".into()],
+                created_at: st(18),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PLUGIN_INSTALLED,
+        entity: "plugin_install",
+        variant: "default",
+        shape: typed_shape!(
+            PluginInstalled,
+            PluginInstalled {
+                install_id: su(51),
+                catalog_id: su(50),
+                slug: "ticket-summarizer".into(),
+                version: "1.0.0".into(),
+                granted_capabilities: vec!["tickets.read".into()],
+                installed_at: st(19),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PLUGIN_INSTALL_UPDATED,
+        entity: "plugin_install",
+        variant: "default",
+        shape: typed_shape!(
+            PluginInstallUpdated,
+            PluginInstallUpdated {
+                install_id: su(51),
+                catalog_id: su(50),
+                slug: "ticket-summarizer".into(),
+                version: "1.0.0".into(),
+                status: "enabled".into(),
+                granted_capabilities: vec!["tickets.read".into(), "tickets.write".into()],
+                occurred_at: st(20),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PLUGIN_INSTALL_REVOKED,
+        entity: "plugin_install",
+        variant: "default",
+        shape: typed_shape!(
+            PluginInstallRevoked,
+            PluginInstallRevoked {
+                install_id: su(51),
+                catalog_id: su(50),
+                slug: "ticket-summarizer".into(),
+                reason: Some("upstream vulnerability".into()),
+                revoked_at: st(21),
             }
         ),
     },
