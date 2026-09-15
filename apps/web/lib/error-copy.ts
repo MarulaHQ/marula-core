@@ -41,6 +41,8 @@ const REASON_COPY: Readonly<Record<string, string>> = {
   conflict:
     "This conflicts with an existing change. Refresh, then try again with an updated value.",
   org_slug_taken: "That workspace address is already taken.",
+  time_entry_locked:
+    "This time entry is locked — it's already on an invoice, so it can't be changed.",
   user_email_taken:
     "An account with this email already exists — try signing in instead.",
   role_name_taken: "A role with this name already exists in this org.",
@@ -208,6 +210,17 @@ export function friendlyMutationText(
   fallback?: string,
 ): string {
   return friendlyMutationError(error, { fallback }).text;
+}
+
+/** Copy for an openapi-fetch result whose pin declares no error responses
+ * (so `error` is typed away but still carries the IF3 envelope body at
+ * runtime on any non-2xx). Reads `error` when present, else the whole
+ * result; thrown transport failures keep their own copy. */
+export function resultErrorText(result: unknown, fallback?: string): string {
+  const r = result as { error?: unknown } | null | undefined;
+  const err = r?.error;
+  if (err !== undefined && err !== null) return friendlyMutationText(err, fallback);
+  return friendlyMutationText(result, fallback);
 }
 
 /** Copy for a rejected instant WriteResult (or any rejection-shaped
