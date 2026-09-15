@@ -31,9 +31,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 9px;
   height: var(--m-control-height);
-  padding: 0 12px;
+  padding: 0 16px;
   border-radius: var(--m-radius-control);
   border: 1px solid transparent;
   font-weight: 500;
@@ -155,7 +155,7 @@
 .m-field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
 }
 
 .m-label {
@@ -263,12 +263,13 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 20px;
-  padding: 0 6px;
-  border-radius: var(--m-radius-control);
-  border: 1px solid transparent;
-  font-size: 12px;
-  font-weight: 500;
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
   white-space: nowrap;
 }
 
@@ -307,13 +308,17 @@
 }
 
 .m-card-header {
-  padding: 10px 12px;
+  padding: 14px 16px;
   border-bottom: 1px solid var(--m-border);
-  font-weight: 600;
+  font-weight: 700;
+  font-family: var(--m-font-heading, "Source Serif 4", Georgia, serif);
+  font-size: 16px;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
 }
 
 .m-card-content {
-  padding: 12px;
+  padding: 20px;
 }
 
 .m-separator {
@@ -439,8 +444,11 @@
 }
 
 .m-dialog-title {
-  font-size: 15px;
+  font-family: var(--m-font-heading, "Source Serif 4", Georgia, serif);
+  font-size: 18px;
   font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
   color: var(--m-text);
 }
 
