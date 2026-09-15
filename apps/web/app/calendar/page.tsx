@@ -16,6 +16,7 @@
 
 import { friendlyMutationText } from "../../lib/error-copy";
 import { Button, Card, Dialog, DialogActions, DialogContent, FieldHint, Input, Label } from "@meridian/ui";
+import CalendarSyncPanel from "../../components/calendar-sync-panel";
 import { useEffect, useMemo, useState } from "react";
 import { api, useRequireAuth } from "../../lib/api";
 import {
@@ -129,6 +130,8 @@ export default function CalendarPage() {
           {error}
         </span>
       )}
+
+      <CalendarSyncPanel />
 
       <Card className="min-w-0 overflow-x-auto p-0">
         <div className="min-w-[840px]">

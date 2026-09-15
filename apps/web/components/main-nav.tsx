@@ -58,6 +58,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Projects", href: "/projects", match: ["/projects"] },
       { label: "Contracts", href: "/contracts", match: ["/contracts"] },
       { label: "Billing", href: "/billing", match: ["/billing"] },
+      { label: "Time approvals", href: "/approvals" },
       { label: "Credit notes", href: "/billing/credit-notes", match: ["/billing/credit-notes"] },
       { label: "Sales pipeline", href: "/sales/pipeline", match: ["/sales/pipeline"] },
       { label: "Quotes", href: "/sales/quotes", match: ["/sales/quotes"] },
