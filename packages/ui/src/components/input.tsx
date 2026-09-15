@@ -1,3 +1,4 @@
+"use client";
 /**
  * Input and Textarea — bordered, compact-height text controls with
  * `aria-invalid` styling handled in CSS.

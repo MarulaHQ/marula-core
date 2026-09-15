@@ -1,3 +1,4 @@
+"use client";
 /**
  * Tag / StatusTag — squared (2px) status labels per theme.md §6; pills are
  * forbidden. Colors come exclusively from the semantic status tokens.

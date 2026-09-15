@@ -1,3 +1,4 @@
+"use client";
 /**
  * @meridian/ui — Workbench design system barrel.
  * Purpose: single public entry point for tokens API, theming, and components.

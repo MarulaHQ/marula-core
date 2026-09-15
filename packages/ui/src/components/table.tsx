@@ -1,3 +1,4 @@
+"use client";
 /**
  * Table primitives — first-class dense tables: sticky header, 24px rows,
  * token borders only. Layout behavior (resize, saved views) lives in apps.

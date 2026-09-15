@@ -1,3 +1,4 @@
+"use client";
 /**
  * Tooltip — Radix tooltip on a bordered overlay surface.
  */

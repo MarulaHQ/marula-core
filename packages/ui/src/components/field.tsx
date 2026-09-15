@@ -1,3 +1,4 @@
+"use client";
 /**
  * Field wiring: Label, FieldError, FieldHint.
  * Purpose: label-above-field layout with accessible error/hint association
