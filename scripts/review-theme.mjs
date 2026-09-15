@@ -104,12 +104,13 @@ const PRESET_BRIDGED = new Set([
   "--popover", "--popover-foreground", "--primary", "--primary-foreground",
   "--destructive", "--destructive-foreground", "--border", "--ring", "--radius",
   "--sidebar-foreground", "--sidebar-primary", "--sidebar-primary-foreground",
-  "--sidebar-ring", "--font-sans", "--font-serif", "--font-mono",
+  "--sidebar-ring",
 ]);
 
 let presetChecked = 0;
+const MODE_INDEPENDENT = new Set(["--font-sans", "--font-serif", "--font-mono"]);
 for (const [name, value] of Object.entries(preset.cssVars.light)) {
-  if (PRESET_BRIDGED.has(`--${name}`)) continue; // bridged to --m-* — checked below
+  if (PRESET_BRIDGED.has(`--${name}`) || MODE_INDEPENDENT.has(`--${name}`)) continue;
   const actual = gRoot.get(`--${name}`);
   if (actual === undefined) {
     errors.push(`globals :root missing preset variable --${name}`);
@@ -119,12 +120,12 @@ for (const [name, value] of Object.entries(preset.cssVars.light)) {
     presetChecked++;
   }
 }
-check(Object.keys(preset.cssVars.light).length - PRESET_BRIDGED.size === presetChecked,
+check(Object.keys(preset.cssVars.light).length - PRESET_BRIDGED.size - MODE_INDEPENDENT.size === presetChecked,
   `globals :root matches preset verbatim (${presetChecked} non-bridged vars)`);
 
 let presetDarkChecked = 0;
 for (const [name, value] of Object.entries(preset.cssVars.dark)) {
-  if (PRESET_BRIDGED.has(`--${name}`)) continue;
+  if (PRESET_BRIDGED.has(`--${name}`) || MODE_INDEPENDENT.has(`--${name}`)) continue;
   const actual = gDark.get(`--${name}`);
   if (actual === undefined) {
     errors.push(`globals dark block missing preset variable --${name}`);
@@ -134,7 +135,7 @@ for (const [name, value] of Object.entries(preset.cssVars.dark)) {
     presetDarkChecked++;
   }
 }
-check(Object.keys(preset.cssVars.dark).length - PRESET_BRIDGED.size === presetDarkChecked,
+check(Object.keys(preset.cssVars.dark).length - PRESET_BRIDGED.size - MODE_INDEPENDENT.size === presetDarkChecked,
   `globals dark block matches preset verbatim (${presetDarkChecked} non-bridged vars)`);
 
 // bridged variables must reference the token layer, not redeclare hexes
@@ -231,6 +232,14 @@ check(/font-family:\s*var\(--m-font-heading/.test(componentsCss),
 check(/--m-radius-control:\s*0\.75rem/.test(tokensCss), "tokens.css radius 0.75rem");
 check(/--m-duration:\s*120ms/.test(tokensCss), "motion law token 120ms present");
 check(componentsCss.includes("prefers-reduced-motion"), "prefers-reduced-motion honored");
+
+const layoutTsx = read(resolve(root, "apps/web/app/layout.tsx"));
+check(layoutTsx.includes("Source_Serif_4") && layoutTsx.includes('"--font-heading"'),
+  "next/font serves Source Serif 4 as --font-heading");
+check(layoutTsx.includes("JetBrains_Mono") && layoutTsx.includes('"--font-mono"'),
+  "next/font serves JetBrains Mono as --font-mono");
+check(layoutTsx.includes("Inter") && layoutTsx.includes('"--font-sans"'),
+  "next/font serves Inter as --font-sans");
 
 const componentFiles = readdirSync(resolve(root, "packages/ui/src/components")).filter((f) => f.endsWith(".tsx"));
 const missingClient = componentFiles.filter((f) => !read(join(root, "packages/ui/src/components", f)).startsWith('"use client"'));

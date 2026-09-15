@@ -38,11 +38,8 @@
   --meridian-radius-sm: var(--m-radius-control);
   --meridian-layout-divider-size: 1px;
 
-  /* Typography — preset font families, mirrored into tokens.css */
-  --font-sans: var(--m-font-ui);
-  --font-heading: var(--m-font-heading);
-  --font-serif: var(--m-font-heading);
-  --font-mono: var(--m-font-mono);
+  /* Typography — next/font provides --font-sans/--font-heading/--font-mono
+     (see app/layout.tsx); CSS-stack fallbacks live in tokens.css --m-font-*. */
 
   /* Bridged shadcn variables — reference the --m-* token layer (no redeclared hexes) */
   --background: var(--m-canvas);
@@ -112,7 +109,7 @@ body {
 body {
   background: var(--m-canvas);
   color: var(--m-text);
-  font-family: var(--m-font-ui);
+  font-family: var(--font-sans, var(--m-font-ui));
 }
 
 /* Quiet row hover for dense queues (theme-token mixed, both modes). */
