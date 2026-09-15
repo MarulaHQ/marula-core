@@ -1,30 +1,44 @@
 /**
  * Typed token API mirroring tokens.css.
- * Purpose: give TS consumers (and tests) a typed view of the Workbench
+ * Purpose: give TS consumers (and tests) a typed view of the Tangerine
  * palette, status colors, and WCAG math without re-parsing CSS.
  * Non-purpose: this file defines no new colors — every hex must also exist in
  * tokens.css; a test enforces the two stay in sync.
  */
 
-/** Every hex permitted anywhere in Meridian UI (docs/theme.md §3). */
+/** Every hex permitted anywhere in Meridian UI (docs/theme.md §3).
+ * Preset-only surfaces (accent tints, sidebar) live in the shadcn layer as
+ * verbatim oklch and are intentionally NOT part of the --m-* hex set. */
 export const PALETTE = [
-  // Greyscale ramp + surfaces
-  "#12161C",
-  "#3A424C",
-  "#55606E",
-  "#9AA4B2",
-  "#D3D8DF",
+  // Greyscale ramp + surfaces (light)
+  "#333333",
+  "#4B5563",
+  "#6B7280",
+  "#DCDFE2",
   "#FFFFFF",
-  "#F4F5F7",
-  // Dark mode anchors
-  "#101216",
-  "#171A1F",
-  "#2A2F37",
-  "#E8EBEF",
-  // Ember
-  "#D64B0A",
-  "#FF8A4C",
-  // Semantic status — light / dark pairs
+  "#E8EBED",
+  // Tangerine primary (interactive accent — identical in both modes)
+  "#E05D38",
+  // Preset destructive
+  "#EF4444",
+  // Preset chart ramp (light; chart-2 switches to #E6A08F in dark)
+  "#86A7C8",
+  "#EEA591",
+  "#5A7CA6",
+  "#466494",
+  "#334C82",
+  "#E6A08F",
+  // Neutral tag bg (light)
+  "#E5E7EB",
+  // Dark mode anchors (blue-slate family)
+  "#1C2433",
+  "#2A3040",
+  "#262B38",
+  "#2A303E",
+  "#3D4354",
+  "#A3A3A3",
+  "#E5E5E5",
+  // Semantic status — light / dark pairs (PSA conventions)
   "#15803D",
   "#DCFCE7",
   "#4ADE80",
@@ -37,8 +51,6 @@ export const PALETTE = [
   "#FEE2E2",
   "#F87171",
   "#7F1D1D",
-  "#E5E7EB",
-  "#262B33",
 ] as const;
 
 export type PaletteHex = (typeof PALETTE)[number];

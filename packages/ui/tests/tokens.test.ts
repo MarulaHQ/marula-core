@@ -115,9 +115,9 @@ describe("dark mode completeness", () => {
 
   it("resolves dark canvas/surface/text to the spec anchors", () => {
     const vars = parseVars(darkBlock);
-    expect(resolveDark(vars.get("--m-canvas")!).toUpperCase()).toBe("#101216");
-    expect(resolveDark(vars.get("--m-surface")!).toUpperCase()).toBe("#171A1F");
-    expect(resolveDark(vars.get("--m-text")!).toUpperCase()).toBe("#E8EBEF");
+    expect(resolveDark(vars.get("--m-canvas")!).toUpperCase()).toBe("#1C2433");
+    expect(resolveDark(vars.get("--m-surface")!).toUpperCase()).toBe("#2A3040");
+    expect(resolveDark(vars.get("--m-text")!).toUpperCase()).toBe("#E5E5E5");
   });
 });
 
@@ -150,16 +150,15 @@ describe("WCAG contrast", () => {
   }
 
   it("meets non-text contrast (3.0) for focus ring on both canvases", () => {
-    expect(contrastRatio("#D64B0A", "#F4F5F7")).toBeGreaterThanOrEqual(3.0);
-    expect(contrastRatio("#FF8A4C", "#101216")).toBeGreaterThanOrEqual(3.0);
+    expect(contrastRatio("#E05D38", "#E8EBED")).toBeGreaterThanOrEqual(3.0);
+    expect(contrastRatio("#E05D38", "#1C2433")).toBeGreaterThanOrEqual(3.0);
   });
 
   it("primary button pairing meets the spec-pinned floor", () => {
-    // theme.md §6 pins solid Ember + white text in light mode (~4.32:1):
-    // above the 3:1 large/UI floor, below normal-text 4.5 — spec tradeoff.
-    expect(contrastRatio("#FFFFFF", "#D64B0A")).toBeGreaterThanOrEqual(4.2);
-    // Dark mode uses ink text on the lightened ember and passes full AA.
-    expect(contrastRatio("#12161C", "#FF8A4C")).toBeGreaterThanOrEqual(4.5);
+    // theme.md §6 pins solid Tangerine + white text in both modes (≈3.63:1):
+    // the preset's own pairing — above the 3:1 large/UI floor, below
+    // normal-text 4.5 — documented spec tradeoff (docs/theme.md §3.1).
+    expect(contrastRatio("#FFFFFF", "#E05D38")).toBeGreaterThanOrEqual(3.5);
   });
 
   it.each([...STATUS_TONES])("%s tag pair meets the UI floor (3.0)", (tone) => {
@@ -177,10 +176,10 @@ describe("WCAG contrast", () => {
     ["#15803D", "#DCFCE7", "light success"],
     ["#B45309", "#FEF3C7", "light warning"],
     ["#B91C1C", "#FEE2E2", "light danger"],
-    ["#55606E", "#E5E7EB", "light neutral"],
+    ["#4B5563", "#E5E7EB", "light neutral"],
     ["#4ADE80", "#14532D", "dark success"],
     ["#FBBF24", "#78350F", "dark warning"],
-    ["#9AA4B2", "#262B33", "dark neutral"],
+    ["#A3A3A3", "#2A303E", "dark neutral"],
   ])("%s on %s (%s) meets full AA 4.5", (fg, bg, label) => {
     expect(contrastRatio(fg, bg), label).toBeGreaterThanOrEqual(4.5);
   });

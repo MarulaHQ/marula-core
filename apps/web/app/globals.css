@@ -1,10 +1,17 @@
 /*
- * Global styles for the Meridian web app.
+ * Global styles for the Meridian web app — Tangerine preset layer.
  *
- * Purpose: load Tailwind, the Workbench token set and component styles from
- * @meridian/ui, the layout engine stylesheet from @meridian/layout, and
- * bridge the engine's --meridian-* variables onto the token layer (--m-*).
- * Non-purpose: no component styling here — components own their classes.
+ * Source of truth: `design/tangerine/tangerine.json` (canonical tweakcn
+ * preset, vendored) — the shadcn variables below are generated from it and
+ * reference the --m-* token layer for every value both layers share, so the
+ * two cannot drift (docs/theme.md §3.0).
+ *
+ * Layering contract (docs/theme.md §9):
+ *   - packages/ui/src/tokens.css  — primitives + semantic --m-* (hex source)
+ *   - this file                   — shadcn/Tailwind variable layer + bridges
+ * No raw hex may appear here; preset-only values are verbatim oklch()/hsl().
+ *
+ * Generated from tangerine.json — regenerate, never hand-edit.
  */
 @import "tailwindcss";
 @import "@meridian/ui/tokens.css";
@@ -15,7 +22,7 @@
 /*
  ---break---
  */
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (&:is([data-theme="dark"], [data-theme="dark"] *));
 
 :root {
   /* Bridge: the layout engine speaks --meridian-*; tokens speak --m-*. */
@@ -25,41 +32,76 @@
   --meridian-color-text-primary: var(--m-text);
   --meridian-color-text-secondary: var(--m-text-secondary);
   --meridian-color-accent: var(--m-accent);
-  --meridian-font-family: var(--m-font-sans, "Inter", system-ui, sans-serif);
+  --meridian-font-family: var(--m-font-ui);
+  --meridian-font-heading: var(--m-font-heading);
+  --meridian-font-mono: var(--m-font-mono);
   --meridian-radius-sm: var(--m-radius-control);
   --meridian-layout-divider-size: 1px;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.141 0.005 285.823);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.141 0.005 285.823);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.141 0.005 285.823);
-  --primary: oklch(0.553 0.195 38.402);
-  --primary-foreground: oklch(0.98 0.016 73.684);
-  --secondary: oklch(0.967 0.001 286.375);
-  --secondary-foreground: oklch(0.21 0.006 285.885);
-  --muted: oklch(0.967 0.001 286.375);
-  --muted-foreground: oklch(0.552 0.016 285.938);
-  --accent: oklch(0.967 0.001 286.375);
-  --accent-foreground: oklch(0.21 0.006 285.885);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.92 0.004 286.32);
-  --input: oklch(0.92 0.004 286.32);
-  --ring: oklch(0.705 0.015 286.067);
-  --chart-1: oklch(0.828 0.111 230.318);
-  --chart-2: oklch(0.685 0.169 237.323);
-  --chart-3: oklch(0.588 0.158 241.966);
-  --chart-4: oklch(0.5 0.134 242.749);
-  --chart-5: oklch(0.443 0.11 240.79);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.141 0.005 285.823);
-  --sidebar-primary: oklch(0.646 0.222 41.116);
-  --sidebar-primary-foreground: oklch(0.98 0.016 73.684);
-  --sidebar-accent: oklch(0.967 0.001 286.375);
-  --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
-  --sidebar-border: oklch(0.92 0.004 286.32);
-  --sidebar-ring: oklch(0.705 0.015 286.067);
+
+  /* Typography — preset font families, mirrored into tokens.css */
+  --font-sans: var(--m-font-ui);
+  --font-heading: var(--m-font-heading);
+  --font-serif: var(--m-font-heading);
+  --font-mono: var(--m-font-mono);
+
+  /* Bridged shadcn variables — reference the --m-* token layer (no redeclared hexes) */
+  --background: var(--m-canvas);
+  --foreground: var(--m-text);
+  --card: var(--m-surface);
+  --card-foreground: var(--m-text);
+  --popover: var(--m-overlay-surface);
+  --popover-foreground: var(--m-text);
+  --primary: var(--m-accent);
+  --primary-foreground: var(--m-on-accent);
+  --destructive: var(--m-destructive);
+  --destructive-foreground: var(--m-paper);
+  --border: var(--m-border);
+  --input: var(--m-border);
+  --ring: var(--m-accent);
+  --radius: var(--m-radius-control);
+  --sidebar: var(--m-surface);
+  --sidebar-foreground: var(--m-text);
+  --sidebar-primary: var(--m-accent);
+  --sidebar-primary-foreground: var(--m-on-accent);
+  --sidebar-ring: var(--m-accent);
+
+  /* Tangerine preset — light mode (verbatim from design/tangerine/tangerine.json) */
+  --secondary: oklch(0.9670 0.0029 264.5419);
+  --secondary-foreground: oklch(0.4461 0.0263 256.8018);
+  --muted: oklch(0.9846 0.0017 247.8389);
+  --muted-foreground: oklch(0.5510 0.0234 264.3637);
+  --accent: oklch(0.9119 0.0222 243.8174);
+  --accent-foreground: oklch(0.3791 0.1378 265.5222);
+  --input: oklch(0.9700 0.0029 264.5420);
+  --chart-1: oklch(0.7156 0.0605 248.6845);
+  --chart-2: oklch(0.7875 0.0917 35.9616);
+  --chart-3: oklch(0.5778 0.0759 254.1573);
+  --chart-4: oklch(0.5016 0.0849 259.4902);
+  --chart-5: oklch(0.4241 0.0952 264.0306);
+  --sidebar: oklch(0.9030 0.0046 258.3257);
+  --sidebar-accent: oklch(0.9119 0.0222 243.8174);
+  --sidebar-accent-foreground: oklch(0.3791 0.1378 265.5222);
+  --sidebar-border: oklch(0.9276 0.0058 264.5313);
+  --shadow: 0px 1px 3px 0px hsl(0 0% 0% / 0.10), 0px 1px 2px -1px hsl(0 0% 0% / 0.10);
+
+  /* Preset shadow scale (Tailwind v4 theme consumes these) */
+  --shadow-color: hsl(0 0% 0%);
+  --shadow-opacity: 0.1;
+  --shadow-blur: 3px;
+  --shadow-spread: 0px;
+  --shadow-offset-x: 0px;
+  --shadow-offset-y: 1px;
+  --letter-spacing: 0em;
+  --spacing: 0.25rem;
+  --shadow-2xs: 0px 1px 3px 0px hsl(0 0% 0% / 0.05);
+  --shadow-xs: 0px 1px 3px 0px hsl(0 0% 0% / 0.05);
+  --shadow-sm: 0px 1px 3px 0px hsl(0 0% 0% / 0.10), 0px 1px 2px -1px hsl(0 0% 0% / 0.10);
+  --shadow: 0px 1px 3px 0px hsl(0 0% 0% / 0.10), 0px 1px 2px -1px hsl(0 0% 0% / 0.10);
+  --shadow-md: 0px 1px 3px 0px hsl(0 0% 0% / 0.10), 0px 2px 4px -1px hsl(0 0% 0% / 0.10);
+  --shadow-lg: 0px 1px 3px 0px hsl(0 0% 0% / 0.10), 0px 4px 6px -1px hsl(0 0% 0% / 0.10);
+  --shadow-xl: 0px 1px 3px 0px hsl(0 0% 0% / 0.10), 0px 8px 10px -1px hsl(0 0% 0% / 0.10);
+  --shadow-2xl: 0px 1px 3px 0px hsl(0 0% 0% / 0.25);
+  --tracking-normal: 0em;
 }
 
 html,
@@ -70,7 +112,7 @@ body {
 body {
   background: var(--m-canvas);
   color: var(--m-text);
-  font-family: var(--m-font-sans, "Inter", system-ui, sans-serif);
+  font-family: var(--m-font-ui);
 }
 
 /* Quiet row hover for dense queues (theme-token mixed, both modes). */
@@ -81,52 +123,54 @@ body {
 /*
  ---break---
  */
-.dark {
-  --background: oklch(0.141 0.005 285.823);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.21 0.006 285.885);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.21 0.006 285.885);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.47 0.157 37.304);
-  --primary-foreground: oklch(0.98 0.016 73.684);
-  --secondary: oklch(0.274 0.006 286.033);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.274 0.006 286.033);
-  --muted-foreground: oklch(0.705 0.015 286.067);
-  --accent: oklch(0.274 0.006 286.033);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.552 0.016 285.938);
-  --chart-1: oklch(0.828 0.111 230.318);
-  --chart-2: oklch(0.685 0.169 237.323);
-  --chart-3: oklch(0.588 0.158 241.966);
-  --chart-4: oklch(0.5 0.134 242.749);
-  --chart-5: oklch(0.443 0.11 240.79);
-  --sidebar: oklch(0.21 0.006 285.885);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.705 0.213 47.604);
-  --sidebar-primary-foreground: oklch(0.98 0.016 73.684);
-  --sidebar-accent: oklch(0.274 0.006 286.033);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.552 0.016 285.938);
+[data-theme="dark"] {
+  /* Tangerine preset — dark mode (verbatim from design/tangerine/tangerine.json) */
+  --secondary: oklch(0.3095 0.0266 266.7132);
+  --secondary-foreground: oklch(0.9219 0 0);
+  --muted: oklch(0.3095 0.0266 266.7132);
+  --muted-foreground: oklch(0.7155 0 0);
+  --accent: oklch(0.3380 0.0589 267.5867);
+  --accent-foreground: oklch(0.8823 0.0571 254.1284);
+  --input: oklch(0.3843 0.0301 269.7337);
+  --chart-1: oklch(0.7156 0.0605 248.6845);
+  --chart-2: oklch(0.7693 0.0876 34.1875);
+  --chart-3: oklch(0.5778 0.0759 254.1573);
+  --chart-4: oklch(0.5016 0.0849 259.4902);
+  --chart-5: oklch(0.4241 0.0952 264.0306);
+  --sidebar: oklch(0.3100 0.0283 267.7408);
+  --sidebar-accent: oklch(0.3380 0.0589 267.5867);
+  --sidebar-accent-foreground: oklch(0.8823 0.0571 254.1284);
+  --sidebar-border: oklch(0.3843 0.0301 269.7337);
+  --shadow: 0px 1px 3px 0px hsl(0 0% 0% / 0.10), 0px 1px 2px -1px hsl(0 0% 0% / 0.10);
+
+  /* Preset shadow scale (Tailwind v4 theme consumes these) */
+  --shadow-color: hsl(0 0% 0%);
+  --shadow-opacity: 0.1;
+  --shadow-blur: 3px;
+  --shadow-spread: 0px;
+  --shadow-offset-x: 0px;
+  --shadow-offset-y: 1px;
+  --letter-spacing: 0em;
+  --spacing: 0.25rem;
+  --shadow-2xs: 0px 1px 3px 0px hsl(0 0% 0% / 0.05);
+  --shadow-xs: 0px 1px 3px 0px hsl(0 0% 0% / 0.05);
+  --shadow-sm: 0px 1px 3px 0px hsl(0 0% 0% / 0.10), 0px 1px 2px -1px hsl(0 0% 0% / 0.10);
+  --shadow: 0px 1px 3px 0px hsl(0 0% 0% / 0.10), 0px 1px 2px -1px hsl(0 0% 0% / 0.10);
+  --shadow-md: 0px 1px 3px 0px hsl(0 0% 0% / 0.10), 0px 2px 4px -1px hsl(0 0% 0% / 0.10);
+  --shadow-lg: 0px 1px 3px 0px hsl(0 0% 0% / 0.10), 0px 4px 6px -1px hsl(0 0% 0% / 0.10);
+  --shadow-xl: 0px 1px 3px 0px hsl(0 0% 0% / 0.10), 0px 8px 10px -1px hsl(0 0% 0% / 0.10);
+  --shadow-2xl: 0px 1px 3px 0px hsl(0 0% 0% / 0.25);
+  --tracking-normal: 0em;
 }
 /*
  ---break---
  */
 
-@layer base {
-  h1, h2, h3, h4, h5, h6 {
-    font-family: var(--font-heading), var(--font-sans), ui-sans-serif, system-ui, sans-serif;
-  }
-}
-
 @theme inline {
   --font-sans: var(--font-sans);
   --font-heading: var(--font-heading);
+  --font-serif: var(--font-serif);
+  --font-mono: var(--font-mono);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -165,6 +209,14 @@ body {
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+  --shadow-2xs: var(--shadow-2xs);
+  --shadow-xs: var(--shadow-xs);
+  --shadow-sm: var(--shadow-sm);
+  --shadow: var(--shadow);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-xl: var(--shadow-xl);
+  --shadow-2xl: var(--shadow-2xl);
 }
 /*
  ---break---
@@ -178,5 +230,8 @@ body {
   }
   html {
     @apply font-sans;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading), var(--font-sans), ui-sans-serif, system-ui, sans-serif;
   }
 }

@@ -16,10 +16,10 @@ describe("chart tokens", () => {
   it("give light and dark parity through the standard theme switch", () => {
     const light = chartTokensFor("light");
     const dark = chartTokensFor("dark");
-    expect(light.primary).toBe("#D64B0A"); // ember (light accent)
-    expect(dark.primary).toBe("#FF8A4C"); // ember-dark (dark accent)
+    expect(light.primary).toBe("#E05D38"); // tangerine (preset primary — same both modes)
+    expect(dark.primary).toBe("#E05D38");
     expect(light.tooltipBg).toBe("#FFFFFF");
-    expect(dark.tooltipBg).toBe("#171A1F");
+    expect(dark.tooltipBg).toBe("#2A3040");
     // Series stay distinguishable in both modes.
     expect(light.secondary).not.toBe(light.primary);
     expect(dark.secondary).not.toBe(dark.primary);
