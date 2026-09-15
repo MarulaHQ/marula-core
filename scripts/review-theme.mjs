@@ -227,8 +227,10 @@ check(offenders.length === 0, "no retired Workbench hexes in scanned UI files", 
 
 // ---------- 6. craft rules ----------
 check(componentsCss.includes("border-radius: 999px"), "components.css pill tags (999px)");
-check(/font-family:\s*var\(--m-font-heading/.test(componentsCss),
-  "components.css headings reference --m-font-heading (Source Serif 4)");
+check(!/font-family:\s*var\(--m-font-heading/.test(componentsCss),
+  "components.css defaults to Inter — serif is opt-in only (no blanket heading serif)");
+check(/--font-serif:\s*var\(--font-heading/.test(globalsCss),
+  "Tailwind --font-serif maps to next/font Source Serif 4 (no Times fallback)");
 check(/--m-radius-control:\s*0\.75rem/.test(tokensCss), "tokens.css radius 0.75rem");
 check(/--m-duration:\s*120ms/.test(tokensCss), "motion law token 120ms present");
 check(componentsCss.includes("prefers-reduced-motion"), "prefers-reduced-motion honored");

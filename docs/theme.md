@@ -104,11 +104,14 @@ The Workbench Ember hexes (`#D64B0A` / `#FF8A4C`) are retired and CI-blacklisted
 
 | Role | Family | Weight | Notes |
 |---|---|---|---|
-| Headings (h1–h6, card headers, dialog titles) | **Source Serif 4**, Georgia fallback | 600–700 | `letter-spacing: -0.02em`, `line-height: 1.16` |
-| Body / UI | **Inter**, system-ui fallback | 400 / 500 / 600 | 13px default |
-| Code / data / logs | **JetBrains Mono** | 400 | tabular numerals mandatory |
+| **UI / body / headings (default)** | **Inter**, system-ui fallback | 400 / 500 / 600 / 700 | 13px default. **Everything defaults to Inter** — including h1–h6 and `font-semibold` labels. next/font serves the webfont (`--font-sans`). |
+| Display headings (opt-in) | **Source Serif 4** | 600–700 | Only via the `font-heading` utility on genuinely large display titles. The app's h1–h6 are mostly small section labels (`text-sm font-semibold`) and stay Inter. Tailwind's `font-serif` maps to the same webfont. |
+| Code / data / logs | **JetBrains Mono** | 400 | next/font (`--font-mono`); tabular numerals mandatory |
 
-The Workbench "no serif" rule is **superseded** (see override banner). No decorative serif in body text.
+The Workbench "no serif" rule is **superseded** (see override banner), but the practical
+contract is **Inter-first**: serif is an opt-in accent for display typography, never applied
+blanket to h1–h6 (owner clarification 2026-09-15 after QA — `font-semibold` labels must render
+sans). No decorative serif in body text.
 
 ## 5. Shape, density, motion
 

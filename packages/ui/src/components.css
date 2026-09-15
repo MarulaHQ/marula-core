@@ -311,7 +311,6 @@
   padding: 14px 16px;
   border-bottom: 1px solid var(--m-border);
   font-weight: 700;
-  font-family: var(--m-font-heading, "Source Serif 4", Georgia, serif);
   font-size: 16px;
   letter-spacing: -0.02em;
   line-height: 1.2;
@@ -444,7 +443,6 @@
 }
 
 .m-dialog-title {
-  font-family: var(--m-font-heading, "Source Serif 4", Georgia, serif);
   font-size: 18px;
   font-weight: 600;
   letter-spacing: -0.02em;
