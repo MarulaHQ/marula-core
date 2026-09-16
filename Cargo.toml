@@ -53,6 +53,26 @@ opt-level = 2
 lto = "thin"
 strip = "symbols"
 
+# DX6 disk guardrail (2026-09-16): parallel lanes build dev/test artifacts into
+# ONE shared target dir, so every duplicate artifact generation carried a full
+# set of debug binaries (~2.5GB per core-api cycle — 46GB of deps/ across a
+# single day). Dev/test builds now carry line tables only (backtraces and
+# breakpoints still work, variable inspection is degraded) and dependence on
+# debuginfo is capped at 1 for dependencies. Release/desktop profiles are
+# untouched. Reclaims the bulk of the per-cycle cost measured on the
+# p15-core-gate-green test loop.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
