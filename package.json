@@ -8,9 +8,13 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
-    "accept": "tsx scripts/acceptance.ts"
+    "accept": "tsx scripts/acceptance.ts",
+    "e2e:stack": "bash scripts/e2e-stack.sh",
+    "e2e:build-web": "bash scripts/e2e-build-web.sh",
+    "e2e": "pnpm exec playwright test --config=e2e/playwright.config.ts && node e2e/flake-gate.ts"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tauri-apps/cli": "^2.11.4",
     "playwright": "^1.63.0",
     "tsx": "^4.23.12",

@@ -170,6 +170,68 @@ jobs:
       - name: Live spec must equal the pinned golden
         run: MERIDIAN_API_BASE_URL=http://localhost:8080 cargo test -q -p meridian-cli --test golden_openapi
 
+  e2e:
+    name: E2E — Playwright, 10 core flows × light+dark (Wave 14 lane 8)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # pgvector/pgvector:pg17 — prod parity; the demo seed writes into
+        # THIS service DB, so the suite runs against real seeded data.
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: meridian_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/meridian_test
+      REDIS_URL: redis://localhost:6379
+      E2E_API_URL: http://localhost:8080
+      E2E_WEB_URL: http://localhost:3000
+      # Flake budget (e2e/helpers/budget.ts): the global teardown fails the
+      # gate when more tests than the budget needed a retry. A failure here
+      # is investigated, never shrugged off.
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install JS deps + Playwright browsers
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chromium
+      - name: Boot the seeded demo stack (migrate → seed-demo → core-api)
+        run: ./scripts/e2e-stack.sh
+      - name: Build the web app (API URL inlined at build time)
+        run: |
+          NEXT_PUBLIC_API_URL=http://localhost:8080 pnpm --filter @meridian/web build
+      - name: Run the 10 core flows in both themes
+        run: pnpm exec playwright test --config=e2e/playwright.config.ts
+      - name: Flake-gate verdict (budget from e2e/helpers/budget.ts)
+        if: always()
+        run: node e2e/flake-gate.ts
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: |
+            e2e/test-results/
+            playwright-report/
+          retention-days: 7
+
   perf-smoke:
     name: Perf smoke — ticket-list p95 budget @50k tickets/org (Wave 13 lane 8)
     runs-on: ubuntu-latest

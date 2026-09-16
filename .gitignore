@@ -24,6 +24,11 @@ Thumbs.db
 *.tsbuildinfo
 .playwright-mcp/
 
+# Playwright E2E artifacts (lane 8 p14-e2e-ci)
+e2e/test-results/
+test-results/
+playwright-report/
+
 # Shared cargo target dir (agent worktree build cache)
 .kilo/target-shared/
 # Lane-drifted private target caches (DX6 violation artifacts, reclaimed at merge)
