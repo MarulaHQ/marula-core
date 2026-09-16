@@ -1,3 +1,4 @@
+"use client";
 /**
  * Button — Workbench §6: 2px radius, weight 500, solid Ember primary,
  * bordered secondary, outline destructive. Ember marks interactivity only.

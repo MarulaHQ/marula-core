@@ -1,3 +1,4 @@
+"use client";
 /**
  * EmptyState — one sentence plus one action. No illustrations (theme.md §6).
  */

@@ -1,3 +1,4 @@
+"use client";
 /**
  * Select — Radix Select styled to match inputs; highlighted items use the
  * greyscale canvas, keeping Ember scarce (§2 rule 4).

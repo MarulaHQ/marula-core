@@ -393,7 +393,7 @@ export default function DispatchPage() {
           <div className="flex-1 overflow-auto px-4 pb-4">
             <div
               className="overflow-x-auto rounded-[var(--m-radius-control)] border"
-              style={{ borderColor: "var(--m-border)", background: "var(--m-paper)" }}
+              style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
             >
               <div className="min-w-[820px]">
                 <div
@@ -513,11 +513,8 @@ export default function DispatchPage() {
                 style={{
                   borderColor:
                     priorityFilter === p ? "var(--m-accent)" : "var(--m-border)",
-                  color:
-                    priorityFilter === p
-                      ? "var(--m-accent)"
-                      : "var(--m-text-muted)",
-                  background: "transparent",
+                  color: priorityFilter === p ? "var(--m-text)" : "var(--m-text-muted)",
+                  background: priorityFilter === p ? "var(--m-accent-soft)" : "transparent",
                 }}
               >
                 {p}
@@ -905,7 +902,7 @@ function QueueCard(props: {
       className={`w-full cursor-grab rounded-[2px] border p-2 text-left${props.dragged ? " opacity-40" : ""}`}
       style={{
         borderColor: props.dragged ? "var(--m-accent)" : "var(--m-border)",
-        background: "var(--m-paper)",
+        background: "var(--m-surface)",
       }}
       aria-label={`Queue item ${props.item.number}: ${props.item.title}. Priority ${props.item.priority}.${sla ? ` ${sla.label}` : ""}. Press Enter to pick up, then choose a technician.`}
     >

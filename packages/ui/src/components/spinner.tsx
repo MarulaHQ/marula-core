@@ -1,3 +1,4 @@
+"use client";
 /**
  * Spinner — indeterminate progress ring announced via role="status".
  * Animation is transform-only and honors prefers-reduced-motion.

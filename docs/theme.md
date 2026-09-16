@@ -1,134 +1,153 @@
-# Meridian Visual Theme — "Workbench"
+# Meridian Visual Theme — "Tangerine" (shadcn preset)
 
-> **Status:** Active · **Last updated:** 2026-08-25
-> **Status:** Active · **Last updated:** 2026-08-25
-> **Purpose:** Meridian's own utilitarian visual identity. Meridian is the open-source core — it must look like a professional tool, first and last.
+> **Owner-override banner (2026-09-15, Wave 15 lane `p15-theme-tangerine`, user directive):**
+> This identity **supersedes the Workbench identity** (2026-08-25). The Workbench hard rules
+> "monochrome ≤5% / Ember interactive-only" (§2 rule 4) and "no serif faces" (§4) are
+> **explicitly overridden** by the Tangerine decision, the same way the 2026-09-09 Inter-override
+> superseded the earlier "Inter-only" rule. Everything else in the Workbench doctrine —
+> instant-first envelope, motion law (≤120ms, transform/opacity, prefers-reduced-motion),
+> responsive light+dark parity, semantic PSA status colors, token enforcement — remains binding.
+> Canonical machine source: `design/tangerine/tangerine.json` (vendored from
+> `https://tweakcn.com/r/themes/tangerine.json`). Do not hand-edit hexes outside `packages/ui/src/tokens.css`.
+
+> **Status:** Active · **Overhaul applied:** 2026-09-15 (Wave 15 lane `p15-theme-tangerine` — full transformation, not token-only)
+> **Superseded identity:** "Workbench" (monochrome + Ember `#D64B0A`, 2px radius, no serif, cool neutral `#F4F5F7`/`#101216`)
+> **New identity:** **Tangerine** — warm-neutral light (`#E8EBED`), blue-slate dark (`#1C2433`), tangerine primary `#E05D38`, pill tags `999px`, Source Serif 4 headings, generous spacing, soft `rgba(0,0,0,.10)` shadows.
 > **Scope:** binding on all Meridian UI code, docs site, and marketplace surfaces.
 
 ## 1. Design stance
 
-**A workbench, not a showroom.** Dense, keyboard-first, chrome-quiet. The UI recedes so tickets, time, and dispatch data dominate. Zero marketing surface: no hero gradients, no decorative illustration, no sparkle. If a visual choice would feel at home in a terminal emulator or a well-made IDE, it belongs in Meridian.
+**A workbench with presence.** Dense, keyboard-first surfaces remain; the Tangerine preset adds warmth (light canvas `#E8EBED`), an indigo-slate dark mode (`#1C2433`), and editorial craft (serif headings, pill badges, rounded controls). Color is purposeful: interactive affordances, status tags, and the chart ramp — never decorative gradients or illustration.
 
 ## 2. Identity definition
 
-| Aspect | **Meridian (this theme)** |
+| Aspect | **Meridian — Tangerine** |
 |---|---|
-| Brand color | **Monochrome + Ember** — greyscale everything, burnt-orange accent `#D64B0A` / `#FF8A4C` used sparingly |
-| Temperature | Cool neutral — grey canvas, graphite dark mode |
-| Headers | Inter for UI/body; JetBrains Mono for headings (owner override 2026-09-09 via shadcn preset b3J8o4J600 — supersedes the earlier "Inter-only, no serif" rule; still no serif) |
-| Corners | 2px throughout — squared tags, not pills |
-| Depth | Visible 1px borders, shadows for overlays only |
-| Feel | "Workbench" |
+| Brand color | **Tangerine** — preset primary `#E05D38` (`oklch(0.6397 0.172 36.4421)`), identical in light and dark mode. The Ember brand signal (`#D64B0A`) is superseded by the preset primary. |
+| Temperature | **Light: warm neutral** (`#E8EBED`) · **Dark: blue-slate** (`#1C2433`) — per the preset, not a mirrored grey |
+| Headers | **Source Serif 4** for headings (h1–h6, card headers, dialog titles); **Inter** body; **JetBrains Mono** code/data with tabular numerals |
+| Corners | **0.75rem** on buttons, inputs, cards, tags; **pill tags (`999px`)** for status indicators |
+| Depth | Soft preset shadows (`rgba(0,0,0,.10)` scale) on overlays; visible 1px borders (`#DCDFE2` light / `#3D4354` dark) |
+| Feel | "Workbench with presence" |
 
 **Hard rules:**
-1. Every UI color comes from the token set in §3 — no off-palette brand hexes anywhere in the product.
-2. Ember appears only on interactive affordances; nothing decorative gets color.
-3. **Semantic status colors follow industry-standard PSA conventions** (amber warnings, green success, red danger) so any technician reads status identically no matter what tooling they came from.
-4. **The accent is scarce by law.** Monochrome is the default state of every view; Ember appears only on interactive affordances — primary buttons, focus outlines, links, active nav indicator, the primary data series in charts. Target: **≤5% of any viewport** is non-greyscale. If a screen looks colorful, it's wrong.
-5. **Both modes are first-class.** Every screen ships pixel-real in light (`#F4F5F7` canvas) and dark (`#101216` canvas) mode from the same token set — dark is never an afterthought, and no surface may ship in only one mode.
+1. Every hex lives in `packages/ui/src/tokens.css` — the single hex source. The shadcn layer (`apps/web/app/globals.css`) bridges to `--m-*` variables for shared values and carries preset-only values verbatim as `oklch()`. No off-palette hexes in feature code; CI hex-scan enforces.
+2. **Tangerine (`#E05D38`)** marks interactivity: primary buttons, links, focus rings (2px offset outline), active nav indicators.
+3. **Semantic status colors follow PSA conventions** and survive the swap: green success `#15803D`/`#4ADE80`, amber warning `#B45309`/`#FBBF24`, red danger `#B91C1C`/`#F87171`. The preset's `destructive` (`#EF4444`) applies to solid destructive buttons (shadcn `--destructive`), not status tags.
+4. **Colorful presence, not chaos.** Interactive elements, status pills, and the chart ramp carry color; surfaces stay neutral and text stays readable ink (`#333333` / `#E5E5E5`).
+5. **Both modes first-class.** Light and dark ship from the same token set; dark is the preset's own blue-slate family, not a mirrored grey.
+6. **Primary-button pairing note (spec tradeoff):** white on `#E05D38` ≈ 3.63:1 — the preset's own pairing; above the 3:1 large/UI floor, below normal-text AA. Accepted as the pinned tradeoff (documented in `tokens.test.ts`).
 
 ---
 
 ## 3. Color palette
 
-### Core UI (light mode)
+### 3.0 Layering contract (single source of truth)
 
-| Role | Hex | Notes |
+- `packages/ui/src/tokens.css` — the **only** file that may declare hexes. Holds the primitive ramp + semantic `--m-*` layer.
+- `apps/web/app/globals.css` — shadcn/Tailwind variable layer. References `--m-*` for every value both layers share; preset-only values (accent tints, sidebar, muted scale) appear as verbatim `oklch()` copied from the vendored preset. The layers cannot drift because shared values are bridged, not redeclared.
+- `packages/ui/src/tokens.ts` — `PALETTE` mirrors tokens.css hexes 1:1 (test-enforced).
+- Vendored canonical preset: `design/tangerine/tangerine.json`.
+
+### 3.1 Core UI (light mode)
+
+| Role | Hex | Source |
 |---|---|---|
-| Canvas | `#F4F5F7` | Cool app grey — primary background |
-| Surface | `#FFFFFF` | Cards, tables, panels |
-| Text (primary) | `#12161C` | Ink |
-| Text (secondary) | `#55606E` | Slate — metadata, captions |
-| Border | `#D3D8DF` | Always-visible 1px solid borders on all containers |
-| Accent (brand) | `#D64B0A` | **Ember** — burnt orange, interactive elements only (see §3.1) |
+| Canvas | `#E8EBED` | preset background |
+| Surface / card | `#FFFFFF` | preset card |
+| Text (primary) | `#333333` | preset foreground |
+| Text (secondary) | `#4B5563` | preset secondary-foreground |
+| Text (muted) | `#6B7280` | preset muted-foreground |
+| Border | `#DCDFE2` | preset border |
+| Primary / accent (interactive) | `#E05D38` | preset primary |
+| Accent tint (hover surfaces, shadcn `--accent`) | `oklch(0.9119 0.0222 243.8174)` / fg `oklch(0.3791 0.1378 265.5222)` | preset accent (oklch-only, shadcn layer) |
+| Destructive (solid buttons) | `#EF4444` | preset destructive |
+| Sidebar | `oklch(0.903 0.0046 258.3257)` | preset sidebar (oklch-only) |
 
-### Core UI (dark mode)
+### 3.2 Core UI (dark mode)
 
-| Role | Hex | Notes |
+| Role | Hex | Source |
 |---|---|---|
-| Canvas | `#101216` | Graphite |
-| Surface | `#171A1F` | Raised panels |
-| Text (primary) | `#E8EBEF` | |
-| Text (secondary) | `#9AA4B2` | |
-| Border | `#2A2F37` | |
-| Accent (brand) | `#FF8A4C` | Ember, lightened for dark contrast |
+| Canvas | `#1C2433` | preset dark background (blue-slate) |
+| Surface / card | `#2A3040` | preset dark card |
+| Overlay / popover | `#262B38` | preset dark popover |
+| Text (primary) | `#E5E5E5` | preset dark foreground |
+| Text (secondary/muted) | `#A3A3A3` | preset dark muted-foreground |
+| Border / input | `#3D4354` | preset dark border |
+| Primary | `#E05D38` | preset keeps primary identical in dark |
+| Accent tint (shadcn `--accent`) | `oklch(0.338 0.0589 267.5867)` / fg `oklch(0.8823 0.0571 254.1284)` | preset dark accent (oklch-only) |
+| Destructive (solid buttons) | `#EF4444` | preset destructive, identical both modes |
+| Sidebar | `oklch(0.31 0.0283 267.7408)` | preset dark sidebar (oklch-only) |
 
-### Greyscale ramp (the actual identity)
+### 3.3 Semantic status (PSA conventions — survive the swap)
 
-Monochrome carries the design; Ember only marks interaction.
-
-| Step | Hex | Use |
-|---|---|---|
-| Ink | `#12161C` | Primary text, strongest emphasis |
-| Graphite | `#3A424C` | Iconography, chart series |
-| Slate | `#55606E` | Secondary text |
-| Mist | `#9AA4B2` | Tertiary text, disabled states |
-| Fog | `#D3D8DF` | Borders (light mode) |
-| Paper | `#FFFFFF` / Canvas `#F4F5F7` | Surfaces / background |
-
-Dark mode mirrors: `#E8EBEF` → `#9AA4B2` → `#2A2F37` → `#171A1F` → `#101216`.
-
-### 3.1 Ember vs Amber — the disambiguation rule
-
-Both live in the orange family, so they are separated by **role**, strictly:
-
-- **Ember (`#D64B0A`)** = *interactivity*. Buttons, links, focus rings, active indicators. Never a status, never a background fill behind text.
-- **Amber (`#B45309` / `#FBBF24`)** = *warning state*. SLA risk tags, alert banners. Never an action, never plain text.
-
-If an element can be clicked, it may be Ember. If it means "careful," it is Amber. An element must never be both.
-
-### Semantic status
+Status tags are pills (`999px`) and keep industry-standard colors for AA on tinted backgrounds:
 
 | Meaning | Light | Dark |
 |---|---|---|
 | Success / Resolved | `#15803D` on `#DCFCE7` | `#4ADE80` on `#14532D` |
 | Warning / SLA risk | `#B45309` on `#FEF3C7` | `#FBBF24` on `#78350F` |
 | Danger / Breach | `#B91C1C` on `#FEE2E2` | `#F87171` on `#7F1D1D` |
-| Neutral / Waiting | `#55606E` on `#E5E7EB` | `#9AA4B2` on `#262B33` |
+| Neutral / Waiting | `#4B5563` on `#E5E7EB` | `#A3A3A3` on `#2A303E` |
+
+### 3.4 Chart ramp (preset)
+
+`--m-chart-1..5`: `#86A7C8`, `#EEA591`, `#5A7CA6`, `#466494`, `#334C82` — dark mode swaps chart-2 to `#E6A08F` (preset dark variant). Chart primaries ride `chartTokensFor(theme)` (`apps/web/lib/chart-tokens.ts`), which materializes the ramp for SVG.
+
+### 3.5 Ember (previous brand) — retired
+
+The Workbench Ember hexes (`#D64B0A` / `#FF8A4C`) are retired and CI-blacklisted. Interactive color is the preset primary `#E05D38` in both modes.
+
+---
 
 ## 4. Typography
 
 | Role | Family | Weight | Notes |
 |---|---|---|---|
-| Everything (headers, UI, body) | **Inter** (system-ui fallback) | 400 / 500 / 600 | No serif faces, ever. Headers distinguish themselves by size + weight 600 only |
-| Code / data / logs | JetBrains Mono | 400 | A tool convention, not a brand signal |
-| Numerals in time/billing/invoice contexts | Inter | 500 | **Tabular numerals** (`font-variant-numeric: tabular-nums`) mandatory — columns of times must align |
+| **UI / body / headings (default)** | **Inter**, system-ui fallback | 400 / 500 / 600 / 700 | 13px default. **Everything defaults to Inter** — including h1–h6 and `font-semibold` labels. next/font serves the webfont (`--font-sans`). |
+| Display headings (opt-in) | **Source Serif 4** | 600–700 | Only via the `font-heading` utility on genuinely large display titles. The app's h1–h6 are mostly small section labels (`text-sm font-semibold`) and stay Inter. Tailwind's `font-serif` maps to the same webfont. |
+| Code / data / logs | **JetBrains Mono** | 400 | next/font (`--font-mono`); tabular numerals mandatory |
+
+The Workbench "no serif" rule is **superseded** (see override banner), but the practical
+contract is **Inter-first**: serif is an opt-in accent for display typography, never applied
+blanket to h1–h6 (owner clarification 2026-09-15 after QA — `font-semibold` labels must render
+sans). No decorative serif in body text.
 
 ## 5. Shape, density, motion
 
-- **Radius: 2px** on buttons/inputs/tags; 3px maximum on cards/modals. Nothing fully-rounded.
-- **Borders over shadows:** every container gets a visible 1px border; shadows reserved for overlays (modals, popovers, drag ghosts).
-- **Density:** compact by default — 32px control height, 24px table rows, tight list padding. A dispatcher's board is a *dense information surface*, not a marketing page.
-- **Motion:** transitions ≤120ms, opacity/transform only; no springs, no bounce, no entrance animations.
-- **Keyboard-first:** visible focus = 2px offset outline in accent color; shortcut hints rendered inline (`⌘K`, `G then T`); every primary flow operable without a mouse.
+- **Radius:** `0.75rem` on controls and containers; `999px` for pill tags; `50%` avatars/spinners only.
+- **Borders over shadows:** visible 1px borders on containers; the preset shadow scale (`rgba(0,0,0,.10)`) is reserved for overlays.
+- **Density:** 32px control height, 28px row height, 20px card padding — generous, not sparse.
+- **Motion:** transitions ≤120ms, transform/opacity only; `prefers-reduced-motion` collapses the spinner to 0.01ms; no springs or entrance animations.
+- **Keyboard-first:** 2px offset focus outline in `#E05D38`; inline shortcut hints; every primary flow mouse-independent.
 
 ---
 
 ## 6. Component styling
 
-- **Buttons:** 2px radius, weight 500. Primary = solid Ember, white text. Secondary = surface background + 1px border + ink text. Destructive = danger red outline style (filled only on confirmation steps).
-- **Status indicators:** squared **tags** (2px radius), never fully-rounded pills — `Resolved`, `SLA risk`, `Waiting` use the semantic palette above.
-- **Tables are first-class citizens:** sticky headers, column resize, saved views, inline edit, keyboard row navigation. Lists that could be tables should be tables.
-- **Forms:** labels above fields, visible borders, validation messages in danger color below the field with an icon — never color alone.
-- **Charts/data viz:** greyscale series in graphite/slate/mist with Ember reserved for the primary series alone; gridlines at border color; no gradients.
-- **Empty states:** one sentence + one action button. No illustrations.
+- **Buttons:** 0.75rem radius, weight 500–700. Primary = solid `#E05D38`, white text (spec tradeoff §2.6). Secondary = surface + 1px border. Destructive = `#EF4444` solid/outline.
+- **Status indicators:** pill tags (`999px`, weight 700, 11px) using §3.3 pairs — never squared.
+- **Tables:** sticky headers, 28px rows, hover via surface-hover mix.
+- **Cards:** `#FFFFFF` / `#2A3040`, 0.75rem radius, 1px border, 20px padding.
+- **Charts:** preset ramp §3.4; gridlines at border color; no gradients.
+- **Forms:** labels above fields; validation in danger color with icon — never color alone.
+- **Empty states:** one sentence + one action. No illustrations.
 
 ## 7. Logo / mark direction
 
-- Wordmark: "Meridian" set in Inter SemiBold, sentence case.
-- Mark: a single vertical meridian line crossing a minimal circle/globe wireframe — a longitude reference, rendered monochrome (ink on light, warm white on dark). Ember appears *only* as the meridian line itself — one thin stroke of orange in an otherwise greyscale mark.
-- Monochrome-first; no gradients; must survive 16px favicon rendering and single-color print.
+- Wordmark: "Meridian" in Source Serif 4 SemiBold.
+- Mark: meridian line crossing a globe wireframe; the meridian stroke carries `#E05D38` — one stroke of tangerine in an otherwise neutral mark.
+- No gradients; survives 16px favicon and single-color print.
 
 ## 8. Voice
 
-Dry, precise, documentation-grade. The product speaks like its own release notes: "Bulk-resolve 40 tickets." / "Timer paused — reason recorded." No exclamation marks, no marketing adjectives — terse and instrumental.
+Dry, precise, documentation-grade — unchanged by the visual overhaul.
 
 ## 9. Enforcement
 
-- Design tokens live in `packages/ui` (`tokens.css` / TS constants) generated from this spec — no hardcoded hex values in feature code; CI lint fails on raw hex outside token files.
-- A CI assertion scans built CSS for any hex outside the Workbench token set and fails if one appears.
+- Tokens live in `packages/ui/src/tokens.css` (+ `tokens.ts` PALETTE mirror); CI hex-scan (`.github/workflows/ci.yml`) fails on raw hex outside token files and blacklists the retired Workbench hexes.
+- `packages/ui/tests/tokens.test.ts` proves hex-source uniqueness, PALETTE sync, dark-mode completeness, and WCAG floors.
+- `scripts/review-theme.mjs` asserts the generated layers against the vendored `design/tangerine/tangerine.json` (value-level comparison, dark-mode anchors, chart ramp).
+- Reference mockup: `design/mockups/meridian-ticket-workbench-html-mockup.html`; QA evidence under `design/qa-tangerine/`.
 
 <!-- END -->
-
-
-

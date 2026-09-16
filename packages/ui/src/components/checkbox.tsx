@@ -1,3 +1,4 @@
+"use client";
 /**
  * Checkbox — Radix behavior, 16px squared box; checked state fills Ember
  * (interactive affordance) with on-accent checkmark.

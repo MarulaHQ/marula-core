@@ -1,3 +1,4 @@
+"use client";
 /**
  * Kbd — inline keyboard shortcut chip (`⌘K`), mono font, squared.
  */

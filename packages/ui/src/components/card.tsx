@@ -1,3 +1,4 @@
+"use client";
 /**
  * Card — bordered surface container; 3px max radius, border over shadow (§5).
  */

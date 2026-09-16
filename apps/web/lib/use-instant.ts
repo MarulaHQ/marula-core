@@ -178,7 +178,7 @@ export function useConnectionState(): {
   );
   const [resyncing, setResyncing] = useState(() => runtime.stream.resyncingNow());
   const [online, setOnline] = useState(() =>
-    typeof navigator === "undefined" ? true : navigator.onLine,
+    typeof window === "undefined" ? true : navigator.onLine,
   );
   const { pending } = useOutbox();
   useEffect(() => {

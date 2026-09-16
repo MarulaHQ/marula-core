@@ -247,7 +247,7 @@ function EventBlock({ item, day }: { item: CalItem; day: Date }) {
         borderRadius: "var(--m-radius-control)",
         border: isOnCall ? "1px dashed var(--m-border-strong)" : "1px solid var(--m-border-strong)",
         borderLeft: isOnCall ? undefined : "3px solid var(--m-accent)",
-        background: isOnCall ? "var(--m-status-neutral-bg)" : "var(--m-paper)",
+        background: isOnCall ? "var(--m-status-neutral-bg)" : "var(--m-surface)",
         color: "var(--m-text)",
       }}
     >

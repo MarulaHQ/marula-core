@@ -1,3 +1,4 @@
+"use client";
 /**
  * Dialog — Radix dialog with scrim + bordered overlay surface. Shadows are
  * reserved for overlays like this one (§5).

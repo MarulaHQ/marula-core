@@ -1,3 +1,4 @@
+"use client";
 /**
  * Separator — Radix separator styled as a 1px token-colored rule.
  */
