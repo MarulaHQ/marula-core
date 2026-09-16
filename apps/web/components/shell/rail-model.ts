@@ -83,11 +83,12 @@ export const RAIL_SECTIONS: RailSection[] = [
     id: "knowledge",
     label: "Knowledge",
     href: "/kb",
-    match: ["/kb", "/documents", "/passwords", "/imports"],
+    match: ["/kb", "/documents", "/passwords", "/imports", "/kb/secrets"],
     links: [
       { label: "Knowledge base", href: "/kb" },
       { label: "Documents", href: "/documents" },
       { label: "Vault", href: "/passwords" },
+      { label: "Secret categories", href: "/kb/secrets" },
       { label: "Imports", href: "/imports" },
     ],
   },

@@ -13,6 +13,7 @@ import { KbArticleEditor } from "../../lib/editor/kb-article-editor";
 import {
   Button,
   Card,
+  KbProse,
   Dialog,
   DialogActions,
   DialogContent,
@@ -29,8 +30,8 @@ import {
 } from "@meridian/ui";
 import type { components } from "@meridian/sdk";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, useRequireAuth } from "../../lib/api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   rememberVersion,
   runEnvelopeMutation,
@@ -39,6 +40,7 @@ import {
 type KbCategory = components["schemas"]["KbCategory"];
 type KbArticle = components["schemas"]["KbArticle"];
 type KbArticleStatus = components["schemas"]["KbArticleStatus"];
+type ArticleDetail = components["schemas"]["ArticleDetail"];
 
 const STATUSES: KbArticleStatus[] = ["draft", "published", "archived"];
 
@@ -51,6 +53,10 @@ export default function KbPage() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [editing, setEditing] = useState<KbArticle | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
+  const [viewOpen, setViewOpen] = useState(false);
+  const [viewing, setViewing] = useState<KbArticle | null>(null);
+  const [viewContent, setViewContent] = useState<ArticleDetail | null>(null);
+  const [viewLoading, setViewLoading] = useState(false);
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<KbCategory | null>(null);
 
@@ -207,6 +213,16 @@ export default function KbPage() {
                     <Button
                       variant="ghost"
                       onClick={() => {
+                        setViewing(a);
+                        setViewContent(null);
+                        setViewOpen(true);
+                      }}
+                    >
+                      View
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
                         setEditing(a);
                         setEditorOpen(true);
                       }}
@@ -222,10 +238,45 @@ export default function KbPage() {
             Portal view:{" "}
             <Link href="/portal/kb" className="underline decoration-[var(--m-border)] underline-offset-2">
               /portal/kb
+            </Link>{" "}
+            · Secret categories (ADR 0006):{" "}
+            <Link
+              href="/kb/secrets"
+              className="underline decoration-[var(--m-border)] underline-offset-2"
+            >
+              /kb/secrets
             </Link>
           </p>
         </Card>
       </div>
+
+      <Dialog open={viewOpen} onOpenChange={setViewOpen}>
+        <DialogContent
+          title={viewing?.title ?? "Article"}
+          description={
+            viewing === null
+              ? ""
+              : `Read-only, server-rendered from the canonical Tiptap JSON. Status: ${viewing.status}${viewing.client_visible ? " · client-facing" : ""}.`
+          }
+        >
+          <ArticleViewer
+            article={viewing}
+            detail={viewContent}
+            loading={viewLoading}
+            onClose={() => setViewOpen(false)}
+            onOpen={() => {
+              if (viewing === null) return;
+              setViewLoading(true);
+              api.api
+                .GET("/api/v1/kb/articles/{id}", { params: { path: { id: viewing.id } } })
+                .then(({ data }) => {
+                  setViewContent(data ?? null);
+                  setViewLoading(false);
+                });
+            }}
+          />
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
         <DialogContent
@@ -257,6 +308,48 @@ export default function KbPage() {
           />
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function ArticleViewer({
+  article,
+  detail,
+  loading,
+  onOpen,
+  onClose,
+}: {
+  article: KbArticle | null;
+  detail: ArticleDetail | null;
+  loading: boolean;
+  onOpen: () => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    if (article !== null && detail === null) onOpen();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [article?.id]);
+
+  return (
+    <div className="grid gap-3 p-4">
+      {loading || (article !== null && detail === null) ? (
+        <div className="flex items-center gap-2 text-[13px]">
+          <Spinner /> Rendering…
+        </div>
+      ) : detail?.content_html !== undefined && detail.content_html !== null && detail.content_html !== "" ? (
+        <KbProse html={detail.content_html} />
+      ) : (
+        <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+          {detail !== null
+            ? "This article's canonical content is empty — open the editor to write the first paragraph."
+            : "The rendered content is not available right now."}
+        </p>
+      )}
+      <DialogActions>
+        <Button variant="ghost" onClick={onClose}>
+          Close
+        </Button>
+      </DialogActions>
     </div>
   );
 }
