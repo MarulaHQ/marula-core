@@ -1,7 +1,7 @@
-# apps/web/lib/editor/ — Tiptap editor shell (ADR 0007, Wave 17 lane 1)
+# apps/web/lib/editor/ — Tiptap editor shell (ADR 0007, Wave 16 lane 2)
 
-> **Status:** scaffolded, empty — lane `p17-kb-tiptap-model` populates this home
-> (TASKLIST.md Wave 17). README-only until then; build wiring would be premature.
+> **Status:** scaffolded, empty — lane `p16-kb-tiptap-model` populates this home
+> (TASKLIST.md Wave 16). README-only until then; build wiring would be premature.
 
 **Purpose:** the ONE home for Meridian's rich-text editor shell built on
 **Tiptap 3** (`@tiptap/core`, `@tiptap/pm`, `@tiptap/react`):
@@ -18,7 +18,7 @@
 
 **Non-purpose:** no business/editor policy that Rust must enforce identically
 (that lives in `crates/core-kb` — schema validation, sanitizer, allowlist); no
-vault/category surfaces (ADR 0006 browsing rides Wave 17 lane 3 close-out); no
+vault/category surfaces (ADR 0006 browsing rides Wave 16 lane 6 close-out); no
 MCP/agent writer loops (agent-authored prose rides `docs/10-agent-platform.md`
 approval binding).
 

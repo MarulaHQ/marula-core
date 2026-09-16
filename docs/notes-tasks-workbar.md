@@ -2,7 +2,9 @@
 
 > Status: SPEC (ready for lane implementation) · Authored 2026-09-16
 >-line-product owner directive: Nilear-pattern note entry everywhere techs enter task notes.
-> Tracking: TASKLIST.md Wave 16 lane 11 `p16-workbar-notes-tasks` (S1–S8 below are the lane's deliverables).
+> Tracking: TASKLIST.md Wave 17 lane 11 `p17-workbar-notes-tasks` (S1–S8 below are the lane's deliverables).
+> Wave/branch renumbered 2026-09-16 (Wave 16/17 swap + Wave 15 straggler re-base): the lane rides the UX
+> wave with migration pair 0079 / PG port 54379 (0077/0078 went to Wave 16's backend lanes).
 > Governing doctrine: `docs/instant-first.md` (binding), `docs/theme.md` §5 motion law, AGENTS.md override rules, migration-policy §2 posture, `docs/10-agent-platform.md` (approval default).
 
 ## 0. Why — the Nilear pattern
