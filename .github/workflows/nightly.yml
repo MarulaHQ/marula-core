@@ -1,0 +1,161 @@
+name: Nightly perf
+
+# HTTP capacity budget + scale measurement (Wave 15 lane 3,
+# TASKLIST → Phase-4 perf program; docs/perf.md §6).
+#
+# Gates ONE thing: perf-harness load --budget-ms at the budget scale
+# (50k tickets/org, saturated closed-loop, keyset mix p95 ≤ 150ms — the
+# same product budget the push CI smoke enforces on the SQL path).
+# The 100k scale leg is measured and surfaced, not gated: at 100k the
+# saturated closed loop is a capacity observation, not a product budget
+# (F3; docs/perf.md §7 records the capacity decision).
+#
+# Results surface as a step summary plus a downloadable load-report.json
+# artifact. A gate failure is investigated in the next session, never
+# shrugged off (docs/perf.md §6 discipline).
+
+on:
+  schedule:
+    - cron: "30 5 * * *" # ~05:30 UTC, before the workday pile-up
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  perf-load-budget:
+    name: HTTP load budget — ticket list p95 @50k (saturated, keyset mix)
+    runs-on: ubuntu-latest
+        services:
+      postgres:
+        # pgvector/pgvector:pg17 — prod parity with the perf fixtures.
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: meridian_perf
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/meridian_perf
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Release build — a debug server would measure the build, not the stack.
+      - run: cargo build --release -p core-api -p perf-harness
+      - name: Seed the 50k budget dataset
+        run: |
+          ./target/release/perf-harness seed --tickets 50000
+      - name: Boot core-api
+        run: |
+          BIND_ADDR=127.0.0.1:18080 ./target/release/core-api &
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:18080/api/health >/dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:18080/api/health
+      # The gate: saturated closed-loop (8 workers, the documented capacity
+      # point) with the keyset deep-page mix. Measured 49.2ms p95 locally
+      # on the shipped schema (docs/perf.md §7); budget = the product
+      # budget (150ms), shared with the push CI smoke.
+      - name: Load run (concurrency 8, budget 150ms)
+        run: |
+          ./target/release/perf-harness load \
+            --base-url http://127.0.0.1:18080 \
+            --duration 30s --concurrency 8 --seed 42 --budget-ms 150 \
+            --out load-report.json
+      - name: Surface result
+        if: always()
+        run: |
+          {
+            echo "## Nightly HTTP load — ticket list @50k tickets/org"
+            echo
+            echo '| concurrency | throughput | p50 | p95 | p99 | max | within 150ms |'
+            echo '|---|---|---|---|---|---|---|'
+            python3 - <<'PY'
+          import json
+          d = json.load(open("load-report.json"))
+          print(f"| {d['concurrency']} | {d['throughput_rps']:.0f} rps | {d['p50_ms']:.1f}ms | "
+                f"{d['p95_ms']:.1f}ms | {d['p99_ms']:.1f}ms | {d['max_ms']:.1f}ms | "
+                f"{'yes' if d['within_budget'] else 'NO'} |")
+          print(f"\nrequests {d['requests']}, errors {d['errors']}, duration {d['duration_s']}s")
+          PY
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nightly-load-report
+          path: load-report.json
+          retention-days: 30
+
+  perf-scale-100k:
+    name: Scale leg — 100k tickets/org measurement (non-gated)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: meridian_perf
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/meridian_perf
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release -p core-api -p perf-harness
+      - name: Seed the 100k load dataset
+        run: |
+          ./target/release/perf-harness seed --tickets 100000 --clients 1000 --users 25
+      - name: Boot core-api
+        run: |
+          BIND_ADDR=127.0.0.1:18080 ./target/release/core-api &
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:18080/api/health >/dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:18080/api/health
+      # Measurement-only: past 1× budget the saturated loop's own cost
+      # (TCP/serializers event delivery) is the dominant term, so the
+      # tripwire is an order-of-magnitude guard, not the product budget.
+      - name: Load measurement (concurrency 8, 600ms tripwire)
+        run: |
+          ./target/release/perf-harness load \
+            --base-url http://127.0.0.1:18080 \
+            --duration 30s --concurrency 8 --seed 42 --budget-ms 600 \
+            --out scale-report.json
+      - name: Surface the scale numbers
+        if: always()
+        run: |
+          {
+            echo "## Scale leg — 100k tickets/org (saturated, non-gated tripwire)"
+            echo
+            echo '| concurrency | throughput | p50 | p95 | p99 | max |'
+            echo '|---|---|---|---|---|---|'
+            python3 - <<'PY'
+          import json
+          d = json.load(open("scale-report.json"))
+          print(f"| {d['concurrency']} | {d['throughput_rps']:.0f} rps | {d['p50_ms']:.1f}ms | "
+                f"{d['p95_ms']:.1f}ms | {d['p99_ms']:.1f}ms | {d['max_ms']:.1f}ms |")
+          PY
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nightly-scale-report
+          path: scale-report.json
+          retention-days: 30
