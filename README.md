@@ -101,6 +101,7 @@ Report vulnerabilities privately — see [`SECURITY.md`](SECURITY.md). Please do
 
 - Core (`crates/`, `apps/`): [AGPL-3.0](LICENSE)
 - SDK, plugin kit, first-party plugins & connectors: [Apache-2.0](packages/sdk/LICENSE)
+- Third-party: [`ACKNOWLEDGMENTS.md`](ACKNOWLEDGMENTS.md) (fonts OFL, embedded PostgreSQL/pgvector, full npm inventory, vendored tooling)
 
 ---
 

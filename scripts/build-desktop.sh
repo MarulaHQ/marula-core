@@ -52,6 +52,11 @@ done
 rm -rf desktop/resources/web/.next/static
 cp -R "$WEB_DIR/.next/static" desktop/resources/web/.next/static
 [ -d "$WEB_DIR/public" ] && cp -RL "$WEB_DIR/public" desktop/resources/web/public || true
+# Ship third-party attribution with the packaged app (fonts OFL, embedded
+# PostgreSQL, licence inventories — ACKNOWLEDGMENTS.md lists everything).
+cp "$PWD/ACKNOWLEDGMENTS.md" desktop/resources/web/ACKNOWLEDGMENTS.md
+mkdir -p desktop/resources/web/LEGAL
+cp -R LEGAL desktop/resources/web/LEGAL/ 2>/dev/null || true
 
 # Tauri still requires frontendDist to exist at build time even though the
 # webview is served by the bundled Next server (see ADR 0005 deviation).
