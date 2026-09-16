@@ -1,4 +1,4 @@
-// publish.mjs — the docs-site publisher (ADR 0006).
+// publish.mjs — the docs-site publisher (ADR 0009).
 //
 // Renders every Diátaxis markdown page in docs/site into a static,
 // dependency-free HTML publication. The markdown under docs/site remains
@@ -159,7 +159,7 @@ for (const file of pages) {
 ${crumb(quadrant, depth)}
 <main>
 ${render(markdown, { href: (target) => publishedHref(file, target) })}
-<footer>Rendered deterministically from ${relSite} by docs/site/scripts/publish.mjs (ADR 0006) — the markdown stays the source of truth.</footer>
+<footer>Rendered deterministically from ${relSite} by docs/site/scripts/publish.mjs (ADR 0009) — the markdown stays the source of truth.</footer>
 </main>
 </body>
 </html>

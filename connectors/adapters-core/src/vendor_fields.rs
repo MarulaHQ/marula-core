@@ -116,7 +116,10 @@ mod tests {
             .as_object()
             .unwrap()
             .clone();
-        assert_eq!(string_list(&fields, &["a", "b", "c"]), vec!["one", "two", "three"]);
+        assert_eq!(
+            string_list(&fields, &["a", "b", "c"]),
+            vec!["one", "two", "three"]
+        );
         assert_eq!(string_list(&fields, &["c"]), Vec::<String>::new());
     }
 

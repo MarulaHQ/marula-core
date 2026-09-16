@@ -1,4 +1,4 @@
-# ADR 0006: Docs publishing pipeline — deterministic in-repo publisher
+# ADR 0009: Docs publishing pipeline — deterministic in-repo publisher
 
 Date: 2026-09-16 · Status: Accepted · Lane: `p15-docs-closeout` (Wave 15 lane 4)
 

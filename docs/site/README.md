@@ -23,7 +23,7 @@ node docs/site/scripts/check-docs-site.mjs
 Checks every relative link resolves, both generated pages still match
 regeneration from the pin + fixtures (stale pages fail), and the publishing
 path works: `publish.mjs` renders a complete, byte-deterministic HTML bundle
-with no dead in-bundle hrefs (ADR `../adr/0006-docs-publishing-pipeline.md`).
+with no dead in-bundle hrefs (ADR `../adr/0009-docs-publishing-pipeline.md`).
 
 ## Publish
 

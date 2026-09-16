@@ -271,10 +271,7 @@ pub const CI_FEEDER_SOURCE_SYSTEMS: &[&str] = &["ninjaone", "it_glue", "auvix"];
 /// system (no toggle for it), or any non-false value mean enabled.
 /// `overrides` is the literal stored rows (key → JSON value) from
 /// `core_db::settings::list_org_overrides`.
-pub fn connector_enabled(
-    source_system: &str,
-    overrides: &[(String, serde_json::Value)],
-) -> bool {
+pub fn connector_enabled(source_system: &str, overrides: &[(String, serde_json::Value)]) -> bool {
     let key = match source_system {
         _ if CI_FEEDER_SOURCE_SYSTEMS.contains(&source_system) => CONNECTORS_CI_FEEDERS,
         "immybot" => CONNECTORS_IMMYBOT,
@@ -641,7 +638,14 @@ mod tests {
     #[test]
     fn connector_toggles_default_on_and_gate_known_sources() {
         let none: Vec<(String, serde_json::Value)> = Vec::new();
-        for source in ["ninjaone", "it_glue", "auvix", "immybot", "m365_graph", "dms_sync"] {
+        for source in [
+            "ninjaone",
+            "it_glue",
+            "auvix",
+            "immybot",
+            "m365_graph",
+            "dms_sync",
+        ] {
             assert!(
                 connector_enabled(source, &none),
                 "{source} enabled with no overrides"
@@ -653,10 +657,7 @@ mod tests {
         assert!(connector_enabled("some_new_rmm", &none));
         assert!(connector_key("some_new_rmm").is_none());
 
-        let off = vec![(
-            CONNECTORS_CI_FEEDERS.to_string(),
-            serde_json::json!(false),
-        )];
+        let off = vec![(CONNECTORS_CI_FEEDERS.to_string(), serde_json::json!(false))];
         // The whole feeder family toggles together (one connector, three
         // source systems).
         assert!(!connector_enabled("ninjaone", &off));

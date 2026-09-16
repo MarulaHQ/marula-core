@@ -46,4 +46,6 @@ mod tests;
 pub use auth::VendorAuth;
 pub use client::{PageFlow, VendorClient, VendorError};
 pub use org_map::{OrgMapping, OrgMappingBuilder, OrgMappingError};
-pub use vendor_fields::{first_str, first_str_in, observed_fields, observed_fields_in, string_list};
+pub use vendor_fields::{
+    first_str, first_str_in, observed_fields, observed_fields_in, string_list,
+};

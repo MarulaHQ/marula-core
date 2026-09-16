@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Verifies the docs site: every relative markdown link resolves to a file
 // that exists (anchors are ignored), generated pages match regeneration
-// (pin & fixture sync), and the PUBLISHING path (ADR 0006) works — the
+// (pin & fixture sync), and the PUBLISHING path (ADR 0009) works — the
 // publisher renders every page into a byte-deterministic static HTML
 // bundle with no dead in-bundle hrefs. Exit 1 on any failure.
 import { existsSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
@@ -62,7 +62,7 @@ if (readFileSync(join(site, "reference/upgrade-matrix.md"), "utf8") !== before2)
   failed++;
 }
 
-// Publishing path (ADR 0006): publish twice into disposable dirs and
+// Publishing path (ADR 0009): publish twice into disposable dirs and
 // assert the bundle is complete (every md page mirrored to html),
 // byte-deterministic, and free of dead in-bundle hrefs.
 const runs = ["a", "b"].map((tag) => {

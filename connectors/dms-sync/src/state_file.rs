@@ -213,9 +213,10 @@ fn write_atomic(path: &Path, ledger: &FileLedger) -> Result<(), FileSyncStateErr
             source,
         })?;
     }
-    let json = serde_json::to_string_pretty(ledger).map_err(|_| FileSyncStateError::UnreadableLedger {
-        path: path.to_path_buf(),
-    })?;
+    let json =
+        serde_json::to_string_pretty(ledger).map_err(|_| FileSyncStateError::UnreadableLedger {
+            path: path.to_path_buf(),
+        })?;
     let temp = sibling_temp(path);
     fs::write(&temp, json).map_err(|source| FileSyncStateError::Io {
         path: temp.clone(),

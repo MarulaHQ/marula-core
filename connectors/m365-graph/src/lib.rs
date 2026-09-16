@@ -127,7 +127,8 @@ impl GraphClient {
 /// Maps one Intune managed device onto the feed contract.
 pub fn map_managed_device(payload: &Value) -> Option<FeederRecord> {
     let id = payload.get("id").and_then(Value::as_str)?;
-    let device_name = first_str_in(payload, &["deviceName"]).unwrap_or_else(|| format!("M365 device {id}"));
+    let device_name =
+        first_str_in(payload, &["deviceName"]).unwrap_or_else(|| format!("M365 device {id}"));
 
     let mut identity = IdentityKeysBuilder::new();
     identity = identity.source_guid(id);

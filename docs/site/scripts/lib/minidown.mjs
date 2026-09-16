@@ -1,6 +1,6 @@
 // minidown.mjs — the docs-site publisher's deterministic markdown renderer.
 //
-// Wave 15 lane 4 (`p15-docs-closeout`): the publishing decision (ADR 0006)
+// Wave 15 lane 4 (`p15-docs-closeout`): the publishing decision (ADR 0009)
 // keeps `docs/site` markdown as the SOURCE OF TRUTH and renders the
 // publication in-repo with zero dependencies — no Starlight fork, no extra
 // framework. This module does NOT fork the markdown sources; it only renders

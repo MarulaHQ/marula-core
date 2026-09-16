@@ -83,10 +83,10 @@
 pub mod identity;
 pub mod model;
 pub mod push;
-pub mod state_file;
 pub mod sink;
 pub mod source;
 pub mod state;
+pub mod state_file;
 pub mod sync;
 
 #[cfg(test)]
