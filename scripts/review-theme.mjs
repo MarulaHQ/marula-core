@@ -74,7 +74,7 @@ const tokensCssPath = resolve(root, "packages/ui/src/tokens.css");
 const globalsPath = resolve(root, "apps/web/app/globals.css");
 const componentsPath = resolve(root, "packages/ui/src/components.css");
 const tokensTsPath = resolve(root, "packages/ui/src/tokens.ts");
-const mockupPath = resolve(root, "design/mockups/meridian-ticket-workbench-html-mockup.html");
+const mockupPath = resolve(root, "design/mockups/meridian-ticket-workbench-html-mockup-v2.html");
 
 check(existsSync(presetPath), "vendored preset exists (design/tangerine/tangerine.json)");
 check(existsSync(tokensCssPath), "packages/ui/src/tokens.css exists");
@@ -261,7 +261,7 @@ check(mockup.includes('"Source Serif 4"'), "mockup Source Serif 4 headings");
 check(/#e05d38/i.test(mockup), "mockup tangerine primary");
 check(/--radius:\s*0\.75rem/i.test(mockup), "mockup radius 0.75rem");
 check(/#e8ebed/i.test(mockup), "mockup warm-neutral canvas");
-check(/Tangerine shadcn preset design rules/i.test(mockup), "mockup design-rules comment block");
+check(/body\.dark\s*\{/.test(mockup), "mockup v2 dark-mode support (body.dark block)");
 
 // ---------- summary ----------
 console.log(`\n=== Meridian Theme Review — value-level (p15-theme-tangerine) ===`);

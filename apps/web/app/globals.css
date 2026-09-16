@@ -17,6 +17,7 @@
 @import "@meridian/ui/tokens.css";
 @import "@meridian/ui/components.css";
 @import "@meridian/layout/styles.css";
+@import "./shell.css";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 /*

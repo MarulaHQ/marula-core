@@ -1,20 +1,27 @@
-// Docked ACTIVE TIMER bar (TASKLIST 2.9).
+// WorkBar — the dark bottom work bar (Wave 15 lane 6, mockup paradigm).
 //
-// Purpose: the bottom-docked working-set bar per design/mockups/today-*
-// — current session (running first), elapsed in mono digits, the preserved
-// pause-reason chip, Pause/Resume and Switch actions, and a thin Ember top
-// edge only while the timer is live. Server-authoritative: state comes
-// from useTimer (REST snapshot reconciled by timer.* WS events).
+// Purpose: the restyled docked ACTIVE TIMER bar per the canonical mockup
+// (design/mockups/meridian-ticket-workbench-html-mockup-v2.html): live
+// work-dot + mono elapsed digits, work meta (ticket number · title ·
+// preserved pause-reason chip), a quick note input (posts an internal
+// ticket comment through the instant-first envelope), and the primary
+// "Wrap up" action (stops the session, carrying the note). Pause/Resume
+// and Switch stay as quiet secondary actions.
 //
-// Non-purpose: no timer math (server owns segments) and no ticket queue —
-// Switch deep-links to /today where per-ticket start lives.
+// In-flow shell chrome per the p11-ui-quality occlusion fix: this bar is a
+// flex child of the shell column — NEVER a fixed overlay occluding content.
+//
+// Non-purpose: no timer math (server owns segments — useTimer reconciles
+// via timer.* WS events); no ticket queue — Switch deep-links to /today
+// where per-ticket start lives.
 "use client";
 
-import { Button, StatusTag } from "@meridian/ui";
+import { StatusTag } from "@meridian/ui";
 import type { components } from "@meridian/sdk";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, useAuth } from "../lib/api";
+import { runEnvelopeMutation } from "../lib/envelope-write";
 import {
   formatElapsed,
   lastSegmentReason,
@@ -52,7 +59,7 @@ export function TimerDock() {
   const auth = useAuth();
   const router = useRouter();
   const { active, sessions, nowMs, refresh } = useTimer();
-  // The dock shows the current focus: the running session, or — when
+  // The bar shows the current focus: the running session, or — when
   // everything is paused — the most recently touched open session.
   const current =
     active ??
@@ -65,6 +72,12 @@ export function TimerDock() {
       })[0] ??
     null;
   const [ticket, setTicket] = useState<Ticket | null>(null);
+  const [note, setNote] = useState("");
+  const [noteState, setNoteState] = useState<"idle" | "saving" | "saved">("idle");
+  const [noteError, setNoteError] = useState<string | null>(null);
+  const [stopping, setStopping] = useState(false);
+  const [stopError, setStopError] = useState<string | null>(null);
+  const flashTimer = useRef<number | null>(null);
 
   useEffect(() => {
     if (auth.status !== "authed" || current === null) {
@@ -82,101 +95,174 @@ export function TimerDock() {
     };
   }, [auth.status, current?.ticket_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(
+    () => () => {
+      if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
+    },
+    [],
+  );
+
   if (auth.status !== "authed" || current === null) return null;
 
   const live = current.stopped_at === null && current.segments?.slice(-1)[0]?.ended_at === null;
   const elapsed = sessionElapsedSecs(current, nowMs);
   const reason = lastSegmentReason(current);
+  const ticketNumber = ticket?.number ?? current.ticket_id.slice(0, 8);
+  const ticketTitle = ticket?.title ?? "…";
 
   async function pauseOrResume() {
+    if (current === null) return;
     if (live) {
-      await api.api.POST("/api/v1/timers/pause", { body: { session_id: current!.id } });
+      await api.api.POST("/api/v1/timers/pause", { body: { session_id: current.id } });
     } else {
-      await api.api.POST("/api/v1/timers/resume", { body: { session_id: current!.id } });
+      await api.api.POST("/api/v1/timers/resume", { body: { session_id: current.id } });
     }
+    void refresh();
+  }
+
+  /** Quick note: posts an internal comment on the tracked ticket. */
+  async function saveNote() {
+    const body = note.trim();
+    if (body.length === 0 || current === null) return;
+    setNoteState("saving");
+    setNoteError(null);
+    const result = await runEnvelopeMutation({
+      describe: `Add work note to ${ticketNumber}`,
+      entityId: current.ticket_id,
+      buildBody: (base) => ({ body, kind: "internal" as const, ...base }),
+      optimistic: () => undefined,
+      revert: () => undefined,
+      request: (client, typed) =>
+        client.POST("/api/v1/tickets/{id}/comments", {
+          params: { path: { id: current.ticket_id } },
+          body: typed,
+        }),
+    });
+    if (!result.ok) {
+      setNoteState("idle");
+      setNoteError(result.friendly ?? "That note did not save — try again.");
+      return;
+    }
+    setNote("");
+    setNoteState("saved");
+    if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => setNoteState("idle"), 4000);
+  }
+
+  /** Primary action: wrap up — stop the session, carrying the note. */
+  async function wrapUp() {
+    if (current === null) return;
+    setStopping(true);
+    setStopError(null);
+    const body = note.trim();
+    const result = await runEnvelopeMutation({
+      describe: `Stop timer on ${ticketNumber}`,
+      entityId: current.ticket_id,
+      buildBody: (base) => ({ session_id: current.id, notes: body || null, ...base }),
+      optimistic: () => undefined,
+      revert: () => undefined,
+      request: (client, typed) => client.POST("/api/v1/timers/stop", { body: typed }),
+    });
+    setStopping(false);
+    if (!result.ok) {
+      setStopError(result.friendly ?? "The timer did not stop — try again.");
+      return;
+    }
+    setNote("");
     void refresh();
   }
 
   return (
     <div
       role="region"
-      aria-label="Active timer"
-      className="sticky bottom-0 z-40 shrink-0 border-t"
-      style={{
-        borderTop: live
-          ? "2px solid var(--m-accent)"
-          : "1px solid var(--m-border)",
-        background: "var(--m-surface)",
-        boxShadow: "var(--m-shadow-strong, 0 -4px 16px rgba(0,0,0,0.18))",
-      }}
+      aria-label="Work bar"
+      data-testid="work-bar"
+      className="m-workbar flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-t px-3 py-2 md:px-4"
     >
-      <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
+      <div className="flex items-center gap-2.5">
         <span
-          className="text-[10px] font-medium uppercase tracking-[0.14em]"
-          style={{ color: "var(--m-text-muted)" }}
+          aria-hidden="true"
+          className={live ? "m-work-dot m-work-dot-live" : "m-work-dot m-work-dot-paused"}
+        />
+        <span
+          data-testid="timer-elapsed"
+          className="m-workbar-timer font-mono text-2xl font-semibold tabular-nums leading-none"
         >
-          Active timer
+          {formatElapsed(elapsed)}
         </span>
+      </div>
 
+      <div
+        aria-hidden="true"
+        className="hidden h-5 w-px md:block"
+        style={{ background: "var(--m-border-dark)" }}
+      />
+
+      <button
+        type="button"
+        onClick={() => router.push(`/tickets/${current.ticket_id}`)}
+        className="m-workbar-meta hidden min-w-0 max-w-[380px] flex-shrink items-baseline gap-2.5 overflow-hidden text-left md:flex"
+      >
+        <span className="m-workbar-number truncate font-mono text-[13px] font-semibold">
+          {ticketNumber}
+        </span>
+        <span className="m-workbar-title min-w-0 truncate text-[13px]">{ticketTitle}</span>
+      </button>
+      <span className="m-workbar-number shrink-0 font-mono text-[13px] font-semibold md:hidden">
+        {ticketNumber}
+      </span>
+
+      <span className="hidden shrink-0 sm:contents">
+        <StatusTag tone={live ? "success" : "warning"}>{live ? "tracking" : (reason ?? "paused")}</StatusTag>
+      </span>
+
+      <div className="ml-auto flex shrink-0 items-center gap-2">
+        <span aria-live="polite" className="m-workbar-note-feedback hidden text-[11px] lg:inline">
+          {noteError ?? stopError ?? (noteState === "saved" ? "Note saved" : noteState === "saving" ? "Saving…" : "")}
+        </span>
+        <input
+          data-testid="workbar-note-input"
+          value={note}
+          onChange={(event) => {
+            setNote(event.target.value);
+            setNoteError(null);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") void saveNote();
+          }}
+          placeholder="Add note…"
+          aria-label="Add a note to this ticket"
+          className="m-workbar-note h-8 min-w-16 max-w-[260px] flex-1 rounded-lg border px-2.5 text-[12.5px] outline-none md:flex-none md:w-56"
+        />
         <button
           type="button"
-          onClick={() => router.push(`/tickets/${current.ticket_id}`)}
-          className="flex min-w-0 items-baseline gap-3 text-left"
+          onClick={() => void pauseOrResume()}
+          aria-label={live ? "Pause timer" : "Resume timer"}
+          className="m-workbar-ghost flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border-0"
         >
-          <span
-            className="font-mono text-lg font-semibold tracking-tight"
-            style={{ color: "var(--m-text)" }}
-          >
-            {ticket?.number ?? current.ticket_id.slice(0, 8)}
-          </span>
-          <span
-            className="truncate text-[13px]"
-            style={{ color: "var(--m-text-secondary)" }}
-          >
-            {ticket?.title ?? "…"}
-          </span>
+          {live ? <PauseIcon /> : <PlayIcon />}
         </button>
-
-        <div className="flex items-baseline gap-2">
-          <span
-            className="text-[10px] font-medium uppercase tracking-[0.14em]"
-            style={{ color: "var(--m-text-muted)" }}
-          >
-            Elapsed
-          </span>
-          <span
-            data-testid="timer-elapsed"
-            className="font-mono text-3xl font-semibold tabular-nums leading-none"
-            style={{ color: "var(--m-text)" }}
-          >
-            {formatElapsed(elapsed)}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <span
-            className="text-[10px] font-medium uppercase tracking-[0.14em]"
-            style={{ color: "var(--m-text-muted)" }}
-          >
-            Status
-          </span>
-          {reason !== null ? (
-            <StatusTag tone={live ? "neutral" : "warning"}>{reason}</StatusTag>
-          ) : (
-            <StatusTag tone="success">tracking</StatusTag>
-          )}
-        </div>
-
-        <div className="ml-auto flex items-center gap-2">
-          <Button size="sm" variant="secondary" onClick={() => void pauseOrResume()}>
-            {live ? <PauseIcon /> : <PlayIcon />}
-            {live ? "Pause" : "Resume"}
-          </Button>
-          <Button size="sm" variant="secondary" onClick={() => router.push("/today")}>
-            <SwitchIcon />
-            Switch
-          </Button>
-        </div>
+        <button
+          type="button"
+          onClick={() => router.push("/today")}
+          aria-label="Switch ticket (opens Today)"
+          className="m-workbar-ghost flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border-0"
+        >
+          <SwitchIcon />
+        </button>
+        <button
+          type="button"
+          data-testid="workbar-wrap-up"
+          onClick={() => void wrapUp()}
+          disabled={stopping}
+          className="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-3 text-[12.5px] font-semibold"
+          style={{ background: "var(--m-accent)", color: "var(--m-on-accent)" }}
+        >
+          <svg aria-hidden="true" width="11" height="11" viewBox="0 0 12 12" fill="none">
+            <path d="M2 6.5 4.8 9 10 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Wrap up
+        </button>
       </div>
     </div>
   );
