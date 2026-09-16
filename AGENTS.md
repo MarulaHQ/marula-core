@@ -17,6 +17,31 @@ Skill output that violates the token set or motion law is rejected, not applied.
 Enforcement stays mechanical: CI hex-scan, typecheck/tests, the p11-ui-quality
 lane's screenshot review.
 
+## Design research — lazyweb MCP (binding for every frontend lane)
+
+Every frontend lane (any lane touching pages, views, flows, or UI polish) MUST
+run design research through the lazyweb MCP BEFORE writing UI, so surfaces are
+designed for ultimate UX and looks, not invented from scratch:
+
+- `/lazyweb-search-screens` for the surface's UI pattern (real product
+  references ranked by visual search), `/lazyweb-search-flows` for multi-step
+  journeys (onboarding, checkout, paywalls, sign-up), and
+  `/lazyweb-search-experiments` when a conversion decision is involved.
+- Prefer finalizing useful references with
+  `lazyweb_agentic_search_finalize` and citing them in the lane's evidence dir
+  (`design/qa-*/`) alongside the REVIEW — the chosen references become part of
+  the lane's verification record.
+- `/lazyweb-growth-report` only when the user explicitly asks for one; never
+  auto-start reports.
+
+**Override rules apply to lazyweb output too:** `docs/theme.md` + Workbench
+tokens (no off-palette colors, Ember interactive-only ≤5%) · Inter/JetBrains
+Mono typography · motion law (≤120ms, transform/opacity, prefers-reduced-motion)
+· instant-first envelope patterns in `docs/instant-first.md`. Lazyweb
+references inspire layout, hierarchy, density, and flow; they never change
+palette, typography, stack, or feature decisions. Output that violates the
+token set or motion law is rejected, not applied.
+
 ## Backend skills (vendored)
 
 `.kilo/skills/` also carries stack skills: rust-best-practices (Apollo handbook),
