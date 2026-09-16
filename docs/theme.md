@@ -118,7 +118,7 @@ sans). No decorative serif in body text.
 - **Radius:** `0.75rem` on controls and containers; `999px` for pill tags; `50%` avatars/spinners only.
 - **Borders over shadows:** visible 1px borders on containers; the preset shadow scale (`rgba(0,0,0,.10)`) is reserved for overlays.
 - **Density:** 32px control height, 28px row height, 20px card padding — generous, not sparse.
-- **Motion:** transitions ≤120ms, transform/opacity only; `prefers-reduced-motion` collapses the spinner to 0.01ms; no springs or entrance animations.
+- **Motion:** transitions ≤120ms, transform/opacity only; `prefers-reduced-motion` collapses animations to 0.01ms. **Subtle, tasteful animation is encouraged — do not ship statically** (owner directive 2026-09-15): entrance/transition motion (fade-up reveals, staggered list entrances, panel slide-ins, hover micro-feedback, tab/filter morphs) brings pages and transitions to life. Constraints are performance, not austerity: transform/opacity only (never layout properties — no width/height/top/left animation), short and snappy (≤120ms, minimal easing, no spring physics), stagger ≤40ms/item, and everything collapses under `prefers-reduced-motion`.
 - **Keyboard-first:** 2px offset focus outline in `#E05D38`; inline shortcut hints; every primary flow mouse-independent.
 
 ---
@@ -148,6 +148,6 @@ Dry, precise, documentation-grade — unchanged by the visual overhaul.
 - Tokens live in `packages/ui/src/tokens.css` (+ `tokens.ts` PALETTE mirror); CI hex-scan (`.github/workflows/ci.yml`) fails on raw hex outside token files and blacklists the retired Workbench hexes.
 - `packages/ui/tests/tokens.test.ts` proves hex-source uniqueness, PALETTE sync, dark-mode completeness, and WCAG floors.
 - `scripts/review-theme.mjs` asserts the generated layers against the vendored `design/tangerine/tangerine.json` (value-level comparison, dark-mode anchors, chart ramp).
-- Reference mockup: `design/mockups/meridian-ticket-workbench-html-mockup.html`; QA evidence under `design/qa-tangerine/`.
+- Reference mockups: `design/mockups/meridian-ticket-workbench-html-mockup-v2.html` (+ `…-v2-light.png` / `…-v2-dark.png`) — **the canonical aesthetic reference** (includes the dark-mode toggle and both modes); the earlier v1 mockup is kept for history only. QA evidence under `design/qa-tangerine/`.
 
 <!-- END -->
