@@ -115,11 +115,7 @@ impl Config {
     /// S3/MinIO, no internal worker token, no OTel), dev tooling is on,
     /// and the API binds loopback only. Callers inject the embedded
     /// Postgres URL, API port, and object-store directory.
-    pub fn from_local(
-        database_url: String,
-        api_port: u16,
-        object_dir: std::path::PathBuf,
-    ) -> Self {
+    pub fn from_local(database_url: String, api_port: u16, object_dir: std::path::PathBuf) -> Self {
         let jwt_secret = Self::DEV_JWT_SECRET.to_string();
         Self {
             database_url,
@@ -145,9 +141,7 @@ impl Config {
             email_from_address: "support@meridian.local".into(),
             email_from_name: None,
             internal_token: None,
-            object_store: core_store::StoreChoice::Local(
-                object_dir.to_string_lossy().into_owned(),
-            ),
+            object_store: core_store::StoreChoice::Local(object_dir.to_string_lossy().into_owned()),
             max_upload_bytes: core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES,
             migration_rate_limit_per_min: 600,
             dispatch_rate_limit_per_min: 600,

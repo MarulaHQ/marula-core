@@ -8,6 +8,7 @@
 //! org-level opt-in AND a verified email claim. Provider secrets are
 //! decrypted in-memory for the exchange and never returned after write.
 
+use crate::auth::federation::denial_reasons;
 use crate::auth::handlers::issue_tokens;
 use crate::auth::middleware::{authed, require_permission};
 use crate::auth::oidc_client::{
@@ -919,6 +920,16 @@ pub enum SsoExchangeResponse {
     },
 }
 
+/// Typed 401 for a handoff code the exchange cannot redeem: unknown,
+/// expired, or already consumed — one reason code for all three so an
+/// attacker cannot fingerprint which check tripped.
+fn sso_handoff_denied() -> ApiError {
+    ApiError::AuthDenied {
+        reason: denial_reasons::SSO_HANDOFF_INVALID,
+        message: "invalid or expired sso code",
+    }
+}
+
 /// POST /api/auth/sso/exchange — swaps the single-use callback code for
 /// tokens (or a link confirmation). Codes die on first use or after 60s.
 #[utoipa::path(operation_id = "sso_exchange", post, path = "/api/sso/exchange", tag = "auth",
@@ -936,19 +947,18 @@ pub async fn sso_exchange(
         .await
         .map_err(ApiError::from)?;
     let Some(org_id) = org_id else {
-        return Err(ApiError::Unauthorized("invalid or expired sso code".into()));
+        return Err(sso_handoff_denied());
     };
 
     let mut tx = org_tx(&state, org_id).await?;
     let payload = core_db::mfa::take_sso_code(&mut *tx, req.code)
         .await?
-        .ok_or_else(|| ApiError::Unauthorized("invalid or expired sso code".into()))?;
+        .ok_or_else(sso_handoff_denied)?;
     tx.commit()
         .await
         .map_err(|e| ApiError::Internal(e.into()))?;
 
-    let handoff: SsoHandoff = serde_json::from_value(payload)
-        .map_err(|_| ApiError::Unauthorized("invalid sso code payload".into()))?;
+    let handoff: SsoHandoff = serde_json::from_value(payload).map_err(|_| sso_handoff_denied())?;
     Ok(Json(match handoff {
         SsoHandoff::Tokens(tokens) => SsoExchangeResponse::Tokens(tokens),
         SsoHandoff::MfaRequired {

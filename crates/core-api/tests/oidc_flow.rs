@@ -433,6 +433,58 @@ async fn exchange_code(app: &axum::Router, one_time: &str) -> (axum::http::Statu
 // tests
 // ---------------------------------------------------------------------------
 
+/// Expiry gate at the API seam (Phase-4 security hardening): an expired SSO
+/// handoff code redeems for nothing, and an unknown code is
+/// INDISTINGUISHABLE from it — one typed 401 reason code, never prose an
+/// attacker could use to fingerprint which check tripped.
+#[tokio::test]
+async fn sso_expired_and_unknown_handoff_codes_get_one_typed_rejection() {
+    let state = test_state().await;
+    let app = core_api::router(state.clone());
+    let suffix = Uuid::now_v7().simple().to_string()[16..].to_string();
+    let slug = format!("sso-exp-{suffix}");
+    let tokens = register_org(&app, &slug).await;
+    let owner = tokens["access_token"].as_str().unwrap();
+    let me =
+        body_json(send(&app, axum::http::Method::GET, "/api/me", Some(owner), None).await).await;
+    let user_id: Uuid = me["user_id"].as_str().unwrap().parse().unwrap();
+    let org_id: Uuid = me["org_id"].as_str().unwrap().parse().unwrap();
+
+    // Seed an EXPIRED sso_code directly (the insert path sweeps expired rows
+    // only for the same user/kind, and this user has none).
+    let expired = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO mfa_challenges (id, org_id, user_id, kind, state, expires_at)
+         VALUES ($1, $2, $3, 'sso_code', '{\"tokens\":true}'::jsonb, now() - interval '1 second')",
+    )
+    .bind(expired)
+    .bind(org_id)
+    .bind(user_id)
+    .execute(&state.pool)
+    .await
+    .expect("expired challenge insert");
+
+    let typed_rejection = |status: &axum::http::StatusCode, body: &Value| {
+        assert_eq!(
+            *status, 401,
+            "expired/unknown codes redeem for nothing: {body}"
+        );
+        assert_eq!(
+            body["error"]["reason"],
+            json!("sso_handoff_invalid"),
+            "typed rejection code, not prose: {body}"
+        );
+    };
+
+    // Expired: the bridge resolves NULL (its own expiry filter)…
+    let (status, body) = exchange_code(&app, &expired.to_string()).await;
+    typed_rejection(&status, &body);
+
+    // …and a code that NEVER existed is indistinguishable from expired.
+    let (status, body) = exchange_code(&app, &Uuid::now_v7().to_string()).await;
+    typed_rejection(&status, &body);
+}
+
 /// The happy path end to end: explicit link flow binds the subject, then a
 /// plain SSO login yields tokens through the single-use handoff code.
 #[tokio::test]

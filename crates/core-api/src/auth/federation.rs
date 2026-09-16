@@ -95,6 +95,11 @@ pub mod denial_reasons {
     pub const EMAIL_MISMATCH: &str = "link_email_mismatch";
     pub const JIT_MISSING_EMAIL: &str = "jit_missing_email";
     pub const JIT_EMAIL_UNVERIFIED: &str = "jit_email_unverified";
+    /// A one-time SSO handoff code the exchange endpoint cannot redeem:
+    /// unknown, expired, or already used — one code for all three so an
+    /// attacker cannot fingerprint which check tripped (parity with
+    /// `edge_assertion_invalid`).
+    pub const SSO_HANDOFF_INVALID: &str = "sso_handoff_invalid";
 }
 
 #[cfg(test)]
