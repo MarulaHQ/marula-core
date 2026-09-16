@@ -32,7 +32,9 @@ test("ticket workspace renders tabs, notes composer, and timeline", async ({ aut
   expect(ticket).toBeTruthy();
 
   await openWorkspaceWithRecovery(authedPage, ticket.id);
-  for (const tab of ["notes", "tasks", "details"]) {
+  // Wave 15 lane 7: the workbench-v2 tab set (Activity/Details/Related/
+  // Time Entries/Files/Notes). Tasks live under Details.
+  for (const tab of ["notes", "details", "related"]) {
     await authedPage.getByTestId(`detail-tab-${tab}`).click();
     await expect(authedPage.getByTestId(`detail-panel-${tab}`)).toBeVisible();
   }

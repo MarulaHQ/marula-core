@@ -22,6 +22,9 @@ test("post a client-visible note and see it on the timeline", async ({ authedPag
 
   const body = `E2E note ${Date.now() % 100000} — diagnosis captured.`;
   await authedPage.getByTestId("notes-composer-body").fill(body);
+  // Wave 15 lane 7: the composer's intent selector is the mockup's
+  // "Internal note ▾" dropdown — open it, then pick the visibility.
+  await authedPage.getByTestId("note-kind-current").click();
   await authedPage.getByTestId("note-kind-client_visible").click();
   await authedPage.getByTestId("note-post").click();
   await expect(authedPage.getByText(body).first()).toBeVisible({ timeout: 20_000 });
@@ -29,7 +32,9 @@ test("post a client-visible note and see it on the timeline", async ({ authedPag
 
 test("add a task and check it off (tri-state)", async ({ authedPage, ownerTokens }) => {
   const ticket = await openTicket(authedPage, ownerTokens);
-  await authedPage.getByTestId("detail-tab-tasks").click();
+  // Wave 15 lane 7: the task panel lives under the Details tab on the
+  // workbench-v2 surface (same TasksPanel testids, prefix "tab-").
+  await authedPage.getByTestId("detail-tab-details").click();
   const input = authedPage.getByTestId("tab-task-input");
   await expect(input).toBeVisible({ timeout: 15_000 });
 

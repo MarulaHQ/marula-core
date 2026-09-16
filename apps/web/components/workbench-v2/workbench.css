@@ -1,0 +1,317 @@
+/*
+ * Workbench v2 styles — Wave 15 lane 7.
+ *
+ * Non-token-layer: NO hex values — every color is a var() from
+ * packages/ui/src/tokens.css (or a color-mix() of those tokens, the same
+ * composition style tokens.css itself uses).
+ *
+ * Motion law (docs/theme.md §5): transform/opacity only, ≤120ms,
+ * stagger ≤40ms/item, no spring physics, prefers-reduced-motion honored.
+ */
+
+/* ---- Timeline geometry (mockup grammar: gutter / icon column / body) --- */
+
+.m-wb-timeline {
+  --wb-gutter: 56px;
+  --wb-icon: 27px;
+  --wb-gap: 11px;
+}
+
+.m-wb-timeline::before {
+  content: "";
+  position: absolute;
+  left: calc(var(--wb-gutter) + var(--wb-gap) + var(--wb-icon) / 2);
+  top: 8px;
+  bottom: 10px;
+  width: 1px;
+  background: var(--m-border);
+}
+
+.m-wb-event {
+  grid-template-columns: var(--wb-gutter) var(--wb-icon) minmax(0, 1fr);
+  column-gap: var(--wb-gap);
+}
+
+@media (max-width: 640px) {
+  .m-wb-timeline {
+    --wb-gutter: 42px;
+  }
+}
+
+/* Per-kind icon column tints — token mixes, never raw hexes. */
+.m-wb-event-icon {
+  width: var(--wb-icon);
+  height: var(--wb-icon);
+  border-color: var(--m-border);
+  background: var(--m-surface);
+  color: var(--m-text-muted);
+}
+
+.m-wb-event-icon[data-kind="client"] {
+  background: color-mix(in srgb, var(--m-chart-1) 18%, var(--m-surface));
+  color: var(--m-chart-4);
+  border-color: color-mix(in srgb, var(--m-chart-1) 40%, var(--m-border));
+}
+
+.m-wb-event-icon[data-kind="internal"] {
+  background: var(--m-status-success-bg);
+  color: var(--m-status-success-fg);
+  border-color: color-mix(in srgb, var(--m-status-success-fg) 30%, var(--m-border));
+}
+
+.m-wb-event-icon[data-kind="system"] {
+  background: color-mix(in srgb, var(--m-chart-3) 16%, var(--m-surface));
+  color: var(--m-chart-4);
+  border-color: color-mix(in srgb, var(--m-chart-3) 35%, var(--m-border));
+}
+
+.m-wb-event-icon[data-kind="time"] {
+  background: var(--m-status-warning-bg);
+  color: var(--m-status-warning-fg);
+  border-color: color-mix(in srgb, var(--m-status-warning-fg) 30%, var(--m-border));
+}
+
+.m-wb-event-icon[data-kind="agent"] {
+  background: var(--m-accent-soft);
+  color: var(--m-accent);
+  border-color: var(--m-accent-muted);
+}
+
+/* Bubble variants — tinted from tokens, per the mockup. */
+.m-wb-bubble {
+  border: 1px solid var(--m-border);
+  border-radius: 9px;
+  padding: 9px 11px;
+  line-height: 1.45;
+  max-width: 680px;
+  background: var(--m-bg-subtle);
+  color: var(--m-text-secondary);
+}
+
+.m-wb-bubble[data-variant="client"] {
+  background: color-mix(in srgb, var(--m-chart-1) 12%, var(--m-surface));
+  border-color: color-mix(in srgb, var(--m-chart-1) 30%, var(--m-border));
+}
+
+.m-wb-bubble[data-variant="agent"] {
+  background: var(--m-accent-soft);
+  border-color: var(--m-accent-muted);
+  color: var(--m-text-secondary);
+}
+
+.m-wb-bubble[data-variant="time"] {
+  background: var(--m-status-warning-bg);
+  border-color: color-mix(in srgb, var(--m-status-warning-fg) 25%, var(--m-border));
+  color: var(--m-status-warning-fg);
+}
+
+.m-wb-attachment {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  border: 1px solid var(--m-border);
+  border-radius: 7px;
+  padding: 4px 8px;
+  background: var(--m-surface);
+  font-size: 10px;
+  color: var(--m-text-secondary);
+}
+
+.m-wb-attachment:hover {
+  background: var(--m-surface-hover);
+}
+
+/* ---- Panels ------------------------------------------------------------- */
+
+.m-wb-context {
+  width: 270px;
+  background: color-mix(in srgb, var(--m-mist) 6%, var(--m-surface));
+}
+
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .m-wb-context {
+    width: 250px;
+  }
+}
+
+.m-wb-agent {
+  width: 346px;
+  background: color-mix(in srgb, var(--m-mist) 5%, var(--m-surface));
+}
+
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .m-wb-agent {
+    width: 300px;
+  }
+}
+
+/* Collapsible panels: overlay-only below 1024px, never persistent. */
+@media (max-width: 1023px) {
+  .m-wb-context,
+  .m-wb-agent {
+    position: fixed;
+    z-index: 40;
+    top: 0;
+    bottom: 0;
+    width: min(320px, 86vw);
+    box-shadow: var(--m-shadow-overlay);
+  }
+
+  .m-wb-context {
+    left: 0;
+    animation: m-wb-slide-in 120ms ease forwards;
+  }
+
+  .m-wb-agent {
+    right: 0;
+    animation: m-wb-slide-in-right 120ms ease forwards;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .m-wb-context,
+  .m-wb-agent {
+    animation: none !important;
+  }
+}
+
+.m-wb-card {
+  border-bottom: 1px solid var(--m-border);
+  padding-bottom: 12px;
+  margin-bottom: 4px;
+}
+
+.m-wb-linkrow {
+  color: color-mix(in srgb, var(--m-chart-4) 85%, var(--m-text));
+  transition: color 100ms ease;
+}
+
+.m-wb-linkrow:hover {
+  color: var(--m-accent);
+}
+
+.m-wb-minirow {
+  color: var(--m-text-secondary);
+}
+
+.m-wb-minirow:hover strong {
+  color: var(--m-accent);
+}
+
+/* ---- Chips, tabs, tools -------------------------------------------------- */
+
+.m-wb-chip {
+  padding: 5px 9px;
+  border: 1px solid var(--m-border);
+  border-radius: 7px;
+  background: var(--m-surface);
+  color: var(--m-text-muted);
+  font-size: 10.5px;
+  font-weight: 700;
+  transition:
+    background-color 100ms ease,
+    color 100ms ease,
+    border-color 100ms ease;
+}
+
+.m-wb-chip:hover {
+  border-color: var(--m-border-strong);
+}
+
+.m-wb-chip[aria-pressed="true"] {
+  background: var(--m-bg-subtle);
+  color: var(--m-text);
+  border-color: var(--m-border-strong);
+}
+
+.m-wb-tool:hover {
+  color: var(--m-text) !important;
+}
+
+.m-wb-agent-btn {
+  transition:
+    background-color 100ms ease,
+    border-color 100ms ease;
+}
+
+.m-wb-agent-btn:hover {
+  background: var(--m-surface-hover) !important;
+}
+
+.m-wb-choice {
+  transition:
+    border-color 100ms ease,
+    background-color 100ms ease,
+    box-shadow 100ms ease;
+}
+
+/* ---- Composer ------------------------------------------------------------ */
+
+.m-wb-composer-inner {
+  animation: m-wb-fade-up 120ms ease forwards;
+}
+
+/* ---- Wrap-up sheet -------------------------------------------------------- */
+
+.m-wb-sheet {
+  animation: m-wb-slide-in-right 120ms ease forwards;
+}
+
+/* ---- Motion (transform/opacity only, ≤120ms, stagger ≤40ms) --------------- */
+
+@keyframes m-wb-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes m-wb-slide-in {
+  from {
+    transform: translateX(-16px);
+    opacity: 0.6;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes m-wb-slide-in-right {
+  from {
+    transform: translateX(16px);
+    opacity: 0.6;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.m-wb-event {
+  opacity: 0;
+  animation: m-wb-fade-up 120ms calc(var(--stagger-i, 0) * 40ms) forwards;
+}
+
+/* ---- Reduced motion (docs/theme.md §5) ------------------------------------ */
+
+@media (prefers-reduced-motion: reduce) {
+  .m-wb-event,
+  .m-wb-composer-inner,
+  .m-wb-chip,
+  .m-wb-tool,
+  .m-wb-agent-btn,
+  .m-wb-choice,
+  .m-wb-linkrow {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .m-wb-event {
+    opacity: 1;
+  }
+}

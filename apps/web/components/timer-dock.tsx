@@ -28,6 +28,7 @@ import {
   sessionElapsedSecs,
   useTimer,
 } from "../lib/use-timer";
+import { requestWrapUp } from "./workbench-v2/wrap-up-bridge";
 
 type Ticket = components["schemas"]["Ticket"];
 
@@ -149,9 +150,13 @@ export function TimerDock() {
     flashTimer.current = window.setTimeout(() => setNoteState("idle"), 4000);
   }
 
-  /** Primary action: wrap up — stop the session, carrying the note. */
+  /** Primary action: wrap up. When the ticket page is mounted, hand the
+   *  request to the workbench's wrap-up sheet (stop → mint the time entry
+   *  → apply the next status); elsewhere, stop directly and carry the
+   *  note. */
   async function wrapUp() {
     if (current === null) return;
+    if (requestWrapUp({ ticketId: current.ticket_id })) return;
     setStopping(true);
     setStopError(null);
     const body = note.trim();

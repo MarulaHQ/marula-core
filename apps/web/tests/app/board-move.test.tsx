@@ -7,7 +7,10 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AuthProvider } from "../../lib/api";
-import TicketWorkspacePage from "../../app/tickets/[id]/page";
+// Wave 15 lane 7: /tickets/[id] is now Workbench v2 — these instant-layer
+// semantics (pods, tabs, close flow) live on the preserved classic
+// workspace, so the suite pins that component.
+import { TicketWorkspaceClassic } from "../../components/ticket-workspace/classic-workspace";
 import { MockApi, seedAuthTokens } from "../helpers/mock-api";
 import { __resetInstantRuntimeForTests } from "../../lib/instant/runtime";
 
@@ -145,7 +148,7 @@ describe("ticket board move", () => {
 
     render(
       <AuthProvider>
-        <TicketWorkspacePage />
+        <TicketWorkspaceClassic />
       </AuthProvider>,
     );
     expect(await screen.findByText("Broken printer", {}, { timeout: 5000 })).toBeInTheDocument();
@@ -214,7 +217,7 @@ describe("ticket board move", () => {
 
     render(
       <AuthProvider>
-        <TicketWorkspacePage />
+        <TicketWorkspaceClassic />
       </AuthProvider>,
     );
     expect(await screen.findByText("Broken printer", {}, { timeout: 5000 })).toBeInTheDocument();
@@ -251,7 +254,7 @@ describe("ticket board move", () => {
     setupApi();
     render(
       <AuthProvider>
-        <TicketWorkspacePage />
+        <TicketWorkspaceClassic />
       </AuthProvider>,
     );
     expect(await screen.findByText("Broken printer", {}, { timeout: 5000 })).toBeInTheDocument();

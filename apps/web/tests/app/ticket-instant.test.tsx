@@ -4,7 +4,10 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AuthProvider } from "../../lib/api";
-import TicketWorkspacePage from "../../app/tickets/[id]/page";
+// Wave 15 lane 7: /tickets/[id] is now Workbench v2 — these instant-layer
+// semantics (pods, tabs, close flow) live on the preserved classic
+// workspace, so the suite pins that component.
+import { TicketWorkspaceClassic } from "../../components/ticket-workspace/classic-workspace";
 import { OutboxDock } from "../../components/instant/outbox-dock";
 import { ME_FIXTURE, MockApi, seedAuthTokens } from "../helpers/mock-api";
 import { currentFetchRouter, setFetchRouter } from "../helpers/fetch-router";
@@ -156,7 +159,7 @@ function page() {
       {/* The header moved to the root layout (nav pass): the outbox dock —
           which renders the offline-queue banner this suite asserts on — now
           lives there, so the test mounts it the way the layout does. */}
-      <TicketWorkspacePage />
+      <TicketWorkspaceClassic />
       <OutboxDock />
     </AuthProvider>
   );
