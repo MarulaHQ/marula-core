@@ -51,6 +51,19 @@ most extensions; paid surface is complete feature bundles, not components) and
 
 ## Consequences
 
+- **Scope boundary (binding, clarified 2026-09-16): Tiptap goes where the storage
+  contract is Tiptap JSON — nowhere else.** KB articles (Wave 16 lane 2) are in.
+  Everything the note-taxonomy/workbar composer pattern governs is **out**: the
+  workbench-v2 floating composer (`WbComposer`), the WorkBar notes/tasks workbar,
+  timesheet/checklist textarea inputs, portal replies stay **plain textarea** — they
+  submit text lines under the one-composer rule (`docs/notes-tasks-workbar.md`),
+  ride per-line taxonomy/provenance metadata keys, and would break the per-field
+  autosave/undo if their storage silently became a rich document tree. If a
+  durable-document note need ever emerges, that is a NEW content type (a link
+  target, like ADR 0006), never a silent storage upgrade of the composer.
+  Email drafts remain plain text + typed variables; AI-assist for all these
+  surfaces rides the Wave 18 runner over the text content, not over a rich tree.
+
 - KB article storage migrates to the Tiptap-JSON canonical model; the instant-first
   autosave contract (`docs/instant-first.md` §7.2) is met unchanged (debounced
   idempotent writes already exist; the editor emits granular transactions that map to
