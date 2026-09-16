@@ -43,7 +43,7 @@
   --m-overlay-surface: var(--m-paper);
   --m-text: var(--m-ink);
   --m-text-secondary: var(--m-graphite);
-  --m-text-muted: var(--m-slate);
+  --m-text-muted: color-mix(in srgb, var(--m-graphite) 85%, var(--m-slate));
   --m-border: var(--m-fog);
   --m-border-strong: var(--m-slate);
 
@@ -117,10 +117,16 @@
   --m-surface: var(--m-surface-dark);
   --m-overlay-surface: var(--m-overlay-dark);
   --m-text: var(--m-text-dark);
-  --m-text-secondary: var(--m-mist);
-  --m-text-muted: color-mix(in srgb, var(--m-mist) 72%, var(--m-surface));
+  --m-text-secondary: color-mix(in srgb, var(--m-text-dark) 80%, var(--m-mist));
+  /* Muted = plain preset dark muted-foreground (#A3A3A3). The old
+     color-mix(mist 72%, surface) formula produced a mid-grey on the
+     blue-slate surfaces — ~3.5:1 on surface, illegible on canvas.
+     Plain mist passes AA (5.2 surface / 6.2 canvas / 4.5 on accent-soft). */
+  --m-text-muted: var(--m-mist);
   --m-border: var(--m-border-dark);
-  --m-border-strong: color-mix(in srgb, var(--m-border-dark) 70%, var(--m-text));
+  /* 60% — keeps border-strong ≥3:1 against the blue-slate canvas for
+     non-text indicators (presence dots, meters) that use it as a fill */
+  --m-border-strong: color-mix(in srgb, var(--m-border-dark) 60%, var(--m-text));
 
   /* Preset keeps primary identical in dark mode */
   --m-accent: var(--m-ember-dark);

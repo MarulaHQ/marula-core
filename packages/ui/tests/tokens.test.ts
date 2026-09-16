@@ -40,27 +40,75 @@ function parseVars(css: string): Map<string, string> {
 }
 
 /**
- * Resolve `var()` chains (up to 4 hops) against primitive definitions.
- * color-mix()/transparent values are returned as-is (excluded from WCAG math).
+ * Resolve `var()` chains (up to 4 hops) against primitive definitions, then
+ * EVALUATE color-mix(in srgb, A p%, B) into a concrete rgb() string so WCAG
+ * math can run on derived tones.
  */
 function makeResolver(blocks: Array<Map<string, string>>) {
-  return function resolve(value: string, depth = 0): string {
-    const m = value.match(/^var\((--[\w-]+)\)$/);
-    if (!m || depth > 3) {
+  function resolveMix(value: string): string {
+    // color-mix(in srgb, X p%, Y) — X/Y may be hex or var(); p may be omitted.
+    const m = value.match(
+      /^color-mix\(in srgb,\s*(var\(--[\w-]+\)|#[0-9a-fA-F]{6})(?:\s+([\d.]+)%)?,\s*(var\(--[\w-]+\)|#[0-9a-fA-F]{6}|transparent)\)$/,
+    );
+    if (!m) return value;
+    const toRgb = (token: string): [number, number, number] | null => {
+      const hex = token.match(/^#([0-9a-fA-F]{6})$/);
+      if (hex) {
+        // hex[1] excludes the '#' — offsets are 0,2,4
+        return [0, 2, 4].map((i) => parseInt(hex[1]!.slice(i, i + 2), 16)) as [
+          number,
+          number,
+          number,
+        ];
+      }
+      const v = token.match(/^var\((--[\w-]+)\)$/);
+      if (!v) return null;
+      for (const block of blocks) {
+        const next = block.get(v[1]!);
+        if (next !== undefined) return toRgb(resolve(next));
+      }
+      return null;
+    };
+    const a = toRgb(m[1]!);
+    if (!a) return value;
+    const p = m[2] !== undefined ? parseFloat(m[2]) / 100 : 0.5;
+    if (m[3] === "transparent") {
+      // Alpha over white isn't meaningful for contrast math; keep symbolic.
       return value;
     }
-    for (const block of blocks) {
-      const next = block.get(m[1]!);
-      if (next !== undefined) {
-        return resolve(next, depth + 1);
+    const b = toRgb(m[3]!);
+    if (!b) return value;
+    const out = a.map((v, i) => Math.round(v * p + b[i]! * (1 - p)));
+    return `rgb(${out[0]}, ${out[1]}, ${out[2]})`;
+  }
+  function resolve(value: string, depth = 0): string {
+    const m = value.match(/^var\((--[\w-]+)\)$/);
+    if (m && depth <= 3) {
+      for (const block of blocks) {
+        const next = block.get(m[1]!);
+        if (next !== undefined) return resolve(next, depth + 1);
       }
     }
-    return value;
-  };
+    return resolveMix(value);
+  }
+  return resolve;
 }
 
 const resolveLight = makeResolver([parseVars(rootBlock)]);
 const resolveDark = makeResolver([parseVars(rootBlock), parseVars(darkBlock)]);
+
+/** Convert a resolved color (hex or rgb()) into #RRGGBB for contrast math. */
+function toHex(c: string): string {
+  if (c.startsWith("#")) return c.toUpperCase();
+  const n = (c.match(/[\d.]+/g) ?? []).map(Number);
+  return (
+    "#" +
+    [n[0] ?? 0, n[1] ?? 0, n[2] ?? 0]
+      .map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0"))
+      .join("")
+      .toUpperCase()
+  );
+}
 
 describe("token source of truth", () => {
   it("declares every hex inside the theme.md palette", () => {
@@ -142,9 +190,38 @@ describe("WCAG contrast", () => {
       ];
       for (const fg of text) {
         for (const bg of surfaces) {
-          const ratio = contrastRatio(mode.resolve(fg), bg);
+          const ratio = contrastRatio(toHex(mode.resolve(fg)), toHex(bg));
           expect(ratio, `${fg} on ${bg}`).toBeGreaterThanOrEqual(4.5);
         }
+      }
+    });
+
+    it(`meets AA (4.5) for muted text on canvas+surface+accent-soft (${mode.label})`, () => {
+      // Regression guard: the first Tangerine pass carried the Workbench
+      // color-mix muted formula into dark mode, producing a mid-grey on the
+      // blue-slate surfaces (~1.4–3.5:1 — illegible). Muted text must pass
+      // AA everywhere it appears: canvases, surfaces, and the tangerine
+      // accent-soft hover fills used behind nav chevrons.
+      const vars = mode.label === "light" ? parseVars(rootBlock) : parseVars(darkBlock);
+      const muted = toHex(mode.resolve(vars.get("--m-text-muted")!));
+      const surface = toHex(mode.resolve(vars.get("--m-surface")!));
+      const canvas = toHex(mode.resolve(vars.get("--m-canvas")!));
+      // accent-soft: color-mix(accent N%, transparent) composited over surface
+      const softRaw = mode.resolve(vars.get("--m-accent-soft")!);
+      const accent = toHex(mode.resolve(vars.get("--m-accent")!));
+      const pct = softRaw.match(/([\d.]+)%,\s*transparent/);
+      const a = pct ? parseFloat(pct[1]!) / 100 : 0.1;
+      const composite = [1, 3, 5]
+        .map((i) => parseInt(accent.slice(i, i + 2), 16))
+        .map((av, i) => {
+          const sv = parseInt(surface.slice(1 + i * 2, 3 + i * 2), 16);
+          return Math.round(av * a + sv * (1 - a));
+        });
+      const softBg =
+        "#" + composite.map((v) => v.toString(16).padStart(2, "0")).join("").toUpperCase();
+      for (const bg of [canvas, surface, softBg]) {
+        const ratio = contrastRatio(muted, bg);
+        expect(ratio, `muted ${muted} on ${bg}`).toBeGreaterThanOrEqual(4.5);
       }
     });
   }
