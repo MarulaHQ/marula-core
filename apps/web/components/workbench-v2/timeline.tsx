@@ -250,7 +250,7 @@ export function WbTimeline({ ticketId, comments, attachments, namesByUser }: WbT
   let lastDay: string | null = null;
 
   return (
-    <section aria-label="Ticket activity" data-testid="wb-timeline">
+    <section aria-label="Ticket activity" data-testid="wb-timeline" className="">
       <div className="mb-3 flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter activity">
         {FILTERS.map((f) => {
           const active = filter === f.value;

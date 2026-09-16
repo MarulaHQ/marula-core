@@ -17,6 +17,7 @@ import type { components } from "@meridian/sdk";
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 
+import { keywordsOf } from "./agent-panel";
 import { api } from "../../lib/api";
 
 type Client = components["schemas"]["Client"];
@@ -26,6 +27,15 @@ type Contract = components["schemas"]["Contract"];
 type TicketSlaStatus = components["schemas"]["TicketSlaStatus"];
 type KbArticle = components["schemas"]["KbArticle"];
 type Ticket = components["schemas"]["Ticket"];
+
+/**
+ * Anti-hang guard for a fetch promise: if it never settles (a hung route
+ * mock, a wedged proxy), resolve to the empty fallback after 5s so the
+ * panel shows a typed state instead of a forever "Loading…".
+ */
+function neverHang<T>(p: Promise<T>, empty: T): Promise<T> {
+  return Promise.race([p, new Promise<T>((rl) => setTimeout(() => rl(empty), 5000))]);
+}
 
 function SectionHead({ label, action }: { label: string; action?: ReactNode }): ReactNode {
   return (
@@ -91,11 +101,13 @@ export interface WbContextPanelProps {
   contactId: string | null;
   ticketId: string;
   ticketNumber: string;
+  /** Ticket title — drives the shared search for Related Tickets. */
+  ticketTitle: string;
   open: boolean;
   onClose(): void;
 }
 
-export function WbContextPanel({ clientId, contactId, ticketId, ticketNumber, open, onClose }: WbContextPanelProps): ReactNode {
+export function WbContextPanel({ clientId, contactId, ticketId, ticketNumber, ticketTitle, open, onClose }: WbContextPanelProps): ReactNode {
   const [client, setClient] = useState<Client | null>(null);
   const [clientLoaded, setClientLoaded] = useState(false);
   const [contact, setContact] = useState<Contact | null>(null);
@@ -117,19 +129,31 @@ export function WbContextPanel({ clientId, contactId, ticketId, ticketNumber, op
       return;
     }
     void (async () => {
-      const [c, contacts, contracts] = await Promise.all([
-        api.api.GET("/api/v1/clients/{id}", { params: { path: { id: clientId } } }),
-        api.api.GET("/api/v1/clients/{id}/contacts", { params: { path: { id: clientId } } }),
-        api.api.GET("/api/v1/contracts", { params: { query: { client_id: clientId, status: "active" } } }),
-      ]);
-      if (cancelled) return;
-      setClient(c.data ?? null);
-      setClientLoaded(true);
-      const match = contactId !== null ? (contacts.data ?? []).find((x) => x.id === contactId) : undefined;
-      setContact(match ?? (contacts.data ?? []).find((x) => x.is_primary) ?? (contacts.data ?? [])[0] ?? null);
-      setContract((contracts.data ?? [])[0] ?? null);
-      const a = await api.api.GET("/api/v1/assets", { params: { query: { client_id: clientId } } });
-      if (!cancelled) setAssets(a.data ?? []);
+      try {
+        const [c, contacts, contracts] = await Promise.all([
+          api.api.GET("/api/v1/clients/{id}", { params: { path: { id: clientId } } }),
+          api.api.GET("/api/v1/clients/{id}/contacts", { params: { path: { id: clientId } } }),
+          api.api.GET("/api/v1/contracts", { params: { query: { client_id: clientId, status: "active" } } }),
+        ]);
+        if (cancelled) return;
+        setClient(c.data ?? null);
+        setClientLoaded(true);
+        const match = contactId !== null ? (contacts.data ?? []).find((x) => x.id === contactId) : undefined;
+        setContact(match ?? (contacts.data ?? []).find((x) => x.is_primary) ?? (contacts.data ?? [])[0] ?? null);
+        setContract((contracts.data ?? [])[0] ?? null);
+      } catch {
+        // Fetch failure resolves each section to its typed gap.
+        if (cancelled) return;
+        setClient(null);
+        setClientLoaded(true);
+        setContract(null);
+      }
+      try {
+        const a = await api.api.GET("/api/v1/assets", { params: { query: { client_id: clientId } } });
+        if (!cancelled) setAssets(a.data ?? []);
+      } catch {
+        if (!cancelled) setAssets([]);
+      }
     })();
     return () => {
       cancelled = true;
@@ -138,9 +162,11 @@ export function WbContextPanel({ clientId, contactId, ticketId, ticketNumber, op
 
   useEffect(() => {
     let cancelled = false;
-    void api.api
-      .GET("/api/v1/tickets/{id}/sla", { params: { path: { id: ticketId } } })
-      .then(({ data }) => {
+    void neverHang(
+      api.api
+        .GET("/api/v1/tickets/{id}/sla", { params: { path: { id: ticketId } } }),
+      { data: null } as never,
+    ).then(({ data }) => {
         if (!cancelled) setSla(data ?? null);
       })
       .catch(() => undefined);
@@ -154,32 +180,48 @@ export function WbContextPanel({ clientId, contactId, ticketId, ticketNumber, op
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const { data } = await api.api.GET("/api/v1/kb/articles", {
-        params: { query: { status: "published" } },
-      });
-      if (!cancelled) setArticles((data ?? []).slice(0, 3));
+      try {
+        const { data } = await api.api.GET("/api/v1/kb/articles", {
+          params: { query: { status: "published" } },
+        });
+        if (!cancelled) setArticles((data ?? []).slice(0, 3));
+      } catch {
+        // A failed KB read resolves to the honest empty state — never a
+        // stuck Loading row.
+        if (!cancelled) setArticles([]);
+      }
     })();
     return () => {
       cancelled = true;
     };
   }, [ticketId, ticketNumber]);
 
-  // Related tickets: same client, same board, most recent, excluding this one.
+  // Related tickets: SAME source as the Agent panel — the unified search
+  // over this ticket's title words (ticket-kind hits) — so the two panels
+  // never disagree. 5s race keeps the section loading-proof.
   useEffect(() => {
     let cancelled = false;
-    if (clientId === null) {
+    const q = keywordsOf(ticketTitle);
+    if (q === "") {
       setRelated([]);
       return;
     }
-    void api.api
-      .GET("/api/v1/tickets", { params: { query: { client_id: clientId, limit: 25 } } })
-      .then(({ data }) => {
-        if (!cancelled) setRelated((data ?? []).filter((t) => t.id !== ticketId).slice(0, 3));
-      })
-      .catch(() => undefined);    return () => {
+    void neverHang(
+      api.api
+        .GET("/api/v1/search", { params: { query: { q, limit: 10 } } })
+        .then(({ data }) => {
+          if (!cancelled) {
+            setRelated((data?.results ?? []).filter((r) => r.entity_kind === "ticket" && r.entity_id !== ticketId).slice(0, 3) as unknown as Ticket[]);
+          }
+        }),
+      undefined,
+    ).catch(() => {
+      if (!cancelled) setRelated([]);
+    });
+    return () => {
       cancelled = true;
     };
-  }, [clientId, ticketId]);
+  }, [ticketId, ticketTitle]);
 
   const slaReadout = slaText(sla);
 

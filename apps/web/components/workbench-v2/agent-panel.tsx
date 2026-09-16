@@ -33,8 +33,9 @@ interface ChatLine {
   text: string;
 }
 
-function keywordsOf(title: string): string {
-  const stop = new Set(["the", "a", "an", "and", "or", "of", "to", "in", "on", "for", "with", "is", "not", "every", "keeps", "keeps"]);
+/** Title words worth searching by (shared with the Related tab). */
+export function keywordsOf(title: string): string {
+  const stop = new Set(["the", "a", "an", "and", "or", "of", "to", "in", "on", "for", "with", "is", "not", "every", "keeps"]);
   const words = title
     .toLowerCase()
     .split(/[^a-z0-9]+/)
@@ -60,6 +61,12 @@ export function WbAgentPanel({ ticket, comments, namesByUser, open, onClose, onD
   const [chatDraft, setChatDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const chatLogRef = useRef<HTMLDivElement | null>(null);
+
+  // Keep the latest reply in view (chat log scrolls with the panel).
+  const bumpLog = () => {
+    requestAnimationFrame(() => chatLogRef.current?.scrollIntoView({ block: "nearest" }));
+  };
 
   const load = useCallback(async () => {
     const q = keywordsOf(ticket.title);
@@ -112,6 +119,7 @@ export function WbAgentPanel({ ticket, comments, namesByUser, open, onClose, onD
 
   const respond = (text: string) => {
     setChat((prev) => [...prev, { id: `c-${Date.now()}-a`, role: "agent", text }]);
+    bumpLog();
   };
 
   async function submitChat() {
@@ -124,6 +132,22 @@ export function WbAgentPanel({ ticket, comments, namesByUser, open, onClose, onD
       const lower = text.toLowerCase();
       if (lower.includes("summar") || lower.includes("summary")) {
         respond(summarise());
+      } else if (lower.includes("likely") || lower.includes("cause")) {
+        // Likely-cause answer is derived from REAL agent + KB surfaces;
+        // when neither files anything, answer with the typed gap.
+        if (pending?.rationale != null) {
+          respond(`Most likely cause (agent triage, skill ${pending.skill_slug ?? "triage"}):\n${pending.rationale}`);
+        } else if (articles !== null && articles[0] !== undefined) {
+          respond(`No agent triage is filed yet, but the top knowledge source points here:\n“${articles[0].title}”`);
+        } else {
+          respond("Not available yet — no agent triage proposal or matching KB article exists for this ticket. The panel lights up when either lands.");
+        }
+      } else if (lower.includes("fix") || lower.includes("resolve") || lower.includes("how do i")) {
+        if (articles !== null && articles[0] !== undefined) {
+          respond(`Start from the published runbook:\n“${articles[0].title}” — open it via View evidence or the knowledge sources above.`);
+        } else {
+          respond("Not available yet — no matching runbook in the KB or filed agent proposal for this ticket.");
+        }
       } else if (lower.includes("related") || lower.includes("similar")) {
         if (hits !== null && hits.length > 0) {
           respond(`Related tickets from search:\n${hits.map((h) => `• ${h.title} (${h.snippet.slice(0, 80)}…)`).join("\n")}`);
@@ -319,14 +343,17 @@ export function WbAgentPanel({ ticket, comments, namesByUser, open, onClose, onD
             Chat with agent
           </div>
           {chat.length > 0 && (
-            <div className="mb-2 grid gap-1.5" data-testid="wb-agent-chat-log">
+            <div className="mb-2 grid gap-1.5" data-testid="wb-agent-chat-log" ref={chatLogRef}>
               {chat.map((line) => (
                 <div
                   key={line.id}
                   className="whitespace-pre-wrap rounded-lg border p-2 text-[10.5px]"
                   style={{
-                    borderColor: line.role === "you" ? "var(--m-border)" : "var(--m-accent-muted)",
-                    background: line.role === "you" ? "var(--m-surface)" : "var(--m-accent-soft)",
+                    borderColor: line.role === "you" ? "var(--m-border)" : "color-mix(in srgb, var(--m-chart-1) 35%, var(--m-border))",
+                    background:
+                      line.role === "you"
+                        ? "var(--m-surface)"
+                        : "color-mix(in srgb, var(--m-chart-1) 12%, var(--m-surface))",
                     color: "var(--m-text-secondary)",
                   }}
                 >
@@ -366,8 +393,10 @@ export function WbAgentPanel({ ticket, comments, namesByUser, open, onClose, onD
           </div>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {([
-              ["Summarise this ticket", "Summarise this ticket"],
+              ["What's the likely cause?", "What's the likely cause?"],
+              ["How do I fix this?", "How do I fix this?"],
               ["Find related tickets", "Find related tickets"],
+              ["Summarise this ticket", "Summarise this ticket"],
             ] as const).map(([label, fill]) => (
               <button
                 key={label}

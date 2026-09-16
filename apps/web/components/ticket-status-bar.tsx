@@ -154,12 +154,12 @@ export function TicketStatusBar({
           background: `var(--m-status-${tone === "success" ? "success" : tone === "warning" ? "warning" : "neutral"}-fg)`,
         }}
       />
-      <span className="font-mono text-xs" style={{ color: "var(--m-text-muted)" }}>
+      <span className="shrink-0 whitespace-nowrap font-mono text-xs" style={{ color: "var(--m-text-muted)" }}>
         {number}
       </span>
       <span
         data-testid="ticket-status-text"
-        className="truncate text-xs font-medium"
+        className="min-w-0 truncate text-xs font-medium"
         style={{ color: `var(--m-status-${tone === "success" ? "success" : tone === "warning" ? "warning" : "neutral"}-fg)` }}
       >
         {current?.name ?? "Unknown status"}

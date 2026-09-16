@@ -53,6 +53,7 @@ import {
 } from "../../../components/ticket-workspace/move-board";
 import { TasksPanel } from "../../../components/ticket-workspace/tasks-panel";
 import { TicketStatusBar } from "../../../components/ticket-status-bar";
+import { keywordsOf } from "../../../components/workbench-v2/agent-panel";
 import { WbTimeline } from "../../../components/workbench-v2/timeline";
 import { WbContextPanel } from "../../../components/workbench-v2/context-panel";
 import { WbAgentPanel } from "../../../components/workbench-v2/agent-panel";
@@ -189,11 +190,47 @@ export default function TicketWorkbenchPage() {
       .then(({ data }) => {
         if (!cancelled) setContactName((data ?? []).find((c) => c.id === contactId)?.name ?? null);
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (!cancelled) setContactName(null);
+      });
     return () => {
       cancelled = true;
     };
   }, [clientId, contactId]);
+
+  // Related tickets (F-1 fix): the unified search over this ticket's title
+  // words, ticket-kind hits only. Failures resolve to the typed empty
+  // state — the tab never hangs in Loading.
+  const [relatedTickets, setRelatedTickets] = useState<components["schemas"]["SearchResult"][]>([]);
+  const [relatedLoading, setRelatedLoading] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    setRelatedLoading(true);
+    const q = keywordsOf(ticket?.title ?? "");
+    if (q === "") {
+      setRelatedTickets([]);
+      setRelatedLoading(false);
+      return;
+    }
+    void api.api
+      .GET("/api/v1/search", { params: { query: { q, limit: 10 } } })
+      .then(({ data }) => {
+        if (cancelled) return;
+        setRelatedTickets(
+          (data?.results ?? []).filter((r) => r.entity_kind === "ticket" && r.entity_id !== ticket?.id).slice(0, 5),
+        );
+        setRelatedLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRelatedTickets([]);
+          setRelatedLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ticket?.id, ticket?.title]);
 
   // Panel visibility: the context panel collapses as the view narrows —
   // persistent ≥1280px, drawer 1024–1279px, hidden below 1024px (the
@@ -207,7 +244,10 @@ export default function TicketWorkbenchPage() {
       const w = window.innerWidth;
       setNarrow(w < 1024);
       setMidWidth(w >= 1024 && w < 1280);
-      if (w < 1024) setContextOpen(false);
+      // Width-driven defaults: the context panel is persistent ≥1280px,
+      // a toggleable DRAWER 1024–1279px, and overlay-only below 1024px —
+      // never persistently visible in narrow layouts (binding constraint).
+      setContextOpen(w >= 1280);
     };
     update();
     window.addEventListener("resize", update);
@@ -548,8 +588,13 @@ export default function TicketWorkbenchPage() {
   const statusTone =
     current?.category === "closed" ? "success" : current?.category === "waiting" ? "warning" : "neutral";
   const slaMeta = slaMetaText(sla);
-  const showContext = contextOpen && !narrow;
+  // At mid widths (1024–1279) both side panels would leave too little
+  // center — the Agent panel keeps persistence, Context moves to a
+  // toggleable drawer, and the header actions collapse to icons so the
+  // pill row stays single-line.
+  const showContext = contextOpen && !narrow && !midWidth;
   const showAgent = agentOpen && !narrow;
+  const iconOnlyActions = narrow || midWidth;
 
   const renderCenter = (): ReactNode => {
     if (ticket === null) {
@@ -566,7 +611,7 @@ export default function TicketWorkbenchPage() {
       );
     }
     return (
-      <div className="m-wb-center flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="m-wb-center relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {/* Top color+text status bar (standing constraint) — transitions
             happen FROM the bar, popover grouped by semantic category. */}
         <TicketStatusBar
@@ -582,18 +627,22 @@ export default function TicketWorkbenchPage() {
 
         {/* Header */}
         <div className="shrink-0 border-b px-5 pb-3 pt-3" style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}>
-          <div className="flex items-center">
-            <div className="flex items-center gap-1.5 text-[11px]" style={{ color: "var(--m-text-muted)" }} data-testid="wb-breadcrumbs">
+          <div className="flex items-center gap-3">
+            <div
+              className="flex min-w-0 items-center gap-1.5 whitespace-nowrap text-[11px]"
+              style={{ color: "var(--m-text-muted)" }}
+              data-testid="wb-breadcrumbs"
+            >
               <Link href="/tickets" className="no-underline" style={{ color: "var(--m-text-muted)" }}>‹ Tickets</Link>
               <span>/</span>
               <strong className="font-mono" style={{ color: "var(--m-text-secondary)" }}>{ticket.number}</strong>
             </div>
-            <div className="ml-auto flex gap-1.5">
+            <div className="ml-auto flex flex-wrap justify-end gap-1.5">
               <Link
                 href={`/tickets/classic/${ticket.id}`}
                 data-testid="wb-open-classic"
+                title={iconOnlyActions ? "Classic workspace" : "Open the preserved classic workspace for comparison"}
                 className="no-underline"
-                title="Open the preserved classic workspace for comparison"
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
@@ -605,13 +654,14 @@ export default function TicketWorkbenchPage() {
                   color: "var(--m-text-secondary)",
                   fontWeight: 600,
                   fontSize: 12,
+                  whiteSpace: "nowrap",
                 }}
               >
-                Classic
+                {iconOnlyActions ? "◫" : "Classic"}
               </Link>
               <button
                 type="button"
-                className="flex h-[30px] cursor-pointer items-center rounded-lg border px-2.5 text-[12px] font-semibold"
+                className="flex h-[30px] shrink-0 cursor-pointer items-center whitespace-nowrap rounded-lg border px-2.5 text-[12px] font-semibold"
                 style={{ borderColor: "var(--m-border)", background: "var(--m-surface)", color: "var(--m-text-secondary)" }}
                 title="More actions"
               >
@@ -619,7 +669,7 @@ export default function TicketWorkbenchPage() {
               </button>
               <button
                 type="button"
-                className="flex h-[30px] cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-semibold"
+                className="flex h-[30px] shrink-0 cursor-pointer items-center whitespace-nowrap rounded-lg border px-2.5 text-[12px] font-semibold"
                 style={{ borderColor: "var(--m-border)", background: "var(--m-surface)", color: "var(--m-text-secondary)" }}
                 onClick={() => {
                   void navigator.clipboard?.writeText(`${window.location.origin}/tickets/${ticket.id}`);
@@ -627,12 +677,12 @@ export default function TicketWorkbenchPage() {
                 }}
                 title="Copy a link to this ticket"
               >
-                ↗ Link
+                {iconOnlyActions ? "↗" : "↗ Link"}
               </button>
               <button
                 type="button"
                 disabled={isMerged}
-                className="flex h-[30px] cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-semibold disabled:cursor-not-allowed"
+                className="flex h-[30px] shrink-0 cursor-pointer items-center whitespace-nowrap rounded-lg border px-2.5 text-[12px] font-semibold disabled:cursor-not-allowed"
                 style={{ borderColor: "var(--m-border)", background: "var(--m-surface)", color: isMerged ? "var(--m-text-muted)" : "var(--m-text-secondary)" }}
                 title="Escalate: move to the escalation board through the board-move flow"
                 onClick={() => {
@@ -640,21 +690,28 @@ export default function TicketWorkbenchPage() {
                   else setError("Moving a ticket to another board requires ticket edit permission.");
                 }}
               >
-                ✦ Escalate
+                {iconOnlyActions ? "✦" : "✦ Escalate"}
               </button>
               <button
                 type="button"
                 data-testid="wb-close-ticket"
                 disabled={isMerged}
                 onClick={() => setWrapUpOpen(true)}
-                className="flex h-[30px] cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-semibold disabled:cursor-not-allowed"
+                className="flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 leading-none text-[12px] font-semibold disabled:cursor-not-allowed"
                 style={{
                   borderColor: "var(--m-accent)",
                   background: isMerged ? "var(--m-accent-muted)" : "var(--m-accent)",
                   color: "var(--m-on-accent)",
                 }}
               >
-                ◉ Close
+                <span
+                  aria-hidden
+                  className="grid h-[13px] w-[13px] place-items-center rounded-full"
+                  style={{ border: "1.5px solid currentColor" }}
+                >
+                  <span className="h-[5px] w-[5px] rounded-full" style={{ background: "currentColor" }} />
+                </span>
+                Close
               </button>
             </div>
           </div>
@@ -725,8 +782,14 @@ export default function TicketWorkbenchPage() {
           })}
         </div>
 
-        {/* Tab panels */}
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-3.5" data-testid={`detail-panel-${activeTab}`}>
+        {/* Tab panels — the floating composer overlays the bottom edge
+            (mockup grammar), so every panel keeps a composer-height
+            clearance before its content ends. */}
+        <div
+          className="min-h-0 flex-1 overflow-y-auto px-5 pt-3.5"
+          style={{ paddingBottom: 176 }}
+          data-testid={`detail-panel-${activeTab}`}
+        >
           {activeTab === "activity" && (
             <WbTimeline
               ticketId={ticket.id}
@@ -736,7 +799,7 @@ export default function TicketWorkbenchPage() {
             />
           )}
           {activeTab === "details" && (
-            <div className="grid content-start gap-4 pb-40">
+            <div className="grid content-start gap-4">
               <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
                 <dt style={{ color: "var(--m-text-muted)" }}>Priority</dt>
                 <dd className="uppercase">{ticket.priority}</dd>
@@ -769,23 +832,45 @@ export default function TicketWorkbenchPage() {
             </div>
           )}
           {activeTab === "related" && (
-            <div className="grid content-start gap-2 pb-40">
-              <h2 className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>Attachments</h2>
-              {(model?.attachments ?? []).length === 0 ? (
-                <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>No attachments.</p>
+            <div className="grid content-start gap-2">
+              <h2 className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
+                Related tickets
+              </h2>
+              <p className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+                Tickets sharing this one&apos;s words, from the unified search.
+              </p>
+              {relatedLoading ? (
+                <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>Searching…</p>
+              ) : relatedTickets.length === 0 ? (
+                <p className="text-xs" data-testid="wb-related-empty" style={{ color: "var(--m-text-muted)" }}>
+                  No related tickets found for this ticket&apos;s words.
+                </p>
               ) : (
-                <div className="flex flex-wrap gap-1.5">
-                  {(model?.attachments ?? []).map((a) => (
-                    <span key={a.id} className="text-xs" style={{ color: "var(--m-text-secondary)" }}>
-                      {a.filename} ({Math.max(1, Math.round(a.size_bytes / 1024))} KB)
+                relatedTickets.map((h) => (
+                  <Link
+                    key={h.entity_id}
+                    href={`/tickets/${h.entity_id}`}
+                    className="block overflow-hidden rounded-lg border p-2.5 no-underline"
+                    style={{ borderColor: "var(--m-border)", background: "var(--m-bg-subtle)" }}
+                  >
+                    <strong className="block text-xs" style={{ color: "var(--m-text)" }}>{h.title}</strong>
+                    <span className="mt-0.5 block line-clamp-2 text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+                      {h.snippet}
                     </span>
-                  ))}
-                </div>
+                  </Link>
+                ))
               )}
+              <p className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+                Merge, supersede and link trees are managed in the{" "}
+                <Link href={`/tickets/classic/${ticket.id}`} className="underline" style={{ color: "var(--m-accent)" }}>
+                  classic workspace
+                </Link>{" "}
+                Related tab.
+              </p>
             </div>
           )}
           {activeTab === "time" && (
-            <div className="pb-40">
+            <div>
               <WbTimeline
                 ticketId={ticket.id}
                 comments={[]}
@@ -798,7 +883,7 @@ export default function TicketWorkbenchPage() {
             </div>
           )}
           {activeTab === "files" && (
-            <div className="grid content-start gap-2 pb-40">
+            <div className="grid content-start gap-2">
               {(model?.attachments ?? []).length === 0 ? (
                 <p className="text-xs" data-testid="wb-files-empty" style={{ color: "var(--m-text-muted)" }}>
                   No files on this ticket yet — attach through the composer.
@@ -816,7 +901,7 @@ export default function TicketWorkbenchPage() {
             </div>
           )}
           {activeTab === "notes" && (
-            <div className="grid content-start gap-2 pb-40">
+            <div className="grid content-start gap-2">
               {(model?.comments ?? []).length === 0 ? (
                 <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>No notes yet.</p>
               ) : (
@@ -865,6 +950,7 @@ export default function TicketWorkbenchPage() {
           contactId={ticket?.contact_id ?? null}
           ticketId={ticketId}
           ticketNumber={ticket?.number ?? ""}
+          ticketTitle={ticket?.title ?? ""}
           open={showContext}
           onClose={() => setContextOpen(false)}
         />
@@ -872,7 +958,7 @@ export default function TicketWorkbenchPage() {
 
       {/* Center */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {narrow && (
+        {(narrow || midWidth) && (
           <div className="flex shrink-0 items-center gap-2 border-b px-3 py-1.5" style={{ borderColor: "var(--m-border)" }}>
             <button
               type="button"
@@ -909,8 +995,8 @@ export default function TicketWorkbenchPage() {
         />
       )}
 
-      {/* Narrow overlays */}
-      {narrow && contextOpen && (
+      {/* Drawer overlays (narrow + mid widths) */}
+      {(narrow || midWidth) && contextOpen && !showContext && (
         <div className="fixed inset-0 z-40 flex" style={{ background: "var(--m-scrim)" }} onClick={() => setContextOpen(false)}>
           <div className="h-full" style={{ width: 300, background: "var(--m-surface)" }} onClick={(e) => e.stopPropagation()}>
             <WbContextPanel
@@ -918,6 +1004,7 @@ export default function TicketWorkbenchPage() {
               contactId={ticket?.contact_id ?? null}
               ticketId={ticketId}
               ticketNumber={ticket?.number ?? ""}
+          ticketTitle={ticket?.title ?? ""}
               open
               onClose={() => setContextOpen(false)}
             />

@@ -1,10 +1,13 @@
-// NavRail — the left icon rail (Wave 15 lane 6, mockup paradigm).
+// NavRail — the left navigation (Wave 15 lane 6, mockup paradigm; expand
+// behavior amended in lane 7).
 //
-// Purpose: the app shell's primary navigation as a slim dark icon rail:
+// Purpose: the app shell's primary navigation as a slim dark rail:
 // Tickets (active state + open-count badge), Clients, Devices, Automation,
-// Knowledge, Reports, Settings — plus a bottom collapse handle. Hover or
-// focus opens a flyout panel with the section's pages (every href keeps its
-// existing path); keyboard access rides normal link focus + Escape.
+// Knowledge, Reports, Settings — plus a bottom collapse toggle. COLLAPSED
+// shows icons only; EXPANDED shows icons and titles (sidebar-style rows).
+// Hover or focus opens a flyout panel with the section's sub-pages (every
+// href keeps its existing path) in BOTH states; keyboard access rides
+// normal link focus + Escape.
 //
 // Non-purpose: no route state beyond the URL; collapse persistence and the
 // open-count badge fetch live in app-shell.tsx.
@@ -107,7 +110,9 @@ function CollapseIcon({ collapsed }: { collapsed: boolean }) {
       viewBox="0 0 14 14"
       fill="none"
       style={{
-        transform: collapsed ? "rotate(180deg)" : "none",
+        // Collapsed: chevron points outward (→) — the affordance invites
+        // expanding. Expanded: points inward (←) to collapse.
+        transform: collapsed ? "none" : "rotate(180deg)",
         transition: "transform 120ms ease",
       }}
     >
@@ -180,7 +185,7 @@ export function NavRail({
         data-collapsed={collapsed}
         className="relative z-40 flex shrink-0 flex-col items-center justify-between border-r py-2 transition-none"
         style={{
-          width: collapsed ? 36 : 56,
+          width: collapsed ? 36 : 188,
           background: "var(--m-overlay-dark)",
           borderColor: "var(--m-border-dark)",
         }}
@@ -193,7 +198,7 @@ export function NavRail({
             return (
               <div
                 key={section.id}
-                className="m-rail-item-wrap relative flex w-full justify-center"
+                className={`m-rail-item-wrap relative flex w-full ${collapsed ? "justify-center" : "justify-start px-1.5"}`}
                 style={{ "--stagger-i": Math.min(index, 7) } as React.CSSProperties}
                 onMouseEnter={() => cancelClose(section.id)}
                 onMouseLeave={scheduleClose}
@@ -208,13 +213,23 @@ export function NavRail({
                       data-testid={`rail-${section.id}`}
                       onFocus={() => cancelClose(section.id)}
                       onClick={() => setOpenSection(null)}
-                      className="m-rail-item relative flex h-9 w-9 items-center justify-center rounded-lg no-underline"
+                      className={`m-rail-item relative flex h-9 ${collapsed ? "w-9 justify-center" : "min-w-0 flex-1 items-center gap-2.5 px-1.5"} rounded-lg no-underline`}
                       style={{
                         color: sectionActive ? "var(--m-text-dark)" : "var(--m-mist)",
                         background: sectionActive ? RAIL_ACTIVE_BG : "transparent",
                       }}
                     >
-                      <Icon />
+                      <span className="grid shrink-0 place-items-center">
+                        <Icon />
+                      </span>
+                      {!collapsed && (
+                        <span
+                          className="min-w-0 truncate text-[12.5px] font-medium"
+                          data-testid={`rail-${section.id}-label`}
+                        >
+                          {section.label}
+                        </span>
+                      )}
                       {section.id === "tickets" && openCount !== null && openCount > 0 && (
                         <span
                           data-testid="rail-tickets-badge"
@@ -275,23 +290,28 @@ export function NavRail({
           })}
         </div>
 
-        <Tooltip
-          trigger={
-            <button
-              type="button"
-              data-testid="rail-collapse"
-              aria-label={collapsed ? "Expand rail" : "Collapse rail"}
-              aria-pressed={collapsed}
-              onClick={onToggleCollapsed}
-              className="m-rail-item flex h-8 w-8 items-center justify-center rounded-lg border-0 bg-transparent"
-              style={{ color: "var(--m-mist)" }}
-            >
-              <CollapseIcon collapsed={collapsed} />
-            </button>
-          }
-        >
-          {collapsed ? "Expand rail" : "Collapse rail"}
-        </Tooltip>
+        <div className={`flex w-full ${collapsed ? "justify-center" : "px-1.5"}`}>
+          <Tooltip
+            trigger={
+              <button
+                type="button"
+                data-testid="rail-collapse"
+                aria-label={collapsed ? "Expand rail" : "Collapse rail"}
+                aria-pressed={collapsed}
+                onClick={onToggleCollapsed}
+                className={`m-rail-item flex h-8 ${collapsed ? "w-8 justify-center" : "min-w-0 flex-1 items-center gap-2 px-1"} items-center rounded-lg border-0 bg-transparent`}
+                style={{ color: "var(--m-mist)" }}
+              >
+                <CollapseIcon collapsed={collapsed} />
+                {!collapsed && (
+                  <span className="truncate text-[12px] font-medium">Collapse</span>
+                )}
+              </button>
+            }
+          >
+            {collapsed ? "Expand rail" : "Collapse rail"}
+          </Tooltip>
+        </div>
       </nav>
     </TooltipProvider>
   );

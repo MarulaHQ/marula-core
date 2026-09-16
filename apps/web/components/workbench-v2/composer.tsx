@@ -117,7 +117,15 @@ export function WbComposer({ ticketId, disabled, busy, draftRef, onPost }: WbCom
   }
 
   return (
-    <div className="m-wb-composer pointer-events-none sticky bottom-0 z-20 px-4 pb-3">
+    <div className="m-wb-composer pointer-events-none relative z-20 px-4 pb-3">
+      {/* Boundary fade: rows crossing the scroll edge melt into the composer
+          band (mockup's floating-composer grammar; transform/opacity-only
+          static gradient — no layout animation). */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 -top-5 h-5"
+        style={{ background: "linear-gradient(to bottom, color-mix(in srgb, var(--m-canvas) 0%, transparent), var(--m-canvas))" }}
+      />
       <div
         className="m-wb-composer-inner pointer-events-auto overflow-hidden rounded-[10px] border"
         style={{
