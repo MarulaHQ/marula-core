@@ -2069,6 +2069,7 @@ async fn commit_insert(
                 &article.title,
                 &article.slug,
                 article.body.as_deref().unwrap_or_default(),
+                None, // imports carry plain/markdown text; 0077 wrap-on-write applies only to editor writes
                 article.status.unwrap_or(KbArticleStatus::Draft),
                 article.client_visible,
                 ctx.user_id,
@@ -2372,6 +2373,9 @@ async fn commit_update(
                 &core_db::kb::ArticlePatch {
                     title: Some(article.title.clone()),
                     body: Some(article.body.clone().unwrap_or_default()),
+                    // Importer rows are plain text (D5); rich content
+                    // stays NULL until the editor path writes it.
+                    content_jsonb: None,
                     // Parent links are identity, never content drift.
                     category_id: None,
                     status: Some(article.status.unwrap_or(KbArticleStatus::Draft)),

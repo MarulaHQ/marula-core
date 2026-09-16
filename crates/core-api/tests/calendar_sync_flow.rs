@@ -195,7 +195,7 @@ async fn inbound_busy_time_gates_booking_like_portal_bookings() {
 
     // The fixture server's ICS: one busy event Monday 11:00–13:00 UTC.
     let uid = "evt-busy-1@external.test";
-    let (addr, ics_tx) = spawn_ics_server(fixture_ics(&day, uid, 11, 13, "External busy")).await;
+    let (addr, _ics_tx) = spawn_ics_server(fixture_ics(&day, uid, 11, 13, "External busy")).await;
 
     // Create a two-way connection pointing at the fixture.
     let created: Value = body_json(
@@ -375,7 +375,7 @@ async fn inbound_busy_time_gates_booking_like_portal_bookings() {
     let bad = send(
         &app,
         axum::http::Method::GET,
-        &format!("/api/calendar-sync/feed/deadbeef"),
+        "/api/calendar-sync/feed/deadbeef",
         None,
         None,
     )

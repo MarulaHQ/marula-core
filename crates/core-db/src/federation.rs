@@ -144,6 +144,10 @@ pub struct IdpIdentity<'a> {
 /// Creates the admin-explicit link for a bundle source identity. A
 /// duplicate (source_kind, source_id, subject) is the typed
 /// `federation_link_taken` conflict, never a silent rebind.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "identity-bound columns stay explicit at the seam; a builder here would hide the constraint ordering"
+)]
 pub async fn create_link<'e, E>(
     executor: E,
     id: Uuid,

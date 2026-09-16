@@ -546,7 +546,7 @@ pub async fn create_connection(
         core_db::calendar_sync::create_connection(&mut *tx.tx, &connection_for_tx).await?;
         if let Some(token) = &feed_token {
             core_db::calendar_sync::set_feed_token(
-                &mut *tx.tx,
+                &mut tx.tx,
                 org_id,
                 connection_for_tx.id,
                 &hash_token(token),
@@ -611,7 +611,7 @@ pub async fn update_connection(
         }
     }
     let updated = org_tx::with_org_tx(&state, org_id, actor, |mut tx| async move {
-        let existing = core_db::calendar_sync::get_connection(&mut *tx.tx, org_id, id).await?;
+        let existing = core_db::calendar_sync::get_connection(&mut tx.tx, org_id, id).await?;
         if existing.user_id != authed.principal.user.id && !authed.principal.is_owner_or_admin() {
             return Err(ApiError::Forbidden(
                 "calendar-sync writes for another user require owner or admin".into(),
@@ -625,7 +625,7 @@ pub async fn update_connection(
             .filter(|u| !u.is_empty());
         let status = status.or(None);
         core_db::calendar_sync::update_connection(
-            &mut *tx.tx,
+            &mut tx.tx,
             org_id,
             id,
             name,
@@ -635,7 +635,7 @@ pub async fn update_connection(
         )
         .await?;
         // Re-validate the composite (direction ↔ feed_url).
-        let updated = core_db::calendar_sync::get_connection(&mut *tx.tx, org_id, id).await?;
+        let updated = core_db::calendar_sync::get_connection(&mut tx.tx, org_id, id).await?;
         updated.validate().map_err(ApiError::from)?;
         tx.emit(
             core_domain::events::types::CALENDAR_SYNC_CONNECTION_UPDATED,
@@ -675,13 +675,13 @@ pub async fn delete_connection(
     let org_id = authed.principal.user.org_id;
     let actor = authed.principal.user.id;
     org_tx::with_org_tx(&state, org_id, actor, |mut tx| async move {
-        let existing = core_db::calendar_sync::get_connection(&mut *tx.tx, org_id, id).await?;
+        let existing = core_db::calendar_sync::get_connection(&mut tx.tx, org_id, id).await?;
         if existing.user_id != authed.principal.user.id && !authed.principal.is_owner_or_admin() {
             return Err(ApiError::Forbidden(
                 "calendar-sync writes for another user require owner or admin".into(),
             ));
         }
-        core_db::calendar_sync::delete_connection(&mut *tx.tx, org_id, id).await?;
+        core_db::calendar_sync::delete_connection(&mut tx.tx, org_id, id).await?;
         tx.emit(
             core_domain::events::types::CALENDAR_SYNC_CONNECTION_UPDATED,
             "calendar_sync_connection",
@@ -721,7 +721,7 @@ pub async fn rotate_token(
     let token = generate_token();
     let token_for_tx = token.clone();
     let connection = org_tx::with_org_tx(&state, org_id, actor, |mut tx| async move {
-        let existing = core_db::calendar_sync::get_connection(&mut *tx.tx, org_id, id).await?;
+        let existing = core_db::calendar_sync::get_connection(&mut tx.tx, org_id, id).await?;
         if existing.user_id != authed.principal.user.id && !authed.principal.is_owner_or_admin() {
             return Err(ApiError::Forbidden(
                 "calendar-sync writes for another user require owner or admin".into(),
@@ -735,9 +735,9 @@ pub async fn rotate_token(
                 "token rotation applies to outbound-capable connections".into(),
             ));
         }
-        core_db::calendar_sync::set_feed_token(&mut *tx.tx, org_id, id, &hash_token(&token_for_tx))
+        core_db::calendar_sync::set_feed_token(&mut tx.tx, org_id, id, &hash_token(&token_for_tx))
             .await?;
-        let updated = core_db::calendar_sync::get_connection(&mut *tx.tx, org_id, id).await?;
+        let updated = core_db::calendar_sync::get_connection(&mut tx.tx, org_id, id).await?;
         tx.emit(
             core_domain::events::types::CALENDAR_SYNC_CONNECTION_UPDATED,
             "calendar_sync_connection",
@@ -855,7 +855,7 @@ pub async fn run_sync(
             let copy = e.to_string();
             org_tx::with_org_tx(&state, org_id, actor, |mut tx| async move {
                 core_db::calendar_sync::record_sync_result(
-                    &mut *tx.tx,
+                    &mut tx.tx,
                     org_id,
                     id,
                     None,
@@ -890,16 +890,11 @@ pub async fn run_sync(
     let connection_id = id;
     let user_id = connection.user_id;
     let outcome = org_tx::with_org_tx(&state, org_id, actor, |mut tx| async move {
-        let outcome = core_db::calendar_sync::apply_sync(
-            &mut *tx.tx,
-            org_id,
-            connection_id,
-            user_id,
-            &events,
-        )
-        .await?;
+        let outcome =
+            core_db::calendar_sync::apply_sync(&mut tx.tx, org_id, connection_id, user_id, &events)
+                .await?;
         core_db::calendar_sync::record_sync_result(
-            &mut *tx.tx,
+            &mut tx.tx,
             org_id,
             connection_id,
             sync_token.as_deref(),

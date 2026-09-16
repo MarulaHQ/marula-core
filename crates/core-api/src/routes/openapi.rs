@@ -1179,7 +1179,11 @@ use utoipa::OpenApi;
         crate::routes::kb::CreateArticleRequest,
         crate::routes::kb::UpdateArticleRequest,
         crate::routes::kb::ArticleMutationResponse,
+        crate::routes::kb::ArticleDetail,
         crate::routes::kb::ArticleListQuery,
+        // KB rich content (Wave 13 lane 4, KB1/KB2); the ADR 0007 content
+        // model (Wave 16 lane 2) rides the existing schemas — content_jsonb
+        // sits on KbArticle/Create/Update, ArticleDetail adds the render.
         // KB rich content (Wave 13 lane 4, KB1/KB2)
         core_domain::entities::kb_rich::KbEmbedProvider,
         core_domain::entities::kb_rich::KbEmbed,

@@ -75,6 +75,12 @@ pub struct KbArticle {
     pub slug: String,
     #[serde(default)]
     pub body: String,
+    /// Canonical rich content (ADR 0007): the versioned envelope
+    /// `{"schema_ver": 1, "doc": <tiptap>}` — `None` for legacy rows the
+    /// 0077 backfill has not seen (reads fall back to `body`).
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<serde_json::Value>))]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_jsonb: Option<serde_json::Value>,
     pub status: KbArticleStatus,
     /// The article half of the client-facing gate (portal v2 honors it).
     pub client_visible: bool,

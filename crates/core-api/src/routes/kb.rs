@@ -6,6 +6,15 @@
 //! If-Match-style version gates on updates, read-your-write `mutation`
 //! metadata, and typed errors from the central envelope — never prose.
 //!
+//! Rich content (ADR 0007, Wave 16 lane 2): article accepts `content_jsonb`
+//! — the versioned Tiptap-JSON envelope `{"schema_ver":1,"doc":…}` —
+//! validated server-side against the pinned published Tiptap JSON schema
+//! (`core-kb::content`), embed URLs through the ADR 0004 allowlist
+//! registry (`core-kb::rich` — the ONE path), and rendered read-only to
+//! sanitized HTML by `core-kb::render` (no editor in the read bundle).
+//! The deterministic plain-text projection stays in `body` so FTS and
+//! portal reads keep the pre-ADR contract.
+//!
 //! Search: article writes emit `kb_article.*` domain events; the worker's
 //! event-driven indexer (2.16 pattern) mirrors published content into the
 //! unified FTS index as kind `kb_article`. Nothing here writes the index.
@@ -49,6 +58,84 @@ impl From<core_kb::KbError> for ApiError {
             other => ApiError::Validation(other.to_string()),
         }
     }
+}
+
+impl From<core_kb::content::ContentError> for ApiError {
+    fn from(e: core_kb::content::ContentError) -> Self {
+        ApiError::Validation(e.to_string())
+    }
+}
+
+impl From<core_kb::render::RenderError> for ApiError {
+    fn from(e: core_kb::render::RenderError) -> Self {
+        ApiError::Validation(e.to_string())
+    }
+}
+
+/// The ADR 0007 write gate for rich content: envelope validated against
+/// the pinned published Tiptap JSON schema (allowlisted nodes/marks,
+/// depth/byte bounds), every embed URL re-resolved through the allowlist
+/// registry IN THIS TRANSACTION (a provider disabled a moment ago never
+/// sanctions a write arriving later), and the deterministic plain-text
+/// projection (FTS + portal back-compat) returned.
+fn gate_content_jsonb(
+    content: &Value,
+    providers: &[core_domain::entities::KbEmbedProvider],
+) -> ApiResult<String> {
+    let bytes = serde_json::to_vec(content)
+        .map_err(|_| ApiError::Validation("content_jsonb must serialize".into()))?;
+    core_kb::content::validate_content(&bytes)?;
+    // The envelope's doc also must pass embed registry validation.
+    let Value::Object(map) = content else {
+        return Err(ApiError::Validation(
+            "content_jsonb must be an object".into(),
+        ));
+    };
+    let doc = map.get("doc").cloned().unwrap_or(Value::Null);
+    core_kb::content::validate_embeds(&doc, providers)?;
+    Ok(core_kb::content::plain_text(&doc))
+}
+
+/// Derives read-only HTML from the canonical envelope (or the plain-text
+/// fallback for legacy rows), running the registry in scope so a
+/// currently-allowlisted YouTube embed renders as a generated iframe and
+/// everything else degrades to blocked placeholders.
+fn read_content_html(
+    article: &KbArticle,
+    providers: &[core_domain::entities::KbEmbedProvider],
+) -> Option<String> {
+    if let Some(doc) = article.content_jsonb.as_ref().and_then(|c| c.get("doc")) {
+        return Some(core_kb::render::render(doc, providers));
+    }
+    // Legacy/no-envelope rows: render the plain body as one doc of
+    // paragraph nodes — the 0077 backfill's exact shape.
+    if article.body.is_empty() {
+        return None;
+    }
+    let mut children = Vec::new();
+    for line in article.body.split('\n') {
+        children.push(serde_json::json!({
+            "type": "paragraph",
+            "content": [{ "type": "text", "text": line }]
+        }));
+    }
+    Some(core_kb::render::render(
+        &serde_json::json!({ "type": "doc", "content": children }),
+        providers,
+    ))
+}
+
+/// The single-article read surface (GET): article fields at the top
+/// level plus the sanitized read-only HTML projection the web client
+/// renders server-side — the editor package never ships in bundles that
+/// only read.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ArticleDetail {
+    #[serde(flatten)]
+    pub article: KbArticle,
+    /// Sanitized server-rendered HTML (core-kb render whitelist).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_html: Option<String>,
 }
 
 /// Remaps the slug UNIQUE violation onto a readable typed conflict; every
@@ -344,6 +431,12 @@ pub struct CreateArticleRequest {
     pub slug: Option<String>,
     #[serde(default)]
     pub body: Option<String>,
+    /// Canonical rich content (ADR 0007): the versioned Tiptap-JSON
+    /// envelope `{"schema_ver": 1, "doc": <tiptap-doc>}`. Validated
+    /// server-side on write; when present it WINS over `body` (the
+    /// plain-text projection is derived deterministically).
+    #[serde(default)]
+    pub content_jsonb: Option<Value>,
     #[serde(default)]
     pub category_id: Option<Uuid>,
     #[serde(default)]
@@ -363,6 +456,11 @@ pub struct UpdateArticleRequest {
     pub title: Option<String>,
     #[serde(default)]
     pub body: Option<String>,
+    /// Canonical rich content (ADR 0007); validated on every write. The
+    /// editor's debounced autosave rides THIS field over the instant-first
+    /// envelope (IF1–IF3 unchanged: idempotency key + version/If-Match).
+    #[serde(default)]
+    pub content_jsonb: Option<Value>,
     /// `null` clears the category; omit to leave it untouched.
     #[serde(default)]
     pub category_id: Option<Option<Uuid>>,
@@ -432,16 +530,17 @@ pub async fn list_articles(
     Ok(Json(articles))
 }
 
-/// GET /api/kb/articles/{id}
+/// GET /api/kb/articles/{id} — with the sanitized read-only HTML
+/// projection (no editor package in any read bundle).
 #[utoipa::path(operation_id = "kb_get_article", get, path = "/api/kb/articles/{id}", tag = "kb", security(("bearer" = [])),
     params(("id" = Uuid, Path)),
-    responses((status = 200, body = KbArticle),
+    responses((status = 200, body = ArticleDetail),
               (status = 404, description = "article not visible in scope")))]
 pub async fn get_article(
     State(state): State<AppState>,
     extensions: Extensions,
     Path(id): Path<Uuid>,
-) -> ApiResult<Json<KbArticle>> {
+) -> ApiResult<Json<ArticleDetail>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, kb(Action::View))?;
     // RLS-scoped read (pool carries no app.org_id GUC).
@@ -454,8 +553,13 @@ pub async fn get_article(
     .await
     .map_err(ApiError::from)?;
     let article = core_db::kb::get_article(&mut *tx, authed.principal.user.org_id, id).await?;
+    let providers =
+        core_db::kb_rich::list_providers(&mut *tx, authed.principal.user.org_id).await?;
     tx.commit().await.map_err(ApiError::from)?;
-    Ok(Json(article))
+    Ok(Json(ArticleDetail {
+        content_html: read_content_html(&article, &providers),
+        article,
+    }))
 }
 
 /// POST /api/kb/articles — instant-first (IF1/IF2).
@@ -473,14 +577,13 @@ pub async fn create_article(
     require_permission(&authed.principal, kb(Action::Create))?;
     let title = req.title.trim().to_string();
     core_kb::validate_title(&title)?;
-    let body = req.body.clone().unwrap_or_default();
-    core_kb::validate_body(&body)?;
     let slug = core_kb::slugify(req.slug.as_deref().unwrap_or(&title));
     let status = req.status.unwrap_or(KbArticleStatus::Draft);
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
     let key = req.instant.idempotency_key.clone();
+    let content = req.content_jsonb.clone();
 
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         if let InstantClaim::Replay(stored) = instant::claim(
@@ -496,6 +599,35 @@ pub async fn create_article(
         {
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
+        // Rich content is gated INSIDE the transaction against the
+        // live allowlist registry (create carries its providers).
+        // Text-only creates still land canonically: the body wraps into
+        // the v1 envelope (the 0077 backfill's exact shape) on write.
+        let content_jsonb = match &content {
+            Some(c) => {
+                let providers = core_db::kb_rich::list_providers(&mut *ctx.tx, org_id).await?;
+                gate_content_jsonb(c, &providers)?;
+                Some(c.clone())
+            }
+            None => {
+                let wrap =
+                    core_kb::content::plain_text_envelope(&req.body.clone().unwrap_or_default());
+                core_kb::content::validate_content(
+                    &serde_json::to_vec(&wrap)
+                        .map_err(|_| ApiError::Validation("content must serialize".into()))?,
+                )?;
+                Some(wrap)
+            }
+        };
+        // body: the explicit plain-text field when given (imports,
+        // fallback writers keep their own contract, byte-bounded); the
+        // deterministic projection of the rich doc otherwise so FTS and
+        // portal reads stay in step with the canonical envelope.
+        let body = match &content {
+            Some(c) => core_kb::content::plain_text(c.get("doc").expect("envelope validated")),
+            None => req.body.clone().unwrap_or_default(),
+        };
+        core_kb::validate_body(&body)?;
         let article = core_db::kb::create_article(
             &mut *ctx.tx,
             org_id,
@@ -504,6 +636,7 @@ pub async fn create_article(
             &title,
             &slug,
             &body,
+            content_jsonb,
             status,
             req.client_visible,
             user_id,
@@ -600,7 +733,17 @@ pub async fn update_article(
             .map_err(|e| instant::mutation_scope_err(e.into()))?;
         // Archived articles are read-only except for the unarchive flip
         // itself (core-kb rule; typed conflict, never prose).
-        let touches_content = req.title.is_some() || req.body.is_some();
+        // Rich content gates against the live registry IN this tx, and
+        // its projection re-syncs `body` so FTS/portal never drift.
+        let content_projection = match &req.content_jsonb {
+            Some(c) => {
+                let providers = core_db::kb_rich::list_providers(&mut *ctx.tx, org_id).await?;
+                Some(gate_content_jsonb(c, &providers)?)
+            }
+            None => None,
+        };
+        let touches_content =
+            req.title.is_some() || req.body.is_some() || req.content_jsonb.is_some();
         if touches_content {
             core_kb::ensure_content_editable(before.status)?;
         }
@@ -619,7 +762,12 @@ pub async fn update_article(
             id,
             &core_db::kb::ArticlePatch {
                 title: req.title.clone().map(|t| t.trim().to_string()),
-                body: req.body.clone(),
+                body: if content_projection.is_some() {
+                    content_projection
+                } else {
+                    req.body.clone()
+                },
+                content_jsonb: req.content_jsonb.clone(),
                 category_id: req.category_id,
                 status: req.status,
                 client_visible: req.client_visible,

@@ -141,7 +141,7 @@ pub async fn submit(
                 ));
             }
             let entry = match core_db::approvals::submit(
-                &mut *ctx.tx,
+                &mut ctx.tx,
                 org_id,
                 entry_id,
                 user_id,
@@ -239,7 +239,7 @@ pub async fn decide(
         async move {
             let reason_code_str = reason.map(|r| r.as_str().to_string());
             let applied = core_db::approvals::decide(
-                &mut *ctx.tx,
+                &mut ctx.tx,
                 org_id,
                 &entry_ids,
                 approve,

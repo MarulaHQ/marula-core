@@ -25,6 +25,7 @@ sha2 = { workspace = true }
 
 [dev-dependencies]
 aes-gcm = { workspace = true }
+core-kb = { path = "../core-kb" }
 tokio = { workspace = true }
 chrono-tz = { workspace = true }
 testcontainers = { version = "0.23", features = ["reusable-containers"] }

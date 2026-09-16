@@ -16,7 +16,9 @@
 //! Non-purpose: no SQL (core-db), no HTTP (core-api), no FTS execution —
 //! the crate owns rules, not storage or transport.
 
+pub mod content;
 pub mod import;
+pub mod render;
 pub mod rich;
 
 use core_domain::entities::{KbArticle, KbArticleStatus, KbCategory};
@@ -124,6 +126,7 @@ pub(crate) fn test_article(status: KbArticleStatus, client_visible: bool) -> KbA
         title: "Test article".into(),
         slug: "test-article".into(),
         body: String::new(),
+        content_jsonb: None,
         status,
         client_visible,
         created_by: None,

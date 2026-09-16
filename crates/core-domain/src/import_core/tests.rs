@@ -1092,6 +1092,7 @@ fn new_family_projections_agree_between_incoming_and_stored() {
         title: "Same title".into(),
         slug: "a".into(),
         body: "body".into(),
+        content_jsonb: None,
         status: KbArticleStatus::Published,
         client_visible: true,
         created_by: None,

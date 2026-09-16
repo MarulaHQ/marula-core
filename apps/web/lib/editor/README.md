@@ -1,13 +1,15 @@
 # apps/web/lib/editor/ — Tiptap editor shell (ADR 0007, Wave 16 lane 2)
 
-> **Status:** scaffolded, empty — lane `p16-kb-tiptap-model` populates this home
-> (TASKLIST.md Wave 16). README-only until then; build wiring would be premature.
+> **Status:** populated (Wave 16 lane 2, 2026-09-16). Extension set + /kb
+> editor wiring landed on the IF1–IF3 autosave envelope.
 
 **Purpose:** the ONE home for Meridian's rich-text editor shell built on
 **Tiptap 3** (`@tiptap/core`, `@tiptap/pm`, `@tiptap/react`):
 
-* the composed extension set (StarterKit + OSS extensions, **MIT-only policy** —
-  no Tiptap paid bundles, ever; see `docs/adr/0007-tiptap-editor-framework.md`);
+* the composed extension set (`extensions/index.ts`: StarterKit 3 + Image,
+  TaskList/TaskItem, YouTube + the Meridian OSS nodes — MIT-only policy, no
+  Tiptap paid bundles, ever; ADR 0007 / `packages/sdk`-pinned schema mirrors
+  `crates/core-kb/schemas/`);
 * the `/kb` article editor wiring: debounced, idempotent autosave against the
   IF1–IF3 envelope (`apps/web/lib/envelope-write.ts` — byte-identical replays);
 * Meridian-authored OSS Tiptap extensions where none exists:
