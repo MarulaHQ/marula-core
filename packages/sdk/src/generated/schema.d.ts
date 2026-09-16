@@ -6226,6 +6226,169 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/secrets/folders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/secrets/folders — metadata-only category tree. */
+        get: operations["secrets_folders_list"];
+        put?: never;
+        post: operations["secrets_folders_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/secrets/folders/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["secrets_folders_delete"];
+        options?: never;
+        head?: never;
+        patch: operations["secrets_folders_update"];
+        trace?: never;
+    };
+    "/api/v1/secrets/folders/{id}/fork": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/secrets/folders/{id}/fork — fork-the-seed customization
+         *     (a NEW row graph in the client's scope, never edit-in-place, ADR 0004).
+         */
+        post: operations["secrets_folders_fork"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/secrets/grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/secrets/grants — the grant matrix reads for admins (Owner
+         *     or Admin only; grants are policy data, not vault contents).
+         */
+        get: operations["secrets_grants_list"];
+        /**
+         * PUT /api/secrets/grants — upserts ONE role × folder grant row
+         *     (can_edit implies read). Owner/Admin only.
+         */
+        put: operations["secrets_grants_set"];
+        post?: never;
+        /** DELETE /api/secrets/grants?role_id=&folder_id= — revoke one grant. */
+        delete: operations["secrets_grants_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/secrets/records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/secrets/records — metadata-only vault rows. */
+        get: operations["secrets_records_list"];
+        put?: never;
+        /** POST /api/secrets/records — seals fields with coordinate AAD. */
+        post: operations["secrets_records_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/secrets/records/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/secrets/records/{id} — metadata only. */
+        get: operations["secrets_records_get"];
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/secrets/records/{id} — records retire; their fields
+         *     cascade; the audit keeps the trail.
+         */
+        delete: operations["secrets_records_delete"];
+        options?: never;
+        head?: never;
+        /** PATCH /api/secrets/records/{id} — metadata + field rotation/clear. */
+        patch: operations["secrets_records_update"];
+        trace?: never;
+    };
+    "/api/v1/secrets/records/{id}/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/secrets/records/{id}/links */
+        get: operations["secrets_records_list_links"];
+        put?: never;
+        /**
+         * POST /api/secrets/records/{id}/links — typed labels via the seam;
+         *     broken targets ride the asset-docs semantic (never cascade-deleted).
+         */
+        post: operations["secrets_records_add_link"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/secrets/records/{id}/reveal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/secrets/records/{id}/reveal — the ONLY plaintext path,
+         *     mirroring `/passwords/{id}/reveal`: requires `secrets:edit`, runs
+         *     inside the org tx so the reveal event commits atomically with the
+         *     read, decrypts with coordinate AAD first (falling back to the legacy
+         *     seal for rows the deterministic importer forwarded) and the response
+         *     is the sole carrier of the decrypted fields.
+         */
+        post: operations["secrets_records_reveal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/settings/ai/byok": {
         parameters: {
             query?: never;
@@ -10271,6 +10434,39 @@ export interface components {
              */
             ticket_id?: string | null;
         };
+        CreateSecretFolderRequest: {
+            /**
+             * Format: uuid
+             * @description NULL = org scope.
+             */
+            client_id?: string | null;
+            kind: components["schemas"]["SecretFolderKind"];
+            label: string;
+            /** Format: uuid */
+            parent_id?: string | null;
+            restricted?: boolean;
+            slug: string;
+        };
+        CreateSecretRecordRequest: {
+            /**
+             * Format: uuid
+             * @description NULL = org-scope record.
+             */
+            client_id?: string | null;
+            /** Format: date-time */
+            expires_at?: string | null;
+            /** @description Material fields — sealed with coordinate AAD before persistence. */
+            fields?: components["schemas"]["SecretFieldValue"][];
+            /** Format: int64 */
+            file_bytes?: number | null;
+            file_sha256?: string | null;
+            /** Format: uuid */
+            folder_id: string;
+            kind: components["schemas"]["SecretRecordKind"];
+            /** @description Document-kind ciphertext-file pointer + hash (object storage). */
+            object_key?: string | null;
+            title: string;
+        };
         CreateSiteRequest: {
             address?: string | null;
             city?: string | null;
@@ -11586,6 +11782,10 @@ export interface components {
              */
             name: string;
         };
+        ForkSecretFolderRequest: {
+            /** Format: uuid */
+            client_id: string;
+        };
         ForkTemplateRequest: components["schemas"]["MutationParams"] & {
             name: string;
             slug: string;
@@ -12259,12 +12459,14 @@ export interface components {
          */
         LinkCheckStatus: "ok" | "unreachable";
         /**
-         * @description Either endpoint of a link. Documents, passwords, and assets can link
-         *     FROM; documents, passwords, clients, tickets, KB articles, and assets
-         *     can be linked TO (asset kind added in migration 0054).
+         * @description Either endpoint of a link. Documents, passwords, assets, and secret
+         *     records can link FROM; documents, passwords, clients, tickets, KB
+         *     articles, assets, and secret records can be linked TO (asset kind
+         *     added in migration 0054; secret kind added in migration 0078 — the
+         *     native vault joins the cross-entity RecordLink seam, ADR 0006).
          * @enum {string}
          */
-        LinkKind: "document" | "password" | "client" | "ticket" | "kb_article" | "asset";
+        LinkKind: "document" | "password" | "client" | "ticket" | "kb_article" | "asset" | "secret";
         LinksView: {
             from: Record<string, never>[];
             rollup: components["schemas"]["TicketRollup"];
@@ -15495,6 +15697,181 @@ export interface components {
             title: string;
         };
         /**
+         * @description A role × folder category grant (`secret_category_grants`). Grants are
+         *     DATA flowing through the central policy module: the matrix permission
+         *     (`secrets:read`/`secrets:edit`) is checked FIRST, then the category
+         *     gate — restricted folders deny unless a grant row for one of the
+         *     caller's roles allows it.
+         */
+        SecretCategoryGrant: {
+            can_edit: boolean;
+            can_read: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** Format: uuid */
+            folder_id: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            role_id: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: uuid */
+            updated_by?: string | null;
+        };
+        /**
+         * @description A material field of a secret record — METADATA ONLY view. The
+         *     ciphertext and plaintext never ride this entity; `value_ciphertext`
+         *     lives in `secret_fields` only.
+         */
+        SecretFieldMeta: {
+            /**
+             * @description Closed write-path vocabulary: `secret`, `notes`, `username`, `url`,
+             *     plus the document-field keys (metadata for non-material pointers).
+             */
+            field_key: string;
+            /** @description Whether a sealed value exists for this key. */
+            has_value?: boolean;
+            /** Format: uuid */
+            record_id: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        SecretFieldValue: {
+            field_key: string;
+            /**
+             * @description Plaintext on the WIRE ONLY: sealed before any persistence, never
+             *     returned outside the audited reveal response.
+             */
+            value: string;
+        };
+        /**
+         * @description A secret category folder (`secret_folders`). Exactly one of org/client
+         *     scope rows: org-scope rows carry `org_id` (client_id NULL),
+         *     client-scope rows carry `client_id` (org_id NULL — the tenancy spine
+         *     rides the owning client's org via the RLS policy). Seeded defaults
+         *     (`is_default_seed`) are immutable ADR-0004 template rows: orgs fork,
+         *     never edit in place. `restricted` is deny-by-default: invisible to a
+         *     role without a `secret_category_grants` row.
+         */
+        SecretFolder: {
+            /**
+             * Format: uuid
+             * @description Client scope; NULL on org-scope rows.
+             */
+            client_id?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /**
+             * Format: uuid
+             * @description The seed row this folder forked from (customization provenance).
+             */
+            forked_from?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** @description Immutable shipped default (ADR 0004 template doctrine). */
+            is_default_seed: boolean;
+            kind: components["schemas"]["SecretFolderKind"];
+            label: string;
+            /**
+             * Format: uuid
+             * @description Org-scope tenancy root; NULL on client-scope rows.
+             */
+            org_id?: string | null;
+            /**
+             * Format: uuid
+             * @description Parent folder; NULL = root of its scope tree.
+             */
+            parent_id?: string | null;
+            /** @description Deny-by-default category flag (financial:read gate shape). */
+            restricted: boolean;
+            /** @description Sibling-unique within (scope, parent); lowercase spellings. */
+            slug: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: uuid */
+            updated_by?: string | null;
+        };
+        /**
+         * @description The closed seeded-configuration vocabulary for folders.
+         * @enum {string}
+         */
+        SecretFolderKind: "passwords" | "api_keys" | "certificates" | "recovery_codes" | "documents";
+        /**
+         * @description A SecretRecord (`secret_records`, migration 0078) — the generalization
+         *     beside the shipped `PasswordEntry` (whose UI and responses stay byte-
+         *     compatible; the vault never becomes a destructive cutover). Scope
+         *     mirrors its owning folder; every material field is sealed in
+         *     `secret_fields` and reachable ONLY via the audited reveal path.
+         */
+        SecretRecord: {
+            /**
+             * Format: uuid
+             * @description Client scope; NULL on org-scope rows.
+             */
+            client_id?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** Format: date-time */
+            expires_at?: string | null;
+            /** @description Metadata-only field views (NEVER carries ciphertext or plaintext). */
+            fields?: components["schemas"]["SecretFieldMeta"][];
+            /** Format: int64 */
+            file_bytes?: number | null;
+            file_sha256?: string | null;
+            /** Format: uuid */
+            folder_id: string;
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["SecretRecordKind"];
+            /**
+             * @description Document-kind files ride object storage as ciphertext with
+             *     pointer+hash rows — never material blobs in this table.
+             */
+            object_key?: string | null;
+            /**
+             * Format: uuid
+             * @description Org-scope tenancy root; NULL on client-scope rows.
+             */
+            org_id?: string | null;
+            title: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: uuid */
+            updated_by?: string | null;
+        };
+        /**
+         * @description The kind of a `secret_records` row.
+         * @enum {string}
+         */
+        SecretRecordKind: "password" | "api_key" | "certificate" | "recovery_code" | "document";
+        /**
+         * @description The audited reveal response: the ONLY plaintext carrier for secret
+         *     records, mirroring `/passwords/{id}/reveal` (requires secrets:edit,
+         *     emits `secret.revealed`, plaintext returned exactly once). Reveal
+         *     payloads carry no provenance detail beyond the title — provenance
+         *     queries never carry the secret.
+         */
+        SecretReveal: {
+            /** @description field_key → plaintext for every sealed field. */
+            fields: components["schemas"]["SecretRevealField"][];
+            /** Format: uuid */
+            id: string;
+            title: string;
+        };
+        SecretRevealField: {
+            field_key: string;
+            value: string;
+        };
+        /**
          * @description Why a timer segment ended. Preserved forever — the pause reason is
          *     billable-work metadata, not a transient UI state.
          * @enum {string}
@@ -15561,6 +15938,14 @@ export interface components {
              * @description Explicit queue position: 0 sorts first among overrides.
              */
             rank: number;
+        };
+        SetSecretGrantRequest: {
+            can_edit: boolean;
+            can_read: boolean;
+            /** Format: uuid */
+            folder_id: string;
+            /** Format: uuid */
+            role_id: string;
         };
         SetTicketFieldValueRequest: {
             value: unknown;
@@ -17021,6 +17406,21 @@ export interface components {
              *     and privacy-preserving value: false.
              */
             gamification_opt_in: boolean;
+        };
+        UpdateSecretFolderRequest: {
+            label?: string | null;
+            restricted?: boolean | null;
+            slug?: string | null;
+        };
+        UpdateSecretRecordRequest: {
+            /**
+             * Format: date-time
+             * @description absent = keep; null = clear; value = set.
+             */
+            expires_at?: string | null;
+            /** @description Matching keys rotate (sealed); `value: null` clears. */
+            fields?: components["schemas"]["SecretFieldValue"][];
+            title: string;
         };
         UpdateSettingRequest: {
             key: string;
@@ -29669,6 +30069,559 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SearchResponse"];
                 };
+            };
+        };
+    };
+    secrets_folders_list: {
+        parameters: {
+            query?: {
+                /** @description Client-scope tree; omitted = org-scope tree. */
+                client_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretFolder"][];
+                };
+            };
+        };
+    };
+    secrets_folders_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSecretFolderRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretFolder"];
+                };
+            };
+            /** @description slug already exists in this scope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    secrets_folders_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description folder not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description seed refusal or non-empty subtree */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    secrets_folders_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSecretFolderRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretFolder"];
+                };
+            };
+            /** @description folder not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the shipped default is immutable; fork instead */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    secrets_folders_fork: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForkSecretFolderRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretFolder"][];
+                };
+            };
+            /** @description source folder or client not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description a fork of that slug already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    secrets_grants_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretCategoryGrant"][];
+                };
+            };
+            /** @description grant administration is Owner/Admin only */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    secrets_grants_set: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetSecretGrantRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretCategoryGrant"];
+                };
+            };
+            /** @description grant administration is Owner/Admin only */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description folder or role not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    secrets_grants_delete: {
+        parameters: {
+            query: {
+                role_id: string;
+                folder_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description grant administration is Owner/Admin only */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description grant not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    secrets_records_list: {
+        parameters: {
+            query?: {
+                /** @description Client-scope records; omitted = org-scope. */
+                client_id?: string | null;
+                folder_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretRecord"][];
+                };
+            };
+        };
+    };
+    secrets_records_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSecretRecordRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretRecord"];
+                };
+            };
+            /** @description restricted category gate denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description title already exists in this folder */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    secrets_records_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretRecord"];
+                };
+            };
+            /** @description record not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    secrets_records_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description restricted category gate denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description record not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    secrets_records_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSecretRecordRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretRecord"];
+                };
+            };
+            /** @description restricted category gate denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description record not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description title collision */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    secrets_records_list_links: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResolvedLink"][];
+                };
+            };
+        };
+    };
+    secrets_records_add_link: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLinkRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResolvedLink"][];
+                };
+            };
+            /** @description restricted category gate denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description secret record or link target not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    secrets_records_reveal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretReveal"];
+                };
+            };
+            /** @description reveal requires secrets:edit (and a category grant on restricted chains) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description record not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

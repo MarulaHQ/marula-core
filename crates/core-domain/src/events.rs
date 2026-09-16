@@ -291,6 +291,21 @@ pub mod types {
     pub const PASSWORD_REVEALED: &str = "password.revealed";
     pub const LINK_ADDED: &str = "link.added";
     pub const LINK_REMOVED: &str = "link.removed";
+    /// Native secrets vault (ADR 0006, Wave 16 lane 3, migration 0078):
+    /// secret category trees, SecretRecord generalization, category
+    /// grants. Payloads ride the additive pattern; `SECRET_REVEALED` is
+    /// the provenance rail for "who saw these secret fields" — NEVER
+    /// carries the secret itself, and payloads never carry the plaintext
+    /// beyond the dedicated reveal RESPONSE body (audited).
+    pub const SECRET_FOLDER_CREATED: &str = "secret.folder_created";
+    pub const SECRET_FOLDER_UPDATED: &str = "secret.folder_updated";
+    pub const SECRET_FOLDER_DELETED: &str = "secret.folder_deleted";
+    pub const SECRET_RECORD_CREATED: &str = "secret.record_created";
+    pub const SECRET_RECORD_UPDATED: &str = "secret.record_updated";
+    pub const SECRET_RECORD_DELETED: &str = "secret.record_deleted";
+    pub const SECRET_REVEALED: &str = "secret.revealed";
+    pub const SECRET_GRANT_UPDATED: &str = "secret.grant_updated";
+    pub const SECRET_GRANT_DELETED: &str = "secret.grant_deleted";
     /// Asset taxonomy on the docs-platform (Wave 11 lane 5, migration
     /// 0054): typed asset instances ride `device_assets` +
     /// `document_layouts`. Payloads ride the untyped additive pattern (the

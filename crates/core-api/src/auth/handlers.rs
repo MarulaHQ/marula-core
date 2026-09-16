@@ -210,6 +210,11 @@ pub async fn register(
     )
     .await?;
 
+    // The 5 immutable secret-category defaults (ADR 0006/0004 — the
+    // same tree migration 0078 backfilled for orgs existing pre-0078);
+    // seeded AFTER the owner user exists so the `created_by` FK lands.
+    core_db::secret_vault::seed_default_secret_folders(&mut tx, org_id, user_id).await?;
+
     // The registering user becomes the org's first Owner.
     let owner_role_id = role_ids
         .get(core_domain::policy::BuiltinRole::Owner.as_str())

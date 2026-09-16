@@ -29,13 +29,20 @@ pub enum Module {
     /// Auditor, and Read-Only hold view. Reveal additionally requires edit
     /// (enforced in the route, not the matrix).
     Passwords,
+    /// Native secrets vault generalization (ADR 0006, migration 0078):
+    /// module-level matrix rides the SAME shape as Passwords; category
+    /// visibility is additionally gated per folder through
+    /// `secret_category_grants` (deny-by-default `restricted` folders —
+    /// the `financial:read` gate shape). Reveal additionally requires
+    /// edit (enforced in the route, not the matrix).
+    Secrets,
     Reporting,
     Admin,
     Plugins,
 }
 
 impl Module {
-    pub const ALL: [Module; 13] = [
+    pub const ALL: [Module; 14] = [
         Module::Tickets,
         Module::Clients,
         Module::Time,
@@ -46,6 +53,7 @@ impl Module {
         Module::Kb,
         Module::Documents,
         Module::Passwords,
+        Module::Secrets,
         Module::Reporting,
         Module::Admin,
         Module::Plugins,
@@ -63,6 +71,7 @@ impl Module {
             Module::Kb => "kb",
             Module::Documents => "documents",
             Module::Passwords => "passwords",
+            Module::Secrets => "secrets",
             Module::Reporting => "reporting",
             Module::Admin => "admin",
             Module::Plugins => "plugins",
@@ -286,17 +295,23 @@ impl BuiltinRole {
                         )
                     }),
                 );
-                p.extend([Permission::Matrix {
-                    module: Module::Passwords,
-                    action: Action::View,
-                }]);
+                p.extend([
+                    Permission::Matrix {
+                        module: Module::Passwords,
+                        action: Action::View,
+                    },
+                    Permission::Matrix {
+                        module: Module::Secrets,
+                        action: Action::View,
+                    },
+                ]);
                 p.extend(specials(&[Permission::ManageBoards]));
                 p
             }
             BuiltinRole::Technician => {
                 let mut p = full_matrix(&[Module::Tickets, Module::Kb]);
                 p.extend(
-                    full_matrix(&[Module::Passwords])
+                    full_matrix(&[Module::Passwords, Module::Secrets])
                         .into_iter()
                         .filter(|perm| {
                             matches!(
@@ -347,7 +362,7 @@ impl BuiltinRole {
             BuiltinRole::SeniorTech => {
                 let mut p = full_matrix(&[Module::Tickets, Module::Kb]);
                 p.extend(
-                    full_matrix(&[Module::Passwords])
+                    full_matrix(&[Module::Passwords, Module::Secrets])
                         .into_iter()
                         .filter(|perm| {
                             matches!(

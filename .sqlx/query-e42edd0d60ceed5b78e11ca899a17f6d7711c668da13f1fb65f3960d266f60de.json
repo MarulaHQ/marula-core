@@ -1,0 +1,103 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT a.id, a.org_id, a.category_id, a.title, a.slug, a.body, a.content_jsonb, a.status,\n                  a.client_visible, a.created_by, a.updated_by, a.created_at, a.updated_at,\n                  ts_rank(to_tsvector('english', a.title || ' ' || a.body),\n                          websearch_to_tsquery('english', $2)) * 8\n                    + similarity(a.title || ' ' || a.body, $2) AS score\n           FROM kb_articles a\n           LEFT JOIN kb_categories c ON c.id = a.category_id AND c.org_id = a.org_id\n           WHERE a.org_id = $1\n             AND a.status = 'published' AND a.client_visible\n             AND COALESCE(c.client_visible, false)\n             AND (to_tsvector('english', a.title || ' ' || a.body)\n                    @@ websearch_to_tsquery('english', $2)\n                  OR a.title || ' ' || a.body ILIKE '%' || $2 || '%')\n           ORDER BY score DESC, a.updated_at DESC, a.id\n           LIMIT $3 OFFSET $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "category_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "slug",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "body",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "content_jsonb",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "client_visible",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 10,
+        "name": "updated_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 11,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 12,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 13,
+        "name": "score",
+        "type_info": "Float8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "e42edd0d60ceed5b78e11ca899a17f6d7711c668da13f1fb65f3960d266f60de"
+}

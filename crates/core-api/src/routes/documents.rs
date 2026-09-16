@@ -1226,6 +1226,20 @@ pub(crate) async fn link_target_exists(
             .fetch_one(&mut *tx)
             .await?,
         ),
+        LinkKind::Secret => Some(
+            sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM secret_records sr
+                    WHERE sr.id = $2
+                      AND (sr.org_id = $1
+                           OR (sr.org_id IS NULL AND sr.client_id IN (
+                               SELECT c.id FROM clients c
+                               WHERE c.org_id = $1))))",
+            )
+            .bind(org_id)
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?,
+        ),
     };
     match found {
         Some(true) => Ok(()),
