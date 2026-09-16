@@ -244,6 +244,7 @@ fn filter_all() -> tickets::TicketFilter {
         tag_ids: None,
         limit: 100,
         offset: 0,
+        cursor: None,
     }
 }
 

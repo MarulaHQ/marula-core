@@ -139,6 +139,27 @@ where
     Ok(row_to_ticket(row)?)
 }
 
+/// Keyset anchor (Wave 15 lane 3): the sort-key values of the last row of
+/// the previous page. The list order is
+/// `(priority_rank, due_at NULLS LAST, created_at, id)`; the cursor is the
+/// prior row's tuple and the query resumes strictly after it, so page N
+/// never rescans the skipped rows the way `offset` does.
+///
+/// `due_at` is nullable and sorts NULLS LAST, so the predicate is built
+/// case-wise (row comparisons cannot express the NULL-last ordering);
+/// see [`list_tickets`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TicketCursor {
+    /// The last page's final row's priority rank (p1=0..p4=3), same
+    /// `CASE` expression the ORDER BY uses.
+    pub priority_rank: i32,
+    pub due_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    /// Final tiebreaker; required for a stable keyset because
+    /// `(due_at, created_at)` may collide.
+    pub id: Uuid,
+}
+
 pub struct TicketFilter {
     pub board_id: Option<Uuid>,
     pub assignee_id: Option<Uuid>,
@@ -150,7 +171,14 @@ pub struct TicketFilter {
     pub tag_ids: Option<Vec<Uuid>>,
     pub limit: i64,
     pub offset: i64,
+    /// Keyset anchor; when set, `offset` is ignored (the two mechanisms
+    /// answer different callers — cursor pages ride the O(log) resume,
+    /// offset stays for legacy clients).
+    pub cursor: Option<TicketCursor>,
 }
+
+const PRIORITY_RANK: &str =
+    "(CASE priority WHEN 'p1' THEN 0 WHEN 'p2' THEN 1 WHEN 'p3' THEN 2 ELSE 3 END)";
 
 pub async fn list_tickets<'e, E>(
     executor: E,
@@ -168,6 +196,31 @@ where
     } else {
         String::new()
     };
+    // Keyset resume (Wave 15 lane 3): strictly-after predicate over the
+    // full sort tuple. `due_at` sorts NULLS LAST, which row-value
+    // comparison cannot express, so the same-rank case is written
+    // case-wise:
+    //   - non-null due + non-null anchor due: tuple compare after anchor.
+    //   - NULL due: sorts after every non-null due in the rank — always
+    //     after a non-null anchor; after a null anchor only on a later
+    //     (created_at, id).
+    // Bind slots $10..$13 = anchor (rank, due_at, created_at, id); $9 is
+    // the tag array the cursor may or may not sit behind.
+    let keyset_clause = match f.cursor {
+        None => String::new(),
+        Some(_) => format!(
+            r#"AND ({pr} > $10::int
+                 OR ({pr} = $10::int
+                     AND ((due_at IS NOT NULL AND $11 IS NOT NULL
+                           AND (due_at, created_at, id) > ($11, $12, $13))
+                          OR (due_at IS NULL
+                              AND ($11 IS NOT NULL
+                                   OR (created_at, id) > ($12, $13))))))"#,
+            pr = PRIORITY_RANK
+        ),
+    };
+    // The `id` tiebreaker makes the total order deterministic so the
+    // cursor resume is exact even on (due_at, created_at) collisions.
     let sql = format!(
         r#"SELECT {TICKET_COLS} FROM tickets
            WHERE org_id = $1
@@ -177,9 +230,10 @@ where
              AND ($5::text IS NULL OR category = $5)
              AND ($6::text IS NULL OR priority = $6)
              {tag_clause}
+             {keyset_clause}
            ORDER BY
-             CASE priority WHEN 'p1' THEN 0 WHEN 'p2' THEN 1 WHEN 'p3' THEN 2 ELSE 3 END,
-             due_at NULLS LAST, created_at
+             {PRIORITY_RANK},
+             due_at NULLS LAST, created_at, id
            LIMIT $7 OFFSET $8"#
     );
     let rows = sqlx::query(&sql)
@@ -192,6 +246,10 @@ where
         .bind(f.limit)
         .bind(f.offset)
         .bind(f.tag_ids.clone().unwrap_or_default())
+        .bind(f.cursor.map(|c| c.priority_rank))
+        .bind(f.cursor.and_then(|c| c.due_at))
+        .bind(f.cursor.map(|c| c.created_at))
+        .bind(f.cursor.map(|c| c.id))
         .fetch_all(executor)
         .await?;
     Ok(rows

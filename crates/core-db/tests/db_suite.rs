@@ -157,6 +157,7 @@ fn filter_all() -> tickets::TicketFilter {
         tag_ids: None,
         limit: 100,
         offset: 0,
+        cursor: None,
     }
 }
 
@@ -548,6 +549,50 @@ async fn ticket_insert_persists_category_and_filters_apply() {
     assert_eq!(
         page.iter().map(|t| t.id).collect::<Vec<_>>(),
         vec![t2.id, t3.id]
+    );
+
+    // Keyset pagination (Wave 15 lane 3): a cursor walk over every page
+    // reproduces the full ranked list exactly — including the NULLS LAST
+    // due_at contract and the id tiebreaker.
+    let full = tickets::list_tickets(&mut *tx, s.org, filter_all())
+        .await
+        .expect("full list");
+    let mut walked: Vec<Ticket> = Vec::new();
+    let mut cursor: Option<core_db::tickets::TicketCursor> = None;
+    loop {
+        let page = tickets::list_tickets(
+            &mut *tx,
+            s.org,
+            tickets::TicketFilter {
+                limit: 2,
+                cursor,
+                ..filter_all()
+            },
+        )
+        .await
+        .expect("keyset page");
+        let done = page.len() < 2;
+        walked.extend(page);
+        if done {
+            break;
+        }
+        let last = &walked[walked.len() - 1];
+        cursor = Some(core_db::tickets::TicketCursor {
+            priority_rank: match last.priority {
+                Priority::P1 => 0,
+                Priority::P2 => 1,
+                Priority::P3 => 2,
+                Priority::P4 => 3,
+            },
+            due_at: last.due_at,
+            created_at: last.created_at,
+            id: last.id,
+        });
+    }
+    assert_eq!(
+        walked.iter().map(|t| t.id).collect::<Vec<_>>(),
+        full.iter().map(|t| t.id).collect::<Vec<_>>(),
+        "cursor walk must reproduce the ranked list"
     );
 
     // My-work view: assigned, not closed, priority-ranked.

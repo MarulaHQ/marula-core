@@ -10,6 +10,7 @@ use crate::state::AppState;
 use axum::{
     extract::{Path, Query, State},
     http::Extensions,
+    response::{IntoResponse, Response},
     Json,
 };
 use core_domain::entities::{Actor, AuditEvent, ChecklistItem, ChecklistProgress};
@@ -166,6 +167,12 @@ pub struct TicketListQuery {
     pub limit: i64,
     #[serde(default)]
     pub offset: i64,
+    /// Keyset cursor (Wave 15 lane 3): the opaque `x-next-cursor` value
+    /// from the previous page's last row. Resumes the ranked list
+    /// strictly after that row — deep pages stop paying O(offset) scan
+    /// cost (docs/perf.md F2). When present, `offset` is ignored.
+    #[serde(default)]
+    pub cursor: Option<String>,
 }
 
 /// Instant-first mutation response (IF2): the enriched ticket fields at the
@@ -223,6 +230,64 @@ fn default_limit() -> i64 {
     50
 }
 
+/// Keyset cursor codec (Wave 15 lane 3): opaque base64 of
+/// `v1|{rank}|{due_at}|{created_at}|{id}`, same URL-safe base64 pattern the
+/// audit/provenance cursors use. `due_at` empty string = NULL (NULLS LAST
+/// in the list order). The version field lets the codec evolve without
+/// silently mangling old cursors.
+const CURSOR_VERSION: &str = "v1";
+
+fn encode_cursor(c: core_db::tickets::TicketCursor) -> String {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
+    use base64::Engine;
+    let due = c.due_at.map(|d| d.to_rfc3339()).unwrap_or_default();
+    B64.encode(
+        format!(
+            "{CURSOR_VERSION}|{}|{due}|{}|{}",
+            c.priority_rank,
+            c.created_at.to_rfc3339(),
+            c.id
+        )
+        .as_bytes(),
+    )
+}
+
+fn decode_cursor(raw: &str) -> Option<core_db::tickets::TicketCursor> {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
+    use base64::Engine;
+    let text = String::from_utf8(B64.decode(raw.as_bytes()).ok()?).ok()?;
+    let parts: Vec<&str> = text.split('|').collect();
+    if parts.len() != 5 || parts[0] != CURSOR_VERSION {
+        return None;
+    }
+    let priority_rank: i32 = parts[1].parse().ok()?;
+    if !(0..=3).contains(&priority_rank) {
+        return None;
+    }
+    let due_at = if parts[2].is_empty() {
+        None
+    } else {
+        Some(parts[2].parse().ok()?)
+    };
+    Some(core_db::tickets::TicketCursor {
+        priority_rank,
+        due_at,
+        created_at: parts[3].parse().ok()?,
+        id: parts[4].parse().ok()?,
+    })
+}
+
+/// The list order's primary rank, shared by the ORDER BY expression and
+/// the cursor encoding.
+fn priority_rank(p: Priority) -> i32 {
+    match p {
+        Priority::P1 => 0,
+        Priority::P2 => 1,
+        Priority::P3 => 2,
+        Priority::P4 => 3,
+    }
+}
+
 /// Distinguishes `"type_id": null` (clear) from an absent member — the
 /// classification patch contract (Wave 11 lane 3).
 fn deserialize_optional_uuid<'de, D>(deserializer: D) -> Result<Option<Option<Uuid>>, D::Error>
@@ -234,20 +299,31 @@ where
 
 /// GET /api/tickets — filtered, priority-ordered list; each row carries its
 /// custom-field values (TASKLIST 2.17) fetched in one batched query.
+/// Pagination is envelope-compatible: the body stays the plain ticket
+/// array; deep-page walks pass the opaque `cursor` query param (from the
+/// previous page's `x-next-cursor` response header) and the server resumes
+/// strictly after that row — keyset, not O(offset) scan (docs/perf.md F2).
 #[utoipa::path(operation_id = "tickets_list", get, path = "/api/tickets", tag = "tickets", security(("bearer" = [])),
     params(TicketListQuery),
-    responses((status = 200, body = [TicketWithFields])))]
+    responses(
+        (status = 200, body = [TicketWithFields],
+         headers(("x-next-cursor" = String,
+                  description = "Opaque keyset cursor for the next page; present when this page is full and the walk may continue")))
+    )
+)]
 pub async fn list(
     State(state): State<AppState>,
     extensions: Extensions,
     Query(q): Query<TicketListQuery>,
-) -> ApiResult<Json<Vec<TicketWithFields>>> {
+) -> ApiResult<Response> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(
         &authed.principal,
         tickets(core_domain::policy::Action::View),
     )?;
     let org_id = authed.principal.user.org_id;
+    let limit = q.limit.clamp(1, 200);
+    let anchor = q.cursor.as_deref().and_then(decode_cursor);
     // RLS-scoped read (pool carries no app.org_id GUC).
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
@@ -270,14 +346,36 @@ pub async fn list(
                     .collect();
                 ids.ok()
             }),
-            limit: q.limit.clamp(1, 200),
-            offset: q.offset.max(0),
+            limit,
+            // Keyset and offset are different callers' mechanisms: a
+            // cursor walk resumes on its own anchor, so offset zeroes.
+            offset: if anchor.is_some() { 0 } else { q.offset.max(0) },
+            cursor: anchor,
         },
     )
     .await?;
     let enriched = TicketWithFields::load_many(&mut *tx, org_id, rows).await?;
     tx.commit().await.map_err(ApiError::from)?;
-    Ok(Json(enriched))
+    // A full page hints another exists; anchor it to the LAST row (the
+    // sort order is global + id-tiebroken, so this anchor is exact).
+    let next_cursor = if enriched.len() as i64 >= limit {
+        enriched.last().map(|t| core_db::tickets::TicketCursor {
+            priority_rank: priority_rank(t.ticket.priority),
+            due_at: t.ticket.due_at,
+            created_at: t.ticket.created_at,
+            id: t.ticket.id,
+        })
+    } else {
+        None
+    };
+    let mut response = Json(enriched).into_response();
+    if let Some(cursor) = next_cursor {
+        // Header, not body: the response envelope stays the plain array.
+        if let Ok(value) = axum::http::HeaderValue::from_str(&encode_cursor(cursor)) {
+            response.headers_mut().insert("x-next-cursor", value);
+        }
+    }
+    Ok(response)
 }
 
 /// GET /api/tickets/my-work — everything assigned to me, not closed,
