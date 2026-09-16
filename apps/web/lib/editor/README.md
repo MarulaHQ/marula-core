@@ -1,0 +1,34 @@
+# apps/web/lib/editor/ — Tiptap editor shell (ADR 0007, Wave 17 lane 1)
+
+> **Status:** scaffolded, empty — lane `p17-kb-tiptap-model` populates this home
+> (TASKLIST.md Wave 17). README-only until then; build wiring would be premature.
+
+**Purpose:** the ONE home for Meridian's rich-text editor shell built on
+**Tiptap 3** (`@tiptap/core`, `@tiptap/pm`, `@tiptap/react`):
+
+* the composed extension set (StarterKit + OSS extensions, **MIT-only policy** —
+  no Tiptap paid bundles, ever; see `docs/adr/0007-tiptap-editor-framework.md`);
+* the `/kb` article editor wiring: debounced, idempotent autosave against the
+  IF1–IF3 envelope (`apps/web/lib/envelope-write.ts` — byte-identical replays);
+* Meridian-authored OSS Tiptap extensions where none exists:
+  allowlisted KB-embeds (`crates/core-kb/src/rich.rs` provider registry, ADR 0004),
+  RelatedAssetLink `RecordLink` records (per ADR 0006), note-taxonomy pickers;
+* the **read-only renderer** that re-renders stored Tiptap JSON server-side (RSC)
+  with the editor never in the read bundle.
+
+**Non-purpose:** no business/editor policy that Rust must enforce identically
+(that lives in `crates/core-kb` — schema validation, sanitizer, allowlist); no
+vault/category surfaces (ADR 0006 browsing rides Wave 17 lane 3 close-out); no
+MCP/agent writer loops (agent-authored prose rides `docs/10-agent-platform.md`
+approval binding).
+
+**Contract notes for the lane:**
+* Canonical storage is **Tiptap JSON** in `content_jsonb`; the editor emits
+  transactions; the store path is plain autosave JSON — no HTML round-trips through
+  the API.
+- Schema control = extension allowlist, server-side validated against the
+  published Tiptap JSON schema version pinned in `core-kb`.
+* Theme: every toolbar/menu element is our primitives (Workbench/Tangerine tokens;
+  packages/ui editor primitives; light+dark parity; `≤120ms`, transform/opacity,
+  `prefers-reduced-motion`).
+* Secrets/knowledgebase surfaces stay **out** of this module — they are lane 2/3.
