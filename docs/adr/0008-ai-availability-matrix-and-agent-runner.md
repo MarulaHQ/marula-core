@@ -90,7 +90,7 @@ progress against caps.
 - Lane scope (Wave 18, new): `p18-ai-policy-ledger` (matrix + catalog + ledger +
   caps + credential slot), `p18-agent-chat-runner` (runner + general chat surface),
   `p18-ai-closeout` (settings/ai + agent-platform pages, chat panel, per-surface
-  pickers, progress views) — migration pairs 0080/0081 (after Wave 17's workbar 0079).
+  pickers, progress views) — migration pairs 0081/0082 (head-ordered after Wave 16's plugin/skill lane 0079 per ADR 0009 and Wave 17's workbar 0080).
 - Existing flat settings (`ai.completion_provider`, `ai.completion_model`) remain as
   an overridable default; the matrix supersedes them without a breaking cut (U6-safe
   additive migration).
