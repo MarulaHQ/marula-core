@@ -66,6 +66,7 @@ fn filter(name: &'static str, f: impl FnOnce(&mut core_db::tickets::TicketFilter
         tag_ids: None,
         limit: 50,
         offset: 0,
+        cursor: None,
     };
     f(&mut filter);
     Named { name, filter }
@@ -78,7 +79,9 @@ pub(crate) struct Named {
 }
 
 /// The standard mix set. `assignee`/`client` target deterministic seeded
-/// rows (harness user 1, client 1).
+/// rows (harness user 1, client 1). The keyset deep-page mix is appended
+/// by [`measure_ticket_list`] once it has resolved an anchor at depth
+/// 40k — same depth the offset mix walks.
 pub(crate) fn mixes(assignee: Uuid, client: Uuid) -> Vec<Named> {
     vec![
         filter("page1_default", |_| {}),
@@ -87,6 +90,62 @@ pub(crate) fn mixes(assignee: Uuid, client: Uuid) -> Vec<Named> {
         filter("client_scoped", |f| f.client_id = Some(client)),
         filter("deep_page_offset40k", |f| f.offset = 40_000),
     ]
+}
+
+/// Resolves the sort-tuple anchor of the row at `depth` — the keyset
+/// cursor the deep-page mix resumes from. One untimed setup query (the
+/// very O(offset) scan the cursor exists to avoid), fetched through the
+/// plain offset path under the same RLS-scoped transaction the endpoint
+/// uses.
+async fn keyset_anchor(
+    tx: &mut Transaction<'_, Postgres>,
+    org_id: Uuid,
+    user_id: Uuid,
+    depth: i64,
+) -> anyhow::Result<Option<core_db::tickets::TicketCursor>> {
+    core_db::set_org_and_user(tx, org_id, user_id)
+        .await
+        .context("set org GUC (keyset anchor)")?;
+    let mut page = core_db::tickets::list_tickets(
+        &mut **tx,
+        org_id,
+        core_db::tickets::TicketFilter {
+            limit: 1,
+            offset: depth,
+            cursor: None,
+            ..empty_filter()
+        },
+    )
+    .await?;
+    if page.is_empty() {
+        return Ok(None);
+    }
+    let t = page.remove(0);
+    Ok(Some(core_db::tickets::TicketCursor {
+        priority_rank: match t.priority {
+            Priority::P1 => 0,
+            Priority::P2 => 1,
+            Priority::P3 => 2,
+            Priority::P4 => 3,
+        },
+        due_at: t.due_at,
+        created_at: t.created_at,
+        id: t.id,
+    }))
+}
+
+fn empty_filter() -> core_db::tickets::TicketFilter {
+    core_db::tickets::TicketFilter {
+        board_id: None,
+        assignee_id: None,
+        client_id: None,
+        category: None,
+        priority: None,
+        tag_ids: None,
+        limit: 0,
+        offset: 0,
+        cursor: None,
+    }
 }
 
 /// The same two queries the endpoint issues, timed end-to-end within one
@@ -117,6 +176,7 @@ fn clone_filter(f: &core_db::tickets::TicketFilter) -> core_db::tickets::TicketF
         tag_ids: f.tag_ids.clone(),
         limit: f.limit,
         offset: f.offset,
+        cursor: f.cursor,
     }
 }
 
@@ -161,6 +221,36 @@ pub async fn measure_ticket_list(
         results.push(summarize(mix.name, &samples));
     }
 
+    // Keyset deep-page mix: the Phase-4 product fix, measured against the
+    // SAME depth the offset mix walks. The anchor is the sort tuple of the
+    // row at 40k (one untimed setup query); the timed runs resume strictly
+    // after it — the cost that MUST be flat because this is the walk
+    // every deep-page client is expected to use going forward.
+    let anchor = {
+        let mut tx = app.begin().await?;
+        keyset_anchor(&mut tx, org_id, user_id, 40_000).await?
+    };
+    if let Some(anchor) = anchor {
+        let mix = filter("deep_page_keyset40k", |_| {});
+        let mut keyset_filter = mix.filter;
+        keyset_filter.cursor = Some(anchor);
+        for _ in 0..warmup_runs {
+            let mut tx = app.begin().await?;
+            one_request(&mut tx, org_id, user_id, &keyset_filter).await?;
+            tx.commit().await?;
+        }
+        let mut samples = Vec::with_capacity(timed_runs);
+        for _ in 0..timed_runs {
+            let start = Instant::now();
+            let mut tx = app.begin().await?;
+            let rows = one_request(&mut tx, org_id, user_id, &keyset_filter).await?;
+            tx.commit().await?;
+            anyhow::ensure!(rows > 0, "mix '{}' returned an empty page", mix.name);
+            samples.push(start.elapsed().as_secs_f64() * 1000.0);
+        }
+        results.push(summarize(mix.name, &samples));
+    }
+
     let explain_default = explain_page1(app, org_id, user_id).await;
 
     Ok(MeasureReport {
@@ -178,10 +268,12 @@ pub async fn measure_ticket_list(
 /// the CLI enforce.
 ///
 /// Budgets (docs/perf.md): the PRIMARY ticket-list budget is 150ms p95 and
-/// applies to every mix EXCEPT `deep_page_offset40k`. OFFSET pagination
-/// over 40k rows is a measured, documented over-budget shape (the Phase-4
-/// fix is keyset pagination — product code, a later perf lane); the smoke
-/// tracks it with its own headroom budget so a REGRESSION still fails.
+/// applies to every mix. Since keyset pagination shipped (Wave 15 lane 3,
+/// `deep_page_keyset40k`), the deep-page walk IS budgeted like every other
+/// shape — it is the coupon that made the offset tripwire enforceable
+/// (F2). `deep_page_offset40k` stays on its own headroom budget: legacy
+/// OFFSET clients keep regression coverage but the budget they hit is not
+/// the product budget.
 pub fn assert_budget(report: &MeasureReport, budget_ms: f64) -> anyhow::Result<()> {
     for mix in &report.mixes {
         let mix_budget = if mix.name == "deep_page_offset40k" {

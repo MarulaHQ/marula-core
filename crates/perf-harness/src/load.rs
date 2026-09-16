@@ -12,6 +12,13 @@
 //! with the seeded harness user, so the measured path includes bearer-token
 //! auth, RLS tx setup, serialization and the axum stack — everything the
 //! SQL-path measurement (`measure`) deliberately excludes.
+//!
+//! Deep-page leg (Wave 15 lane 3): the mix's 10% deep-page share rides the
+//! KEYSET cursor (the product shape, F2) — one untimed offset call at
+//! login resolves the depth-40k anchor from the server's `x-next-cursor`
+//! header, and workers page from there. Against a pre-keyset server the
+//! anchor is absent and the leg falls back to the legacy offset URL, so
+//! the runner stays usable across versions.
 
 use anyhow::Context;
 use std::time::{Duration, Instant};
@@ -73,14 +80,18 @@ struct Mix {
     state: u64,
     assignee: Uuid,
     client: Uuid,
+    /// Keyset cursor resolved at depth 40k (or None when the probed
+    /// server pre-dates the header and the offset fallback applies).
+    deep_cursor: Option<String>,
 }
 
 impl Mix {
-    fn new(seed: u64) -> Self {
+    fn new(seed: u64, deep_cursor: Option<String>) -> Self {
         Self {
             state: seed.wrapping_mul(0x9E3779B97F4A7C15) | 1,
             assignee: md5_uuid("perf-user-1"),
             client: md5_uuid("perf-client-1"),
+            deep_cursor,
         }
     }
 
@@ -95,7 +106,8 @@ impl Mix {
     }
 
     /// Percentile mix: 60% page-1 default, 10% priority p1, 10% my-work
-    /// assignee scope, 10% client scope, 10% deep pagination.
+    /// assignee scope, 10% client scope, 10% deep pagination (keyset when
+    /// an anchor resolved; offset otherwise).
     fn next_path(&mut self) -> String {
         let roll = self.next_u64() % 100;
         match roll {
@@ -103,7 +115,15 @@ impl Mix {
             60..=69 => "/api/tickets?limit=50&priority=p1".to_string(),
             70..=79 => format!("/api/tickets?limit=50&assignee_id={}", self.assignee),
             80..=89 => format!("/api/tickets?limit=50&client_id={}", self.client),
-            _ => "/api/tickets?limit=50&offset=40000".to_string(),
+            _ => self.deep_path(),
+        }
+    }
+
+    fn deep_path(&self) -> String {
+        match &self.deep_cursor {
+            // URL_SAFE_NO_PAD base64 is itself URL-safe — no extra escaping.
+            Some(cursor) => format!("/api/tickets?limit=50&cursor={cursor}"),
+            None => "/api/tickets?limit=50&offset=40000".to_string(),
         }
     }
 }
@@ -147,15 +167,38 @@ pub async fn run(config: &LoadConfig) -> anyhow::Result<LoadReport> {
         .with_context(|| format!("login response missing access_token: {body}"))?
         .to_string();
 
+    // One untimed probe resolves the keyset anchor for the deep-page leg:
+    // a single-row request at depth 40k returns the server's resume
+    // cursor for exactly that sort position. Pre-keyset servers don't
+    // send the header — the leg silently rides the legacy offset URL.
+    let deep_cursor = client
+        .get(format!(
+            "{}/api/tickets?limit=1&offset=40000",
+            config.base_url.trim_end_matches('/')
+        ))
+        .bearer_auth(&token)
+        .send()
+        .await?
+        .error_for_status()?
+        .headers()
+        .get("x-next-cursor")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
     let deadline = Instant::now() + config.duration;
     let base_seed = config.seed;
+    let deep_cursor_worker = deep_cursor.clone();
     let mut handles = Vec::with_capacity(config.concurrency);
     for worker in 0..config.concurrency {
         let client = client.clone();
         let base = config.base_url.clone();
         let token = token.clone();
+        let deep_cursor = deep_cursor_worker.clone();
         handles.push(tokio::spawn(async move {
-            let mut mix = Mix::new(base_seed ^ ((worker as u64).wrapping_mul(0xD1B54A32D192ED03)));
+            let mut mix = Mix::new(
+                base_seed ^ ((worker as u64).wrapping_mul(0xD1B54A32D192ED03)),
+                deep_cursor,
+            );
             let mut samples: Vec<Sample> = Vec::new();
             while Instant::now() < deadline {
                 let path = mix.next_path();

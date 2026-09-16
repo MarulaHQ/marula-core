@@ -6776,6 +6776,10 @@ export interface paths {
         /**
          * GET /api/tickets — filtered, priority-ordered list; each row carries its
          *     custom-field values (TASKLIST 2.17) fetched in one batched query.
+         *     Pagination is envelope-compatible: the body stays the plain ticket
+         *     array; deep-page walks pass the opaque `cursor` query param (from the
+         *     previous page's `x-next-cursor` response header) and the server resumes
+         *     strictly after that row — keyset, not O(offset) scan (docs/perf.md F2).
          */
         get: operations["tickets_list"];
         put?: never;
@@ -16266,6 +16270,13 @@ export interface components {
             category?: null | components["schemas"]["TicketStatusCategory"];
             /** Format: uuid */
             client_id?: string | null;
+            /**
+             * @description Keyset cursor (Wave 15 lane 3): the opaque `x-next-cursor` value
+             *     from the previous page's last row. Resumes the ranked list
+             *     strictly after that row — deep pages stop paying O(offset) scan
+             *     cost (docs/perf.md F2). When present, `offset` is ignored.
+             */
+            cursor?: string | null;
             /** Format: int64 */
             limit?: number;
             /** Format: int64 */
@@ -30824,6 +30835,13 @@ export interface operations {
                 tags?: string | null;
                 limit?: number;
                 offset?: number;
+                /**
+                 * @description Keyset cursor (Wave 15 lane 3): the opaque `x-next-cursor` value
+                 *     from the previous page's last row. Resumes the ranked list
+                 *     strictly after that row — deep pages stop paying O(offset) scan
+                 *     cost (docs/perf.md F2). When present, `offset` is ignored.
+                 */
+                cursor?: string | null;
             };
             header?: never;
             path?: never;
@@ -30833,6 +30851,8 @@ export interface operations {
         responses: {
             200: {
                 headers: {
+                    /** @description Opaque keyset cursor for the next page; present when this page is full and the walk may continue */
+                    "x-next-cursor"?: string;
                     [name: string]: unknown;
                 };
                 content: {
