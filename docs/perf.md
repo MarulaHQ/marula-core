@@ -151,14 +151,14 @@ with the keyset deep-page mix in place of the offset leg:
   25.6ms p95 @50k vs 173.0ms legacy offset in the same environment).
   The offset tripwire stays for regression coverage of legacy clients;
   the product budget now applies to the keyset mix (enforceable —
-  see §6). Legacy behavior is unchanged for callers that don't pass
+  see §5). Legacy behavior is unchanged for callers that don't pass
   `cursor`.
 - **F3 — Saturated closed-loop overshoot (RESOLVED twice over).** The
   218ms p95 @50k measured in the baseline was NOT pure queueing: after
   the keyset mix replaced the offset deep-page leg, the same
   saturation point runs at 49.2ms p95 / 259 rps. The remainder is the
   genuinely capacity-shaped cost (queueing + serialization) and it
-  holds under the 150ms HTTP budget. See §7 for the capacity decision.
+  holds under the 150ms HTTP budget. See §5 for the capacity decision.
 - **F3a — per-request HTTP overhead ≈ 6–8ms** (auth + JSON + stack):
   p50 18.4ms HTTP vs ≈10ms SQL for page 1. Bounded, not urgent.
 - **F4 — Plan shape @50k; candidate index measured, DELIBERATELY NOT
