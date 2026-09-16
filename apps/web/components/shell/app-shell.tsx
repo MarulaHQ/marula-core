@@ -1,0 +1,113 @@
+// AppShell — the Wave 15 lane 6 shell grid.
+//
+// Purpose: one client wrapper composing the mockup paradigm: dark left icon
+// rail (NavRail) + slim top bar (AppHeader) + scrolling content + the dark
+// bottom work bar (TimerDock, in-flow — never a fixed overlay). Owns the
+// rail-collapse persistence (localStorage) and the shell-level open-ticket
+// count the rail badge renders.
+//
+// Non-purpose: no route state; headerless surfaces (auth flows, portal,
+// shared links) render their own chrome — the rail, top bar, and work bar
+// all hide there via isHeaderlessPath.
+
+"use client";
+
+import { usePathname } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import { api, useAuth } from "../../lib/api";
+import { AppHeader } from "../app-header";
+import { TimerDock } from "../timer-dock";
+import { isHeaderlessPath } from "./chrome";
+import { NavRail } from "./nav-rail";
+
+
+const RAIL_COLLAPSE_KEY = "meridian-rail-collapsed";
+
+/**
+ * Open-ticket count for the rail badge: the three non-closed status
+ * categories fetched through the typed SDK (100 each; ≥100 per category
+ * renders "99+" honestly). Refreshes on mount, window focus, and a slow
+ * interval; any failure leaves the badge hidden — never a fake zero.
+ */
+function useOpenTicketCount(enabled: boolean): number | null {
+  const [count, setCount] = useState<number | null>(null);
+  const load = useCallback(async () => {
+    if (!enabled) return;
+    const categories = ["open", "in_progress", "waiting"] as const;
+    try {
+      const results = await Promise.all(
+        categories.map((category) =>
+          api.api.GET("/api/v1/tickets", {
+            params: { query: { category, limit: 100 } },
+          }),
+        ),
+      );
+      let total = 0;
+      for (const result of results) {
+        if (result.error !== undefined) {
+          setCount(null);
+          return;
+        }
+        total += result.data?.length ?? 0;
+      }
+      setCount(total);
+    } catch {
+      setCount(null);
+    }
+  }, [enabled]);
+  useEffect(() => {
+    if (!enabled) return;
+    void load();
+    const onFocus = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    window.addEventListener("focus", onFocus);
+    const timer = window.setInterval(onFocus, 60_000);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.clearInterval(timer);
+    };
+  }, [enabled, load]);
+  return count;
+}
+
+export function AppShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const auth = useAuth();
+  const headerless = isHeaderlessPath(pathname);
+  const openCount = useOpenTicketCount(auth.status === "authed" && !headerless);
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    try {
+      setCollapsed(window.localStorage.getItem(RAIL_COLLAPSE_KEY) === "1");
+    } catch {
+      // storage unavailable — default expanded
+    }
+  }, []);
+
+  const toggleCollapsed = useCallback(() => {
+    setCollapsed((v) => {
+      const next = !v;
+      try {
+        window.localStorage.setItem(RAIL_COLLAPSE_KEY, next ? "1" : "0");
+      } catch {
+        // storage unavailable — session-only state
+      }
+      return next;
+    });
+  }, []);
+
+  if (headerless) return <>{children}</>;
+
+  return (
+    <div className="flex h-dvh min-h-0">
+      <NavRail openCount={openCount} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <AppHeader />
+        <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
+        <TimerDock />
+      </div>
+    </div>
+  );
+}

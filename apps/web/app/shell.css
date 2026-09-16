@@ -1,0 +1,229 @@
+/*
+ * Shell chrome styles — Wave 15 lane 6 (nav rail, top bar, work bar).
+ *
+ * Non-token-layer: NO hex values live here — every color is a var() from
+ * packages/ui/src/tokens.css (or a color-mix() of those tokens, the same
+ * composition style tokens.css itself uses). The mockup's dark chrome in
+ * BOTH modes is built from the always-on dark anchors (--m-overlay-dark,
+ * --m-border-dark, --m-text-dark, --m-mist).
+ *
+ * Motion law (docs/theme.md §5): transform/opacity only, ≤120ms,
+ * stagger ≤40ms, prefers-reduced-motion honored.
+ */
+
+/* ---- Nav rail ---------------------------------------------------------- */
+
+@keyframes m-rail-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Staggered rail entrance — transform/opacity only, 40ms/item (docs/theme.md §5). */
+.m-rail-item-wrap {
+  opacity: 0;
+  animation: m-rail-in 120ms calc(var(--stagger-i, 0) * 40ms) forwards;
+}
+
+/* Hover micro-feedback: quiet wash + a subtle icon lift. */
+.m-rail-item {
+  transition:
+    background-color 100ms ease,
+    color 100ms ease;
+}
+
+.m-rail-item:hover {
+  background-color: color-mix(in srgb, var(--m-text-dark) 8%, transparent) !important;
+}
+
+.m-rail-item:hover > svg {
+  transform: translateY(-1px);
+}
+
+.m-rail-item > svg {
+  transition: transform 100ms ease;
+}
+
+.m-rail-item:focus-visible {
+  outline: 2px solid var(--m-focus-ring);
+  outline-offset: 1px;
+}
+
+.m-rail-flyout {
+  animation: m-rail-in 120ms ease forwards;
+}
+
+.m-rail-flyout-link {
+  transition:
+    background-color 100ms ease,
+    color 100ms ease;
+}
+
+.m-rail-flyout-link:hover {
+  background-color: color-mix(in srgb, var(--m-text-dark) 8%, transparent) !important;
+}
+
+/* ---- Top bar: unified search pill -------------------------------------- */
+
+.m-top-search {
+  transition:
+    border-color 100ms ease,
+    background-color 100ms ease;
+}
+
+.m-top-search:hover {
+  border-color: var(--m-border-strong);
+}
+
+.m-top-search:focus-visible {
+  outline: 2px solid var(--m-focus-ring);
+  outline-offset: 1px;
+}
+
+/* ---- Work bar (dark bottom chrome, both modes) ------------------------- */
+
+.m-workbar {
+  background: var(--m-overlay-dark);
+  border-top-color: var(--m-border-dark);
+}
+
+[data-theme="dark"] .m-workbar {
+  background: color-mix(in srgb, var(--m-canvas-dark) 72%, var(--m-surface-dark));
+}
+
+.m-workbar-timer {
+  color: color-mix(in srgb, var(--m-status-success-fg) 55%, var(--m-text-dark));
+}
+
+.m-workbar-number {
+  color: var(--m-text-dark);
+}
+
+.m-workbar-title {
+  color: var(--m-mist);
+}
+
+/* Live work-dot: success token + a soft same-hue ring. */
+.m-work-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 9999px;
+  background: var(--m-status-success-fg);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--m-status-success-fg) 18%, transparent);
+}
+
+.m-work-dot-paused {
+  background: var(--m-status-warning-fg);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--m-status-warning-fg) 18%, transparent);
+}
+
+.m-work-dot-live {
+  animation: m-work-pulse 2s ease-in-out infinite;
+}
+
+@keyframes m-work-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.m-workbar-note {
+  background: color-mix(in srgb, var(--m-border-dark) 35%, transparent);
+  border-color: var(--m-border-dark);
+  color: var(--m-text-dark);
+  transition: border-color 100ms ease;
+}
+
+.m-workbar-note::placeholder {
+  color: var(--m-mist);
+}
+
+.m-workbar-note:focus {
+  border-color: var(--m-border-strong);
+}
+
+.m-workbar-note:focus-visible {
+  outline: 2px solid var(--m-focus-ring);
+  outline-offset: 1px;
+}
+
+.m-workbar-ghost {
+  color: var(--m-mist);
+  transition:
+    background-color 100ms ease,
+    color 100ms ease;
+}
+
+.m-workbar-ghost:hover {
+  background: color-mix(in srgb, var(--m-text-dark) 10%, transparent);
+  color: var(--m-text-dark);
+}
+
+.m-workbar-ghost:focus-visible {
+  outline: 2px solid var(--m-focus-ring);
+  outline-offset: 1px;
+}
+
+.m-workbar-note-feedback {
+  color: var(--m-mist);
+  white-space: nowrap;
+}
+
+/* Wrap up keeps the preset primary; hover deepens via the token hover. */
+button[style*="var(--m-accent)"]:hover:not(:disabled) {
+  background: var(--m-accent-hover) !important;
+}
+
+button[style*="var(--m-accent)"]:focus-visible {
+  outline: 2px solid var(--m-focus-ring);
+  outline-offset: 1px;
+}
+
+/* ---- Compact rail below 768px (survives 480) --------------------------- */
+
+@media (max-width: 767px) {
+  [data-testid="nav-rail"] {
+    width: 36px !important;
+  }
+
+  [data-testid="nav-rail"] .m-rail-item {
+    height: 28px;
+    width: 28px;
+  }
+
+  [data-testid="nav-rail"] .m-rail-item > svg {
+    width: 15px;
+    height: 15px;
+  }
+}
+
+/* ---- Reduced motion (docs/theme.md §5) --------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .m-rail-item,
+  .m-rail-item > svg,
+  .m-rail-item-wrap,
+  .m-rail-flyout,
+  .m-rail-flyout-link,
+  .m-top-search,
+  .m-workbar-note,
+  .m-workbar-ghost,
+  .m-work-dot-live {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  /* Collapsed animation must not leave the item invisible. */
+  .m-rail-item-wrap {
+    opacity: 1;
+  }
+}

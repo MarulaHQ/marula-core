@@ -2,16 +2,15 @@
 //
 // Purpose: the only place global CSS and providers are attached; an inline
 // pre-hydration script applies the persisted theme before first paint so
-// neither mode ever flashes. Hosts the docked active-timer bar (TASKLIST
-// 2.9) so it spans every surface, plus the shared AppHeader so navigation
-// survives every route. Headerless surfaces (login, portal) are excluded
-// inside AppHeader itself.
+// neither mode ever flashes. Hosts the app shell (Wave 15 lane 6): the
+// dark left icon rail + slim top bar + scrolling content + the dark bottom
+// work bar, all composed in AppShell. Headerless surfaces (login, portal)
+// are excluded inside the shell components themselves.
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono, Source_Serif_4 } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "../lib/api";
-import { AppHeader } from "../components/app-header";
-import { TimerDock } from "../components/timer-dock";
+import { AppShell } from "../components/shell/app-shell";
 import { cn } from "@/lib/utils";
 
 // Tangerine typography (docs/theme.md §4): Source Serif 4 headings,
@@ -44,11 +43,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className={inter.variable}>
         <AuthProvider>
-          <div className="flex h-dvh flex-col">
-            <AppHeader />
-          <div className="min-h-0 flex-1 overflow-auto">{children}</div>
-          <TimerDock />
-        </div>
+          <AppShell>{children}</AppShell>
         </AuthProvider>
       </body>
     </html>
