@@ -3572,7 +3572,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** GET /api/kb/articles/{id} */
+        /**
+         * GET /api/kb/articles/{id} — with the sanitized read-only HTML
+         *     projection (no editor package in any read bundle).
+         */
         get: operations["kb_get_article"];
         put?: never;
         post?: never;
@@ -8136,6 +8139,16 @@ export interface components {
          */
         ApprovalStatus: "draft" | "submitted" | "approved" | "rejected";
         ArchiveCatalogItemRequest: components["schemas"]["MutationParams"];
+        /**
+         * @description The single-article read surface (GET): article fields at the top
+         *     level plus the sanitized read-only HTML projection the web client
+         *     renders server-side — the editor package never ships in bundles that
+         *     only read.
+         */
+        ArticleDetail: components["schemas"]["KbArticle"] & {
+            /** @description Sanitized server-rendered HTML (core-kb render whitelist). */
+            content_html?: string | null;
+        };
         ArticleListQuery: {
             /** Format: uuid */
             category_id?: string | null;
@@ -9680,6 +9693,13 @@ export interface components {
              *     published status and a client-visible category (core_kb rule).
              */
             client_visible?: boolean;
+            /**
+             * @description Canonical rich content (ADR 0007): the versioned Tiptap-JSON
+             *     envelope `{"schema_ver": 1, "doc": <tiptap-doc>}`. Validated
+             *     server-side on write; when present it WINS over `body` (the
+             *     plain-text projection is derived deterministically).
+             */
+            content_jsonb?: unknown;
             /** @description Stable per-org handle; derived from the title when omitted. */
             slug?: string | null;
             status?: null | components["schemas"]["KbArticleStatus"];
@@ -12053,6 +12073,12 @@ export interface components {
             category_id?: string | null;
             /** @description The article half of the client-facing gate (portal v2 honors it). */
             client_visible: boolean;
+            /**
+             * @description Canonical rich content (ADR 0007): the versioned envelope
+             *     `{"schema_ver": 1, "doc": <tiptap>}` — `None` for legacy rows the
+             *     0077 backfill has not seen (reads fall back to `body`).
+             */
+            content_jsonb?: unknown;
             /** Format: date-time */
             created_at: string;
             /** Format: uuid */
@@ -16734,6 +16760,12 @@ export interface components {
              */
             category_id?: string | null;
             client_visible?: boolean | null;
+            /**
+             * @description Canonical rich content (ADR 0007); validated on every write. The
+             *     editor's debounced autosave rides THIS field over the instant-first
+             *     envelope (IF1–IF3 unchanged: idempotency key + version/If-Match).
+             */
+            content_jsonb?: unknown;
             status?: null | components["schemas"]["KbArticleStatus"];
             title?: string | null;
         };
@@ -23987,7 +24019,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["KbArticle"];
+                    "application/json": components["schemas"]["ArticleDetail"];
                 };
             };
             /** @description article not visible in scope */

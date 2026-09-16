@@ -528,7 +528,7 @@ async fn connector_disabled_rejects_feed_upsert_with_typed_403() {
     let slug = format!("ci-gate-{}", Uuid::now_v7().simple());
     let token = register_org(&app, &slug).await;
     let bearer = [("authorization", format!("Bearer {token}"))];
-    let org_id = me_org_id(&app, &token).await;
+    let _org_id = me_org_id(&app, &token).await;
 
     let client = body_json(
         send(

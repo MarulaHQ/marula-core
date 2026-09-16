@@ -83,6 +83,7 @@ async fn category_and_article_round_trip() {
         "Reset a lost password",
         "reset-a-lost-password",
         "# Steps\n1. open the portal",
+        None,
         KbArticleStatus::Published,
         true,
         author,
@@ -184,6 +185,7 @@ async fn article_filters_compose_and_client_gate_needs_the_category() {
         "Onboard a new site",
         "onboard-a-new-site",
         "content",
+        None,
         KbArticleStatus::Published,
         true,
         author,
@@ -199,6 +201,7 @@ async fn article_filters_compose_and_client_gate_needs_the_category() {
         "Draft playbook",
         "draft-playbook",
         "content",
+        None,
         KbArticleStatus::Draft,
         true,
         author,
@@ -214,6 +217,7 @@ async fn article_filters_compose_and_client_gate_needs_the_category() {
         "Internal runbook",
         "internal-runbook",
         "content",
+        None,
         KbArticleStatus::Published,
         true,
         author,
@@ -229,6 +233,7 @@ async fn article_filters_compose_and_client_gate_needs_the_category() {
         "Uncategorized",
         "uncategorized",
         "content",
+        None,
         KbArticleStatus::Published,
         true,
         author,
@@ -305,6 +310,7 @@ async fn slug_uniqueness_is_enforced_per_org() {
         "Duplicate",
         "same-slug",
         "",
+        None,
         KbArticleStatus::Draft,
         false,
         fixed_uuid(1348),
@@ -320,6 +326,7 @@ async fn slug_uniqueness_is_enforced_per_org() {
         "Duplicate Two",
         "same-slug",
         "",
+        None,
         KbArticleStatus::Draft,
         false,
         author,
@@ -352,6 +359,7 @@ async fn rls_blocks_cross_org_kb_reads() {
         "Secret handshakes",
         "secret-handshakes",
         "internal",
+        None,
         KbArticleStatus::Draft,
         false,
         author,
@@ -430,5 +438,113 @@ async fn unified_search_accepts_kb_and_document_kinds() {
     )
     .await
     .expect("delete indexed document"));
+    tx.commit().await.expect("commit");
+}
+
+// --- ADR 0007 content model (Wave 16 lane 2, 0077) --------------------------
+
+/// 0077 backfill semantics: a legacy plaintext body becomes the v1
+/// envelope `{"schema_ver":1,"doc":{type:"doc",content:[one paragraph
+/// per newline]}}` stored as jsonb, `body` stays byte-identical
+/// (expand-only), and the GIN jsonb_path_ops index exists.
+#[tokio::test]
+async fn migration_0077_backfills_envelope_and_keeps_body() {
+    let db = test_db().await;
+    let app = db.app.clone();
+    let s = seed_org(&app, 138).await;
+    let _author = seed_user(&app, &s, 1381).await;
+    let mut tx = org_tx(&app, s.org).await;
+    let wrap = core_kb::content::plain_text_envelope("# Steps\n1. open the portal");
+    let article = kb::create_article(
+        &mut *tx,
+        s.org,
+        fixed_uuid(1382),
+        None,
+        "Legacy wrap",
+        "legacy-wrap",
+        "# Steps\n1. open the portal",
+        Some(wrap.clone()),
+        KbArticleStatus::Draft,
+        false,
+        fixed_uuid(1381),
+    )
+    .await
+    .expect("article insert");
+    tx.commit().await.expect("commit");
+
+    // Wrap-on-write stores the envelope byte-identically and body keeps
+    // the original text (expand-only contract).
+    assert_eq!(article.content_jsonb.as_ref().expect("envelope"), &wrap);
+    assert_eq!(article.body, "# Steps\n1. open the portal");
+
+    // GIN jsonb_path_ops index for FTS preflight exists.
+    let count: (i64,) = sqlx::query_as(
+        "SELECT count(*) FROM pg_indexes \
+         WHERE tablename = 'kb_articles' \
+         AND indexdef LIKE '%content_jsonb jsonb_path_ops%'",
+    )
+    .fetch_one(&app)
+    .await
+    .expect("index lookup");
+    assert_eq!(count.0, 1, "0077 must pin the GIN jsonb_path_ops index");
+
+    // RLS posture: the changed table stays isolation-gated (policies are
+    // table-scoped, so a column addition must never weaken them).
+    let rls: (bool, i64) = sqlx::query_as(
+        "SELECT rel.rowsecurity, \
+         (SELECT count(*) FROM pg_policies WHERE tablename = 'kb_articles') \
+         FROM pg_tables rel WHERE rel.tablename = 'kb_articles' AND rel.schemaname = 'public'",
+    )
+    .fetch_one(&app)
+    .await
+    .expect("rls lookup");
+    assert!(rls.0, "kb_articles must keep FORCE/ENABLE RLS");
+    assert!(rls.1 >= 1, "kb_articles must keep at least one policy");
+}
+
+/// The envelope rides write → read byte-identically (déjà vu for the
+/// autosave replay contract): storing then reading returns the SAME
+/// JSON value, and the plain-text projection matches.
+#[tokio::test]
+async fn content_envelope_round_trips() {
+    let db = test_db().await;
+    let app = db.app.clone();
+    let s = seed_org(&app, 139).await;
+    let _author = seed_user(&app, &s, 1391).await;
+    let mut tx = org_tx(&app, s.org).await;
+    let doc = serde_json::json!({
+        "type": "doc",
+        "content": [
+            { "type": "heading", "attrs": { "textAlign": "left" },
+              "content": [{ "type": "text", "text": "Reset a password" }] },
+            { "type": "paragraph", "content": [
+                { "type": "text", "text": "Use " },
+                { "type": "text", "text": "the console",
+                  "marks": [{ "type": "bold" }] }
+            ]}
+        ]
+    });
+    let envelope = serde_json::json!({ "schema_ver": 1, "doc": doc });
+    let plain = core_kb::content::plain_text(&doc);
+    core_kb::content::validate_content(&serde_json::to_vec(&envelope).expect("serialize"))
+        .expect("editor-shaped card docs pass the write gate");
+    let article = kb::create_article(
+        &mut *tx,
+        s.org,
+        fixed_uuid(1392),
+        None,
+        "Rich article",
+        "rich-article",
+        &plain,
+        Some(envelope.clone()),
+        KbArticleStatus::Draft,
+        false,
+        fixed_uuid(1391),
+    )
+    .await
+    .expect("article insert");
+    let stored = article.content_jsonb.expect("envelope stored");
+    assert_eq!(stored, envelope, "byte-identical replay of the envelope");
+    assert_eq!(article.body, plain);
     tx.commit().await.expect("commit");
 }

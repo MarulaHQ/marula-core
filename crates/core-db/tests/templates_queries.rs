@@ -126,9 +126,9 @@ async fn insert_org_template(
 async fn shipped_defaults_seed_byte_identical_to_canonical() {
     let db = test_db().await;
     let app = &db.app;
-    let s = seed_org(&app, 150).await;
+    let s = seed_org(app, 150).await;
 
-    let mut tx = org_tx(&app, s.org).await;
+    let mut tx = org_tx(app, s.org).await;
     let rows = templates::list_templates(&mut *tx, s.org, None, 200, 0)
         .await
         .expect("list");
@@ -160,8 +160,8 @@ async fn shipped_defaults_seed_byte_identical_to_canonical() {
 async fn org_rows_crud_but_system_rows_immutable() {
     let db = test_db().await;
     let app = &db.app;
-    let s = seed_org(&app, 151).await;
-    let mut tx = org_tx(&app, s.org).await;
+    let s = seed_org(app, 151).await;
+    let mut tx = org_tx(app, s.org).await;
 
     let org_row = insert_org_template(&mut tx, &s, 152, "note", "my_snippet", "hello").await;
     assert!(!org_row.is_system);
@@ -221,8 +221,8 @@ async fn org_rows_crud_but_system_rows_immutable() {
 async fn restore_resets_preset_content_only() {
     let db = test_db().await;
     let app = &db.app;
-    let s = seed_org(&app, 153).await;
-    let mut tx = org_tx(&app, s.org).await;
+    let s = seed_org(app, 153).await;
+    let mut tx = org_tx(app, s.org).await;
 
     let builtin = templates::list_templates(&mut *tx, s.org, Some("note"), 10, 0)
         .await
@@ -279,8 +279,8 @@ async fn restore_resets_preset_content_only() {
 async fn list_filters_by_kind_and_defaults_first() {
     let db = test_db().await;
     let app = &db.app;
-    let s = seed_org(&app, 155).await;
-    let mut tx = org_tx(&app, s.org).await;
+    let s = seed_org(app, 155).await;
+    let mut tx = org_tx(app, s.org).await;
     insert_org_template(&mut tx, &s, 156, "email", "zzz_org_email", "body").await;
 
     let all = templates::list_templates(&mut *tx, s.org, None, 200, 0)
@@ -302,13 +302,13 @@ async fn list_filters_by_kind_and_defaults_first() {
 async fn rls_scopes_templates_per_org() {
     let db = test_db().await;
     let app = &db.app;
-    let a = seed_org(&app, 157).await;
-    let b = seed_org(&app, 158).await;
-    let mut tx_a = org_tx(&app, a.org).await;
+    let a = seed_org(app, 157).await;
+    let b = seed_org(app, 158).await;
+    let mut tx_a = org_tx(app, a.org).await;
     insert_org_template(&mut tx_a, &a, 159, "workflow", "playbook_a", "secret").await;
     tx_a.commit().await.expect("commit");
 
-    let mut tx_b = org_tx(&app, b.org).await;
+    let mut tx_b = org_tx(app, b.org).await;
     let rows_b = templates::list_templates(&mut *tx_b, b.org, None, 200, 0)
         .await
         .expect("list");
@@ -324,10 +324,10 @@ async fn rls_scopes_templates_per_org() {
 async fn render_contexts_resolve_joined_entity_snapshot() {
     let db = test_db().await;
     let app = &db.app;
-    let s = seed_org(&app, 160).await;
-    let user = seed_user(&app, &s, 161).await;
+    let s = seed_org(app, 160).await;
+    let user = seed_user(app, &s, 161).await;
 
-    let mut tx = org_tx(&app, s.org).await;
+    let mut tx = org_tx(app, s.org).await;
     let (client, contact) = seed_client_and_contact(&mut tx, &s, 162).await;
     let statuses = boards::list_statuses(&mut *tx, s.board)
         .await
@@ -365,10 +365,7 @@ async fn render_contexts_resolve_joined_entity_snapshot() {
     assert_eq!(map.get("user.name").unwrap(), "Template User");
     assert_eq!(map.get("client.name").unwrap(), "Client 162");
     assert_eq!(map.get("contact.name").unwrap(), "J. Doe");
-    assert_eq!(
-        map.get("contact.email").unwrap(),
-        &format!("j162@client.test")
-    );
+    assert_eq!(map.get("contact.email").unwrap(), "j162@client.test");
     assert_eq!(map.get("ticket.summary").unwrap(), "Laptop will not boot");
     assert_eq!(map.get("ticket.priority").unwrap(), "p1");
     assert!(map.contains_key("ticket.number"));
@@ -377,7 +374,7 @@ async fn render_contexts_resolve_joined_entity_snapshot() {
 
     // A second user renders the same ticket: the joined snapshot is the
     // entity's, only `user.name` follows the caller.
-    let other = seed_user(&app, &s, 165).await;
+    let other = seed_user(app, &s, 165).await;
     let ctx2 = templates::ticket_render_context(&mut *tx, s.org, ticket.id, other)
         .await
         .expect("ticket context 2");

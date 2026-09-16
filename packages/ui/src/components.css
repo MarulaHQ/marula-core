@@ -490,3 +490,219 @@
   font-size: 12px;
   color: var(--m-text);
 }
+
+/* ---------- Editor (Tiptap shell primitives, ADR 0007) ---------- */
+
+/* Slim formatting toolbar: rides control tokens; tools are 24px icon
+ * buttons with aria-labels; the active state uses the accent-soft mix
+ * (Ember stays interactive-only). */
+.m-editor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-control);
+  background: var(--m-surface);
+}
+
+.m-editor-toolbar-group + .m-editor-toolbar-group {
+  margin-left: 4px;
+  padding-left: 4px;
+  border-left: 1px solid var(--m-border);
+}
+
+.m-editor-tool {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: var(--m-radius-control);
+  color: var(--m-text-secondary);
+  cursor: pointer;
+  transition: transform 120ms ease, opacity 120ms ease;
+}
+
+.m-editor-tool:hover {
+  background: var(--m-canvas);
+  color: var(--m-text);
+}
+
+.m-editor-tool[aria-pressed="true"] {
+  background: var(--m-accent-soft);
+  color: var(--m-text);
+}
+
+.m-editor-tool[aria-disabled="true"],
+.m-editor-tool:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.m-editor-tool:active:not(:disabled):not([aria-disabled="true"]) {
+  transform: translateY(0.5px);
+}
+
+/* Slash/block menu — popover list. */
+.m-editor-menu {
+  z-index: 60;
+  min-width: 200px;
+  padding: 4px;
+  background: var(--m-overlay-surface);
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-control);
+  box-shadow: 0 4px 16px var(--m-shadow);
+}
+
+.m-editor-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  background: transparent;
+  border-radius: var(--m-radius-control);
+  font-size: 13px;
+  text-align: left;
+  color: var(--m-text);
+  cursor: pointer;
+  /* Menu highlight changes are paint-only, no transition (motion law:
+   * opacity/transform only — theme.md §5). */
+}
+
+.m-editor-menu-item[data-active="true"],
+.m-editor-menu-item:hover {
+  background: var(--m-canvas);
+}
+
+.m-editor-menu-item .m-editor-menu-hint {
+  margin-left: auto;
+  color: var(--m-text-muted);
+  font-size: 11px;
+}
+
+/* Editor content canvas + saved-read prose (both modes render from
+ * tokens only; embed frames hold a 16:9 area). */
+.m-editor-canvas {
+  min-height: 240px;
+  padding: 12px;
+  background: var(--m-surface);
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-control);
+  font-family: var(--m-font-ui);
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--m-text);
+  overflow-y: auto;
+}
+
+.m-editor-canvas .ProseMirror {
+  outline: none;
+  min-height: 200px;
+}
+
+.m-editor-canvas .ProseMirror-focused {
+  outline: 2px solid var(--m-focus-ring);
+  outline-offset: 2px;
+}
+
+.m-editor-canvas :where(p):first-child {
+  margin-top: 0;
+}
+
+.m-editor-canvas :where(h2, h3, h4, h5, h6, h7) {
+  font-weight: 600;
+  margin: 0.7em 0 0.35em;
+}
+
+.m-editor-canvas :where(ul, ol, .kb-task-list) {
+  padding-left: 1.35em;
+}
+
+.m-editor-canvas :where(blockquote) {
+  margin: 0.5em 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--m-border-strong);
+  color: var(--m-text-secondary);
+}
+
+.m-editor-canvas :where(pre) {
+  padding: 10px;
+  background: var(--m-canvas);
+  border-radius: var(--m-radius-control);
+  overflow-x: auto;
+  font-family: var(--m-font-mono);
+  font-size: 12.5px;
+}
+
+.m-editor-canvas :where(figure.kb-code) {
+  margin: 0.6em 0;
+}
+
+.m-editor-canvas :where(hr) {
+  border: none;
+  border-top: 1px solid var(--m-border);
+  margin: 0.8em 0;
+}
+
+.m-editor-canvas :where(img) {
+  max-width: 100%;
+  border-radius: var(--m-radius-control);
+}
+
+.m-editor-canvas :where(figure.kb-embed) {
+  margin: 0.8em 0;
+}
+
+.m-editor-canvas :where(.kb-embed-frame) {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--m-radius-control);
+  overflow: hidden;
+  background: var(--m-canvas);
+}
+
+.m-editor-canvas :where(.kb-embed-frame) iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.m-editor-canvas :where(.kb-embed-blocked, .kb-embed-invalid) {
+  padding: 10px;
+  border: 1px dashed var(--m-border-strong);
+  border-radius: var(--m-radius-control);
+  color: var(--m-text-muted);
+  font-size: 12px;
+}
+
+.m-editor-canvas :where(.kb-task-list li)::before {
+  content: "";
+}
+
+.m-editor-canvas :where(a) {
+  color: var(--m-text);
+  text-decoration-color: var(--m-accent);
+}
+
+/* Tiptap selection styling uses ::selection, not animation. */
+.m-editor-canvas .ProseMirror-selectednode {
+  outline: 2px solid var(--m-focus-ring);
+  outline-offset: 2px;
+}
+
+.m-editor-canvas :where(.ProseMirror-gapcursor)::after {
+  border-top-color: var(--m-text);
+}
+
+/* Saved (read-only) article prose reuses the same vocabulary. */
+.m-kb-prose :where(p) {
+  margin: 0.5em 0;
+}

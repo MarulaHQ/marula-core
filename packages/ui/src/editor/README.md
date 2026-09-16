@@ -1,8 +1,8 @@
 # packages/ui/src/editor/ — shared editor primitives (ADR 0007, Wave 16 lane 2)
 
-> **Status:** scaffolded, empty — lane `p16-kb-tiptap-model` populates; README-only
-> until then. Component homes row: "KB rich-content editor (Tiptap 3 shell +
-> read-only renderer)" (TASKLIST.md ⇒ `apps/web/lib/editor/` + this home).
+> **Status:** populated (Wave 16 lane 2, 2026-09-16) — toolbar, block menu,
+> and the saved-prose renderer live in `src/editor/` (exported from the
+> package barrel). CSS rides `components.css` `.m-editor-*` classes.
 
 **Purpose:** the reusable, theme-owned UI of the editor that `apps/web/lib/editor/`
 (wiring) composes: toolbar, slash menu, floating marks menu, embed/link cards,

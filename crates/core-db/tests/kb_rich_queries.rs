@@ -86,6 +86,7 @@ async fn seed_article(
         &format!("Article {n}"),
         &format!("article-{n}"),
         "Body.",
+        None,
         status,
         visible,
         author,

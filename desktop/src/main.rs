@@ -8,7 +8,7 @@
 //! Data lives in `~/Library/Application Support/Meridian` and persists
 //! across rebuilds; migrations apply incrementally on startup.
 
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{Manager, RunEvent};
@@ -52,7 +52,11 @@ fn free_port(start: u16) -> u16 {
 /// by scripts/build-desktop.sh) on a loopback port and wait until it
 /// accepts connections. The machine's `node` is used — this is a local
 /// TEST app, not a shippable bundle (documented deviation in docs/adr/0005).
-async fn spawn_next_server(bundled: &Path, run_dir: &Path, port: u16) -> anyhow::Result<tokio::process::Child> {
+async fn spawn_next_server(
+    bundled: &Path,
+    run_dir: &Path,
+    port: u16,
+) -> anyhow::Result<tokio::process::Child> {
     let server_js = bundled.join("server.js");
     anyhow::ensure!(
         server_js.exists(),
@@ -89,7 +93,10 @@ async fn spawn_next_server(bundled: &Path, run_dir: &Path, port: u16) -> anyhow:
         .context("spawning the Next standalone server (is `node` on PATH?)")?;
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
     loop {
-        if tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_ok() {
+        if tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .is_ok()
+        {
             break;
         }
         if child.try_wait()?.is_some() {
@@ -115,9 +122,7 @@ fn ensure_pgvector(installation_dir: &Path) -> anyhow::Result<()> {
         .map(|e| e.path())
         .find(|p| p.join("bin/initdb").exists())
         .with_context(|| {
-            format!(
-                "no Postgres installation root with bin/initdb under {installation_dir:?}"
-            )
+            format!("no Postgres installation root with bin/initdb under {installation_dir:?}")
         })?;
     let lib_dir = versioned.join("lib");
     let ext_dir = versioned.join("share/extension");
@@ -141,13 +146,19 @@ fn ensure_pgvector(installation_dir: &Path) -> anyhow::Result<()> {
         PathBuf::from("/opt/homebrew/opt/pgvector/share/extension"),
         PathBuf::from("/usr/local/opt/pgvector/share/extension"),
     ];
-    let src_lib = lib_candidates.iter().find(|p| p.exists()).with_context(|| {
-        "pgvector library not found — run `brew install pgvector` (the migration \
+    let src_lib = lib_candidates
+        .iter()
+        .find(|p| p.exists())
+        .with_context(|| {
+            "pgvector library not found — run `brew install pgvector` (the migration \
          set requires the `vector` extension; see docs/adr/0005)"
-    })?;
-    let src_share = share_candidates.iter().find(|p| p.exists()).with_context(|| {
-        "pgvector extension scripts not found — reinstall pgvector (`brew reinstall pgvector`)"
-    })?;
+        })?;
+    let src_share = share_candidates
+        .iter()
+        .find(|p| p.exists())
+        .with_context(|| {
+            "pgvector extension scripts not found — reinstall pgvector (`brew reinstall pgvector`)"
+        })?;
     // Clean up copies made by earlier builds that targeted the wrong root.
     let _ = std::fs::remove_file(installation_dir.join("lib/vector.so"));
     let _ = std::fs::remove_dir_all(installation_dir.join("share/postgresql"));
@@ -303,7 +314,9 @@ async fn bootstrap_backend() -> anyhow::Result<(Backend, String, String)> {
         reporting: core_api::state::AppState::reporting_pool(&config.database_url).await,
         store: core_store::build(&config.object_store),
     };
-    tokio::spawn(core_api::realtime::run_listener(config.database_url.clone()));
+    tokio::spawn(core_api::realtime::run_listener(
+        config.database_url.clone(),
+    ));
 
     // The webview is served by the Next standalone server on a loopback
     // port, so cross-origin API calls need that origin allowed.
@@ -331,7 +344,14 @@ async fn bootstrap_backend() -> anyhow::Result<(Backend, String, String)> {
         }
     });
 
-    Ok((Backend { postgres: postgresql, next_server: std::sync::Mutex::new(next_server) }, api_url, web_url))
+    Ok((
+        Backend {
+            postgres: postgresql,
+            next_server: std::sync::Mutex::new(next_server),
+        },
+        api_url,
+        web_url,
+    ))
 }
 
 /// SIGTERM (e.g. `kill`, logout) bypasses Tauri's run loop, so stop the
@@ -349,7 +369,9 @@ fn install_sigterm_handler(data_dir: PathBuf) {
                     let bin = e.path().join("bin/pg_ctl");
                     if bin.exists() {
                         let _ = std::process::Command::new(bin)
-                            .args(["stop", "-D"]).arg(data_dir).args(["-m", "fast"])
+                            .args(["stop", "-D"])
+                            .arg(data_dir)
+                            .args(["-m", "fast"])
                             .output();
                     }
                 }
@@ -358,15 +380,17 @@ fn install_sigterm_handler(data_dir: PathBuf) {
         std::process::exit(sig);
     }
     unsafe {
-        libc::signal(libc::SIGTERM, handler as libc::sighandler_t);
+        libc::signal(
+            libc::SIGTERM,
+            handler as extern "C" fn(i32) as libc::sighandler_t,
+        );
     }
 }
 
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 
@@ -396,9 +420,7 @@ fn main() {
             .title("Meridian")
             .inner_size(1440.0, 900.0)
             .min_inner_size(900.0, 640.0)
-            .initialization_script(format!(
-                "window.__MERIDIAN_API_URL__ = '{api_url}';"
-            ))
+            .initialization_script(format!("window.__MERIDIAN_API_URL__ = '{api_url}';"))
             .build()?;
             Ok(())
         })

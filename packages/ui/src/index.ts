@@ -24,3 +24,7 @@ export * from "./components/table";
 export * from "./components/select";
 export * from "./components/dialog";
 export * from "./components/tooltip";
+
+export * from "./editor/toolbar";
+export * from "./editor/block-menu";
+export * from "./editor/prose";

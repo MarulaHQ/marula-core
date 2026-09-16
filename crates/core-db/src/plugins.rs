@@ -379,8 +379,6 @@ pub async fn delete_install(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn grant_list_round_trips_through_jsonb_shape() {
         let caps = vec!["tickets.read".to_string(), "financial.read".to_string()];

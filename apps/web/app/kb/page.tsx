@@ -9,6 +9,7 @@
 "use client";
 
 import { rejectionText } from "../../lib/error-copy";
+import { KbArticleEditor } from "../../lib/editor/kb-article-editor";
 import {
   Button,
   Card,
@@ -28,9 +29,12 @@ import {
 } from "@meridian/ui";
 import type { components } from "@meridian/sdk";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, useRequireAuth } from "../../lib/api";
-import { runEnvelopeMutation } from "../../lib/envelope-write";
+import {
+  rememberVersion,
+  runEnvelopeMutation,
+} from "../../lib/envelope-write";
 
 type KbCategory = components["schemas"]["KbCategory"];
 type KbArticle = components["schemas"]["KbArticle"];
@@ -355,15 +359,71 @@ function ArticleEditor({
   categories: KbCategory[];
   onDone: () => void;
 }) {
+  // New articles create FIRST (instant-first: the create is autosave too
+  // — one idempotent POST), then the editor mounts immediately; every
+  // content transaction after that autosaves under the IF1–IF3 envelope.
+  const [preview, setPreview] = useState<components["schemas"]["SearchResult"][] | null>(null);
+  const [previewing, setPreviewing] = useState(false);
   const [title, setTitle] = useState(article?.title ?? "");
-  const [body, setBody] = useState(article?.body ?? "");
   const [categoryId, setCategoryId] = useState(article?.category_id ?? "");
   const [status, setStatus] = useState<KbArticleStatus>(article?.status ?? "draft");
   const [clientVisible, setClientVisible] = useState(article?.client_visible ?? false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [preview, setPreview] = useState<components["schemas"]["SearchResult"][] | null>(null);
-  const [previewing, setPreviewing] = useState(false);
+  const versionRef = useRef<number | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const patchMetadata = useCallback(
+    async (id: string, patch: Partial<Record<"title" | "category_id" | "status" | "client_visible", unknown>>) => {
+      const result = await runEnvelopeMutation<
+        components["schemas"]["UpdateArticleRequest"],
+        components["schemas"]["ArticleMutationResponse"]
+      >({
+        describe: "KB article metadata autosave",
+        entityId: id,
+        buildBody: (base) =>
+          ({
+            idempotency_key: base.idempotency_key,
+            ...(versionRef.current !== null ? { version: versionRef.current } : {}),
+            ...patch,
+          }) as unknown as components["schemas"]["UpdateArticleRequest"],
+        optimistic: () => {},
+        revert: () => {},
+        request: (client, body) =>
+          client.PATCH("/api/v1/kb/articles/{id}", {
+            params: { path: { id } },
+            body,
+          }),
+        versions: (response) => {
+          versionRef.current = response.mutation.version;
+          return [[id, response.mutation.version]];
+        },
+      });
+      if (!result.ok) {
+        setError(rejectionText(result, "The article metadata was rejected."));
+      }
+      return result.ok;
+    },
+    [],
+  );
+
+  // Debounced metadata autosave (title rides it; category/status flips
+  // commit immediately — status flips are explicit lifecycle actions).
+  const debounceTitle = useCallback(
+    (next: string, id: string | null) => {
+      if (id === null) return;
+      if (timerRef.current !== null) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => {
+        timerRef.current = null;
+        void patchMetadata(id, { title: next });
+      }, 700);
+    },
+    [patchMetadata],
+  );
+
+  useEffect(() => () => {
+    if (timerRef.current !== null) clearTimeout(timerRef.current);
+  }, []);
 
   const previewFts = async () => {
     setPreviewing(true);
@@ -380,7 +440,6 @@ function ArticleEditor({
     setError(null);
     const shared = {
       title,
-      body,
       category_id: categoryId === "" ? null : categoryId,
       status,
       client_visible: clientVisible,
@@ -392,11 +451,22 @@ function ArticleEditor({
             components["schemas"]["ArticleMutationResponse"]
           >({
             describe: "Create KB article",
-            buildBody: (base) => ({ idempotency_key: base.idempotency_key, ...shared }),
+            buildBody: (base) => ({
+              idempotency_key: base.idempotency_key,
+              ...shared,
+              content_jsonb: {
+                schema_ver: 1,
+                doc: { type: "doc", content: [{ type: "paragraph" }] },
+              },
+            }) as unknown as components["schemas"]["CreateArticleRequest"],
             optimistic: () => {},
             revert: () => {},
-            request: (client, body_) => client.POST("/api/v1/kb/articles", { body: body_ }),
-            versions: (response) => [[response.id, response.mutation.version]],
+            request: (client, body) => client.POST("/api/v1/kb/articles", { body }),
+            versions: (response) => {
+              versionRef.current = response.mutation.version;
+              rememberVersion(response.id, response.mutation.version);
+              return [[response.id, response.mutation.version]];
+            },
           })
         : await runEnvelopeMutation<
             components["schemas"]["UpdateArticleRequest"],
@@ -408,12 +478,16 @@ function ArticleEditor({
               idempotency_key: base.idempotency_key,
               version: base.version,
               ...shared,
-            }),
+            }) as unknown as components["schemas"]["UpdateArticleRequest"],
             optimistic: () => {},
             revert: () => {},
-            request: (client, body_) =>
-              client.PATCH("/api/v1/kb/articles/{id}", { params: { path: { id: article.id } }, body: body_ }),
-            versions: (response) => [[response.id, response.mutation.version]],
+            request: (client, body) =>
+              client.PATCH("/api/v1/kb/articles/{id}", { params: { path: { id: article.id } }, body }),
+            versions: (response) => {
+              versionRef.current = response.mutation.version;
+              rememberVersion(article.id, response.mutation.version);
+              return [[article.id, response.mutation.version]];
+            },
           });
     setBusy(false);
     if (!result.ok) {
@@ -430,12 +504,30 @@ function ArticleEditor({
     <div className="grid gap-3 p-4">
       <div>
         <Label htmlFor="art-title">Title</Label>
-        <Input id="art-title" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <Input
+          id="art-title"
+          value={title}
+          onChange={(e) => {
+            setTitle(e.target.value);
+            debounceTitle(e.target.value, article?.id ?? null);
+          }}
+        />
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
           <Label htmlFor="art-category">Category</Label>
-          <Select value={categoryId} onValueChange={setCategoryId}>
+          <Select
+            value={categoryId}
+            onValueChange={(v) => {
+              setCategoryId(v);
+              const id = article?.id;
+              if (id !== undefined) {
+                void patchMetadata(id, {
+                  category_id: v === "" ? null : v,
+                });
+              }
+            }}
+          >
             <SelectTrigger id="art-category">
               <SelectValue />
             </SelectTrigger>
@@ -451,7 +543,14 @@ function ArticleEditor({
         </div>
         <div>
           <Label htmlFor="art-status">Status</Label>
-          <Select value={status} onValueChange={(v) => setStatus(v as KbArticleStatus)}>
+          <Select
+            value={status}
+            onValueChange={(v) => {
+              setStatus(v as KbArticleStatus);
+              const id = article?.id;
+              if (id !== undefined) void patchMetadata(id, { status: v });
+            }}
+          >
             <SelectTrigger id="art-status">
               <SelectValue />
             </SelectTrigger>
@@ -465,62 +564,87 @@ function ArticleEditor({
           </Select>
         </div>
       </div>
-      <div>
-        <Label htmlFor="art-body">Body</Label>
-        <textarea
-          id="art-body"
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          rows={12}
-          className="w-full rounded-[2px] border bg-transparent p-2 text-[13px]"
-          style={{ borderColor: "var(--m-border)" }}
-        />
-      </div>
-      <label className="flex items-center gap-2 text-[13px]">
-        <input type="checkbox" checked={clientVisible} onChange={(e) => setClientVisible(e.target.checked)} />
-        Client-facing article
-      </label>
-      <p className="text-[12px]" style={{ color: portalGate ? "var(--m-status-success-fg)" : "var(--m-text-secondary)" }}>
-        {portalGate
-          ? "Portal clients can read this article once published."
-          : "Staff-only: the portal gate needs the client-facing flags on BOTH the article and its category."}
-      </p>
-      <div>
-        <Button variant="secondary" onClick={() => void previewFts()} disabled={previewing || title.trim() === ""}>
-          {previewing ? <Spinner /> : null} Preview search
-        </Button>
-        {preview !== null ? (
-          <div className="mt-2 grid gap-1">
-            {preview.length === 0 ? (
-              <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-                No indexed hits yet — drafts index on save; new titles surface after the next save.
-              </p>
-            ) : (
-              preview.map((r) => (
-                <p key={r.entity_id} className="text-[12px]">
-                  <Tag>{r.entity_kind}</Tag> {r.title}
-                  {r.entity_kind === "kb_article" && r.entity_id === (article?.id ?? "") ? (
-                    <span className="ml-2 font-medium">(this article)</span>
-                  ) : null}
+      {article === null ? (
+        <>
+          <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+            Creating the article now — the rich editor opens instantly after the
+            create (instant-first: no Save clicks for content).
+          </p>
+          {error !== null ? (
+            <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
+              {error}
+            </p>
+          ) : null}
+          <DialogActions>
+            <Button variant="ghost" onClick={onDone}>
+              Cancel
+            </Button>
+            <Button onClick={() => void submit()} disabled={busy || title.trim() === ""}>
+              {busy ? <Spinner /> : null} Create article
+            </Button>
+          </DialogActions>
+        </>
+      ) : (
+        <>
+          <label className="flex items-center gap-2 text-[13px]">
+            <input
+              type="checkbox"
+              checked={clientVisible}
+              onChange={(e) => {
+                setClientVisible(e.target.checked);
+                void patchMetadata(article.id, { client_visible: e.target.checked });
+              }}
+            />
+            Client-facing article
+          </label>
+          <p
+            className="text-[12px]"
+            style={{ color: portalGate ? "var(--m-status-success-fg)" : "var(--m-text-secondary)" }}
+          >
+            {portalGate
+              ? "Portal clients can read this article once published."
+              : "Staff-only: the portal gate needs the client-facing flags on BOTH the article and its category."}
+          </p>
+          {error !== null ? (
+            <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
+              {error}
+            </p>
+          ) : null}
+          <KbArticleEditor
+            article={article as KbArticle & { content_jsonb?: unknown }}
+            onSaved={() => setError(null)}
+            onRejection={(friendly) =>
+              setError(friendly ?? "The content save was rejected.")
+            }
+          />
+          <DialogActions>
+            <Button variant="ghost" onClick={() => void previewFts()} disabled={previewing || title.trim() === ""}>
+              {previewing ? <Spinner /> : null} Preview search
+            </Button>
+            <Button variant="ghost" onClick={onDone}>
+              Close
+            </Button>
+          </DialogActions>
+          {preview !== null ? (
+            <div className="grid gap-1">
+              {preview.length === 0 ? (
+                <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+                  No indexed hits yet — drafts index on save; new titles surface after the next save.
                 </p>
-              ))
-            )}
-          </div>
-        ) : null}
-      </div>
-      {error !== null ? (
-        <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
-          {error}
-        </p>
-      ) : null}
-      <DialogActions>
-        <Button variant="ghost" onClick={onDone}>
-          Cancel
-        </Button>
-        <Button onClick={() => void submit()} disabled={busy || title.trim() === ""}>
-          {busy ? <Spinner /> : null} {article === null ? "Create article" : "Save article"}
-        </Button>
-      </DialogActions>
+              ) : (
+                preview.map((r) => (
+                  <p key={r.entity_id} className="text-[12px]">
+                    <Tag>{r.entity_kind}</Tag> {r.title}
+                    {r.entity_kind === "kb_article" && r.entity_id === (article?.id ?? "") ? (
+                      <span className="ml-2 font-medium">(this article)</span>
+                    ) : null}
+                  </p>
+                ))
+              )}
+            </div>
+          ) : null}
+        </>
+      )}
     </div>
   );
 }

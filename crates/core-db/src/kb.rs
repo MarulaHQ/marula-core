@@ -195,6 +195,9 @@ where
 pub struct ArticlePatch {
     pub title: Option<String>,
     pub body: Option<String>,
+    /// Canonical rich content (ADR 0007): the validated envelope; `None`
+    /// leaves existing content untouched.
+    pub content_jsonb: Option<serde_json::Value>,
     pub category_id: Option<Option<Uuid>>,
     pub status: Option<KbArticleStatus>,
     pub client_visible: Option<bool>,
@@ -209,6 +212,7 @@ fn row_article(
     title: String,
     slug: String,
     body: String,
+    content_jsonb: Option<serde_json::Value>,
     status: String,
     client_visible: bool,
     created_by: Option<Uuid>,
@@ -223,6 +227,7 @@ fn row_article(
         title,
         slug,
         body,
+        content_jsonb,
         status: KbArticleStatus::parse(&status).ok_or_else(|| {
             DbError::Sql(sqlx::Error::ColumnDecode {
                 index: "status".into(),
@@ -246,6 +251,7 @@ pub async fn create_article<'e, E>(
     title: &str,
     slug: &str,
     body: &str,
+    content_jsonb: Option<serde_json::Value>,
     status: KbArticleStatus,
     client_visible: bool,
     created_by: Uuid,
@@ -255,17 +261,18 @@ where
 {
     let row = sqlx::query!(
         r#"INSERT INTO kb_articles
-             (id, org_id, category_id, title, slug, body, status, client_visible,
-              created_by, updated_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
-           RETURNING id, org_id, category_id, title, slug, body, status, client_visible,
-                     created_by, updated_by, created_at, updated_at"#,
+             (id, org_id, category_id, title, slug, body, content_jsonb, status,
+              client_visible, created_by, updated_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
+           RETURNING id, org_id, category_id, title, slug, body, content_jsonb, status,
+                     client_visible, created_by, updated_by, created_at, updated_at"#,
         id,
         org_id,
         category_id,
         title,
         slug,
         body,
+        content_jsonb,
         status.as_str(),
         client_visible,
         created_by
@@ -279,6 +286,7 @@ where
         row.title,
         row.slug,
         row.body,
+        row.content_jsonb,
         row.status,
         row.client_visible,
         row.created_by,
@@ -313,7 +321,7 @@ where
     // The client-visible gate needs the category row, so the query joins;
     // the remaining filters compose over the same shape.
     let rows = sqlx::query!(
-        r#"SELECT a.id, a.org_id, a.category_id, a.title, a.slug, a.body, a.status,
+        r#"SELECT a.id, a.org_id, a.category_id, a.title, a.slug, a.body, a.content_jsonb, a.status,
                   a.client_visible, a.created_by, a.updated_by, a.created_at, a.updated_at
            FROM kb_articles a
            LEFT JOIN kb_categories c ON c.id = a.category_id AND c.org_id = a.org_id
@@ -341,6 +349,7 @@ where
                 r.title,
                 r.slug,
                 r.body,
+                r.content_jsonb,
                 r.status,
                 r.client_visible,
                 r.created_by,
@@ -357,7 +366,7 @@ where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     let row = sqlx::query!(
-        r#"SELECT id, org_id, category_id, title, slug, body, status, client_visible,
+        r#"SELECT id, org_id, category_id, title, slug, body, content_jsonb, status, client_visible,
                   created_by, updated_by, created_at, updated_at
            FROM kb_articles WHERE org_id = $1 AND id = $2"#,
         org_id,
@@ -373,6 +382,7 @@ where
         row.title,
         row.slug,
         row.body,
+        row.content_jsonb,
         row.status,
         row.client_visible,
         row.created_by,
@@ -433,7 +443,7 @@ where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     let rows = sqlx::query!(
-        r#"SELECT a.id, a.org_id, a.category_id, a.title, a.slug, a.body, a.status,
+        r#"SELECT a.id, a.org_id, a.category_id, a.title, a.slug, a.body, a.content_jsonb, a.status,
                   a.client_visible, a.created_by, a.updated_by, a.created_at, a.updated_at
            FROM kb_articles a
            LEFT JOIN kb_categories c ON c.id = a.category_id AND c.org_id = a.org_id
@@ -459,6 +469,7 @@ where
                 r.title,
                 r.slug,
                 r.body,
+                r.content_jsonb,
                 r.status,
                 r.client_visible,
                 r.created_by,
@@ -477,7 +488,7 @@ where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     let row = sqlx::query!(
-        r#"SELECT a.id, a.org_id, a.category_id, a.title, a.slug, a.body, a.status,
+        r#"SELECT a.id, a.org_id, a.category_id, a.title, a.slug, a.body, a.content_jsonb, a.status,
                   a.client_visible, a.created_by, a.updated_by, a.created_at, a.updated_at
            FROM kb_articles a
            LEFT JOIN kb_categories c ON c.id = a.category_id AND c.org_id = a.org_id
@@ -497,6 +508,7 @@ where
         row.title,
         row.slug,
         row.body,
+        row.content_jsonb,
         row.status,
         row.client_visible,
         row.created_by,
@@ -526,7 +538,7 @@ where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     let rows = sqlx::query!(
-        r#"SELECT a.id, a.org_id, a.category_id, a.title, a.slug, a.body, a.status,
+        r#"SELECT a.id, a.org_id, a.category_id, a.title, a.slug, a.body, a.content_jsonb, a.status,
                   a.client_visible, a.created_by, a.updated_by, a.created_at, a.updated_at,
                   ts_rank(to_tsvector('english', a.title || ' ' || a.body),
                           websearch_to_tsquery('english', $2)) * 8
@@ -558,6 +570,7 @@ where
                     r.title,
                     r.slug,
                     r.body,
+                    r.content_jsonb,
                     r.status,
                     r.client_visible,
                     r.created_by,
@@ -586,6 +599,10 @@ where
     let mut q = sqlx::QueryBuilder::new("UPDATE kb_articles SET updated_at = now()");
     if let Some(v) = &patch.title {
         q.push(", title = ").push_bind(v.clone());
+    }
+    if let Some(v) = &patch.content_jsonb {
+        q.push(", content_jsonb = ")
+            .push_bind(sqlx::types::Json(v.clone()));
     }
     if let Some(v) = &patch.body {
         q.push(", body = ").push_bind(v.clone());
