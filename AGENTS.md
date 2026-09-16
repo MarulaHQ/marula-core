@@ -27,6 +27,14 @@ designed for ultimate UX and looks, not invented from scratch:
   references ranked by visual search), `/lazyweb-search-flows` for multi-step
   journeys (onboarding, checkout, paywalls, sign-up), and
   `/lazyweb-search-experiments` when a conversion decision is involved.
+- **Aesthetic reference (2026-09-16, user directive):**
+  `design/mockups/meridian-ticket-workbench-html-mockup-v2.html` (+ its
+  `-v2-light.png` / `-v2-dark.png`) is the canonical look-and-feel reference —
+  use it appropriately alongside lazyweb research (it sets the bar for layout,
+  hierarchy, density, and both modes; lazyweb supplies pattern breadth).
+- **Motion:** subtle, tasteful animation is encouraged — entrance/transition
+  motion, staggered reveals, hover micro-feedback. Guardrails: transform/opacity
+  only, ≤120ms, `prefers-reduced-motion` honored (`docs/theme.md` §5).
 - Prefer finalizing useful references with
   `lazyweb_agentic_search_finalize` and citing them in the lane's evidence dir
   (`design/qa-*/`) alongside the REVIEW — the chosen references become part of
