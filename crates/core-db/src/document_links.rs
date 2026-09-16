@@ -27,6 +27,12 @@ where
                     WHEN 'ticket'   THEN (SELECT t.number || ' ' || t.title FROM tickets t WHERE t.org_id = l.org_id AND t.id = l.to_id)
                     WHEN 'kb_article' THEN (SELECT title FROM kb_articles k WHERE k.org_id = l.org_id AND k.id = l.to_id)
                     WHEN 'asset' THEN (SELECT a.tag || ' ' || a.name FROM device_assets a WHERE a.org_id = l.org_id AND a.id = l.to_id)
+                    WHEN 'secret' THEN (SELECT sr.title FROM secret_records sr
+                        WHERE sr.id = l.to_id
+                          AND (sr.org_id = l.org_id
+                               OR (sr.org_id IS NULL AND sr.client_id IN (
+                                   SELECT c.id FROM clients c
+                                   WHERE c.org_id = l.org_id))))
                   END AS target_label,
                   CASE l.to_kind
                     WHEN 'document' THEN (SELECT client_id FROM documents d WHERE d.org_id = l.org_id AND d.id = l.to_id)
@@ -34,6 +40,12 @@ where
                     WHEN 'ticket'   THEN (SELECT client_id FROM tickets t WHERE t.org_id = l.org_id AND t.id = l.to_id)
                     WHEN 'client'   THEN l.to_id
                     WHEN 'asset'    THEN (SELECT a.client_id FROM device_assets a WHERE a.org_id = l.org_id AND a.id = l.to_id)
+                    WHEN 'secret'   THEN (SELECT sr.client_id FROM secret_records sr
+                        WHERE sr.id = l.to_id
+                          AND (sr.org_id = l.org_id
+                               OR (sr.org_id IS NULL AND sr.client_id IN (
+                                   SELECT c.id FROM clients c
+                                   WHERE c.org_id = l.org_id))))
                     ELSE NULL
                   END AS target_client_id
            FROM document_links l
@@ -88,6 +100,12 @@ where
                     WHEN 'document' THEN (SELECT title FROM documents d WHERE d.org_id = l.org_id AND d.id = l.from_id)
                     WHEN 'password' THEN (SELECT title FROM passwords p WHERE p.org_id = l.org_id AND p.id = l.from_id)
                     WHEN 'asset'    THEN (SELECT a.tag || ' ' || a.name FROM device_assets a WHERE a.org_id = l.org_id AND a.id = l.from_id)
+                    WHEN 'secret'   THEN (SELECT sr.title FROM secret_records sr
+                        WHERE sr.id = l.from_id
+                          AND (sr.org_id = l.org_id
+                               OR (sr.org_id IS NULL AND sr.client_id IN (
+                                   SELECT c.id FROM clients c
+                                   WHERE c.org_id = l.org_id))))
                   END AS target_label,
                   NULL::uuid AS target_client_id
            FROM document_links l

@@ -98,6 +98,7 @@ pub mod scheduling;
 pub mod scheduling_links;
 pub mod scorecards;
 pub mod search;
+pub mod secrets;
 pub mod settings;
 pub mod sla_admin;
 pub mod tags;
@@ -822,6 +823,48 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/passwords/{id}/links"),
             get(passwords::list_links).post(passwords::add_link),
+        )
+        // Native secrets vault (ADR 0006, Wave 16 lane 3, migration
+        // 0078): secret category trees (client AND org scope,
+        // fork-the-seed per ADR 0004), SecretRecord generalization
+        // beside the shipped PasswordEntry surface, audited reveal,
+        // record links on the RecordLink seam, and the role × folder
+        // category grants (financial:read gate shape).
+        .route(
+            &rp("/secrets/folders"),
+            get(secrets::list_folders).post(secrets::create_folder),
+        )
+        .route(
+            &rp("/secrets/folders/{id}"),
+            axum::routing::patch(secrets::update_folder).delete(secrets::delete_folder),
+        )
+        .route(
+            &rp("/secrets/folders/{id}/fork"),
+            post(secrets::fork_folder),
+        )
+        .route(
+            &rp("/secrets/records"),
+            get(secrets::list_records).post(secrets::create_record),
+        )
+        .route(
+            &rp("/secrets/records/{id}"),
+            get(secrets::get_record)
+                .patch(secrets::update_record)
+                .delete(secrets::delete_record),
+        )
+        .route(
+            &rp("/secrets/records/{id}/reveal"),
+            post(secrets::reveal_record),
+        )
+        .route(
+            &rp("/secrets/records/{id}/links"),
+            get(secrets::list_record_links).post(secrets::add_record_link),
+        )
+        .route(
+            &rp("/secrets/grants"),
+            get(secrets::list_grants)
+                .put(secrets::set_grant)
+                .delete(secrets::delete_grant),
         )
         // asset taxonomy on the docs-platform (Wave 11 lane 5, 0054):
         // typed asset instances (device_assets + document_layouts),

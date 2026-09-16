@@ -67,6 +67,7 @@ pub mod scheduling;
 pub mod scheduling_links;
 pub mod scorecards;
 pub mod search;
+pub mod secret_vault;
 pub mod settings;
 pub mod sla;
 pub mod tags;

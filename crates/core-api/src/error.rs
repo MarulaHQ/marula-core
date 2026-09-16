@@ -311,6 +311,22 @@ fn map_unique_constraint(constraint: &str) -> Option<(&'static str, &'static str
             "plugin_already_installed",
             "this plugin is already installed for this org",
         )),
+        // Wave 16 lane 3 (native vault, ADR 0006, migration 0078).
+        "secret_folders_scope_key" => Some((
+            "folder_slug_taken",
+            "a folder with this slug already exists here",
+        )),
+        "secret_records_scope_key" => Some((
+            "record_title_taken",
+            "a record with this title already exists in this folder",
+        )),
+        "secret_fields_record_key" => {
+            Some(("field_key_taken", "this field already exists on the record"))
+        }
+        "secret_grants_role_folder_key" => Some((
+            "secret_grant_taken",
+            "a grant for this role and folder already exists",
+        )),
         _ => None,
     }
 }

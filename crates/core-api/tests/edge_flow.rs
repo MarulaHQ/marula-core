@@ -265,7 +265,7 @@ async fn exchange(
 ) -> axum::response::Response {
     let mut builder = axum::http::Request::builder()
         .method(axum::http::Method::POST)
-        .uri(format!("/api/auth/edge/{name}/exchange"));
+        .uri(format!("/api/auth/edge/{name}/exchange").as_str());
     if let Some(a) = assertion {
         builder = builder.header("cf-access-jwt-assertion", a);
     }

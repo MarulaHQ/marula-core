@@ -55,9 +55,11 @@ pub struct DocumentLayout {
     pub updated_at: DateTime<Utc>,
 }
 
-/// Either endpoint of a link. Documents, passwords, and assets can link
-/// FROM; documents, passwords, clients, tickets, KB articles, and assets
-/// can be linked TO (asset kind added in migration 0054).
+/// Either endpoint of a link. Documents, passwords, assets, and secret
+/// records can link FROM; documents, passwords, clients, tickets, KB
+/// articles, assets, and secret records can be linked TO (asset kind
+/// added in migration 0054; secret kind added in migration 0078 — the
+/// native vault joins the cross-entity RecordLink seam, ADR 0006).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
@@ -68,6 +70,7 @@ pub enum LinkKind {
     Ticket,
     KbArticle,
     Asset,
+    Secret,
 }
 
 impl LinkKind {
@@ -79,6 +82,7 @@ impl LinkKind {
             LinkKind::Ticket => "ticket",
             LinkKind::KbArticle => "kb_article",
             LinkKind::Asset => "asset",
+            LinkKind::Secret => "secret",
         }
     }
 
@@ -90,6 +94,7 @@ impl LinkKind {
             "ticket" => LinkKind::Ticket,
             "kb_article" => LinkKind::KbArticle,
             "asset" => LinkKind::Asset,
+            "secret" => LinkKind::Secret,
             _ => return None,
         })
     }

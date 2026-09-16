@@ -48,6 +48,51 @@ pub fn open(key: &crate::config::SecretKey, sealed: &[u8]) -> Result<Vec<u8>, Cr
     c.decrypt(nonce, ct).map_err(|_| CryptoError::Corrupt)
 }
 
+/// Encrypts `plaintext` into `nonce || ciphertext`, binding the
+/// ciphertext to the given ADDITIONAL AUTHENTICATED DATA (the wave-16
+/// brief: secretvault ciphertexts bind an AAD of
+/// `(org_id, record_id, field_key)` so bits cannot be replayed across
+/// coordinates). The wire format is identical to [`seal`] — the AAD is
+/// positionally bound by the coordinate, never stored.
+pub fn seal_with_aad(
+    key: &crate::config::SecretKey,
+    plaintext: &[u8],
+    aad: &[u8],
+) -> Result<Vec<u8>, CryptoError> {
+    let c = cipher(key)?;
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let ct = c
+        .encrypt(
+            &nonce,
+            aes_gcm::aead::Payload {
+                msg: plaintext,
+                aad,
+            },
+        )
+        .map_err(|e| CryptoError::Backend(e.to_string()))?;
+    let mut out = Vec::with_capacity(NONCE_LEN + ct.len());
+    out.extend_from_slice(nonce.as_slice());
+    out.extend_from_slice(&ct);
+    Ok(out)
+}
+
+/// Decrypts a value produced by [`seal_with_aad`]. Fails closed on any
+/// tampering or a coordinate mismatch (the AAD roundtrip).
+pub fn open_with_aad(
+    key: &crate::config::SecretKey,
+    sealed: &[u8],
+    aad: &[u8],
+) -> Result<Vec<u8>, CryptoError> {
+    if sealed.len() <= NONCE_LEN {
+        return Err(CryptoError::Corrupt);
+    }
+    let c = cipher(key)?;
+    let (nonce_bytes, ct) = sealed.split_at(NONCE_LEN);
+    let nonce = Nonce::from_slice(nonce_bytes);
+    c.decrypt(nonce, aes_gcm::aead::Payload { msg: ct, aad })
+        .map_err(|_| CryptoError::Corrupt)
+}
+
 /// Fresh identifier for a stored secret row.
 pub fn new_id() -> Uuid {
     Uuid::now_v7()
