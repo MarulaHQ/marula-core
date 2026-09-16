@@ -238,6 +238,23 @@
   background: var(--m-surface-hover) !important;
 }
 
+/* Take It — the header's competing-accent primary; hover lifts via
+   background mix only (transform/opacity law, ≤120ms). */
+.m-wb-take-it {
+  transition:
+    background-color 100ms ease,
+    box-shadow 100ms ease,
+    opacity 100ms ease;
+}
+
+.m-wb-take-it:hover:enabled {
+  background: color-mix(in srgb, var(--m-accent) 85%, var(--m-text)) !important;
+}
+
+.m-wb-take-it:active:enabled {
+  transform: scale(0.98);
+}
+
 .m-wb-choice {
   transition:
     border-color 100ms ease,
@@ -306,9 +323,14 @@
   .m-wb-tool,
   .m-wb-agent-btn,
   .m-wb-choice,
-  .m-wb-linkrow {
+  .m-wb-linkrow,
+  .m-wb-take-it {
     animation: none !important;
     transition: none !important;
+  }
+
+  .m-wb-take-it:active:enabled {
+    transform: none;
   }
 
   .m-wb-event {

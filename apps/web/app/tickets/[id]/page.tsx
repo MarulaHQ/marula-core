@@ -30,6 +30,8 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { rejectionText } from "../../../lib/error-copy";
+import { runEnvelopeMutation } from "../../../lib/envelope-write";
+import { useTimer } from "../../../lib/use-timer";
 import {
   api,
   useRequireAuth,
@@ -52,7 +54,7 @@ import {
   type MoveBoardOutcome,
 } from "../../../components/ticket-workspace/move-board";
 import { TasksPanel } from "../../../components/ticket-workspace/tasks-panel";
-import { TicketStatusBar } from "../../../components/ticket-status-bar";
+import { TicketStatusBar, transitionAllowed } from "../../../components/ticket-status-bar";
 import { keywordsOf } from "../../../components/workbench-v2/agent-panel";
 import { WbTimeline } from "../../../components/workbench-v2/timeline";
 import { WbContextPanel } from "../../../components/workbench-v2/context-panel";
@@ -261,6 +263,30 @@ export default function TicketWorkbenchPage() {
   const [moveBoardOpen, setMoveBoardOpen] = useState(false);
   const draftRef = useRef<string | null>(null);
 
+  // "Take It" primary action: one self-assign → status → timer envelope.
+  const { active: activeTimer, refresh: refreshTimers } = useTimer();
+  const [takeItBusy, setTakeItBusy] = useState(false);
+  // Bumped on Take It; the Agent panel refreshes its data and reacts once.
+  const [takeItNonce, setTakeItNonce] = useState(0);
+
+  const iHaveRunningTimer =
+    activeTimer !== null &&
+    ticket !== null &&
+    activeTimer.ticket_id === ticket.id &&
+    activeTimer.stopped_at === null &&
+    (activeTimer.segments ?? []).slice(-1)[0]?.ended_at == null;
+
+  const takeItVisible = (() => {
+    if (ticket === null || ticket.merged_into_ticket_id != null) return false;
+    const category = ticket.category;
+    if (category !== "open" && category !== "waiting") return false;
+    if (takeItBusy || iHaveRunningTimer) return false;
+    const meId = auth.me?.user_id ?? null;
+    if (meId === null) return false;
+    // Pickupable: unassigned, or already mine without a running timer.
+    return ticket.assignee_id == null || ticket.assignee_id === meId;
+  })();
+
   const mergedIntoId = ticket?.merged_into_ticket_id ?? null;
   const isMerged = mergedIntoId !== null;
   const canMoveBoard = !isMerged && (auth.me?.permissions.includes("tickets:edit") ?? false);
@@ -296,6 +322,91 @@ export default function TicketWorkbenchPage() {
       return;
     }
     setError(null);
+  }
+
+  // "Take It": one instant-first interaction — self-assign (optimistic on
+  // the detail model), flip to the board's first in_progress status when
+  // the workflow allows it, open the timer, then drop the eye on the
+  // Activity composer. Each write is a real API call; any typed rejection
+  // rolls back that step and surfaces the copy, later steps still settle.
+  async function takeIt(): Promise<void> {
+    setTakeItBusy(true);
+    try {
+      // 1) Self-assign through PATCH (optimistic render + typed rollback,
+      // changeStatus pattern).
+      const before = ticket;
+      if (ticket !== null && auth.me !== null) {
+        const result = await mutate({
+          describe: `Take ${ticket.number}`,
+          entityId: ticket.id,
+          method: "PATCH",
+          path: `/api/v1/tickets/${ticket.id}`,
+          buildBody: (base) => ({ assignee_id: auth.me !== null ? auth.me.user_id : null, ...base }),
+          optimistic: () => {
+            const meId = auth.me?.user_id;
+            if (meId === undefined) return;
+            patchDetail((m) => ({
+              ...m,
+              ticket: m.ticket === null ? m.ticket : { ...m.ticket, assignee_id: meId },
+            }));
+          },
+          captureBefore: () => before,
+          revert: () => {
+            patchDetail((m) => ({
+              ...m,
+              ticket: m.ticket === null || before === null ? m.ticket : { ...m.ticket, ...before },
+            }));
+          },
+        });
+        if (result.status === "rejected") {
+          setError(rejectionText(result, "Could not assign this ticket to you"));
+          return;
+        }
+
+        // 2) Status: the board's first in_progress status, when the loaded
+        // workflow allows the transition from here (skip when already
+        // in_progress).
+        const currentStatusId = ticket.status_id;
+        const target =
+          statuses.find((s) => s.category === "in_progress") ?? null;
+        if (
+          target !== null &&
+          target.id !== currentStatusId &&
+          currentStatusId !== null &&
+          transitionAllowed(statuses, workflow, currentStatusId, target.id)
+        ) {
+          await changeStatus(target.id);
+        }
+
+        // 3) Timer: POST /timers/start through the envelope writer (the
+        // timer-dock body/base pattern), then reconcile the bar state.
+        const timer = await runEnvelopeMutation({
+          describe: `Start timer on ${ticket.number}`,
+          entityId: ticket.id,
+          buildBody: (base) => ({ ticket_id: ticket.id, ...base }),
+          optimistic: () => undefined,
+          revert: () => undefined,
+          request: (client, typed) =>
+            client.POST("/api/v1/timers/start", { body: typed }),
+        });
+        if (!timer.ok) {
+          setError(timer.reason ?? timer.friendly ?? "That timer did not start — try again.");
+        }
+        void refreshTimers();
+      }
+    } finally {
+      setTakeItBusy(false);
+      // 4) Writes settled — Activity tab, column scrolled to the top,
+      // composer focused (motionless, geometry only).
+      setActiveTab("activity");
+      requestAnimationFrame(() => {
+        const panel = document.querySelector<HTMLElement>('[data-testid="detail-panel-activity"]');
+        if (panel !== null) panel.scrollTop = 0;
+        document.querySelector<HTMLTextAreaElement>('[data-testid="notes-composer-body"]')?.focus();
+      });
+      // 5) Agent reaction — one real-data pointer, once.
+      setTakeItNonce((n) => n + 1);
+    }
   }
 
   async function postComment(body: string, kind: TicketComment["kind"], attachmentIds: string[]): Promise<void> {
@@ -638,6 +749,37 @@ export default function TicketWorkbenchPage() {
               <strong className="font-mono" style={{ color: "var(--m-text-secondary)" }}>{ticket.number}</strong>
             </div>
             <div className="ml-auto flex flex-wrap justify-end gap-1.5">
+              {takeItVisible && (
+                <button
+                type="button"
+                data-testid="wb-take-it"
+                className="m-wb-take-it flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 leading-none text-[12px] font-semibold"
+                style={{
+                  borderColor: "var(--m-accent)",
+                  background: "var(--m-accent)",
+                  color: "var(--m-on-accent)",
+                }}
+                title="Assign to me, move to In Progress, start the timer"
+                onClick={() => void takeIt()}
+              >
+                <span
+                  aria-hidden
+                  className="grid h-[13px] w-[13px] place-items-center rounded-full"
+                  style={{ border: "1.5px solid currentColor" }}
+                >
+                  <span
+                    aria-hidden
+                    className="ml-[2px] h-0 w-0"
+                    style={{
+                      borderTop: "2.5px solid transparent",
+                      borderBottom: "2.5px solid transparent",
+                      borderLeft: "4.5px solid currentColor",
+                    }}
+                  />
+                </span>
+                {iconOnlyActions ? "Take" : "Take It"}
+              </button>
+              )}
               <Link
                 href={`/tickets/classic/${ticket.id}`}
                 data-testid="wb-open-classic"
@@ -989,6 +1131,7 @@ export default function TicketWorkbenchPage() {
           namesByUser={namesByUser}
           open={showAgent}
           onClose={() => setAgentOpen(false)}
+          takeItNonce={takeItNonce}
           onDraftUpdate={(body) => {
             draftRef.current = body;
           }}

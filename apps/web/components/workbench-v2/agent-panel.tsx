@@ -48,12 +48,19 @@ export interface WbAgentPanelProps {
   comments: TicketComment[];
   namesByUser: Map<string, string>;
   open: boolean;
+  /**
+   * Bumped by the workbench's "Take It" action; the panel refreshes its
+   * live data load and reacts with ONE chat line pointing at the pending
+   * proposal rationale or the top KB hit — the typed gap line otherwise.
+   * Never fake analysis.
+   */
+  takeItNonce?: number;
   onClose(): void;
   /** Inserts a drafted customer update into the floating composer. */
   onDraftUpdate(body: string): void;
 }
 
-export function WbAgentPanel({ ticket, comments, namesByUser, open, onClose, onDraftUpdate }: WbAgentPanelProps): ReactNode {
+export function WbAgentPanel({ ticket, comments, namesByUser, open, onClose, takeItNonce, onDraftUpdate }: WbAgentPanelProps): ReactNode {
   const [articles, setArticles] = useState<KbArticle[] | null>(null);
   const [hits, setHits] = useState<SearchResult[] | null>(null);
   const [proposals, setProposals] = useState<AgentProposalView[] | null>(null);
@@ -75,12 +82,16 @@ export function WbAgentPanel({ ticket, comments, namesByUser, open, onClose, onD
       q !== "" ? api.api.GET("/api/v1/search", { params: { query: { q, limit: 10 } } }) : Promise.resolve({ data: undefined }),
       api.api.GET("/api/v1/agent-proposals", { params: { query: { limit: 200 } } }),
     ]);
-    setArticles((kb.data ?? []).slice(0, 3));
+    const freshArticles = (kb.data ?? []).slice(0, 3);
     const related = (search.data?.results ?? []).filter(
       (r) => r.entity_kind === "ticket" && r.entity_id !== ticket.id,
     );
-    setHits(related.slice(0, 2));
-    setProposals((props.data?.proposals ?? []).filter((p) => p.entity === "ticket" && p.entity_id === ticket.id));
+    const freshHits = related.slice(0, 2);
+    const freshProposals = (props.data?.proposals ?? []).filter((p) => p.entity === "ticket" && p.entity_id === ticket.id);
+    setArticles(freshArticles);
+    setHits(freshHits);
+    setProposals(freshProposals);
+    return { articles: freshArticles, hits: freshHits, proposals: freshProposals };
   }, [ticket.id, ticket.title]);
 
   useEffect(() => {
@@ -91,6 +102,35 @@ export function WbAgentPanel({ ticket, comments, namesByUser, open, onClose, onD
       setProposals([]);
     });
   }, [open, load]);
+
+  // "Take It" reaction: reload the real data, then one chat line with a
+  // real-data pointer — pending proposal rationale, top KB hit, or the
+  // typed gap. Never fake analysis.
+  const lastTakeIt = useRef(0);
+  useEffect(() => {
+    if (takeItNonce === undefined || takeItNonce === 0) return;
+    if (lastTakeIt.current === takeItNonce) return;
+    lastTakeIt.current = takeItNonce;
+    // The panel may be closed (narrow drawer) — react only when visible.
+    if (!open) return;
+    void (async () => {
+      let loaded: { articles: KbArticle[]; hits: SearchResult[]; proposals: AgentProposalView[] };
+      try {
+        loaded = await load();
+      } catch {
+        respond("Not available yet — no agent triage proposal or matching KB article exists for this ticket. The panel lights up when either lands.");
+        return;
+      }
+      const pendingFresh = loaded.proposals.find((p) => p.status === "proposed" && p.rationale != null) ?? null;
+      const pointer =
+        pendingFresh !== null
+          ? `Agent triage worth a look (skill ${pendingFresh.skill_slug ?? "triage"}):\n${pendingFresh.rationale}`
+          : loaded.articles[0] !== undefined
+            ? `No agent triage is filed yet, but the top knowledge source points here:\n“${loaded.articles[0].title}”`
+            : "Not available yet — no agent triage proposal or matching KB article exists for this ticket. The panel lights up when either lands.";
+      respond(`Taken — you own ${ticket.number} and the timer is running.\n${pointer}`);
+    })();
+  }, [takeItNonce, open, load, ticket.number]);
 
   const pending = proposals?.find((p) => p.status === "proposed" && p.rationale != null) ?? null;
   const decided = proposals?.filter((p) => p.status !== "proposed").slice(0, 2) ?? [];
