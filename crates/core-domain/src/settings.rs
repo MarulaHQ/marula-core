@@ -255,6 +255,51 @@ pub const NOTIFICATIONS_CLIENT_EVENTS: &str = "notifications.client_events";
 /// may override it through the per-client workflow-override registry,
 /// including an explicit disable.
 pub const AUTOMATIONS_CLIENT_RULES: &str = "automations.client_rules";
+/// Per-connector enable/disable toggles (Wave 15 lane 4): one org-scope
+/// Boolean per shipped connector family, default ON.
+pub const CONNECTORS_CI_FEEDERS: &str = "connectors.ci_feeders";
+pub const CONNECTORS_IMMYBOT: &str = "connectors.immybot";
+pub const CONNECTORS_M365_GRAPH: &str = "connectors.m365_graph";
+pub const CONNECTORS_DMS_SYNC: &str = "connectors.dms_sync";
+
+/// The feed-upsert source systems that ride the `connectors.ci_feeders`
+/// toggle (the CI feeder-line sources the feed-upsert seam serves).
+pub const CI_FEEDER_SOURCE_SYSTEMS: &[&str] = &["ninjaone", "it_glue", "auvix"];
+
+/// Whether the named connector is enabled for an org, from that org's
+/// stored org-scope overrides: DEFAULT ON — absent key, unknown source
+/// system (no toggle for it), or any non-false value mean enabled.
+/// `overrides` is the literal stored rows (key → JSON value) from
+/// `core_db::settings::list_org_overrides`.
+pub fn connector_enabled(
+    source_system: &str,
+    overrides: &[(String, serde_json::Value)],
+) -> bool {
+    let key = match source_system {
+        _ if CI_FEEDER_SOURCE_SYSTEMS.contains(&source_system) => CONNECTORS_CI_FEEDERS,
+        "immybot" => CONNECTORS_IMMYBOT,
+        "m365_graph" => CONNECTORS_M365_GRAPH,
+        "dms_sync" => CONNECTORS_DMS_SYNC,
+        _ => return true, // unrecognized connectors stay ungated
+    };
+    overrides
+        .iter()
+        .find(|(k, _)| k == key)
+        .and_then(|(_, v)| v.as_bool())
+        .unwrap_or(true)
+}
+
+/// The settings key that gates `source_system`, for consumers that want
+/// to point AT the declaration (report surfaces, connector run manuals).
+pub fn connector_key(source_system: &str) -> Option<&'static str> {
+    match source_system {
+        _ if CI_FEEDER_SOURCE_SYSTEMS.contains(&source_system) => Some(CONNECTORS_CI_FEEDERS),
+        "immybot" => Some(CONNECTORS_IMMYBOT),
+        "m365_graph" => Some(CONNECTORS_M365_GRAPH),
+        "dms_sync" => Some(CONNECTORS_DMS_SYNC),
+        _ => None,
+    }
+}
 
 pub const TIMEZONE_OPTIONS: &[&str] = &[
     "UTC",
@@ -435,6 +480,67 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> =
                 description: "Default sign-off block appended to client emails you \
                              compose (e.g. your name and title). Empty appends none.",
             },
+            // Connector enable/disable toggles (Wave 15 lane 4
+            // `p15-docs-closeout`): one org-scope Boolean per shipped
+            // connector family, all DEFAULT ON (disabling is the
+            // deliberate operator action). `connectors.ci_feeders` is
+            // enforced server-side: the `/api/config-items/feed-upsert`
+            // seam checks it for its three source systems (ninjaone,
+            // it_glue, auvix) and rejects with a typed 403 when the org
+            // turned the connector off. The standalone connectors
+            // (immybot, m365_graph, dms_sync) run operator-side outside
+            // the core, so their keys are the operator-facing surface the
+            // connector run manual consults (and any future in-core
+            // wiring enforces the same way).
+            SettingDeclaration {
+                key: CONNECTORS_CI_FEEDERS,
+                kind: SettingKind::Boolean,
+                default: SettingValue::Boolean(true),
+                scope: SettingScope::Org,
+                section: SettingSection::Integrations,
+                visibility: SettingVisibility::Ui,
+                label: "CI feeders connector (NinjaOne / IT Glue / Auvix)",
+                description: "Accept device/configuration feed upserts from the RMM / \
+                             docs / NMS feeder sources (`clients:write` machine keys). \
+                             Turning this off rejects their writes with a typed 403 \
+                             without touching already-linked records.",
+            },
+            SettingDeclaration {
+                key: CONNECTORS_IMMYBOT,
+                kind: SettingKind::Boolean,
+                default: SettingValue::Boolean(true),
+                scope: SettingScope::Org,
+                section: SettingSection::Integrations,
+                visibility: SettingVisibility::Ui,
+                label: "ImmyBot connector",
+                description: "Operator-side toggle for the ImmyBot patch-state inventory \
+                             connector: a run that starts while this is off skips the \
+                             push and reports every record as skipped-not-synced.",
+            },
+            SettingDeclaration {
+                key: CONNECTORS_M365_GRAPH,
+                kind: SettingKind::Boolean,
+                default: SettingValue::Boolean(true),
+                scope: SettingScope::Org,
+                section: SettingSection::Integrations,
+                visibility: SettingVisibility::Ui,
+                label: "M365 Graph connector",
+                description: "Operator-side toggle for the Microsoft Intune/Entra device \
+                             inventory connector: a run that starts while this is off \
+                             reports the pull as disabled rather than half-applying.",
+            },
+            SettingDeclaration {
+                key: CONNECTORS_DMS_SYNC,
+                kind: SettingKind::Boolean,
+                default: SettingValue::Boolean(true),
+                scope: SettingScope::Org,
+                section: SettingSection::Integrations,
+                visibility: SettingVisibility::Ui,
+                label: "DMS sync connector (IT Glue / Hudu ↔ Meridian docs)",
+                description: "Operator-side toggle for the documentation-system sync: a \
+                             sync run that starts while this is off reports disabled \
+                             before touching a single Meridian record.",
+            },
         ]
     });
 
@@ -471,8 +577,8 @@ mod tests {
             assert!(
                 d.key
                     .chars()
-                    .all(|c| c.is_ascii_lowercase() || c == '.' || c == '_'),
-                "key {} must be lowercase dotted snake_case",
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '_'),
+                "key {} must be lowercase dotted snake_case (digits allowed)",
                 d.key
             );
             assert!(seen.insert(d.key), "duplicate key {}", d.key);
@@ -492,7 +598,7 @@ mod tests {
             Some(SettingValue::Text("light".into()))
         );
         assert_eq!(declarations_for(SettingScope::User).len(), 3);
-        assert_eq!(declarations_for(SettingScope::Org).len(), 8);
+        assert_eq!(declarations_for(SettingScope::Org).len(), 12);
     }
 
     #[test]
@@ -530,6 +636,36 @@ mod tests {
         assert!(d.validate(&SettingValue::Text("sunday".into())).is_ok());
         assert!(d.validate(&SettingValue::Text("tuesday".into())).is_err());
         assert!(d.validate(&SettingValue::Integer(1)).is_err());
+    }
+
+    #[test]
+    fn connector_toggles_default_on_and_gate_known_sources() {
+        let none: Vec<(String, serde_json::Value)> = Vec::new();
+        for source in ["ninjaone", "it_glue", "auvix", "immybot", "m365_graph", "dms_sync"] {
+            assert!(
+                connector_enabled(source, &none),
+                "{source} enabled with no overrides"
+            );
+            assert!(connector_key(source).is_some(), "{source} has a key");
+        }
+        // Unknown source systems stay ungated (the feed seam accepts open
+        // source systems; only shipped connectors have toggles).
+        assert!(connector_enabled("some_new_rmm", &none));
+        assert!(connector_key("some_new_rmm").is_none());
+
+        let off = vec![(
+            CONNECTORS_CI_FEEDERS.to_string(),
+            serde_json::json!(false),
+        )];
+        // The whole feeder family toggles together (one connector, three
+        // source systems).
+        assert!(!connector_enabled("ninjaone", &off));
+        assert!(!connector_enabled("it_glue", &off));
+        assert!(!connector_enabled("auvix", &off));
+        // Other connectors are NOT disabled by another connector's key.
+        assert!(connector_enabled("immybot", &off));
+        assert_eq!(connector_key("ninjaone"), Some(CONNECTORS_CI_FEEDERS));
+        assert_eq!(connector_key("dms_sync"), Some(CONNECTORS_DMS_SYNC));
     }
 
     #[test]

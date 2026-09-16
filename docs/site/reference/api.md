@@ -3,7 +3,7 @@
 
 **Meridian Core API 0.1.0** — The single write surface for Project Meridian. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**348 paths · 485 operations · 706 schemas.**
+**372 paths · 515 operations · 755 schemas.**
 
 ## agent-proposals
 
@@ -205,6 +205,19 @@
 | `GET` | `/api/v1/calendar-exclusions` <a id="calendar_exclusion_list"></a> | GET /api/calendar-exclusions?user_id=&from=&to= | — |
 | `POST` | `/api/v1/calendar-exclusions` <a id="calendar_exclusion_create"></a> | POST /api/calendar-exclusions — record time-off. | [CreateExclusionRequest](#schema-createexclusionrequest) |
 | `DELETE` | `/api/v1/calendar-exclusions/{id}` <a id="calendar_exclusion_delete"></a> | DELETE /api/calendar-exclusions/{id}?user_id= | — |
+
+## calendar-sync
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/calendar-sync` <a id="calendar_sync_list"></a> | GET /api/calendar-sync — the caller's (or target user's) connections. | — |
+| `POST` | `/api/v1/calendar-sync` <a id="calendar_sync_create"></a> | POST /api/calendar-sync — create a connection. Outbound-capable directions get a feed token generated immediately (returned once). | [CreateConnectionRequest](#schema-createconnectionrequest) |
+| `DELETE` | `/api/v1/calendar-sync/{id}` <a id="calendar_sync_delete"></a> | DELETE /api/calendar-sync/{id} — the connection, its mirror rows, and the exclusion rows the sync owns all go away (external busy time frees the calendar). | — |
+| `PATCH` | `/api/v1/calendar-sync/{id}` <a id="calendar_sync_update"></a> | PATCH /api/calendar-sync/{id} — edit name/direction/feed_url/status. | [UpdateConnectionRequest](#schema-updateconnectionrequest) |
+| `GET` | `/api/v1/calendar-sync/{id}/events` <a id="calendar_sync_events"></a> | GET /api/calendar-sync/{id}/events — the inbound mirror (the conflict/duplicate surface Wave 14 lane 7 renders). | — |
+| `POST` | `/api/v1/calendar-sync/{id}/rotate-token` <a id="calendar_sync_rotate_token"></a> | POST /api/calendar-sync/{id}/rotate-token — invalidates the old outbound feed URL and returns the new raw token once. | — |
+| `POST` | `/api/v1/calendar-sync/{id}/sync` <a id="calendar_sync_run"></a> | POST /api/calendar-sync/{id}/sync — poll now (manual trigger; the worker lane calls the same seam on its schedule). Network fetch happens OUTSIDE the transaction; the apply + poll-state record + event emission run inside ONE org transaction. | — |
+| `GET` | `/api/v1/calendar-sync/feed/{token}` <a id="public_calendar_sync_feed"></a> | GET /api/calendar-sync/feed/{token} — the OUTBOUND direction: the user's live appointments as a subscribable iCalendar document. Unauthenticated but token-scoped and rate-limited (the scheduling-links pattern); the token resolves org + user, then the read is org-scoped. | — |
 
 ## catalog-items
 
@@ -517,6 +530,20 @@
 | `POST` | `/api/v1/pipeline/stages` <a id="pipeline_stages_create"></a> | POST /api/pipeline/stages — create a stage (name unique per org). | [CreateStageRequest](#schema-createstagerequest) |
 | `PATCH` | `/api/v1/pipeline/stages/{id}` <a id="pipeline_stages_update"></a> | PATCH /api/pipeline/stages/{id}. | [UpdateStageRequest](#schema-updatestagerequest) |
 
+## plugins
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/plugins/catalog` <a id="plugin_catalog_list"></a> | GET /api/plugins/catalog — the marketplace registry. | — |
+| `POST` | `/api/v1/plugins/catalog` <a id="plugin_catalog_publish"></a> | POST /api/plugins/catalog — publish a catalog entry with its first version. Operator action on a self-hosted core (the catalog is global); audited, and the manifest is validated against the closed capability vocabulary and the pinned interface version BEFORE any row exists. | [PublishCatalogEntryRequest](#schema-publishcatalogentryrequest) |
+| `GET` | `/api/v1/plugins/catalog/{slug}` <a id="plugin_catalog_get"></a> | GET /api/plugins/catalog/{slug}. | — |
+| `POST` | `/api/v1/plugins/catalog/{slug}/revoke` <a id="plugin_catalog_revoke"></a> | POST /api/plugins/catalog/{slug}/revoke — the registry kill switch. Denies new installs and marks every existing install revoked (deny-by-default: a revoked plugin never runs); one `plugin.install_revoked` event per affected install. | [RevokeCatalogEntryRequest](#schema-revokecatalogentryrequest) |
+| `POST` | `/api/v1/plugins/catalog/{slug}/versions` <a id="plugin_catalog_append_version"></a> | POST /api/plugins/catalog/{slug}/versions — append a version to a live entry (revoked entries accept no new versions). | [AppendVersionRequest](#schema-appendversionrequest) |
+| `GET` | `/api/v1/plugins/installed` <a id="plugin_install_list"></a> | GET /api/plugins/installed — this org's adoptions. | — |
+| `POST` | `/api/v1/plugins/installed` <a id="plugin_install_create"></a> | POST /api/plugins/installed — adopt a catalog entry at a pinned version. Created DISABLED (deny-by-default); enabling is a separate explicit admin action. | [InstallPluginRequest](#schema-installpluginrequest) |
+| `DELETE` | `/api/v1/plugins/installed/{id}` <a id="plugin_install_delete"></a> | DELETE /api/plugins/installed/{id} — uninstall (the adoption row goes away; re-install is a fresh adoption). | — |
+| `PATCH` | `/api/v1/plugins/installed/{id}` <a id="plugin_install_update"></a> | PATCH /api/plugins/installed/{id} — enable/disable, upgrade the pinned version, or adjust the grant set. Widening grants re-validates against the NEW pinned manifest. Revoked installs are terminal. | [UpdateInstallRequest](#schema-updateinstallrequest) |
+
 ## pm-schedules
 
 | Method | Path | Operation | Request body |
@@ -631,6 +658,12 @@
 | `POST` | `/api/v1/quotes/{id}/expire` <a id="quotes_expire"></a> | POST /api/quotes/{id}/expire — explicitly expire a quote PAST its validity window (decline is the in-window exit). | [QuoteLifecycleRequest](#schema-quotelifecyclerequest) |
 | `POST` | `/api/v1/quotes/{id}/send` <a id="quotes_send"></a> | One lifecycle leg: shared shape for send/accept/decline (expire has a POST /api/quotes/{id}/send — draft → sent. Locks the document. | [QuoteLifecycleRequest](#schema-quotelifecyclerequest) |
 
+## report-catalog
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/report-catalog` <a id="report_catalog"></a> | GET /api/report-catalog — the fixed field catalog for the R6 builder (ADR 0001): per-view projected columns + filterable inventory with value classes. Static data served from the same Rust constants the compiler validates against, so the UI can never offer an identifier the backend would reject. | — |
+
 ## report-definitions
 
 | Method | Path | Operation | Request body |
@@ -640,6 +673,7 @@
 | `DELETE` | `/api/v1/report-definitions/{id}` <a id="report_definitions_delete"></a> | DELETE /api/report-definitions/{id} — removal through the same gated path; the write trail keeps the deleted snapshot (undo substrate). | — |
 | `GET` | `/api/v1/report-definitions/{id}` <a id="report_definitions_get"></a> | GET /api/report-definitions/{id} — one visible definition; anything not visible (deleted, other org, private of another user) is a bare 404. | — |
 | `PUT` | `/api/v1/report-definitions/{id}` <a id="report_definitions_update"></a> | PUT /api/report-definitions/{id} — full-replace update through the instant-first write path (version gate enforced; a miss inside a mutation is the typed `rls_sparse` reason, not `not_found`). | [UpdateReportDefinitionRequest](#schema-updatereportdefinitionrequest) |
+| `GET` | `/api/v1/report-definitions/{id}/run` <a id="report_definitions_run"></a> | GET /api/report-definitions/{id}/run — compile-on-demand execution of a visible stored definition's spec (R6 builder runs). The spec re-validates through the registry, compiles via `ReportSpec::compile_windowed` (identifiers stay enum-matched catalog constants; values bind as `$N` parameters), and executes against the reporting pool inside an org-bound transaction. Non-admins are structurally self-scoped exactly like the prebuilt kinds. | — |
 
 ## report-schedules
 
@@ -657,6 +691,7 @@
 | Method | Path | Operation | Request body |
 |---|---|---|---|
 | `GET` | `/api/v1/reports/{kind}` <a id="report_get"></a> | GET /api/reports/{kind} — prebuilt operational report over the read-model views. Kinds: time_by_user | time_by_client | time_by_ticket | sla_attainment | sla_breaches | ticket_throughput | ticket_aging | first_response. | — |
+| `POST` | `/api/v1/reports/run-spec` <a id="report_run_spec"></a> | POST /api/reports/run-spec — execute an INLINE spec (R6 builder preview). Same compile/execute/RBAC seam as running a stored definition; the spec never touches storage and identifiers re-validate against the static catalog before compilation. | [RunSpecRequest](#schema-runspecrequest) |
 
 ## roles
 
@@ -692,6 +727,16 @@
 | `POST` | `/api/v1/scheduling-links` <a id="scheduling_links_create"></a> | POST /api/scheduling-links — mint a shareable link (token returned once). A replay (same key + same body) replays the SAME token. | [CreateSchedulingLinkRequest](#schema-createschedulinglinkrequest) |
 | `GET` | `/api/v1/scheduling-links/{id}/bookings` <a id="scheduling_links_bookings"></a> | GET /api/scheduling-links/{id}/bookings — the link → booking trail. | — |
 | `POST` | `/api/v1/scheduling-links/{id}/revoke` <a id="scheduling_links_revoke"></a> | POST /api/scheduling-links/{id}/revoke — the link can never book again; an already-used link keeps its `used` state so the booking trail never changes meaning. | — |
+
+## scorecards
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/scorecards` <a id="scorecard_list_team"></a> | GET /api/scorecards?from&to — every active staff member's scorecard in one org-wide read (owner/admin only; R5 private-by-default means a plain tech never sees anyone else's card here, including via query tricks — the scope is derived from the principal, never the request). | — |
+| `GET` | `/api/v1/scorecards/{user_id}` <a id="scorecard_get_user"></a> | GET /api/scorecards/{user_id}?from&to — one member's scorecard; a member may read their own, owner/admin may read anyone's. | — |
+| `GET` | `/api/v1/scorecards/me` <a id="scorecard_get_own"></a> | GET /api/scorecards/me?from&to — the caller's own scorecard. | — |
+| `GET` | `/api/v1/scorecards/me/settings` <a id="scorecard_get_settings"></a> | GET /api/scorecards/me/settings — the caller's scorecard settings (absent row reads as the private-by-defaults). | — |
+| `PATCH` | `/api/v1/scorecards/me/settings` <a id="scorecard_update_settings"></a> | PATCH /api/scorecards/me/settings — flip the R5 opt-in gamification toggle. Only ever touches the CALLER's row (no user_id in the body by design); emits `scorecard.settings_updated` in the same transaction. | [UpdateScorecardSettingsRequest](#schema-updatescorecardsettingsrequest) |
 
 ## search
 
@@ -817,6 +862,11 @@
 |---|---|---|---|
 | `GET` | `/api/v1/time-entries` <a id="timers_list_entries"></a> | GET /api/time-entries | — |
 | `POST` | `/api/v1/time-entries` <a id="timers_create_entry"></a> | POST /api/time-entries — manual entry (no timer). | [CreateTimeEntryRequest](#schema-createtimeentryrequest) |
+| `GET` | `/api/v1/time-entries/{id}/approvals` <a id="time_entries_approval_history"></a> | GET /api/time-entries/:id/approvals — the append-only decision trail (`seq` ascending). Approvers and owner/admins read any trail; other users only their own entries'. | — |
+| `POST` | `/api/v1/time-entries/{id}/reopen` <a id="time_entries_reopen"></a> | POST /api/time-entries/:id/reopen — move a rejected entry back to draft (owner or admin) so it can be corrected and resubmitted. | — |
+| `POST` | `/api/v1/time-entries/{id}/submit` <a id="time_entries_submit"></a> | POST /api/time-entries/:id/submit — the entry owner (or an admin) pushes a draft/rejected entry into the approver queue. | [SubmitEntryRequest](#schema-submitentryrequest) |
+| `POST` | `/api/v1/time-entries/approvals/decide` <a id="time_entries_decide"></a> | POST /api/time-entries/approvals/decide — bulk approve or bulk reject (`special:approve_time`). Only entries currently in the queue apply; every other id comes back with a per-item outcome. Emits one `time_entry.approval_*` event per applied entry. | [BulkDecisionRequest](#schema-bulkdecisionrequest) |
+| `GET` | `/api/v1/time-entries/approvals/queue` <a id="time_entries_queue"></a> | GET /api/time-entries/approvals/queue — the approver queue (submitted entries by default). Approvers (`special:approve_time`) see the org queue and can filter `decided_by` for their own decision history; everyone else sees only their own submissions. | — |
 
 ## time-gaps
 
@@ -885,6 +935,7 @@
 | <a id="schema-apikeycreatedresponse"></a>`ApiKeyCreatedResponse` | object | The ONLY response carrying raw key material. Lost keys are rotated by creating a new key and revoking this one — never recovered. |
 | <a id="schema-apikeylist"></a>`ApiKeyList` | object |  |
 | <a id="schema-apikeyview"></a>`ApiKeyView` | object |  |
+| <a id="schema-appendversionrequest"></a>`AppendVersionRequest` | object |  |
 | <a id="schema-applycreditnoterequest"></a>`ApplyCreditNoteRequest` | composite | POST /api/credit-notes/{id}/apply body. |
 | <a id="schema-applytagrequest"></a>`ApplyTagRequest` | composite |  |
 | <a id="schema-appointment"></a>`Appointment` | object | A booked slot on one user's calendar, optionally tied to a ticket and client/site. `travel_minutes` is a dispatch-board placeholder — never interpreted by scheduling rules in this stage. |
@@ -893,6 +944,7 @@
 | <a id="schema-appointmentrequestlistquery"></a>`AppointmentRequestListQuery` | object |  |
 | <a id="schema-appointmentrequeststatus"></a>`AppointmentRequestStatus` | string | Lifecycle of an appointment request. `approved`/`declined`/`cancelled` are terminal; approved requests carry the created appointment's id. |
 | <a id="schema-appointmentstatus"></a>`AppointmentStatus` | string | Lifecycle of a booking. `cancelled` frees the slot (the DB exclusion constraint's partial predicate); `done` still occupies it. |
+| <a id="schema-approvalstatus"></a>`ApprovalStatus` | string | Approval lifecycle of a time entry (Wave 14 lane 1): `draft` entries are still being worked on, `submitted` waits in the approver queue, `approved` entries are the only ones billing reads may consume, |
 | <a id="schema-archivecatalogitemrequest"></a>`ArchiveCatalogItemRequest` | composite |  |
 | <a id="schema-articlelistquery"></a>`ArticleListQuery` | object |  |
 | <a id="schema-articlemutationresponse"></a>`ArticleMutationResponse` | composite | Instant-first mutation response (IF2). |
@@ -928,6 +980,9 @@
 | <a id="schema-boardtransitionsresponse"></a>`BoardTransitionsResponse` | object | GET response for a board's workflow: either its explicit matrix or the marker that the semantic-category floor governs. |
 | <a id="schema-bookrequest"></a>`BookRequest` | composite |  |
 | <a id="schema-bookresponse"></a>`BookResponse` | object |  |
+| <a id="schema-bulkdecisionitem"></a>`BulkDecisionItem` | object | Per-item outcome of a bulk decision: applied entries carry the new snapshot; refused entries name exactly why (not-in-queue, locked, or not visible in scope), so the client flags rows instead of guess |
+| <a id="schema-bulkdecisionrequest"></a>`BulkDecisionRequest` | object |  |
+| <a id="schema-bulkdecisionresponse"></a>`BulkDecisionResponse` | object |  |
 | <a id="schema-bulkmoverequest"></a>`BulkMoveRequest` | object |  |
 | <a id="schema-bulkmoveresponse"></a>`BulkMoveResponse` | object |  |
 | <a id="schema-businesscalendar"></a>`BusinessCalendar` | object | Weekly business hours in a named IANA timezone, plus holiday dates. `None` window = non-business day. |
@@ -938,6 +993,10 @@
 | <a id="schema-cadencespec"></a>`CadenceSpec` | object | The typed cadence + wall-clock shape (same columns as report schedules; the DB CHECKs pin the same consistency rules). |
 | <a id="schema-calendarexclusion"></a>`CalendarExclusion` | object | Absolute UTC time-off punching holes in availability. |
 | <a id="schema-calendaritem"></a>`CalendarItem` | object | Flat merged entry so calendars render one ordered list without caring which table produced it. |
+| <a id="schema-calendarsyncconnection"></a>`CalendarSyncConnection` | object | One external-calendar connection for one user's calendar. |
+| <a id="schema-calendarsyncdirection"></a>`CalendarSyncDirection` | string | What a connection does: `outbound` serves the org's appointments to the external calendar (private token-scoped iCal feed), `inbound` polls the external feed for busy time, `two_way` does both. |
+| <a id="schema-calendarsyncevent"></a>`CalendarSyncEvent` | object | The inbound mirror of one external event. `exclusion_id` names the `calendar_exclusions` row the event currently feeds into the 2.12 availability foundation (NULL while not busy — cancelled or transpa |
+| <a id="schema-calendarsyncstatus"></a>`CalendarSyncStatus` | string | Connection health: `error` records the last poll failure while the connection stays configured; writes resume when a poll succeeds. |
 | <a id="schema-calendarviewresponse"></a>`CalendarViewResponse` | object |  |
 | <a id="schema-candidateview"></a>`CandidateView` | composite |  |
 | <a id="schema-capabilitygrantlist"></a>`CapabilityGrantList` | object |  |
@@ -945,9 +1004,12 @@
 | <a id="schema-capabilitymode"></a>`CapabilityMode` | string | Wire involvement-dial position of a capability grant. |
 | <a id="schema-capacityhorizonview"></a>`CapacityHorizonView` | object | The assembled horizon payload. `unassigned_count` is the current open unassigned queue depth so planners see demand next to capacity. |
 | <a id="schema-capacityquery"></a>`CapacityQuery` | object | GET /api/dispatch/capacity query: `from` date (defaults to today UTC) and the horizon length in days (1..=31, default 7). |
+| <a id="schema-catalogcolumn"></a>`CatalogColumn` | object | One catalog column: the static identifier plus its value class slug (`uuid \| text \| timestamp \| date \| int \| bigint \| bool`). The slug is what the builder UI keys operand typing on. |
+| <a id="schema-catalogentryview"></a>`CatalogEntryView` | object |  |
 | <a id="schema-catalogitemmutationresponse"></a>`CatalogItemMutationResponse` | composite | Instant-first mutation response (IF2) for catalog mutations. |
 | <a id="schema-catalogitemview"></a>`CatalogItemView` | object | RB2 (ADR 0004): a catalog item as the CALLER may see it. `unit_price` is the commercial surface; `cost_minor` (and the gross margin derived from it) is financial data — it serializes `null` for caller |
 | <a id="schema-cataloglistquery"></a>`CatalogListQuery` | object |  |
+| <a id="schema-catalogview"></a>`CatalogView` | object | The field catalog of ONE versioned view: every projected column plus the narrower filterable inventory. Identifiers here are the ONLY ones a builder may reference — the server re-validates every spec  |
 | <a id="schema-categorymutationresponse"></a>`CategoryMutationResponse` | composite | Instant-first mutation response (IF2): category fields at the top level plus the additive `mutation` metadata. |
 | <a id="schema-changestatusrequest"></a>`ChangeStatusRequest` | composite |  |
 | <a id="schema-checklistitem"></a>`ChecklistItem` | object | One line of a ticket's pre-close checklist. Items instantiated from the board's template carry `template_item_id`; those are REQUIRED when the board enforces pre-close checklists (see `crate::notes`). |
@@ -978,6 +1040,7 @@
 | <a id="schema-conflictcheckresponse"></a>`ConflictCheckResponse` | object |  |
 | <a id="schema-conflictpolicy"></a>`ConflictPolicy` | string | Per-entity conflict semantics when an external key already maps to a live row whose content differs from the incoming spec. |
 | <a id="schema-conflictview"></a>`ConflictView` | object | One blocking booking named by the dry-run. |
+| <a id="schema-connectionview"></a>`ConnectionView` | object |  |
 | <a id="schema-connectorappointment"></a>`ConnectorAppointment` | object | One booking as the connector sees it. |
 | <a id="schema-connectorschedulequery"></a>`ConnectorScheduleQuery` | object | GET /api/dispatch-connector/schedule query. The window is bounded at 62 days so one pull cannot scan the whole calendar. |
 | <a id="schema-connectorscheduleview"></a>`ConnectorScheduleView` | object |  |
@@ -1010,6 +1073,7 @@
 | <a id="schema-createcatalogitemrequest"></a>`CreateCatalogItemRequest` | composite | POST /api/catalog-items body. |
 | <a id="schema-createcategoryrequest"></a>`CreateCategoryRequest` | composite |  |
 | <a id="schema-createclientrequest"></a>`CreateClientRequest` | composite |  |
+| <a id="schema-createconnectionrequest"></a>`CreateConnectionRequest` | object |  |
 | <a id="schema-createcontactrequest"></a>`CreateContactRequest` | object |  |
 | <a id="schema-createcontractrequest"></a>`CreateContractRequest` | composite |  |
 | <a id="schema-createcostlinerequest"></a>`CreateCostLineRequest` | composite |  |
@@ -1063,6 +1127,7 @@
 | <a id="schema-creditnotelistquery"></a>`CreditNoteListQuery` | object | GET /api/credit-notes query. |
 | <a id="schema-creditnotemutationresponse"></a>`CreditNoteMutationResponse` | composite | Instant-first mutation response (IF2) for credit-note mutations. |
 | <a id="schema-creditnotestatus"></a>`CreditNoteStatus` | string | Document lifecycle of a credit note. `applied` / `refunded` / `partially applied` are DERIVED from the counters, never stored — allocation moves continuously; only a void is a state. |
+| <a id="schema-csatsection"></a>`CsatSection` | object | CSAT inputs slot. The surveys-on-resolution source does not exist yet (later TASKLIST item); the scorecard reserves the field and reports `available: false` rather than inventing data. |
 | <a id="schema-curatefieldsrequest"></a>`CurateFieldsRequest` | composite |  |
 | <a id="schema-customizationmanifest"></a>`CustomizationManifest` | object | The customization manifest envelope, `manifest_version` 1. |
 | <a id="schema-daycapacity"></a>`DayCapacity` | object | One technician's capacity for one day of the horizon. |
@@ -1109,6 +1174,7 @@
 | <a id="schema-embedresolution"></a>`EmbedResolution` | object | The allowlist decision plus (optionally) the provider's own oEmbed embed HTML, fetched server-side. `html` is present only when `fetch=true` and the provider endpoint answers 2xx. |
 | <a id="schema-entitykind"></a>`EntityKind` | string | Which entity family a batch targets. One batch = exactly one kind; the parent-before-child ordering across batches keeps foreign references resolvable without cross-batch transactions. D2 remainder ex |
 | <a id="schema-escalationstep"></a>`EscalationStep` | object | One escalation ladder step as stored (`sla_escalation_steps`). |
+| <a id="schema-eventslistresponse"></a>`EventsListResponse` | object |  |
 | <a id="schema-expensemutationresponse"></a>`ExpenseMutationResponse` | object |  |
 | <a id="schema-exportbundle"></a>`ExportBundle` | object | The org-data export envelope, `bundle_version` 1. |
 | <a id="schema-exportclient"></a>`ExportClient` | object | One client company row. |
@@ -1146,6 +1212,8 @@
 | <a id="schema-incidentview"></a>`IncidentView` | object | The storm group behind an incident ticket. |
 | <a id="schema-ingestalertrequest"></a>`IngestAlertRequest` | object |  |
 | <a id="schema-ingestresponse"></a>`IngestResponse` | object | POST /api/alerts/ingest — outcome of one signed delivery. |
+| <a id="schema-installpluginrequest"></a>`InstallPluginRequest` | object |  |
+| <a id="schema-installview"></a>`InstallView` | object |  |
 | <a id="schema-instantiatetemplaterequest"></a>`InstantiateTemplateRequest` | composite |  |
 | <a id="schema-integrationlinkstatus"></a>`IntegrationLinkStatus` | object | Per-connector link state as data (linked/unlinked + last touch). |
 | <a id="schema-inviteinfo"></a>`InviteInfo` | object | The one-time setup token an admin delivers to the invitee (shown once; only its sha-256 is stored). |
@@ -1271,6 +1339,10 @@
 | <a id="schema-pipelinedeal"></a>`PipelineDeal` | object | An opportunity: one client, optionally one quote, one current stage. |
 | <a id="schema-pipelinedealtransition"></a>`PipelineDealTransition` | object | One immutable stage move (or the initial placement, with a NULL `from_stage_id`). Appended in the same transaction as the move. |
 | <a id="schema-pipelinestage"></a>`PipelineStage` | object | One ordered stage of the org's pipeline. |
+| <a id="schema-plugincapability"></a>`PluginCapability` | string | The CLOSED capability vocabulary a v2 manifest may declare and an install may be granted. Capabilities are declarative names that map onto the EXISTING permission matrix — a grant never creates a new  |
+| <a id="schema-plugininstallstatus"></a>`PluginInstallStatus` | string | Install lifecycle. Deny-by-default: `Disabled` until an explicit admin enable; `Revoked` is terminal (registry revocation or explicit revoke) — a revoked install never runs again until re-installed. |
+| <a id="schema-pluginmanifestbody"></a>`PluginManifestBody` | object | The declarative manifest as submitted. `interface_version` is server-pinned (the runtime speaks exactly one version), so a caller cannot publish an entry the runtime would refuse. |
+| <a id="schema-pluginmanifestv2"></a>`PluginManifestV2` | object | The declarative v2 plugin manifest: name/version/capabilities — a DATA document describing what a plugin IS and what it may ask for. It is never executable content: the runtime executes nothing from a |
 | <a id="schema-pmrun"></a>`PmRun` | object | One append-only PM run ledger row. |
 | <a id="schema-pmschedule"></a>`PmSchedule` | object | A recurring/scheduled ticket (PM schedule): a ticket template plus the typed cadence (same shape as report schedules). The worker claims due rows; core-api generates the instance and advances the cade |
 | <a id="schema-podvisibilityview"></a>`PodVisibilityView` | object |  |
@@ -1324,6 +1396,7 @@
 | <a id="schema-providermutationresponse"></a>`ProviderMutationResponse` | composite | Instant-first mutation response (IF2) for provider rows. |
 | <a id="schema-publiclinkview"></a>`PublicLinkView` | object | What the public page needs to render the booking UI: the template's bookable shape plus a slot preview over the booking window. The horizon follows `booking_window_days`; intervals are computed in ser |
 | <a id="schema-publicprovider"></a>`PublicProvider` | object |  |
+| <a id="schema-publishcatalogentryrequest"></a>`PublishCatalogEntryRequest` | object |  |
 | <a id="schema-publishskillrequest"></a>`PublishSkillRequest` | object |  |
 | <a id="schema-pullitem"></a>`PullItem` | object | One exported row: internal id, stable source key when the row was ever pushed under one, and the canonical projection (the SAME field catalog the push side diffs against). |
 | <a id="schema-pullpage"></a>`PullPage` | object | GET /api/migration/pull/{family} envelope. |
@@ -1347,6 +1420,7 @@
 | <a id="schema-putpodvisibilityrequest"></a>`PutPodVisibilityRequest` | object |  |
 | <a id="schema-queuedticket"></a>`QueuedTicket` | composite | One queued ticket: the day-view's queue row shape plus the explicit override when one exists. |
 | <a id="schema-queuemutationresponse"></a>`QueueMutationResponse` | object | Queue mutation envelope (set + clear share the shape; clears carry `cleared: true` and null note). |
+| <a id="schema-queuequery"></a>`QueueQuery` | object |  |
 | <a id="schema-quote"></a>`Quote` | object | The quote document. `subtotal/tax/total` are persisted roll-ups of the lines, recomputed on every draft edit. |
 | <a id="schema-quotedetail"></a>`QuoteDetail` | composite | The quote aggregate: document + lines. |
 | <a id="schema-quotelifecyclerequest"></a>`QuoteLifecycleRequest` | composite | A lifecycle leg body (send/accept/decline/expire): envelope params only; the target status is the URL. |
@@ -1374,8 +1448,10 @@
 | <a id="schema-replaceladderrequest"></a>`ReplaceLadderRequest` | object |  |
 | <a id="schema-replaceticketskillsrequest"></a>`ReplaceTicketSkillsRequest` | composite | PUT /api/dispatch/tickets/{ticket_id}/required-skills body. |
 | <a id="schema-replaceuserskillsrequest"></a>`ReplaceUserSkillsRequest` | composite | PUT /api/dispatch/users/{user_id}/skills body. |
+| <a id="schema-reportcatalog"></a>`ReportCatalog` | object | GET /api/report-catalog envelope. |
 | <a id="schema-reportdefinitionlist"></a>`ReportDefinitionList` | object | GET /api/report-definitions envelope. |
 | <a id="schema-reportdefinitionmutationresponse"></a>`ReportDefinitionMutationResponse` | composite | Mutation envelope: applied definition (flattened) + read-your-write metadata (IF2). |
+| <a id="schema-reportdefinitionrunquery"></a>`ReportDefinitionRunQuery` | object | Query surface for running a stored definition (mirrors the prebuilt kinds' loose GET shape; irrelevant fields ignored). |
 | <a id="schema-reportdefinitionview"></a>`ReportDefinitionView` | object | A stored report definition with its registry-validated spec reassembled (`spec.view` == the stored `kind` column). |
 | <a id="schema-reportdeliverypage"></a>`ReportDeliveryPage` | object | GET /api/report-schedules/{id}/deliveries envelope — offset-paged delivery history, newest slot first. |
 | <a id="schema-reportdeliveryview"></a>`ReportDeliveryView` | object | One delivery-history row (R4): the claimed slot, the outcome status (`delivered\|partial\|failed\|skipped`), the per-recipient outcome detail, and when the ledger row landed. |
@@ -1396,6 +1472,7 @@
 | <a id="schema-retiretaxonomynoderequest"></a>`RetireTaxonomyNodeRequest` | composite |  |
 | <a id="schema-revertdetail"></a>`RevertDetail` | object | What the revert restored. |
 | <a id="schema-revertticketrequest"></a>`RevertTicketRequest` | composite | POST /api/tickets/{id}/revert body. |
+| <a id="schema-revokecatalogentryrequest"></a>`RevokeCatalogEntryRequest` | object |  |
 | <a id="schema-rolemutationresponse"></a>`RoleMutationResponse` | composite | Instant-first mutation response (IF2): the role at the top level plus the additive `mutation` metadata. |
 | <a id="schema-roleslistresponse"></a>`RolesListResponse` | object |  |
 | <a id="schema-roleview"></a>`RoleView` | object | One org role row (preset or custom). `permissions` is the raw matrix vocabulary: `{"matrix": {"module", "action"}}` entries plus bare special strings (`"financial:read"`, `"special:manage_users"`, …). |
@@ -1405,6 +1482,7 @@
 | <a id="schema-rowspayload"></a>`RowsPayload` | object | The encoded row source shared by dry-run and chunk posts. |
 | <a id="schema-runbatchresponse"></a>`RunBatchResponse` | object | POST /imports/batches/{id}/run response: the batch is queued for the worker exactly once; poll the batch view for counters. |
 | <a id="schema-runreportresponse"></a>`RunReportResponse` | object | Per-row fate report — the D2 contract shape (`row_index → errors[] \| ok \| would_skip \| would_update`). |
+| <a id="schema-runspecrequest"></a>`RunSpecRequest` | object | POST /api/reports/run-spec body: an inline spec (validated through the same registry as stored definitions) plus the run window. This is the builder's PREVIEW-before-save surface — nothing is persiste |
 | <a id="schema-scanstatus"></a>`ScanStatus` | string | Outcome of the malware scan that runs between webhook receipt and persistence. `skipped` is the documented "none" mode (no scanner configured) — never a silent pass of an actual verdict. |
 | <a id="schema-schedulecadence"></a>`ScheduleCadence` | string | Wire cadence of a schedule (snake_case slugs matching the stored column and the worker's parser). |
 | <a id="schema-schedulelistquery"></a>`ScheduleListQuery` | object | GET /api/report-schedules query. |
@@ -1413,6 +1491,13 @@
 | <a id="schema-schedulinglink"></a>`SchedulingLink` | object | A shareable booking link. The raw token is generated at create, returned ONCE in the create response, and never stored (only its SHA-256 hash); the tech's visible lifecycle is the view/schedule/ revok |
 | <a id="schema-schedulinglinkbooking"></a>`SchedulingLinkBooking` | object | The link → booking trail row (mirrors the appointment for audit). |
 | <a id="schema-schedulinglinkstatus"></a>`SchedulingLinkStatus` | string | Link lifecycle: `active` → `used` (a booking landed) or `revoked` (tech pulled it). Expiry is DERIVED (`expires_at` + the template's booking window), never a stored state. |
+| <a id="schema-scorecard"></a>`Scorecard` | object | One staff member's scorecard over a window. |
+| <a id="schema-scorecardlatency"></a>`ScorecardLatency` | object | First-staff-response latency block (seconds; staff-authored comments only — portal replies are structurally excluded by the view). |
+| <a id="schema-scorecardresponse"></a>`ScorecardResponse` | composite |  |
+| <a id="schema-scorecardsettingsresponse"></a>`ScorecardSettingsResponse` | object |  |
+| <a id="schema-scorecardsla"></a>`ScorecardSla` | object | SLA attainment block. `response_total`/`resolution_total` count only tickets where BOTH the SLA target and the actual instant exist (the three-valued metrics from `ops.v1_sla_outcomes`); attainment is |
+| <a id="schema-scorecardwindow"></a>`ScorecardWindow` | object |  |
+| <a id="schema-scorecardworkload"></a>`ScorecardWorkload` | object | Workload mix over APPROVED time entries only — drafts and rejected entries are never scorecard truth (Wave 14 lane-1 approval contract). |
 | <a id="schema-searchquery"></a>`SearchQuery` | object |  |
 | <a id="schema-searchresponse"></a>`SearchResponse` | object |  |
 | <a id="schema-searchresult"></a>`SearchResult` | object |  |
@@ -1449,7 +1534,12 @@
 | <a id="schema-starttimerrequest"></a>`StartTimerRequest` | composite |  |
 | <a id="schema-statementline"></a>`StatementLine` | object | One open invoice on the statement. |
 | <a id="schema-stoptimerrequest"></a>`StopTimerRequest` | composite |  |
+| <a id="schema-submitentryrequest"></a>`SubmitEntryRequest` | object |  |
+| <a id="schema-submitresponse"></a>`SubmitResponse` | composite | Instant-first mutation response (IF2): the full entry snapshot (including its new approval state) plus the decision trail entry. |
 | <a id="schema-submittraveldraftrequest"></a>`SubmitTravelDraftRequest` | composite | POST /api/dispatch/travel-drafts/{id}/submit body. |
+| <a id="schema-syncforcequery"></a>`SyncForceQuery` | object |  |
+| <a id="schema-syncoutcomeresponse"></a>`SyncOutcomeResponse` | object |  |
+| <a id="schema-syncoutcomewire"></a>`SyncOutcomeWire` | object |  |
 | <a id="schema-tag"></a>`Tag` | object | An org-wide tag: a flat named label with an optional display color. |
 | <a id="schema-tagmutationresponse"></a>`TagMutationResponse` | object |  |
 | <a id="schema-tagview"></a>`TagView` | object | One tag + how many tickets currently carry it. |
@@ -1460,6 +1550,7 @@
 | <a id="schema-taxonomymutationresponse"></a>`TaxonomyMutationResponse` | composite | Instant-first mutation response (IF2): the node plus read-your-write metadata. |
 | <a id="schema-taxonomynodeview"></a>`TaxonomyNodeView` | object | One taxonomy node (type or category). `parent_id` is null for types and root categories; subcategories carry their parent. |
 | <a id="schema-teamrangequery"></a>`TeamRangeQuery` | object |  |
+| <a id="schema-teamscorecardsresponse"></a>`TeamScorecardsResponse` | object | The team view: one scorecard per staff member, owner/admin only. |
 | <a id="schema-techniciancapacity"></a>`TechnicianCapacity` | object | One technician across the whole horizon. |
 | <a id="schema-technicianview"></a>`TechnicianView` | object | One technician column: capacity stats plus everything the board draws in the column (bookings, on-call, exclusions, availability windows). |
 | <a id="schema-templatekindvocabulary"></a>`TemplateKindVocabulary` | object | The closed variable vocabulary for one kind (editor UX + validation source of truth: `core_domain::templates::variables_for_kind`). |
@@ -1498,8 +1589,12 @@
 | <a id="schema-ticketstatuscategory"></a>`TicketStatusCategory` | string | The four semantic categories every ticket status maps to (§5). Customization (labels, ordering, per-board sets) can never add, remove, or re-bind these: SLA timers, pause logic, automations, billing,  |
 | <a id="schema-ticketstatusmutationresponse"></a>`TicketStatusMutationResponse` | composite | Same additive envelope for status transitions (plain ticket body). |
 | <a id="schema-ticketwithfields"></a>`TicketWithFields` | composite | A ticket payload enriched with its custom-field values (detail + list). |
+| <a id="schema-timeapprovalaction"></a>`TimeApprovalAction` | string | The audit-trail action of a [`TimeEntryApprovalRecord`] (append-only decision trail; differs from [`ApprovalAction`] in that it names the recorded past, not the requested transition). |
 | <a id="schema-timeentry"></a>`TimeEntry` | object | A durable, reviewable record of worked time. Created from a timer session or entered manually; subject to bulk review and approval workflows. |
+| <a id="schema-timeentryapprovalrecord"></a>`TimeEntryApprovalRecord` | object | One append-only approval decision (the audit row behind the queue's history view). `seq` is monotonic per entry — the client's ordering key. |
 | <a id="schema-timeentrymutationresponse"></a>`TimeEntryMutationResponse` | composite | Same additive envelope for the stop flow (time-entry body). |
+| <a id="schema-timeentryqueueitem"></a>`TimeEntryQueueItem` | object | A queue/history projection: the entry plus its approval metadata (who/when submitted, who/when decided). |
+| <a id="schema-timerejectionreason"></a>`TimeRejectionReason` | string | Closed rejection vocabulary (Wave 14 lane 1): approvers reject with a machine-readable reason code, never prose-only. `other` may carry the free-text explanation on the decision record. |
 | <a id="schema-timermutationresponse"></a>`TimerMutationResponse` | composite | Instant-first mutation response (IF2): session fields at the top level (unchanged shape) plus the additive `mutation` metadata. |
 | <a id="schema-timersegment"></a>`TimerSegment` | object | A contiguous running interval within a timer session. |
 | <a id="schema-timersession"></a>`TimerSession` | object | One user's timer against one ticket. At most one session per user is ever running — enforced by [`TimerSession::start_switch`]. |
@@ -1522,6 +1617,7 @@
 | <a id="schema-updatecalendarrequest"></a>`UpdateCalendarRequest` | object |  |
 | <a id="schema-updatecatalogitemrequest"></a>`UpdateCatalogItemRequest` | composite | PATCH /api/catalog-items/{id} body. Absent fields keep their value; `Some(None)` clears an optional field. |
 | <a id="schema-updatecategoryrequest"></a>`UpdateCategoryRequest` | composite |  |
+| <a id="schema-updateconnectionrequest"></a>`UpdateConnectionRequest` | object |  |
 | <a id="schema-updatecostlinerequest"></a>`UpdateCostLineRequest` | composite |  |
 | <a id="schema-updatedealrequest"></a>`UpdateDealRequest` | composite | PATCH /api/pipeline/deals/{id} body — editable fields only; the stage moves via the /stage leg. |
 | <a id="schema-updatedocumentrequest"></a>`UpdateDocumentRequest` | composite |  |
@@ -1529,6 +1625,7 @@
 | <a id="schema-updateexternaldocumentrequest"></a>`UpdateExternalDocumentRequest` | composite |  |
 | <a id="schema-updatefielddefrequest"></a>`UpdateFieldDefRequest` | object |  |
 | <a id="schema-updategrouprequest"></a>`UpdateGroupRequest` | composite |  |
+| <a id="schema-updateinstallrequest"></a>`UpdateInstallRequest` | object |  |
 | <a id="schema-updatelayoutrequest"></a>`UpdateLayoutRequest` | composite |  |
 | <a id="schema-updatepasswordrequest"></a>`UpdatePasswordRequest` | composite |  |
 | <a id="schema-updatepreferencerequest"></a>`UpdatePreferenceRequest` | object |  |
@@ -1538,6 +1635,7 @@
 | <a id="schema-updatereportschedulerequest"></a>`UpdateReportScheduleRequest` | composite | PUT /api/report-schedules/{id} body — full-replace semantics; every member is applied and the next-run preview recomputes. |
 | <a id="schema-updaterulerequest"></a>`UpdateRuleRequest` | object |  |
 | <a id="schema-updateschedulerequest"></a>`UpdateScheduleRequest` | composite |  |
+| <a id="schema-updatescorecardsettingsrequest"></a>`UpdateScorecardSettingsRequest` | object |  |
 | <a id="schema-updatesettingrequest"></a>`UpdateSettingRequest` | object |  |
 | <a id="schema-updatesettingsrequest"></a>`UpdateSettingsRequest` | object |  |
 | <a id="schema-updatestagerequest"></a>`UpdateStageRequest` | composite | PATCH /api/pipeline/stages/{id} body. |
@@ -1570,5 +1668,6 @@
 | <a id="schema-webhooklist"></a>`WebhookList` | object |  |
 | <a id="schema-webhooksecretresponse"></a>`WebhookSecretResponse` | object | Returned by create ONLY — carries the signing secret in plaintext one final time. There is deliberately no read-back path. |
 | <a id="schema-webhookview"></a>`WebhookView` | object |  |
+| <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 26 operation groups; schema count 706 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 26 operation groups; schema count 755 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*

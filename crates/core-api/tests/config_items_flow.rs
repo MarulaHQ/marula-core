@@ -516,3 +516,120 @@ async fn provision_read_only(
         .unwrap()
         .to_string()
 }
+
+// Per-connector enable/disable gate (Wave 15 lane 4 `p15-docs-closeout`):
+// the org-level `connectors.ci_feeders` toggle is enforced at the
+// feed-upsert seam — accepted while on (and instantly replayable), typed
+// 403 while off; OTHER connector sources stay ungated.
+#[tokio::test]
+async fn connector_disabled_rejects_feed_upsert_with_typed_403() {
+    let state = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let slug = format!("ci-gate-{}", Uuid::now_v7().simple());
+    let token = register_org(&app, &slug).await;
+    let bearer = [("authorization", format!("Bearer {token}"))];
+    let org_id = me_org_id(&app, &token).await;
+
+    let client = body_json(
+        send(
+            &app,
+            axum::http::Method::POST,
+            "/api/v1/clients",
+            &bearer,
+            Some(json!({ "name": "Gate Client" })),
+        )
+        .await,
+    )
+    .await;
+    let client_id = client["id"].as_str().unwrap().to_string();
+
+    let feed_body = |source: &str, key: &str| {
+        json!({
+            "source_system": source, "external_id": "G-1", "client_id": client_id,
+            "tag": "SRV-G", "name": "Gate Server",
+            "identity_keys": { "serial": "SN-GATE" },
+            "observed_fields": { "ip_address": "10.9.0.1" },
+            "idempotency_key": key
+        })
+    };
+
+    // Sponsored state: while the connector is ON (default), the write lands
+    // AND its idempotency key is claimed — a later replay must still replay.
+    let first = body_json(
+        send(
+            &app,
+            axum::http::Method::POST,
+            "/api/v1/config-items/feed-upsert",
+            &bearer,
+            Some(feed_body("ninjaone", "gate-sync-1")),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(first["created_item"], json!(true));
+
+    // The operator toggles the connector off via the settings hub.
+    let off = send(
+        &app,
+        axum::http::Method::PUT,
+        "/api/v1/settings/org",
+        &bearer,
+        Some(json!({ "key": "connectors.ci_feeders", "value": false })),
+    )
+    .await;
+    assert_eq!(off.status(), 200, "org owner can edit settings");
+    assert_eq!(body_json(off).await["key"], json!("connectors.ci_feeders"));
+
+    let rejected = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/v1/config-items/feed-upsert",
+        &bearer,
+        Some(feed_body("ninjaone", "gate-sync-2")),
+    )
+    .await;
+    assert_eq!(rejected.status(), 403, "disabled connector is typed 403");
+    let detail = body_json(rejected).await;
+    assert!(
+        detail["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("connectors.ci_feeders"),
+        "error copy names the org toggle: {detail}"
+    );
+
+    // A different connector family stays ON (per-connector, not global).
+    let other = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/v1/config-items/feed-upsert",
+        &bearer,
+        Some(feed_body("immybot", "gate-sync-3")),
+    )
+    .await;
+    assert_eq!(
+        other.status(),
+        200,
+        "unrelated connector source stays ungated"
+    );
+
+    // Turning it back on un-gates the seam.
+    let re_enable = send(
+        &app,
+        axum::http::Method::PUT,
+        "/api/v1/settings/org",
+        &bearer,
+        Some(json!({ "key": "connectors.ci_feeders", "value": true })),
+    )
+    .await;
+    assert_eq!(re_enable.status(), 200);
+    let allowed = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/v1/config-items/feed-upsert",
+        &bearer,
+        Some(feed_body("ninjaone", "gate-sync-2")),
+    )
+    .await;
+    assert_eq!(allowed.status(), 200, "re-enabled connector accepts writes");
+}

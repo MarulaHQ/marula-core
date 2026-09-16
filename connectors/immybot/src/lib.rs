@@ -18,12 +18,18 @@
 //! with one link per source. Patch-state fields are observed tier —
 //! they churn with the source and never outrank curated values.
 //!
+//! Operator toggle: the org-level `connectors.immybot` setting is the
+//! enable/disable surface for this connector (default ON; core-enforced
+//! per ADR the feed-upsert seam — Wave 15 lane 4). A run whose org has
+//! the toggle off should be skipped, not half-applied.
+//!
 //! None mode: [`NoneFeederSink`] (or `ApplyMode::DryRun`) counts
 //! honestly with zero Meridian I/O. Live-credential smoke is out of
 //! scope — tests run against contract-shaped stub servers.
 
 use adapters_core::client::{PageFlow, VendorClient, VendorError};
 use adapters_core::org_map::OrgMapping;
+use adapters_core::vendor_fields::{first_str_in, observed_fields_in};
 use adapters_core::VendorAuth;
 use ci_feeders::identity::IdentityKeysBuilder;
 use ci_feeders::model::FeederRecord;
@@ -70,15 +76,15 @@ pub fn map_device(payload: &Value) -> Option<FeederRecord> {
         Value::Number(n) => Some(n.to_string()),
         _ => None,
     })?;
-    let display_name = first_str(payload, &["computerName", "hostname", "name"])
+    let display_name = first_str_in(payload, &["computerName", "hostname", "name"])
         .unwrap_or_else(|| format!("ImmyBot device {id}"));
 
     let mut identity = IdentityKeysBuilder::new();
     identity = identity.source_guid(&id);
-    if let Some(serial) = first_str(payload, &["serialNumber", "serial"]) {
+    if let Some(serial) = first_str_in(payload, &["serialNumber", "serial"]) {
         identity = identity.serial(&serial);
     }
-    if let Some(hostname) = first_str(payload, &["hostname", "computerName"]) {
+    if let Some(hostname) = first_str_in(payload, &["hostname", "computerName"]) {
         identity = identity.hostname(&hostname);
     }
 
@@ -90,7 +96,7 @@ pub fn map_device(payload: &Value) -> Option<FeederRecord> {
         tag: display_name.clone(),
         name: display_name,
         identity_keys: identity.build(),
-        observed_fields: observed(
+        observed_fields: observed_fields_in(
             payload,
             &[
                 "osName",
@@ -108,30 +114,6 @@ pub fn map_device(payload: &Value) -> Option<FeederRecord> {
             ],
         ),
     })
-}
-
-fn first_str(payload: &Value, keys: &[&str]) -> Option<String> {
-    for key in keys {
-        if let Some(s) = payload
-            .get(*key)
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
-            return Some(s.to_string());
-        }
-    }
-    None
-}
-
-fn observed(payload: &Value, keys: &[&str]) -> Value {
-    let mut out = serde_json::Map::new();
-    for key in keys {
-        if let Some(value) = payload.get(*key).filter(|v| !v.is_null()) {
-            out.insert((*key).to_string(), value.clone());
-        }
-    }
-    Value::Object(out)
 }
 
 /// Why a sync run failed at the vendor boundary.

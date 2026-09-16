@@ -51,7 +51,14 @@
 //! what an agent sees remains whatever the `Module::Passwords` matrix
 //! already allows their role.
 //!
-//! # None mode
+//!  # Connector toggle
+//!
+//! The org-level `connectors.dms_sync` setting is the operator-side
+//! enable/disable surface for this connector (default ON; Wave 15 lane
+//! 4): a sync run that starts while it is off reports disabled before
+//! touching a single Meridian record.
+//!
+//! None mode
 //!
 //! [`NoneDmsSink`] is the shipped default sink: zero network I/O, every
 //! call returns [`SinkError::Disabled`]. An org with no Meridian
@@ -76,6 +83,7 @@
 pub mod identity;
 pub mod model;
 pub mod push;
+pub mod state_file;
 pub mod sink;
 pub mod source;
 pub mod state;
@@ -92,4 +100,5 @@ pub use model::{
 pub use sink::{DmsSink, SinkError};
 pub use source::{DmsSource, SourceError};
 pub use state::{LedgerEntry, MemorySyncState, SyncState};
+pub use state_file::{FileSyncState, FileSyncStateError};
 pub use sync::{ApplyMode, SyncConfig, SyncEngine, SyncReport};

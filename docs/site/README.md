@@ -20,8 +20,21 @@ The Diátaxis site for Meridian. Four quadrants, each kept in its lane:
 node docs/site/scripts/check-docs-site.mjs
 ```
 
-Checks every relative link resolves and both generated pages still match
-regeneration from the pin + fixtures (stale pages fail).
+Checks every relative link resolves, both generated pages still match
+regeneration from the pin + fixtures (stale pages fail), and the publishing
+path works: `publish.mjs` renders a complete, byte-deterministic HTML bundle
+with no dead in-bundle hrefs (ADR `../adr/0006-docs-publishing-pipeline.md`).
+
+## Publish
+
+```sh
+node docs/site/scripts/publish.mjs
+```
+
+Renders the static publication to `dist/` (mirrors this directory tree;
+repo-native references drop to their link text). The Phase-2 website
+consumes `dist/` wholesale — the markdown here stays the only source of
+truth, and these sources are never forked into a publishing format.
 
 ## Rules
 

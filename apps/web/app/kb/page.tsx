@@ -171,7 +171,7 @@ export default function KbPage() {
             </div>
           ) : visible.length === 0 ? (
             <div className="p-4">
-              <EmptyState message="No articles here yet. Drafts are staff-only; publishing makes an article searchable and (with the client-facing flags) portal-visible." />
+              <EmptyState message="No articles here yet. Draft articles are staff-only — staff search (and the FTS preview) sees them; publishing makes an article (with the client-facing flags) portal-visible through the portal's own gated search." />
             </div>
           ) : (
             <ul className="grid gap-2 px-4 pb-4">

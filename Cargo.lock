@@ -737,6 +737,7 @@ dependencies = [
 name = "ci-feeders"
 version = "0.1.0"
 dependencies = [
+ "adapters-core",
  "async-trait",
  "axum 0.8.9",
  "hex",

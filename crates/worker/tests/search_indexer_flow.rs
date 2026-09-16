@@ -421,12 +421,14 @@ async fn kb_article_events_index_content_and_deleted_drops_it() {
     );
 }
 
-/// KB indexing visibility gate (Wave 13 lane 4): the unified index
-/// mirrors PUBLISHED articles only — a draft stays out, the publish flip
-/// mirrors it, and the archive flip drops the entry again (flush ⇒
-/// Delete).
+/// KB indexing visibility gate (update: Wave 15 lane 4). The staff-only
+/// unified index carries DRAFT and PUBLISHED articles — a draft indexes on
+/// save so the web /kb FTS preview (which queries /api/search) resolves
+/// for the working article; ARCHIVED entries drop again (flush ⇒ Delete).
+/// Portal stays gated at its own read layer (published + client-visible),
+/// never through this index.
 #[tokio::test]
-async fn draft_and_archived_articles_stay_out_of_the_index() {
+async fn draft_articles_index_and_archived_drop_the_entry() {
     let pool = test_pool().await;
     let s = seed_org(&pool, 121).await;
     let article = fixed_uuid(124);
@@ -460,14 +462,30 @@ async fn draft_and_archived_articles_stay_out_of_the_index() {
     .expect("article insert");
     tx.commit().await.expect("commit");
 
-    // Draft: the resolver returns None, which flush() reads as the
-    // delete leg — a draft never enters the index.
-    assert!(resolve_target(&pool, s.org, Target::Article(article.id))
+    // Draft: the resolver UPserts — the draft is staff-searchable (the
+    // /kb FTS preview reads this same index) and portal never consults
+    // it, so draft visibility stays staff-only.
+    let draft_op = resolve_target(&pool, s.org, Target::Article(article.id))
         .await
         .expect("ok")
-        .is_none());
+        .expect("draft ⇒ upsert");
+    assert!(matches!(draft_op, IndexOp::Upsert { .. }));
+    // Draft content is upserted verbatim at save time.
+    match &draft_op {
+        IndexOp::Upsert {
+            entity_id,
+            title,
+            body,
+            ..
+        } => {
+            assert_eq!(*entity_id, article.id);
+            assert_eq!(title, "Draft runbook");
+            assert_eq!(body, "Work in progress.");
+        }
+        other => panic!("expected upsert, got {other:?}"),
+    }
 
-    // Publish flip → the same event stream re-resolves to an upsert.
+    // Publish flip → the same event stream re-resolves to a fresh upsert.
     {
         let mut tx = org_tx(&pool, s.org).await;
         core_db::kb::update_article(

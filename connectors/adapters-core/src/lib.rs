@@ -29,9 +29,16 @@
 //! one transport vocabulary. Credential material is never logged —
 //! `Debug` impls redact.
 
+//! * **Vendor-field extraction.** [`vendor_fields`] — the canonical
+//!   `first_str` / `observed` / `string_list` helpers (Wave 15 lane 4).
+//!   They sit on the CI3 identity-key path, so copies in individual
+//!   connectors are banned: one behavioral definition everywhere, pinned
+//!   by tests here.
+
 pub mod auth;
 pub mod client;
 pub mod org_map;
+pub mod vendor_fields;
 
 #[cfg(test)]
 mod tests;
@@ -39,3 +46,4 @@ mod tests;
 pub use auth::VendorAuth;
 pub use client::{PageFlow, VendorClient, VendorError};
 pub use org_map::{OrgMapping, OrgMappingBuilder, OrgMappingError};
+pub use vendor_fields::{first_str, first_str_in, observed_fields, observed_fields_in, string_list};

@@ -15,10 +15,14 @@
 //! core-api stalls THIS consumer only, never the relay.
 //!
 //! Non-purpose: no embeddings/vector ranking (Stage 3 grows that behind
-//! the same sink seam), no backfills beyond live events, and no client-
-//! portal visibility rules (staff-only results; the KB article leg
-//! mirrors PUBLISHED articles only — portal exposure is the read-layer
-//! gate, drafts and archived articles stay out of the index entirely).
+//! the same sink seam), no backfills beyond live events. KB article rule
+//! (Wave 15 lane 4): the staff-only unified index carries DRAFT and
+//! PUBLISHED articles — a draft surfaces in staff search so the web KB
+//! workbench's FTS preview ("Preview search" against /api/search) is
+//! meaningful before publishing; ARCHIVED entries drop. Draft visibility
+//! stays staff-only by construction: /api/search accepts human staff
+//! principals only, and the portal KB search re-resolves from kb_articles
+//! with its own published + client-visible gate (never this index).
 
 use crate::config::WorkerConfig;
 use core_db::search::SearchKind;
@@ -245,13 +249,17 @@ pub async fn resolve_target(
         Target::Article(id) => {
             match or_gone(core_db::kb::get_article(pool, org_id, id).await).await? {
                 None => None,
-                // The index carries PUBLISHED articles only — the entity
-                // contract binds "searchable" to the published state
-                // (draft = staff authoring, archived = retired), so a
-                // draft or archived article drops its index entry here.
-                // Portal-facing gating is the article/category flag pair,
-                // enforced at the portal read layer (never in the index).
-                Some(a) if a.status == KbArticleStatus::Published => Some(upsert_op(
+                // The staff-only /kb FTS preview (the web KB workbench's
+                // "Preview search") uses this same unified index, so the
+                // index carries DRAFT + PUBLISHED articles — a draft must
+                // surface in staff search to make the preview meaningful
+                // before publishing (Wave 15 lane 4 `p15-docs-closeout`).
+                // Staff-only is guaranteed structurally: /api/search only
+                // accepts human staff principals, and the portal KB search
+                // re-resolves from kb_articles with the published +
+                // client-visible gate — it never touches this index.
+                // Archived = retired: the entry drops.
+                Some(a) if a.status != KbArticleStatus::Archived => Some(upsert_op(
                     SearchKind::KbArticle,
                     id,
                     a.category_id,

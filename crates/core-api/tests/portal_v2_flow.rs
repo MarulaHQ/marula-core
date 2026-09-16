@@ -802,6 +802,64 @@ async fn portal_kb_honors_the_effective_client_gate() {
     );
 }
 
+/// Unified-search scoping check (Wave 15 lane 4, carried from the Wave 13
+/// docs follow-ups row): search_index is org-scoped only (no client
+/// scoping columns exist), so the guarantee for client contexts is the
+/// STRUCTURAL one — portal principals must never reach the staff unified
+/// /api/search at all, and the portal KB search re-resolves from
+/// kb_articles with its own published + client-visible gate.
+#[tokio::test]
+async fn portal_principals_never_reach_the_unified_search_seam() {
+    let (_state, app) = test_state().await;
+    let slug = format!("portal-scope-{}", Uuid::now_v7().simple());
+    let org = register_org(&app, slug).await;
+    let client_id: Uuid = create_client(&app, &org, "Scoped Co").await;
+
+    let email = format!("reader-scope-{}@example.test", Uuid::now_v7().simple());
+    send(
+        &app,
+        axum::http::Method::POST,
+        &format!("/api/clients/{client_id}/portal-users"),
+        Some(&org.token),
+        Some(json!({
+            "email": email,
+            "display_name": "Portal Reader",
+            "password": "portal-passphrase-1",
+            "role": "contact",
+        })),
+    )
+    .await;
+    let portal_token: String = portal_login(&app, &email).await["access_token"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let response = send(
+        &app,
+        axum::http::Method::GET,
+        "/api/v1/search?q=scoped",
+        Some(&portal_token),
+        None,
+    )
+    .await;
+    assert!(
+        response.status() == 401 || response.status() == 403,
+        "portal principal must not search staff documents/org-wide index"
+    );
+
+    // Staff fencing too: a staff token still works — the failure is about
+    // the PRINCIPAL kind, not the route.
+    let staff = send(
+        &app,
+        axum::http::Method::GET,
+        "/api/v1/search?q=scoped",
+        Some(&org.token),
+        None,
+    )
+    .await;
+    assert_eq!(staff.status(), 200);
+}
+
 // --- appointment requests -------------------------------------------------------
 
 fn tomorrow() -> chrono::NaiveDate {

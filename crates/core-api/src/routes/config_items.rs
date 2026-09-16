@@ -476,6 +476,22 @@ pub async fn feed_upsert(
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
 
+        // Per-connector gate (Wave 15 lane 4): the org-level
+        // `connectors.*` toggles decide whether the feeder source may
+        // write at all here — an org that turned a connector off gets a
+        // typed 403, and an instant-first replay of a request that WAS
+        // accepted while the connector was on stays replayable.
+        let overrides = core_db::settings::list_org_overrides(&mut *ctx.tx, org_id).await?;
+        let rows: Vec<(String, serde_json::Value)> =
+            overrides.into_iter().map(|o| (o.key, o.value)).collect();
+        if !core_domain::settings::connector_enabled(&source_system, &rows) {
+            return Err(ApiError::Forbidden(format!(
+                "connector for source system `{source_system}` is disabled for this org \
+                 (settings key: {})",
+                core_domain::settings::connector_key(&source_system).unwrap_or("connectors.*"),
+            )));
+        }
+
         let result: FeedUpsertResult =
             core_db::config_identity::feed_upsert(&mut ctx.tx, org_id, &input).await?;
         let item_id = result.item.id;

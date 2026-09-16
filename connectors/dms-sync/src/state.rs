@@ -9,8 +9,10 @@
 //! create twins — serial/hostname matches rediscover the record), and
 //! anything ambiguous surfaces as a reviewable merge candidate.
 //!
-//! The default [`MemorySyncState`] keeps everything in process. Durable
-//! operators implement the trait over their own storage — the crate
+//! In-process default keeps everything in memory; runs that need
+//! durability use [`crate::state_file::FileSyncState`] (shipped Wave 15
+//! lane 4: one atomically-rewritten JSON file). Operators with their own
+//! storage implement the [`SyncState`] trait directly — the crate
 //! deliberately does NOT persist content bodies, and never stores
 //! credential secrets (see the crate doc's vault boundary).
 
