@@ -1,17 +1,19 @@
-// /sales/pipeline — the sales pipeline board (Wave 12 lane 2 backends,
-// migration 0060).
+// /sales/pipeline — the sales pipeline board (Wave 12 lane 2 backends; Wave 17
+// lane 5 UX pass reusing the lane-3 kanban patterns).
 //
-// Purpose: the org's sales pipeline as a board: one column per active
-// pipeline stage (open stages first, then won/lost), deal cards with
-// client + amount, stage moves through POST /pipeline/deals/{id}/stage
-// (one audited transition), and the deal composer (client + stage + name +
-// amount). Reads hydrate once from the SDK; mutations ride the IF1–IF3
-// envelope (optimistic render, authoritative reconcile from the mutation
-// response).
+// Purpose: the org's sales pipeline as a kanban board: one column per stage
+// (open stages by position, then won/lost as terminal), stage headers with
+// count chips + a single-currency column value, deal cards with client +
+// amount + expected close, and stage moves — HTML5 drag on the board plus a
+// keyboard-equivalent Move select on every card, both landing on
+// POST /pipeline/deals/{id}/stage (one audited transition) through the
+// IF1–IF3 envelope with optimistic render + revert; the server is the
+// transition gate, rejections surface in a typed banner. There is no
+// client-side transition matrix in the pins — none is invented.
 //
-// Non-purpose: no stage administration beyond reordering visibility (stage
-// create lives with the composer; quotes join deals via quote_id on the
-// deal detail). Currency entry is minor units (cents).
+// Non-purpose: no stage administration (stage create lives with the
+// composer); quotes join deals via quote_id on the deal detail. Currency
+// entry is major units; stored/displayed money is `money(minor, currency)`.
 "use client";
 
 import { rejectionText } from "../../../lib/error-copy";
@@ -33,6 +35,7 @@ import {
   SelectValue,
   Spinner,
   StatusTag,
+  Tag,
 } from "@meridian/ui";
 import type { components } from "@meridian/sdk";
 import Link from "next/link";
@@ -41,12 +44,14 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { money } from "../../../lib/format";
+import { DEAL_STATUS_TONE } from "../../../lib/money-summary";
 
 type PipelineDeal = components["schemas"]["PipelineDeal"];
 type PipelineStage = components["schemas"]["PipelineStage"];
 type DealStatus = components["schemas"]["DealStatus"];
 
-const STATUS_TONE: Record<DealStatus, "neutral" | "success" | "danger"> = {
+/** Stage-type header tint (markup folds these onto the --m-status tokens). */
+const STAGE_HEADER_TINT: Record<PipelineStage["stage_type"], "neutral" | "success" | "danger"> = {
   open: "neutral",
   won: "success",
   lost: "danger",
@@ -59,6 +64,8 @@ export default function PipelinePage(): ReactNode {
   const [clients, setClients] = useState<components["schemas"]["Client"][] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropStageId, setDropStageId] = useState<string | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -202,13 +209,15 @@ export default function PipelinePage(): ReactNode {
   }
   if (loadError !== null) {
     return (
-      <EmptyState message={loadError} />
+      <div className="mx-auto p-6">
+        <EmptyState message={loadError} />
+      </div>
     );
   }
 
   return (
     <div className="mx-auto grid w-full max-w-[1400px] gap-4 p-4 md:p-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
+      <header className="m-rise flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold" style={{ color: "var(--m-text)" }}>
             Sales pipeline
@@ -225,7 +234,7 @@ export default function PipelinePage(): ReactNode {
             <Card className="grid gap-3 p-4">
               <h2 className="text-sm font-semibold">New deal</h2>
               <div className="grid gap-1">
-                <Label htmlFor="deal-name">Name</Label>
+                <Label htmlFor="deal-name">Deal name</Label>
                 <Input id="deal-name" value={newName} onChange={(e) => setNewName(e.target.value)} data-testid="pipeline-deal-name" />
               </div>
               <div className="grid gap-1">
@@ -294,76 +303,169 @@ export default function PipelinePage(): ReactNode {
       </header>
 
       {moveError !== null && (
-        <p className="text-xs" style={{ color: "var(--m-status-danger-fg)" }} role="alert" data-testid="pipeline-move-error">
+        <p
+          className="m-rise rounded-[var(--m-radius-control)] px-3 py-2 text-xs"
+          style={{
+            color: "var(--m-status-danger-fg)",
+            border: "1px solid var(--m-status-danger-fg)",
+          }}
+          role="alert"
+          data-testid="pipeline-move-error"
+        >
           {moveError}
         </p>
       )}
 
+      {/* Kanban columns (lane-3 pattern): status-tint headers, count chips,
+          drag-to-move with drop highlight, keyboard Move select per card. */}
       <div
-        className="grid gap-3"
-        style={{
-          gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
-        }}
+        className="grid w-full gap-3 overflow-x-auto md:grid-flow-col md:auto-cols-min"
+        style={{ gridTemplateColumns: undefined }}
+        data-testid="pipeline-board"
       >
-        {orderedStages.map((stage) => {
+        {orderedStages.map((stage, ci) => {
           const stageDeals = (deals ?? []).filter((d) => d.stage_id === stage.id);
+          const currencies = [...new Set(stageDeals.map((d) => d.currency as string))];
+          const value =
+            stageDeals.length === 0
+              ? null
+              : currencies.length === 1
+                ? money(stageDeals.reduce((acc, d) => acc + d.amount_minor, 0), currencies[0] as string)
+                : "mixed";
+          const tint = STAGE_HEADER_TINT[stage.stage_type];
+          const isDrop = dropStageId === stage.id && draggingId !== null;
           return (
             <section
               key={stage.id}
-              className="grid content-start gap-2 rounded-[4px] border p-2"
-              style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
+              className="m-rise grid content-start gap-2 rounded-[var(--m-radius-control)] border p-2"
+              style={{
+                borderColor: "var(--m-border)",
+                background: "var(--m-surface)",
+                minWidth: 240,
+                animationDelay: `${Math.min(ci, 6) * 40}ms`,
+              }}
               data-testid={`pipeline-stage-${stage.name}`}
               aria-label={`Stage ${stage.name}`}
+              onDragOver={(e) => {
+                if (draggingId === null) return;
+                e.preventDefault();
+                setDropStageId(stage.id);
+              }}
+              onDragLeave={() => {
+                if (dropStageId === stage.id) setDropStageId(null);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                const id = draggingId;
+                setDraggingId(null);
+                setDropStageId(null);
+                if (id === null) return;
+                const deal = (deals ?? []).find((d) => d.id === id);
+                if (deal !== undefined) void moveDeal(deal, stage.id);
+              }}
             >
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
-                  {stage.name}
-                </h2>
-                <StatusTag tone={STATUS_TONE[stage.stage_type]}>{stage.stage_type}</StatusTag>
-              </div>
-              {stageDeals.map((deal) => (
-                <article
-                  key={deal.id}
-                  className="grid gap-1 rounded-[3px] border p-2 text-xs"
-                  style={{ borderColor: "var(--m-border)" }}
-                  data-testid={`pipeline-deal-${deal.id}`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="min-w-0 flex-1 truncate font-medium" title={deal.name}>
-                      {deal.name}
-                    </span>
-                    <span style={{ color: "var(--m-text)" }}>{money(deal.amount_minor, deal.currency)}</span>
-                  </div>
-                  {deal.status !== "open" && (
-                    <StatusTag tone={STATUS_TONE[deal.status]}>{deal.status}</StatusTag>
-                  )}
-                  <div className="flex items-center gap-1">
-                    <Select
-                      value={deal.stage_id}
-                      onValueChange={(v) => void moveDeal(deal, v)}
-                      disabled={deal.status !== "open"}
-                    >
-                      <SelectTrigger aria-label={`Move ${deal.name}`} data-testid={`pipeline-move-${deal.id}`}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {orderedStages.map((s) => (
-                          <SelectItem key={s.id} value={s.id}>
-                            {s.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <Link
-                    href={`/clients/${deal.client_id}`}
-                    className="underline underline-offset-2"
-                    style={{ color: "var(--m-accent)" }}
+              <div className="flex items-center justify-between gap-2 border-b pb-2" style={{ borderColor: "var(--m-border)" }}>
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <h2
+                    className="truncate text-xs font-semibold uppercase tracking-wide"
+                    style={{
+                      color:
+                        tint === "success"
+                          ? "var(--m-status-success-fg)"
+                          : tint === "danger"
+                            ? "var(--m-status-danger-fg)"
+                            : "var(--m-text-secondary)",
+                    }}
                   >
-                    Client record →
-                  </Link>
-                </article>
-              ))}
+                    {stage.name}
+                  </h2>
+                  <span
+                    className="rounded-full px-1.5 font-mono text-[10px] tabular-nums"
+                    style={{ background: "var(--m-bg-subtle)", color: "var(--m-text-secondary)" }}
+                    data-testid={`pipeline-count-${stage.name}`}
+                  >
+                    {stageDeals.length}
+                  </span>
+                </div>
+                <StatusTag tone={STAGE_HEADER_TINT[stage.stage_type]}>{stage.stage_type}</StatusTag>
+              </div>
+              {value !== null ? (
+                <p className="font-mono text-[11px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
+                  {value}
+                </p>
+              ) : null}
+              {stageDeals.map((deal, i) => {
+                const client = (clients ?? []).find((c) => c.id === deal.client_id)?.name;
+                return (
+                  <article
+                    key={deal.id}
+                    className={`kanban-card m-rise grid gap-1 rounded-[var(--m-radius-control)] border p-2.5 text-xs ${
+                      draggingId === deal.id ? "kanban-card-dragging" : ""
+                    }`}
+                    style={{
+                      borderColor: "var(--m-border)",
+                      background: "var(--m-canvas)",
+                      animationDelay: `${Math.min(i, 6) * 30}ms`,
+                    }}
+                    draggable={deal.status === "open"}
+                    onDragStart={(e) => {
+                      setDraggingId(deal.id);
+                      e.dataTransfer.effectAllowed = "move";
+                    }}
+                    onDragEnd={() => {
+                      setDraggingId(null);
+                      setDropStageId(null);
+                    }}
+                    data-testid={`pipeline-deal-${deal.id}`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="min-w-0 flex-1 truncate font-medium" title={deal.name}>
+                        {deal.name}
+                      </span>
+                      <span className="font-mono tabular-nums" style={{ color: "var(--m-text)" }}>
+                        {money(deal.amount_minor, deal.currency)}
+                      </span>
+                    </div>
+                    {deal.expected_close_on != null ? (
+                      <p className="text-[11px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
+                        close {deal.expected_close_on}
+                      </p>
+                    ) : null}
+                    {deal.status !== "open" && (
+                      <StatusTag tone={DEAL_STATUS_TONE[deal.status]}>{deal.status}</StatusTag>
+                    )}
+                    <div className="flex items-center gap-1">
+                      <Select
+                        value={deal.stage_id}
+                        onValueChange={(v) => void moveDeal(deal, v)}
+                        disabled={deal.status !== "open"}
+                      >
+                        <SelectTrigger
+                          aria-label={`Move ${deal.name}`}
+                          data-testid={`pipeline-move-${deal.id}`}
+                          className="h-7 text-[11px]"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {orderedStages.map((s) => (
+                            <SelectItem key={s.id} value={s.id}>
+                              {s.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Link
+                      href={`/clients/${deal.client_id}`}
+                      className="text-[11px] opacity-90 underline decoration-[var(--m-border)] underline-offset-2 transition-opacity duration-100 hover:opacity-100"
+                      style={{ color: "var(--m-accent)" }}
+                    >
+                      {client ?? "Client"} →
+                    </Link>
+                  </article>
+                );
+              })}
               {stageDeals.length === 0 && (
                 <p className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
                   No deals.
@@ -373,6 +475,9 @@ export default function PipelinePage(): ReactNode {
           );
         })}
       </div>
+      <Tag tone="outline" className="mx-auto" style={{ opacity: 0.7 }}>
+        {dropStageId !== null && draggingId !== null ? "release to move" : "drag a card or use its Move menu"}
+      </Tag>
     </div>
   );
 }

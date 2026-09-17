@@ -35,10 +35,11 @@ import {
 } from "@meridian/ui";
 import type { components } from "@meridian/sdk";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, useRequireAuth } from "../../lib/api";
 import { money } from "../../lib/format";
 import { runEnvelopeMutation } from "../../lib/envelope-write";
+import { contractStatusTone, termSignal } from "../../lib/money-summary";
 
 type Contract = components["schemas"]["Contract"];
 type ContractMutationResponse = components["schemas"]["ContractMutationResponse"];
@@ -48,6 +49,13 @@ type RateSpec = components["schemas"]["RateSpec"];
 type FeeSpec = components["schemas"]["FeeSpec"];
 
 const TYPES: ContractType[] = ["recurring", "time_and_materials", "retainer", "fixed_fee"];
+
+const TYPE_LABEL: Record<ContractType, string> = {
+  recurring: "recurring",
+  time_and_materials: "t&m",
+  retainer: "retainer",
+  fixed_fee: "fixed fee",
+};
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
@@ -59,6 +67,8 @@ export default function ContractsPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [clientFilter, setClientFilter] = useState<string>("all");
+  const [typeFilter, setTypeFilter] = useState<ContractType | "all">("all");
+  const [query, setQuery] = useState("");
 
   const [createOpen, setCreateOpen] = useState(false);
   const [number, setNumber] = useState("");
@@ -104,8 +114,39 @@ export default function ContractsPage() {
 
   const filtered = useMemo(() => {
     if (contracts === null) return null;
-    return contracts.filter((c) => clientFilter === "all" || c.client_id === clientFilter);
-  }, [contracts, clientFilter]);
+    const q = query.trim().toLowerCase();
+    return contracts.filter(
+      (c) =>
+        (clientFilter === "all" || c.client_id === clientFilter) &&
+        (typeFilter === "all" || c.contract_type === typeFilter) &&
+        (q === "" || c.number.toLowerCase().includes(q) || c.name.toLowerCase().includes(q)),
+    );
+  }, [contracts, clientFilter, typeFilter, query]);
+
+  // Book posture — counts over the real list + a single-currency roll-up.
+  const posture = useMemo(() => {
+    const list = contracts ?? [];
+    const active = list.filter((c) => c.status === "active");
+    const drafts = list.filter((c) => c.status === "draft");
+    const renewing = active.filter((c) => {
+      const sig = termSignal(c.effective_until);
+      return sig !== null;
+    });
+    const recurring = active
+      .filter((c) => c.amount_minor != null)
+      .map((c) => ({ currency: c.currency as string, amount: c.amount_minor as number }));
+    const single = [...new Set(recurring.map((r) => r.currency))];
+    const book: ReactNode =
+      recurring.length === 0
+        ? "—"
+        : single.length === 1
+          ? money(
+              recurring.reduce((acc, r) => acc + r.amount, 0),
+              single[0] as string,
+            )
+          : "mixed currencies";
+    return { activeCount: active.length, draftCount: drafts.length, renewCount: renewing.length, book };
+  }, [contracts]);
 
   const resetForm = () => {
     setNumber("");
@@ -210,8 +251,8 @@ export default function ContractsPage() {
   if (auth.status !== "authed") return null;
 
   return (
-    <div className="mx-auto grid w-full max-w-[1400px] gap-8 p-4 md:p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="mx-auto grid w-full max-w-[1400px] gap-6 p-4 md:p-6">
+      <header className="m-rise flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold">Contracts</h1>
           <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
@@ -382,24 +423,71 @@ export default function ContractsPage() {
             </div>
           </DialogContent>
         </Dialog>
+      </header>
+
+      {/* Book posture — active/draft counts, renewals approaching, one-currency roll-up. */}
+      <div data-testid="contract-stat-strip" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {(
+          [
+            { label: "Active", value: posture.activeCount, hint: "billable now", testId: "contracts-stat-active" },
+            { label: "Draft", value: posture.draftCount, hint: "previews only — no runs bill drafts", testId: "contracts-stat-draft" },
+            { label: "Renewals", value: posture.renewCount, hint: "term ends within 30d", testId: "contracts-stat-renew" },
+            { label: "Priced book", value: posture.book, hint: "per-period, single currency", testId: "contracts-stat-book" },
+          ] as const
+        ).map((t, i) => (
+          <Card key={t.label} className="m-rise p-4" style={{ animationDelay: `${Math.min(i, 6) * 40}ms` }}>
+            <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
+              {t.label}
+            </p>
+            <p className="mt-1 font-mono text-xl font-semibold tabular-nums" style={{ color: "var(--m-text)" }} data-testid={t.testId}>
+              {t.value}
+            </p>
+            <p className="mt-0.5 text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+              {t.hint}
+            </p>
+          </Card>
+        ))}
       </div>
 
-      <Card>
-        <div className="flex items-center justify-between p-4 pb-0">
+      <Card className="m-rise overflow-x-auto">
+        <div className="flex flex-wrap items-center justify-between gap-3 p-4 pb-3">
           <h2 className="text-sm font-semibold">All contracts</h2>
-          <Select value={clientFilter} onValueChange={setClientFilter}>
-            <SelectTrigger aria-label="Filter by client" className="w-44">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All clients</SelectItem>
-              {clients.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search number or name…"
+              aria-label="Search contracts"
+              data-testid="contracts-search"
+              style={{ width: 180 }}
+            />
+            <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as ContractType | "all")}>
+              <SelectTrigger aria-label="Filter by type" style={{ width: 150 }}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All types</SelectItem>
+                {TYPES.map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {TYPE_LABEL[t]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={clientFilter} onValueChange={setClientFilter}>
+              <SelectTrigger aria-label="Filter by client" style={{ width: 180 }}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All clients</SelectItem>
+                {clients.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
         {filtered === null ? (
           <div className="p-4">
@@ -422,40 +510,52 @@ export default function ContractsPage() {
                 <Th>Client</Th>
                 <Th>Type</Th>
                 <Th>Status</Th>
-                <Th>Effective</Th>
+                <Th>Term</Th>
                 <Th className="text-right">Per period</Th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((contract) => (
-                <Tr key={contract.id}>
-                  <Td>
-                    <Link
-                      href={`/contracts/${contract.id}`}
-                      className="underline decoration-[var(--m-border)] underline-offset-2"
-                    >
-                      {contract.number}
-                    </Link>
-                  </Td>
-                  <Td>{contract.name}</Td>
-                  <Td>{clientName(contract.client_id)}</Td>
-                  <Td className="text-[13px]">{contract.contract_type.replaceAll("_", " ")}</Td>
-                  <Td>
-                    <Tag>{contract.status}</Tag>
-                  </Td>
-                  <Td>
-                    {contract.effective_from}
-                    {contract.effective_until !== null && contract.effective_until !== undefined
-                      ? ` → ${contract.effective_until}`
-                      : " → open"}
-                  </Td>
-                  <Td className="text-right tabular-nums">
-                    {contract.amount_minor !== null && contract.amount_minor !== undefined
-                      ? `${money(contract.amount_minor, contract.currency)} / ${contract.billing_frequency ?? "period"}`
-                      : "—"}
-                  </Td>
-                </Tr>
-              ))}
+              {filtered.map((contract) => {
+                const sig = termSignal(contract.effective_until);
+                return (
+                  <Tr key={contract.id} className="row-hover">
+                    <Td>
+                      <Link
+                        href={`/contracts/${contract.id}`}
+                        className="font-mono text-[13px] underline decoration-[var(--m-border)] underline-offset-2"
+                      >
+                        {contract.number}
+                      </Link>
+                    </Td>
+                    <Td>
+                      <span className="font-medium">{contract.name}</span>
+                    </Td>
+                    <Td>{clientName(contract.client_id)}</Td>
+                    <Td className="text-[13px]">{TYPE_LABEL[contract.contract_type]}</Td>
+                    <Td>
+                      <Tag tone={contractStatusTone(contract.status)}>{contract.status}</Tag>
+                    </Td>
+                    <Td>
+                      <span className="tabular-nums">
+                        {contract.effective_from}
+                        {contract.effective_until !== null && contract.effective_until !== undefined
+                          ? ` → ${contract.effective_until}`
+                          : " → open"}
+                      </span>
+                      {sig !== null ? (
+                        <Tag tone={sig.tone === "warning" ? "warning" : "danger"} className="ml-1">
+                          {sig.label}
+                        </Tag>
+                      ) : null}
+                    </Td>
+                    <Td className="text-right font-mono text-[12px] tabular-nums">
+                      {contract.amount_minor !== null && contract.amount_minor !== undefined
+                        ? `${money(contract.amount_minor, contract.currency)} / ${contract.billing_frequency ?? "period"}`
+                        : "—"}
+                    </Td>
+                  </Tr>
+                );
+              })}
             </tbody>
           </Table>
         )}
