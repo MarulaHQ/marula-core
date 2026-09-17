@@ -1,11 +1,17 @@
-// /documents/[id] — document workspace (docs-platform v1).
+// /documents/[id] — document workspace (docs-platform v1; UX-excellence
+// pass, Wave 17 lane 2).
 //
-// Purpose: the full record for one document: current content with
+// Purpose: the full record for one document laid out as content-first
+// main + side rail on wide viewports: current content with
 // instant-first editing (every save APPENDS an immutable version), typed
 // fields + scope on the handle, the complete version history with
 // side-by-side diff between any two versions, restore (which creates a
 // NEW version — history is never rewritten), and the related-items panel
-// (cross-entity links).
+// driven by the shared cross-entity picker (never paste-a-UUID).
+// Attachments-on-documents: the object-storage seam (core-store, 2.14)
+// exists but NO documents attachment API ships yet — the rail renders a
+// typed "not available yet" state and the backend need is filed back
+// UNCHECKED; never fake rows, never a dead button.
 "use client";
 
 import { rejectionText } from "../../../lib/error-copy";
@@ -33,6 +39,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { FieldsEditor, parseFieldInputs } from "../fields-editor";
+import { EntityPicker } from "../../../components/entities/entity-picker";
+import type { LinkTarget } from "../../../lib/entity-links";
 
 type Document = components["schemas"]["Document"];
 type DocumentView = components["schemas"]["DocumentView"];
@@ -45,14 +53,6 @@ type ResolvedLink = components["schemas"]["ResolvedLink"];
 function fieldsOf(d: DocumentView): Record<string, unknown> {
   return (d.fields ?? {}) as Record<string, unknown>;
 }
-
-const LINK_KINDS = [
-  { value: "document", label: "Document" },
-  { value: "password", label: "Password" },
-  { value: "client", label: "Client" },
-  { value: "ticket", label: "Ticket" },
-  { value: "kb_article", label: "KB article" },
-] as const;
 
 export default function DocumentDetailPage() {
   const auth = useRequireAuth();
@@ -84,9 +84,10 @@ export default function DocumentDetailPage() {
   const [diffRight, setDiffRight] = useState<number | null>(null);
   const [restoreTarget, setRestoreTarget] = useState<DocumentVersion | null>(null);
 
-  // links
-  const [linkKind, setLinkKind] = useState<string>("ticket");
-  const [linkId, setLinkId] = useState("");
+  // links (shared picker + legacy typed id fallback is NOT offered —
+  // the picker resolves every kind over the real endpoints)
+  const [linkPickerOpen, setLinkPickerOpen] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
 
   const loadVersions = useCallback(async () => {
     const { data, error } = await api.api.GET("/api/v1/documents/{id}/versions", {
@@ -241,22 +242,21 @@ export default function DocumentDetailPage() {
     await refresh();
   };
 
-  const addLink = async () => {
-    setError(null);
+  const addLink = async (target: LinkTarget) => {
+    setLinkError(null);
     const { error: e } = await api.api.POST("/api/v1/documents/{id}/links", {
       params: { path: { id } },
-      body: { to_kind: linkKind, to_id: linkId },
+      body: { to_kind: target.kind, to_id: target.id },
     });
     if (e !== undefined) {
-      setError("Could not add the link — check the target id exists.");
+      setLinkError("Could not add the link — the target must exist and be visible in your scope.");
       return;
     }
-    setLinkId("");
     await loadLinks();
   };
 
-  const removeLink = async (linkId: string) => {
-    await api.api.DELETE("/api/v1/documents/links/{id}", { params: { path: { id: linkId } } });
+  const removeLink = async (linkRowId: string) => {
+    await api.api.DELETE("/api/v1/documents/links/{id}", { params: { path: { id: linkRowId } } });
     await loadLinks();
   };
 
@@ -286,29 +286,34 @@ export default function DocumentDetailPage() {
   const right = version(diffRight);
 
   return (
-    <div className="mx-auto grid w-full max-w-[1400px] gap-6 p-4 md:p-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-lg font-semibold">{doc.title}</h1>
-          <p className="mt-1 flex flex-wrap items-center gap-2 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            {doc.client_id != null ? (
-              <Link href={`/clients/${doc.client_id}`} className="underline decoration-[var(--m-border)] underline-offset-2">
-                {clients?.find((c) => c.id === doc.client_id)?.name ?? "Client"}
-              </Link>
-            ) : (
-              <span>Org-global</span>
-            )}
-            {layout !== null ? <Tag>{layout.name}</Tag> : null}
-            <span>v{doc.current_version}</span>
-            <span>· updated {new Date(doc.content_updated_at).toLocaleString()}</span>
-            {doc.restored_from_version != null ? (
-              <Tag>restored from v{doc.restored_from_version}</Tag>
-            ) : null}
-          </p>
+    <div className="mx-auto grid w-full grid-cols-1 max-w-[1400px] gap-6 p-4 md:p-6">
+      <div className="m-entity-rise">
+        <Link href="/documents" className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2" style={{ color: "var(--m-text-secondary)" }}>
+          ← Documents
+        </Link>
+        <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-lg font-semibold">{doc.title}</h1>
+            <p className="mt-1 flex flex-wrap items-center gap-2 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+              {doc.client_id != null ? (
+                <Link href={`/clients/${doc.client_id}`} className="underline decoration-[var(--m-border)] underline-offset-2">
+                  {clients?.find((c) => c.id === doc.client_id)?.name ?? "Client"}
+                </Link>
+              ) : (
+                <span>Org-global</span>
+              )}
+              {layout !== null ? <Tag tone="outline">{layout.name}</Tag> : null}
+              <span className="tabular-nums">v{doc.current_version}</span>
+              <span>· updated {new Date(doc.content_updated_at).toLocaleString()}</span>
+              {doc.restored_from_version != null ? (
+                <Tag tone="warning">restored from v{doc.restored_from_version}</Tag>
+              ) : null}
+            </p>
+          </div>
+          <Button variant="secondary" onClick={() => setEditMeta((v) => !v)}>
+            {editMeta ? "Close details" : "Edit details"}
+          </Button>
         </div>
-        <Button variant="secondary" onClick={() => setEditMeta((v) => !v)}>
-          {editMeta ? "Close details" : "Edit details"}
-        </Button>
       </div>
 
       {error !== null ? (
@@ -320,87 +325,26 @@ export default function DocumentDetailPage() {
         </p>
       ) : null}
 
-      {editMeta ? (
-        <Card>
-          <div className="grid gap-3 p-4">
-            <div>
-              <Label htmlFor="meta-title">Title</Label>
-              <Input id="meta-title" value={metaTitle} onChange={(e) => setMetaTitle(e.target.value)} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="meta-scope">Scope</Label>
-                <Select value={metaClientId} onValueChange={setMetaClientId}>
-                  <SelectTrigger id="meta-scope">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="global">Org-global</SelectItem>
-                    {(clients ?? []).map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="meta-layout">Type</Label>
-                <Select value={metaLayoutId} onValueChange={setMetaLayoutId}>
-                  <SelectTrigger id="meta-layout">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="untyped">Untyped</SelectItem>
-                    {(layouts ?? []).map((l) => (
-                      <SelectItem key={l.id} value={l.id}>
-                        {l.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            {layout !== null ? (
-              <TypedFields
-                layoutId={layout.id}
-                layouts={layouts ?? []}
-                doc={doc}
-                fields={metaFields}
-                onChange={setMetaFields}
-              />
-            ) : null}
-            <DialogActions>
-              <Button variant="ghost" onClick={() => setEditMeta(false)}>
-                Cancel
-              </Button>
-              <Button onClick={() => void saveMeta()} disabled={busy || metaTitle.trim() === ""}>
-                {busy ? <Spinner /> : null} Save details
-              </Button>
-            </DialogActions>
-          </div>
-        </Card>
-      ) : null}
-
-      <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-        <div className="grid gap-6">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+        {/* ---- main: typed fields, content, version history ---- */}
+        <div className="grid content-start gap-6">
           {layout !== null && Object.keys(doc.fields ?? {}).length > 0 ? (
-            <Card>
+            <Card className="m-entity-rise" style={{ "--stagger-i": 0 } as React.CSSProperties}>
               <h2 className="p-4 pb-2 text-sm font-semibold">{layout.name} fields</h2>
               <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1 px-4 pb-4 text-[13px]">
                 {layout.fields
                   .filter((f) => fieldsOf(doc)[f.key] !== undefined && fieldsOf(doc)[f.key] !== null)
-                  .map((f) => (
+                  .map((f, i) => (
                     <div key={f.key} className="contents">
                       <dt style={{ color: "var(--m-text-secondary)" }}>{f.label}</dt>
-                      <dd>{String(fieldsOf(doc)[f.key])}</dd>
+                      <dd className="font-mono">{String(fieldsOf(doc)[f.key])}</dd>
                     </div>
                   ))}
               </dl>
             </Card>
           ) : null}
 
-          <Card>
+          <Card className="m-entity-rise" style={{ "--stagger-i": 1 } as React.CSSProperties}>
             <div className="flex items-center justify-between p-4 pb-2">
               <h2 className="text-sm font-semibold">Content</h2>
               {savedNote !== null ? (
@@ -433,7 +377,7 @@ export default function DocumentDetailPage() {
             </div>
           </Card>
 
-          <Card>
+          <Card className="m-entity-rise" style={{ "--stagger-i": 2 } as React.CSSProperties}>
             <h2 className="p-4 pb-2 text-sm font-semibold">Version history</h2>
             <p className="px-4 pb-2 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
               Immutable and append-only. Restoring never rewrites history — it appends a new version
@@ -473,14 +417,14 @@ export default function DocumentDetailPage() {
                   )}
                 </div>
                 <ul className="grid gap-1">
-                  {versions.map((v) => (
+                  {versions.map((v, i) => (
                     <li
                       key={v.version}
-                      className="flex items-center justify-between gap-3 rounded-[2px] border px-3 py-2 text-[13px]"
-                      style={{ borderColor: "var(--m-border)" }}
+                      className="m-entity-row m-entity-rise flex items-center justify-between gap-3 rounded-[0.5rem] border px-3 py-2 text-[13px]"
+                      style={{ borderColor: "var(--m-border)", "--stagger-i": Math.min(i, 10) } as React.CSSProperties}
                     >
                       <div className="min-w-0">
-                        <span className="font-medium">v{v.version}</span>
+                        <span className="font-medium tabular-nums">v{v.version}</span>
                         <span className="ml-2" style={{ color: "var(--m-text-secondary)" }}>
                           {v.change_summary !== "" ? v.change_summary : "no summary"}
                           {v.restored_from_version != null ? ` (restored from v${v.restored_from_version})` : ""}
@@ -507,60 +451,131 @@ export default function DocumentDetailPage() {
           </Card>
         </div>
 
-        <Card>
-          <h2 className="p-4 pb-2 text-sm font-semibold">Related items</h2>
-          <div className="grid gap-2 px-4 pb-4">
-            {links === null ? (
-              <Spinner />
-            ) : links.length === 0 ? (
-              <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-                Link tickets, other documents, vault entries, clients, or KB articles here.
-              </p>
-            ) : (
-              links.map((l) => (
-                <div
-                  key={l.id}
-                  className="flex items-center justify-between gap-2 rounded-[2px] border px-3 py-2 text-[13px]"
-                  style={{ borderColor: "var(--m-border)" }}
-                >
-                  <span className="min-w-0">
-                    <Tag>{l.to_kind.replace("_", " ")}</Tag>{" "}
-                    {l.target_deleted ? (
-                      <span style={{ color: "var(--m-status-danger-fg)" }}>deleted target</span>
-                    ) : (
-                      <span className="truncate">{l.target_label ?? "target"}</span>
-                    )}
-                  </span>
-                  <Button variant="ghost" onClick={() => void removeLink(l.id)}>
-                    ✕
-                  </Button>
+        {/* ---- side rail: details, attachments, related items ---- */}
+        <div className="grid content-start gap-6" data-testid="document-rail">
+          {editMeta ? (
+            <Card>
+              <div className="grid gap-3 p-4">
+                <h2 className="text-sm font-semibold">Details</h2>
+                <div>
+                  <Label htmlFor="meta-title">Title</Label>
+                  <Input id="meta-title" value={metaTitle} onChange={(e) => setMetaTitle(e.target.value)} />
                 </div>
-              ))
-            )}
-            <div className="mt-1 grid gap-2">
-              <Select value={linkKind} onValueChange={setLinkKind}>
-                <SelectTrigger aria-label="Link target kind"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {LINK_KINDS.map((k) => (
-                    <SelectItem key={k.value} value={k.value}>
-                      {k.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Input
-                aria-label="Link target id"
-                placeholder="Target record id…"
-                value={linkId}
-                onChange={(e) => setLinkId(e.target.value)}
-              />
-              <Button variant="secondary" onClick={() => void addLink()} disabled={linkId.trim() === ""}>
-                Add link
-              </Button>
+                <div>
+                  <Label htmlFor="meta-scope">Scope</Label>
+                  <Select value={metaClientId} onValueChange={setMetaClientId}>
+                    <SelectTrigger id="meta-scope">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="global">Org-global</SelectItem>
+                      {(clients ?? []).map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="meta-layout">Type</Label>
+                  <Select value={metaLayoutId} onValueChange={setMetaLayoutId}>
+                    <SelectTrigger id="meta-layout">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="untyped">Untyped</SelectItem>
+                      {(layouts ?? []).map((l) => (
+                        <SelectItem key={l.id} value={l.id}>
+                          {l.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {layout !== null ? (
+                  <TypedFields
+                    layoutId={layout.id}
+                    layouts={layouts ?? []}
+                    doc={doc}
+                    fields={metaFields}
+                    onChange={setMetaFields}
+                  />
+                ) : null}
+                <DialogActions>
+                  <Button variant="ghost" onClick={() => setEditMeta(false)}>
+                    Cancel
+                  </Button>
+                  <Button onClick={() => void saveMeta()} disabled={busy || metaTitle.trim() === ""}>
+                    {busy ? <Spinner /> : null} Save details
+                  </Button>
+                </DialogActions>
+              </div>
+            </Card>
+          ) : null}
+
+          <Card className="m-entity-rise" style={{ "--stagger-i": 3 } as React.CSSProperties}>
+            <h2 className="p-4 pb-1 text-sm font-semibold">Attachments</h2>
+            <div className="p-4">
+              <EmptyState message="Not available yet — documents don't take file attachments in this build. The storage seam exists; the documents-attachments API is queued for a backend lane (tracked as a follow-up)." />
             </div>
-          </div>
-        </Card>
+          </Card>
+
+          <Card className="m-entity-rise" style={{ "--stagger-i": 4 } as React.CSSProperties}>
+            <h2 className="p-4 pb-2 text-sm font-semibold">Related items</h2>
+            <div className="grid gap-2 px-4 pb-4">
+              {links === null ? (
+                <Spinner />
+              ) : links.length === 0 ? (
+                <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+                  Link tickets, other documents, vault entries, clients, or KB articles here.
+                </p>
+              ) : (
+                links.map((l) => (
+                  <div
+                    key={l.id}
+                    className="m-entity-row flex items-center justify-between gap-2 rounded-[0.5rem] border px-3 py-2 text-[13px]"
+                    style={{ borderColor: "var(--m-border)" }}
+                  >
+                    <span className="min-w-0">
+                      <Tag tone="outline">{l.to_kind.replace("_", " ")}</Tag>{" "}
+                      {l.target_deleted ? (
+                        <span style={{ color: "var(--m-status-danger-fg)" }}>deleted target</span>
+                      ) : (
+                        <span className="truncate">{l.target_label ?? "target"}</span>
+                      )}
+                    </span>
+                    <Button variant="ghost" aria-label="Remove link" onClick={() => void removeLink(l.id)}>
+                      ✕
+                    </Button>
+                  </div>
+                ))
+              )}
+              <div className="mt-1 grid gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={() => setLinkPickerOpen(true)}
+                  aria-label="Add related item"
+                >
+                  Add link
+                </Button>
+              </div>
+              {linkError !== null ? (
+                <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
+                  {linkError}
+                </p>
+              ) : null}
+            </div>
+          </Card>
+        </div>
       </div>
+
+      <EntityPicker
+        open={linkPickerOpen}
+        clientId={doc.client_id ?? undefined}
+        onPick={(t) => void addLink(t)}
+        onClose={() => setLinkPickerOpen(false)}
+      />
 
       <Dialog open={restoreTarget !== null} onOpenChange={(o) => !o && setRestoreTarget(null)}>
         <DialogContent
@@ -622,7 +637,7 @@ function DiffView({ left, right }: { left: DocumentVersion; right: DocumentVersi
     <div className="mt-3 grid grid-cols-2 gap-2">
       <div>
         <p className="mb-1 text-[12px] font-medium">v{left.version} — {left.title}</p>
-        <pre className="max-h-96 overflow-auto rounded-[2px] border p-2 font-mono text-[11px]" style={{ borderColor: "var(--m-border)" }}>
+        <pre className="max-h-96 overflow-auto rounded-[0.5rem] border p-2 font-mono text-[11px]" style={{ borderColor: "var(--m-border)" }}>
           {rows.map((r) => (
             <div key={r.n} style={{ background: r.kind === "removed" ? "var(--m-status-danger-bg, transparent)" : undefined }}>
               {r.kind === "removed" ? "− " : "  "}
@@ -633,7 +648,7 @@ function DiffView({ left, right }: { left: DocumentVersion; right: DocumentVersi
       </div>
       <div>
         <p className="mb-1 text-[12px] font-medium">v{right.version} — {right.title}</p>
-        <pre className="max-h-96 overflow-auto rounded-[2px] border p-2 font-mono text-[11px]" style={{ borderColor: "var(--m-border)" }}>
+        <pre className="max-h-96 overflow-auto rounded-[0.5rem] border p-2 font-mono text-[11px]" style={{ borderColor: "var(--m-border)" }}>
           {rows.map((r) => (
             <div key={r.n} style={{ background: r.kind === "added" ? "var(--m-status-success-bg, transparent)" : undefined }}>
               {r.kind === "added" ? "+ " : "  "}

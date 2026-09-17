@@ -1,9 +1,13 @@
-// /assets/[id] — the full asset detail page (Wave 11 lane 5, migration
-// 0054). Replaces the flat client tab with everything an MSP expects:
+// /assets/[id] — the full asset detail page (Wave 11 lane 5, 0054;
+// UX-excellence pass, Wave 17 lane 2). Two-pane CRM layout on wide
+// viewports: identity fields + lifecycle on the left, an
+// at-a-glance/related rail on the right. Everything the record carries:
 // typed layout fields (schema-driven custom fields), core identity
 // fields, the asset's audit trail (provenance write-trail), integration
 // link status (data, not sync), the related-items panel
-// (`document_links`), and the asset's vault entries — metadata only,
+// (`document_links`) with the CROSS-ENTITY TARGET PICKER (browse/search
+// documents, tickets, KB articles, assets, clients, legacy passwords —
+// never paste-a-UUID), and the asset's vault entries — metadata only,
 // with reveal behind the audited password endpoint (strict posture: a
 // typed 403 renders inline; secrets exist only in that audited response,
 // copy-after-reveal).
@@ -20,7 +24,6 @@ import {
   Dialog,
   DialogActions,
   DialogContent,
-  DialogTrigger,
   EmptyState,
   FieldHint,
   Input,
@@ -39,6 +42,8 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, useAuth, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
+import { EntityPicker } from "../../../components/entities/entity-picker";
+import type { LinkTarget } from "../../../lib/entity-links";
 
 type DeviceAsset = components["schemas"]["DeviceAsset"];
 type DocumentLayout = components["schemas"]["DocumentLayout"];
@@ -148,10 +153,10 @@ export default function AssetDetailPage() {
   const [layoutDraft, setLayoutDraft] = useState<string>("");
   const [fieldDrafts, setFieldDrafts] = useState<Record<string, string>>({});
 
-  // Link panel state.
-  const [linkKind, setLinkKind] = useState<string>("");
-  const [linkTargetLabel, setLinkTargetLabel] = useState("");
-  const [linkError, setLinkError] = useState<string | null>(null);
+  // Link panel state (cross-entity target picker — no paste-a-UUID).
+  const [linksError, setLinksError] = useState<string | null>(null);
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [linkPickerOpen, setLinkPickerOpen] = useState(false);
 
   // Reveal dialog state (audited; copy-after-reveal only).
   const [reveal, setReveal] = useState<(VaultEntryView & { secret: string }) | null>(null);
@@ -411,26 +416,20 @@ export default function AssetDetailPage() {
     setReveal({ ...entry, secret: (data as { secret?: string }).secret ?? "" });
   };
 
-  const addLink = async () => {
-    if (linkKind === "" || linkTargetLabel.trim() === "") return;
-    setLinkError(null);
-    const uuid = parseUuid(linkTargetLabel.trim());
-    if (uuid === null) {
-      setLinkError("Paste the target's id (a UUID). Documents and passwords can be picked from their browsers later; this panel accepts ids for now.");
-      return;
-    }
+  const addLink = async (target: LinkTarget) => {
+    setLinksError(null);
+    setLinkBusy(true);
     const { error } = await api.api.POST("/api/v1/assets/{id}/links", {
       params: { path: { id: assetId } },
-      body: { to_kind: linkKind, to_id: uuid },
+      body: { to_kind: target.kind, to_id: target.id },
     });
+    setLinkBusy(false);
     if (error !== undefined) {
-      setLinkError(
+      setLinksError(
         "The server rejected this link. The target must exist and be visible in your scope."
       );
       return;
     }
-    setLinkKind("");
-    setLinkTargetLabel("");
     void refreshLinks();
   };
 
@@ -467,8 +466,8 @@ export default function AssetDetailPage() {
   }
 
   return (
-    <div className="grid gap-6 p-6">
-      <div>
+    <div className="mx-auto grid w-full grid-cols-1 max-w-[1400px] gap-6 p-4 md:p-6">
+      <div className="m-entity-rise">
         <Link
           href={`/clients/${asset.client_id}`}
           className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2"
@@ -482,12 +481,14 @@ export default function AssetDetailPage() {
             {asset.tag}
           </span>
           <Tag>{asset.status}</Tag>
-          {layout !== undefined ? <Tag>{layout.name}</Tag> : null}
+          {layout !== undefined ? <Tag tone="outline">{layout.name}</Tag> : null}
         </div>
       </div>
 
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="grid content-start gap-6">
       {/* ---- fields ---- */}
-      <Card>
+      <Card className="m-entity-rise" style={{ "--stagger-i": 0 } as React.CSSProperties}>
         <div
           className="flex flex-wrap items-center gap-3 p-4"
           style={{ borderBottom: "1px solid var(--m-border)" }}
@@ -752,8 +753,33 @@ export default function AssetDetailPage() {
         )}
       </Card>
 
+        </div>
+
+        <div className="grid content-start gap-6" data-testid="asset-glance-rail">
+          {/* ---- at a glance ---- */}
+          <Card className="m-entity-rise" style={{ "--stagger-i": 2 } as React.CSSProperties}>
+            <h2 className="p-4 pb-2 text-sm font-semibold">At a glance</h2>
+            <dl className="grid gap-1 px-4 pb-4 text-[13px]">
+              <GlanceRow label="Client">
+                <Link href={`/clients/${asset.client_id}`} className="underline decoration-[var(--m-border)] underline-offset-2">
+                  {asset.client_id.slice(0, 8)}…
+                </Link>
+              </GlanceRow>
+              <GlanceRow label="Site">
+                {asset.site_id != null
+                  ? (sites ?? []).find((s) => s.id === asset.site_id)?.name ?? "site"
+                  : "—"}
+              </GlanceRow>
+              <GlanceRow label="Tag">
+                <span className="font-mono">{asset.tag}</span>
+              </GlanceRow>
+              <GlanceRow label="Status">{asset.status}</GlanceRow>
+              <GlanceRow label="Type">{layout?.name ?? "untyped"}</GlanceRow>
+            </dl>
+          </Card>
+
       {/* ---- integration link status: data, not sync ---- */}
-      <Card>
+      <Card className="m-entity-rise" style={{ "--stagger-i": 3 } as React.CSSProperties}>
         <h2 className="p-4 pb-0 text-sm font-semibold">Integrations</h2>
         <p className="px-4 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
           Per-connector link state. Link state is shown as data; no live sync runs from this page.
@@ -787,10 +813,10 @@ export default function AssetDetailPage() {
       </Card>
 
       {/* ---- related items ---- */}
-      <Card>
+      <Card className="m-entity-rise" style={{ "--stagger-i": 4 } as React.CSSProperties}>
         <h2 className="p-4 pb-0 text-sm font-semibold">Related items</h2>
         <p className="px-4 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-          Links to documents, credentials, tickets, KB articles, clients, and other assets. Broken
+          Links to documents, tickets, credentials, clients, KB articles, and other assets. Broken
           targets stay visible so you can clean them up; removing a link never removes the target.
         </p>
         {links === null ? (
@@ -802,15 +828,15 @@ export default function AssetDetailPage() {
             <EmptyState message="Nothing linked yet. Connect the documents and credentials that describe this asset." />
           </div>
         ) : (
-          <div className="grid gap-2 p-4">
-            {links.map((l) => (
-              <div
+          <ul className="grid gap-2 p-4">
+            {links.map((l, i) => (
+              <li
                 key={l.id}
-                className="flex flex-wrap items-center gap-3 rounded-md p-3"
-                style={{ background: "var(--m-bg-raised)" }}
+                className="m-entity-row m-entity-rise flex flex-wrap items-center gap-3 rounded-[0.5rem] border p-3"
+                style={{ borderColor: "var(--m-border)", "--stagger-i": Math.min(i, 8) } as React.CSSProperties}
               >
-                <Tag>{l.to_kind}</Tag>
-                <span className="text-[13px]">
+                <Tag tone="outline">{l.to_kind}</Tag>
+                <span className="min-w-0 flex-1 truncate text-[13px]">
                   {l.target_deleted ? (
                     <span style={{ color: "var(--m-status-danger-fg)" }}>
                       broken target — the item no longer exists
@@ -819,10 +845,11 @@ export default function AssetDetailPage() {
                     l.target_label ?? l.to_id
                   )}
                 </span>
-                <span className="ml-auto">
+                <span className="shrink-0">
                   <Button
                     variant="ghost"
                     size="sm"
+                    aria-label={`Remove link to ${l.target_label ?? l.to_id}`}
                     onClick={() =>
                       void api.api
                         .DELETE("/api/v1/documents/links/{id}", {
@@ -834,51 +861,37 @@ export default function AssetDetailPage() {
                     Remove link
                   </Button>
                 </span>
-              </div>
+              </li>
             ))}
-          </div>
+          </ul>
         )}
         <div
           className="flex flex-wrap items-end gap-3 p-4"
           style={{ borderTop: "1px solid var(--m-border)" }}
         >
-          <div className="w-44">
-            <Label htmlFor="link-kind">Link to</Label>
-            <Select value={linkKind} onValueChange={setLinkKind}>
-              <SelectTrigger id="link-kind" className="w-full">
-                <SelectValue placeholder="Item type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="document">document</SelectItem>
-                <SelectItem value="password">password</SelectItem>
-                <SelectItem value="client">client</SelectItem>
-                <SelectItem value="ticket">ticket</SelectItem>
-                <SelectItem value="kb_article">kb_article</SelectItem>
-                <SelectItem value="asset">asset</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grow">
-            <Label htmlFor="link-target">Target id</Label>
-            <Input
-              id="link-target"
-              value={linkTargetLabel}
-              onChange={(e) => setLinkTargetLabel(e.target.value)}
-              placeholder="Paste the target's id"
-            />
-          </div>
           <Button
-            onClick={() => void addLink()}
-            disabled={linkKind === "" || linkTargetLabel.trim() === ""}
+            variant="secondary"
+            onClick={() => setLinkPickerOpen(true)}
+            disabled={linkBusy}
           >
             Add link
           </Button>
+          <span className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+            Browse and search documents, tickets, KB articles, other assets, clients, and legacy
+            passwords — the picker lists only targets your role can see.
+          </span>
         </div>
-        {linkError !== null ? (
+        {linksError !== null ? (
           <p role="alert" className="px-4 pb-3 text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
-            {linkError}
+            {linksError}
           </p>
         ) : null}
+        <EntityPicker
+          open={linkPickerOpen}
+          clientId={asset.client_id}
+          onPick={(t) => void addLink(t)}
+          onClose={() => setLinkPickerOpen(false)}
+        />
       </Card>
 
       {/* ---- vault entries: strict posture ---- */}
@@ -980,6 +993,8 @@ export default function AssetDetailPage() {
           </div>
         )}
       </Card>
+        </div>
+      </div>
 
       {/* ---- audited reveal dialog ---- */}
       <Dialog open={reveal !== null} onOpenChange={(o) => !o && setReveal(null)}>
@@ -1016,8 +1031,15 @@ export default function AssetDetailPage() {
 
 type FieldDrafts = Record<string, string>;
 
-function parseUuid(s: string): string | null {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s) ? s : null;
+function GlanceRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <dt className="shrink-0" style={{ color: "var(--m-text-secondary)" }}>
+        {label}
+      </dt>
+      <dd className="min-w-0 truncate text-right">{children}</dd>
+    </div>
+  );
 }
 
 function effectiveFields(

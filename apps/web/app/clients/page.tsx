@@ -1,9 +1,13 @@
-// /clients — staff CRM: the client list (Workspace-core UI, T3).
+// /clients — staff CRM: the client list (Wave 17 UX excellence pass).
 //
-// Purpose: every client in the org with client-side search, per-client
-// visibility hints (restricted_to), and the gated client-create dialog
-// riding the IF1–IF3 envelope. Links into /clients/[id] for sites,
-// contacts, assets, and portal users.
+// Purpose: every client in the org, CRM-grade: a stat strip (total +
+// restricted), name search, and a dense table with monogram identity,
+// visibility pills, and hover micro-feedback riding the Tangerine
+// tokens. Per-client documentation completeness lives on the detail
+// page, where the tab data to score it is actually loaded. The
+// client-create dialog rides the IF1–IF3 envelope; list motion is
+// transform/opacity ≤120ms with staggered entrances, collapsed under
+// prefers-reduced-motion.
 // Non-purpose: no editing of the visibility rule here (detail surface
 // shows the hint; rule editing follows the visibility-rules backend UI).
 "use client";
@@ -35,6 +39,24 @@ import { runEnvelopeMutation } from "../../lib/envelope-write";
 
 type Client = components["schemas"]["Client"];
 type ClientMutationResponse = components["schemas"]["ClientMutationResponse"];
+
+function Monogram({ name }: { name: string }) {
+  const initials = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]!.toUpperCase())
+    .join("");
+  return (
+    <span
+      aria-hidden="true"
+      className="grid h-8 w-8 shrink-0 place-items-center rounded-[999px] text-[12px] font-semibold"
+      style={{ background: "var(--m-accent-soft)", color: "var(--m-accent-fg)" }}
+    >
+      {initials}
+    </span>
+  );
+}
 
 export default function ClientsPage() {
   const auth = useRequireAuth();
@@ -72,6 +94,12 @@ export default function ClientsPage() {
     if (q === "") return clients;
     return clients.filter((c) => c.name.toLowerCase().includes(q));
   }, [clients, query]);
+
+  const stats = useMemo(() => {
+    if (clients === null) return null;
+    const restricted = clients.filter((c) => (c.restricted_to ?? []).length > 0).length;
+    return { total: clients.length, restricted };
+  }, [clients]);
 
   const createClient = async () => {
     if (name.trim() === "") return;
@@ -118,12 +146,12 @@ export default function ClientsPage() {
   if (auth.status !== "authed") return null;
 
   return (
-    <div className="mx-auto grid w-full max-w-[1400px] gap-8 p-4 md:p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="mx-auto grid w-full grid-cols-1 max-w-[1400px] gap-6 p-4 md:p-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold">Clients</h1>
           <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Organizations you serve: sites, contacts, assets, and portal access.
+            Organizations you serve: sites, contacts, assets, documents, and portal access.
           </p>
         </div>
         <Dialog
@@ -175,7 +203,42 @@ export default function ClientsPage() {
         </Dialog>
       </div>
 
-      <Card>
+      {stats !== null ? (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div
+            className="m-entity-rise rounded-[0.75rem] border p-4"
+            style={{ borderColor: "var(--m-border)", "--stagger-i": 0 } as React.CSSProperties}
+            data-testid="clients-stat-total"
+          >
+            <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
+              Total clients
+            </p>
+            <p className="mt-1 text-2xl font-semibold tabular-nums">{stats.total}</p>
+          </div>
+          <div
+            className="m-entity-rise rounded-[0.75rem] border p-4"
+            style={{ borderColor: "var(--m-border)", "--stagger-i": 1 } as React.CSSProperties}
+            data-testid="clients-stat-restricted"
+          >
+            <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
+              Restricted visibility
+            </p>
+            <p className="mt-1 text-2xl font-semibold tabular-nums">{stats.restricted}</p>
+          </div>
+          <div
+            className="m-entity-rise rounded-[0.75rem] border p-4"
+            style={{ borderColor: "var(--m-border)", "--stagger-i": 2 } as React.CSSProperties}
+            data-testid="clients-stat-visible"
+          >
+            <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
+              Visible to all members
+            </p>
+            <p className="mt-1 text-2xl font-semibold tabular-nums">{stats.total - stats.restricted}</p>
+          </div>
+        </div>
+      ) : null}
+
+      <Card className="m-entity-rise" style={{ "--stagger-i": 3 } as React.CSSProperties}>
         <div className="flex flex-wrap items-center justify-between gap-3 p-4 pb-0">
           <h2 className="whitespace-nowrap text-sm font-semibold">All clients</h2>
           <Input
@@ -205,24 +268,28 @@ export default function ClientsPage() {
             />
           </div>
         ) : (
-          <Table>
+          <div className="overflow-x-auto">
+            <Table>
             <thead>
               <tr>
-                <Th>Name</Th>
+                <Th>Client</Th>
                 <Th>Visibility</Th>
                 <Th>Notes</Th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((client) => (
-                <Tr key={client.id}>
+              {filtered.map((client, i) => (
+                <Tr key={client.id} className="m-entity-row">
                   <Td>
-                    <Link
-                      href={`/clients/${client.id}`}
-                      className="underline decoration-[var(--m-border)] underline-offset-2"
-                    >
-                      {client.name}
-                    </Link>
+                    <span className="flex items-center gap-3">
+                      <Monogram name={client.name} />
+                      <Link
+                        href={`/clients/${client.id}`}
+                        className="font-medium underline decoration-transparent underline-offset-2 transition-colors duration-[100ms] hover:decoration-[var(--m-border-strong)]"
+                      >
+                        {client.name}
+                      </Link>
+                    </span>
                   </Td>
                   <Td>
                     {client.restricted_to === null || client.restricted_to.length === 0 ? (
@@ -230,7 +297,7 @@ export default function ClientsPage() {
                         All members
                       </span>
                     ) : (
-                      <Tag title={isAdmin ? `Visible to ${client.restricted_to.length} listed users + admins` : "Restricted"}>
+                      <Tag tone="warning" title={isAdmin ? `Visible to ${client.restricted_to.length} listed users + admins` : "Restricted"}>
                         Restricted
                       </Tag>
                     )}
@@ -244,6 +311,7 @@ export default function ClientsPage() {
               ))}
             </tbody>
           </Table>
+          </div>
         )}
       </Card>
     </div>
