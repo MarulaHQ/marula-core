@@ -13,9 +13,9 @@
 //! Non-purpose: no versioning vector (autosave overwrite is last-writer-
 //! wins per the debounced 800ms cadence; no concurrent-editor semantics).
 
-use sqlx::Postgres;
 use crate::DbResult;
 use chrono::{DateTime, Utc};
+use sqlx::Postgres;
 use uuid::Uuid;
 
 /// Draft retention window (§5.2): older rows are stale (assuming never

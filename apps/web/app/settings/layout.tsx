@@ -1,7 +1,9 @@
 // /settings — configuration hub shell.
 //
 // Purpose: the IA wrapper for every settings surface: product header on
-// top, section nav as a left rail inside the content pane, pages render
+// top, section nav as a left rail inside the content pane (a horizontal
+// strip above the content below `lg` — the lane-10 narrow-viewport fix:
+// the always-side-rail row clipped page content at 768/480), pages render
 // to its right. Nav items whose backends land in later waves render a
 // disabled "coming from another wave" state instead of dead links.
 //
@@ -50,9 +52,18 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
       className="min-h-full flex flex-col"
       style={{ background: "var(--m-canvas)" }}
     >
-      <div className="flex-1 w-full max-w-5xl mx-auto flex gap-8 px-6 py-8">
-        <nav aria-label="Settings sections" className="w-44 shrink-0">
-          <ul className="grid gap-1">
+      {/* Narrow-viewport fix (lane-10): below `lg` the section rail
+          collapses into a horizontal strip ABOVE the content, so pages
+          get the full pane width — the old always-side-rail flex row
+          clipped content at 768/480 on EVERY settings page (pane
+          scrollWidth == viewport, content unreachable). Wide viewports
+          keep the side rail unchanged. */}
+      <div className="flex-1 w-full max-w-5xl mx-auto flex flex-col lg:flex-row gap-4 lg:gap-8 px-4 py-6 lg:px-6 lg:py-8">
+        <nav
+          aria-label="Settings sections"
+          className="lg:w-44 shrink-0 overflow-x-auto"
+        >
+          <ul className="flex lg:grid flex-row gap-1 lg:gap-1 w-max lg:w-auto">
             {SECTIONS.map((section) => {
               const active = pathname.startsWith(section.href);
               if (section.pending) {
@@ -61,7 +72,7 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
                     key={section.href}
                     aria-disabled="true"
                     title="Coming from another wave"
-                    className="rounded-[2px] px-2 py-1.5 text-[13px] cursor-not-allowed"
+                    className="rounded-[2px] px-2 py-1.5 text-[13px] cursor-not-allowed whitespace-nowrap lg:whitespace-normal"
                     style={{ color: "var(--m-text-muted)" }}
                   >
                     {section.label}
@@ -76,7 +87,7 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
                   <Link
                     href={section.href}
                     aria-current={active ? "page" : undefined}
-                    className="block rounded-[2px] px-2 py-1.5 text-[13px]"
+                    className="block rounded-[2px] px-2 py-1.5 text-[13px] whitespace-nowrap lg:whitespace-normal"
                     style={{
                       color: active
                         ? "var(--m-text)"

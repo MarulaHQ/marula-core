@@ -12576,6 +12576,11 @@ export interface components {
         };
         InstallView: {
             /**
+             * @description The governance profile from the PINNED manifest (ADR 0009 §6):
+             *     `wasm` | `http_connector` — the roster-tab discriminator.
+             */
+            artifact_kind: string;
+            /**
              * @description The effective permission keys the grants resolve onto (the
              *     EXISTING matrix vocabulary — `tickets:read`, `financial:read`,
              *     …). Informational; enforcement re-derives from the same matrix.
@@ -14378,6 +14383,7 @@ export interface components {
          *     snapshot.
          */
         PluginManifestV2: {
+            artifact_kind?: null | components["schemas"]["PluginRuntimeKind"];
             /**
              * @description The capabilities the plugin MAY be granted. Grants at install
              *     time are a subset of this list — a grant outside the manifest's
@@ -14403,6 +14409,14 @@ export interface components {
             settings_schema?: unknown;
             version: string;
         };
+        /**
+         * @description The plugin-side artifact vocabulary for the roster tabs (WASM vs HTTP
+         *     connector). Skills are NOT in this closed set — the skill half lives
+         *     on `PluginArtifactKind::Skill` in the distribution seam (0079). Parse
+         *     is strict: a manifest naming an ungovernable kind cannot exist.
+         * @enum {string}
+         */
+        PluginRuntimeKind: "wasm" | "http_connector";
         /**
          * @description `plugin.settings_updated` — a per-install config rendered FROM the
          *     pinned manifest's settings JSON-Schema changed (validated at the

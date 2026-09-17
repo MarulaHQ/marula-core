@@ -161,6 +161,9 @@ pub struct InstallView {
     pub version: String,
     pub status: PluginInstallStatus,
     pub granted_capabilities: Vec<String>,
+    /// The governance profile from the PINNED manifest (ADR 0009 §6):
+    /// `wasm` | `http_connector` — the roster-tab discriminator.
+    pub artifact_kind: String,
     /// The effective permission keys the grants resolve onto (the
     /// EXISTING matrix vocabulary — `tickets:read`, `financial:read`,
     /// …). Informational; enforcement re-derives from the same matrix.
@@ -170,7 +173,7 @@ pub struct InstallView {
 }
 
 impl InstallView {
-    fn from_install(install: PluginInstall, name: String) -> Self {
+    fn from_install(install: PluginInstall, name: String, manifest: &PluginManifestV2) -> Self {
         let effective_permissions = install
             .granted_permissions()
             .iter()
@@ -183,6 +186,7 @@ impl InstallView {
             version: install.version,
             status: install.status,
             granted_capabilities: install.granted_capabilities,
+            artifact_kind: manifest.runtime_kind().as_str().to_string(),
             effective_permissions,
             installed_at: install.installed_at,
         }
@@ -234,6 +238,7 @@ fn build_manifest(
         description: body.description.clone(),
         capabilities: body.capabilities.clone(),
         settings_schema: body.settings_schema.clone(),
+        artifact_kind: None,
     };
     manifest.validate().map_err(ApiError::from)?;
     Ok(manifest)
@@ -521,10 +526,29 @@ pub async fn list_installs(
             .await
             .map(|e| e.name)
             .unwrap_or_else(|_| install.slug.clone());
-        views.push(InstallView::from_install(install, name));
+        let manifest = core_db::plugins::get_version(&mut tx, install.catalog_id, &install.version)
+            .await
+            .map(|v| v.manifest)
+            .unwrap_or_else(|_| fallback_manifest(&install));
+        views.push(InstallView::from_install(install, name, &manifest));
     }
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(views))
+}
+
+/// Degraded manifest for an orphaned pin (the catalog entry vanished):
+/// the roster still renders the install (the tab split degrades to the
+/// wasm baseline) rather than failing the whole roster read.
+fn fallback_manifest(install: &PluginInstall) -> PluginManifestV2 {
+    PluginManifestV2 {
+        name: install.slug.clone(),
+        version: install.version.clone(),
+        interface_version: PLUGIN_RUNTIME_INTERFACE_VERSION,
+        description: String::new(),
+        capabilities: install.granted_capabilities.clone(),
+        settings_schema: None,
+        artifact_kind: None,
+    }
 }
 
 /// POST /api/plugins/installed — adopt a catalog entry at a pinned
@@ -614,7 +638,10 @@ pub async fn create_install(
             .unwrap_or(serde_json::Value::Null),
         )
         .await?;
-        Ok((tx, InstallView::from_install(install, entry.name)))
+        Ok((
+            tx,
+            InstallView::from_install(install, entry.name, &pinned.manifest),
+        ))
     })
     .await?;
     Ok((StatusCode::CREATED, Json(view)))
@@ -719,7 +746,10 @@ pub async fn update_install(
             .await
             .map(|e| e.name)
             .unwrap_or_else(|_| updated.slug.clone());
-        Ok((tx, InstallView::from_install(updated, name)))
+        Ok((
+            tx,
+            InstallView::from_install(updated, name, &target_manifest),
+        ))
     })
     .await?;
     Ok(Json(view))

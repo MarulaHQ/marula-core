@@ -1,19 +1,19 @@
-// /settings/plugins — plugin + agent-skills management (Wave 16 lane 8
-// close-out over ADR 0009 / migration 0079).
+// /settings/plugins — plugin + agent-skills management (Wave 16 lane 10
+// over lane 8's close-out, ADR 0009 / migration 0079).
 //
-// Purpose: the whole Settings → Plugins surface: the Installed tab
-// (enable/disable, per-install manifest-JSON-Schema settings, update/
-// rollback re-consent diffs, terminal uninstall with survival copy,
-// provenance chain), the Registry browse, the staged-approvals queue,
-// and the Agent-skills tab — all wired to lane 7's distribution API.
+// Purpose: the whole Settings → Plugins surface: the Installed roster
+// split into the artifact-governance tabs (WASM / HTTP connector, the
+// pinned manifest's `artifact_kind` — lane-10 roster split) plus the
+// Agent-skills tab, version/rollback re-consent diffs, terminal
+// uninstall with survival copy, the Registry browse, and the
+// staged-approvals queue — all wired to the distribution API.
 //
-// Non-purpose: no WASM-vs-HTTP-connector split beyond a roster filter —
-// InstallView carries no artifact-kind discriminator; the grouping rides
-// either the catalog manifest or a later pin change (recorded UNCHECKED).
+// Non-purpose: no further lifecycle logic — the tabs group REAL installs
+// only (an empty tab is a genuine empty state, never a placeholder).
 "use client";
 
 import type { components } from "@meridian/sdk";
-import { Button, Card, EmptyState, Input, Spinner, Tag } from "@meridian/ui";
+import { Button, Card, EmptyState, Spinner, Tag } from "@meridian/ui";
 import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
 import { GithubImportDrawer, ZipImportDrawer } from "./import-drawers";
@@ -27,12 +27,19 @@ type StagedItemView = components["schemas"]["StagedItemView"];
 type SkillVersionView = components["schemas"]["SkillVersionView"];
 type CatalogEntryView = components["schemas"]["CatalogEntryView"];
 
-const TABS = ["Installed", "Registry", "Approvals", "Agent skills"] as const;
+const TABS = ["WASM", "HTTP connectors", "Agent skills", "Registry", "Approvals"] as const;
 type Tab = (typeof TABS)[number];
+
+/** The install-discriminator: unknown/absent ≤ v1 shapes degrade to the
+ * WASM baseline (the v1 manifest/permission baseline every shipped entry
+ * was published as — backend dual of `PluginManifestV2::runtime_kind`). */
+function kindOf(install: InstallView): "wasm" | "http_connector" {
+  return install.artifact_kind === "http_connector" ? "http_connector" : "wasm";
+}
 
 export default function PluginsSettingsPage() {
   const auth = useRequireAuth();
-  const [tab, setTab] = useState<Tab>("Installed");
+  const [tab, setTab] = useState<Tab>("WASM");
   const [installs, setInstalls] = useState<InstallView[] | null>(null);
   const [staged, setStaged] = useState<StagedItemView[] | null>(null);
   const [skills, setSkills] = useState<SkillVersionView[] | null>(null);
@@ -139,67 +146,106 @@ export default function PluginsSettingsPage() {
             </p>
           ) : null}
 
-          {tab === "Installed" ? (
-            <div className="grid gap-3">
-              {installs.length === 0 ? (
-                <EmptyState message="No plugins installed yet. Import from GitHub or a zip, or stage a registry document — nothing runs without consent." />
-              ) : (
-                installs.map((install) => (
-                  <Card key={install.id}>
-                    <div className="flex flex-wrap items-center gap-2 p-4 pb-1">
-                      <span className="text-sm font-semibold">{install.name}</span>
-                      <span className="font-mono text-[12px]" style={{ color: "var(--m-text-muted)" }}>
-                        {install.slug}@{install.version}
-                      </span>
-                      <Tag tone={install.status === "enabled" ? "success" : install.status === "disabled" ? "warning" : "danger"}>
-                        {install.status}
-                      </Tag>
-                      <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
-                        {install.granted_capabilities.length} granted caps
-                      </span>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="ml-auto"
-                        onClick={() => setExpanded(expanded === install.id ? null : install.id)}
-                        aria-expanded={expanded === install.id}
-                        data-testid={`expand-${install.slug}`}
-                      >
-                        {expanded === install.id ? "Collapse" : "Manage"}
-                      </Button>
-                    </div>
-                    {expanded === install.id ? (
-                      <div className="px-4 pb-4" data-testid={`install-detail-${install.slug}`}>
-                        <InstallDetail
-                          install={install}
-                          canManage={canManage}
-                          onOptimisticStatus={(next) =>
-                            setInstalls((prev) =>
-                              (prev ?? []).map((row) =>
-                                row.id === install.id ? { ...row, status: next } : row,
-                              ),
-                            )
-                          }
-                          onChanged={() => void refresh()}
-                        />
-                      </div>
-                    ) : null}
-                  </Card>
-                ))
-              )}
-            </div>
-          ) : tab === "Registry" ? (
-            <RegistryTab catalog={catalog} installs={installs} canManage={canManage} onChanged={() => void refresh()} />
-          ) : tab === "Approvals" ? (
-            <StagedApprovalsTab staged={staged} canManage={canManage} onChanged={() => void refresh()} />
-          ) : (
-            <AgentSkillsTab skills={skills} canManage={canManage} onChanged={() => void refresh()} />
-          )}
+          {tab === "WASM" || tab === "HTTP connectors" ? (
+    <ArtifactRoster
+      tab={tab}
+      installs={(installs ?? []).filter((i) => kindOf(i) === (tab === "WASM" ? "wasm" : "http_connector"))}
+      canManage={canManage}
+      expanded={expanded}
+      setExpanded={setExpanded}
+      setInstalls={setInstalls}
+      refresh={refresh}
+    />
+  ) : tab === "Registry" ? (
+    <RegistryTab catalog={catalog} installs={installs} canManage={canManage} onChanged={() => void refresh()} />
+  ) : tab === "Approvals" ? (
+    <StagedApprovalsTab staged={staged} canManage={canManage} onChanged={() => void refresh()} />
+  ) : (
+    <AgentSkillsTab skills={skills} canManage={canManage} onChanged={() => void refresh()} />
+  )}
         </>
       )}
 
       <GithubImportDrawer open={githubOpen} onOpenChange={setGithubOpen} onStaged={() => { setTab("Approvals"); void refresh(); }} />
       <ZipImportDrawer open={zipOpen} onOpenChange={setZipOpen} onStaged={() => { setTab("Approvals"); void refresh(); }} />
+    </div>
+  );
+}
+
+/** One governance tab of the Installed roster (ADR 0009 §6): the EXISTING
+ * install card/expanded-detail surface, filtered to the tab's
+ * `artifact_kind`. A tab with no installs is a genuine empty state. */
+function ArtifactRoster({
+  tab,
+  installs,
+  canManage,
+  expanded,
+  setExpanded,
+  setInstalls,
+  refresh,
+}: {
+  tab: Tab;
+  installs: InstallView[];
+  canManage: boolean;
+  expanded: string | null;
+  setExpanded: React.Dispatch<React.SetStateAction<string | null>>;
+  setInstalls: React.Dispatch<React.SetStateAction<InstallView[] | null>>;
+  refresh: () => Promise<void>;
+}) {
+  return (
+    <div className="grid gap-3">
+      {installs.length === 0 ? (
+        <EmptyState
+          message={
+            tab === "WASM"
+              ? "No WASM plugins installed yet. Import from GitHub or a zip — nothing runs without consent."
+              : "No HTTP connectors installed yet. Connectors ride the same consent lifecycle — none installed for this org."
+          }
+        />
+      ) : (
+        installs.map((install) => (
+          <Card key={install.id}>
+            <div className="flex flex-wrap items-center gap-2 p-4 pb-1">
+              <span className="text-sm font-semibold">{install.name}</span>
+              <span className="font-mono text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+                {install.slug}@{install.version}
+              </span>
+              <Tag tone={install.status === "enabled" ? "success" : install.status === "disabled" ? "warning" : "danger"}>
+                {install.status}
+              </Tag>
+              <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+                {install.granted_capabilities.length} granted caps
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="ml-auto"
+                onClick={() => setExpanded(expanded === install.id ? null : install.id)}
+                aria-expanded={expanded === install.id}
+                data-testid={`expand-${install.slug}`}
+              >
+                {expanded === install.id ? "Collapse" : "Manage"}
+              </Button>
+            </div>
+            {expanded === install.id ? (
+              <div className="px-4 pb-4" data-testid={`install-detail-${install.slug}`}>
+                <InstallDetail
+                  install={install}
+                  canManage={canManage}
+                  onOptimisticStatus={(next) =>
+                    setInstalls((prev) =>
+                      (prev ?? []).map((row) =>
+                        row.id === install.id ? { ...row, status: next } : row,
+                      ),
+                    )
+                  }
+                  onChanged={() => void refresh()}
+                />
+              </div>
+            ) : null}
+          </Card>
+        ))
+      )}
     </div>
   );
 }
