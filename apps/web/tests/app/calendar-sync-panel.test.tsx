@@ -171,4 +171,71 @@ describe("CalendarSyncPanel", () => {
     expect(await screen.findByText(/No external calendars connected yet/)).toBeInTheDocument();
     cleanup();
   });
+
+  it("the inbound mirror lists imported events and marks overlaps against rendered entries", async () => {
+    const mock = setupApi();
+    mock.on("GET", `/api/v1/calendar-sync/${INBOUND}/events`, () => ({
+      json: {
+        connection_id: INBOUND,
+        events: [
+          {
+            id: "60000000-0000-4000-8000-000000000001",
+            connection_id: INBOUND,
+            external_uid: "uid-1",
+            user_id: ME,
+            org_id: ORG,
+            starts_at: "2026-09-14T09:30:00Z",
+            ends_at: "2026-09-14T10:30:00Z",
+            title: "Vendor maintenance",
+            sequence: 1,
+            first_seen_at: NOW,
+            last_seen_at: NOW,
+            exclusion_id: null,
+          },
+          {
+            id: "60000000-0000-4000-8000-000000000002",
+            connection_id: INBOUND,
+            external_uid: "uid-2",
+            user_id: ME,
+            org_id: ORG,
+            starts_at: "2026-09-14T15:00:00Z",
+            ends_at: "2026-09-14T16:00:00Z",
+            title: "Quiet hour",
+            sequence: 1,
+            first_seen_at: NOW,
+            last_seen_at: NOW,
+            exclusion_id: null,
+          },
+        ],
+      },
+    }));
+    render(
+      <AuthProvider>
+        <CalendarSyncPanel
+          entries={[
+            {
+              kind: "appointment",
+              id: "appt-1",
+              title: "Site visit",
+              startsAt: "2026-09-14T09:00:00Z",
+              endsAt: "2026-09-14T10:00:00Z",
+              ticketId: null,
+              itemKind: null,
+              status: null,
+              userId: null,
+              number: null,
+            },
+          ]}
+        />
+      </AuthProvider>,
+    );
+    fireEvent.click(await screen.findByTestId(`mirror-toggle-${INBOUND}`));
+    const list = await screen.findByTestId(`mirror-list-${INBOUND}`);
+    expect(within(list).getByText("Vendor maintenance")).toBeInTheDocument();
+    expect(within(list).getByText("overlaps your Site visit")).toBeInTheDocument();
+    expect(within(list).getByText("Quiet hour")).toBeInTheDocument();
+    expect(within(list).queryByText("overlaps your Site visit")).not.toBeNull();
+    expect(within(list).getAllByText(/overlaps your/)).toHaveLength(1);
+    cleanup();
+  });
 });
