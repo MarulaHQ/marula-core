@@ -97,6 +97,13 @@ fn capability_or_refuse(key: &str) -> ApiResult<PluginCapability> {
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct StageFromRegistryRequest {
     pub url: String,
+    /// Optional direct artifact URL (marketplace CDN / release asset).
+    /// When present the server RE-FETCHES the bytes and verifies their
+    /// sha256 against the catalog-pinned digest BEFORE the staged row
+    /// exists (B2 cross-digest verification; typed
+    /// `distribution_digest_invalid` on mismatch).
+    #[serde(default)]
+    pub artifact_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -107,6 +114,10 @@ pub struct StageFromGithubRequest {
     pub tag: String,
     /// Pinned 40-hex commit the tag resolves to.
     pub commit: String,
+    /// Optional release-asset URL for B2 cross-digest verification of
+    /// the actual artifact bytes (same posture as the registry source).
+    #[serde(default)]
+    pub artifact_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -270,6 +281,12 @@ impl From<PluginProvenanceEntry> for ProvenanceView {
 }
 
 // --- fetching (+ SSRF posture) ---------------------------------------------------
+
+/// Cap on re-fetched artifact bytes (B2): an artifact (WASM plugin /
+/// skill manifest bundle) is not a dataset; the same order as the zip
+/// sandbox cap. Larger refs must go through a release pipeline that
+/// serves smaller artifacts.
+const MAX_FETCH_ARTIFACT_BYTES: i64 = 8 * 1024 * 1024;
 
 async fn fetch_bytes(url: &str) -> ApiResult<Vec<u8>> {
     url_guard(url)?;
@@ -440,7 +457,25 @@ pub async fn stage_from_registry(
     require_permission(&authed.principal, plugins(Action::View))?;
     let url = req.url.trim().to_string();
     let bytes = fetch_bytes(&url).await?;
-    let bundle = ingest_registry_entry(&bytes).map_err(ingest_reason_api)?;
+    let signing_key = state.config.plugin_signing_key.as_deref();
+    let bundle = ingest_registry_entry(&bytes, signing_key).map_err(ingest_reason_api)?;
+    // B2: re-fetch the artifact bytes and verify the digest myself —
+    // the catalog's pinned digest is a claim until these bytes agree.
+    if let Some(artifact_url) = req
+        .artifact_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|u| !u.is_empty())
+    {
+        let artifact_bytes = fetch_bytes(artifact_url).await?;
+        if artifact_bytes.len() as i64 > MAX_FETCH_ARTIFACT_BYTES {
+            return Err(ingest_reason_api(
+                plugin_host::distribution::IngestReason::ArchiveCap,
+            ));
+        }
+        plugin_host::distribution::verify_artifact_bytes(&artifact_bytes, &bundle.artifact_digest)
+            .map_err(ingest_reason_api)?;
+    }
     stage_bundle(&state, &authed, bundle, Some(url)).await
 }
 
@@ -474,8 +509,33 @@ pub async fn stage_from_github(
     let json = serde_json::from_slice::<serde_json::Value>(&bytes)
         .map_err(|_| ApiError::Validation("the pinned manifest is not valid JSON".into()))?;
     let digest = plugin_host::distribution::sha256_hex(&bytes);
-    let bundle = ingest_github_pull(&owner, &repo, req.tag.trim(), &sha, json, &digest)
-        .map_err(ingest_reason_api)?;
+    let signing_key = state.config.plugin_signing_key.as_deref();
+    let bundle = ingest_github_pull(
+        &owner,
+        &repo,
+        req.tag.trim(),
+        &sha,
+        json,
+        &digest,
+        signing_key,
+    )
+    .map_err(ingest_reason_api)?;
+    // B2: optional artifact-bytes refetch + cross-digest verification.
+    if let Some(artifact_url) = req
+        .artifact_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|u| !u.is_empty())
+    {
+        let artifact_bytes = fetch_bytes(artifact_url).await?;
+        if artifact_bytes.len() as i64 > MAX_FETCH_ARTIFACT_BYTES {
+            return Err(ingest_reason_api(
+                plugin_host::distribution::IngestReason::ArchiveCap,
+            ));
+        }
+        plugin_host::distribution::verify_artifact_bytes(&artifact_bytes, &bundle.artifact_digest)
+            .map_err(ingest_reason_api)?;
+    }
     stage_bundle(&state, &authed, bundle, Some(source_url)).await
 }
 
@@ -1552,13 +1612,14 @@ pub async fn set_skill_enabled(
             types::AGENT_SKILL_UPDATED,
             "agent_skill",
             Some(skill.id.to_string().as_str()),
-            &serde_json::json!({
-                "skill_id": skill.id,
-                "slug": skill.slug,
-                "version": skill.version,
-                "enabled": req.enabled,
-                "updated_by": actor,
-            }),
+            &serde_json::to_value(&core_domain::events::AgentSkillEnabledPayload {
+                skill_id: skill.id,
+                slug: skill.slug,
+                version: skill.version,
+                enabled: req.enabled,
+                updated_by: actor,
+            })
+            .expect("typed agent-skill enable payload serializes"),
         )
         .await?;
         Ok((tx, ()))

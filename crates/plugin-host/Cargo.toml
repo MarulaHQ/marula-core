@@ -12,3 +12,4 @@ sha2 = { workspace = true }
 zip = { workspace = true }
 hex = { workspace = true }
 serde_json = { workspace = true }
+ed25519-dalek = { workspace = true }

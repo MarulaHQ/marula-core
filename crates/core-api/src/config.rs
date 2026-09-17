@@ -73,6 +73,28 @@ pub struct Config {
     /// `MERIDIAN_SCHEDULING_LINKS_RATE_LIMIT_PER_MIN` (default 60; 0
     /// disables limiting).
     pub scheduling_links_rate_limit_per_min: u32,
+    /// Native secrets vault (ADR 0006, Wave 16 lane 9 straggler sweep):
+    /// per-ORG write-admission budget per fixed 60-second window across
+    /// every secret-record/folder/grant mutation on `/api/secrets/*` and
+    /// the chunked bulk-ingestion path. This is the noisy-neighbor floor:
+    /// a runaway bulk importer consumes its own org's budget only.
+    /// Env `MERIDIAN_VAULT_WRITE_BUDGET_PER_MIN` (default 600; 0
+    /// disables limiting). Per-process counters — one API instance, one
+    /// budget (the same posture as the migration dispatch budgets).
+    pub vault_write_budget_per_min: u32,
+    /// Plugin/skill artifact signing key (B1, Wave 16 lane 9, ADR 0009):
+    /// the operator's ed25519 PUBLIC key (64 hex chars). When set, every
+    /// registry/GitHub distribution artifact is cryptographically
+    /// signature-verified against it (typed
+    /// `distribution_signature_invalid` on failure); unset ⇒ structural
+    /// verification only (dev posture — loudly logged at boot).
+    /// Env `MERIDIAN_PLUGIN_SIGNING_KEY`.
+    pub plugin_signing_key: Option<String>,
+    /// Chunked bulk-secret ingestion (A2, Wave 16 lane 9): the rows/second
+    /// pacing ceiling between per-row commits on the
+    /// `POST /api/secrets/records/bulk` worker path. Env
+    /// `MERIDIAN_VAULT_BULK_ROWS_PER_SEC` (default 50).
+    pub vault_bulk_rows_per_sec: u32,
     /// Dev-tools gate (TASKLIST DX2): when `MERIDIAN_DEV_TOOLS=1` the
     /// `/api/dev/*` router mounts; otherwise those routes DO NOT EXIST (no
     /// registration at all, not a 403). Unset in production — never
@@ -146,6 +168,9 @@ impl Config {
             migration_rate_limit_per_min: 600,
             dispatch_rate_limit_per_min: 600,
             scheduling_links_rate_limit_per_min: 60,
+            vault_write_budget_per_min: 600,
+            vault_bulk_rows_per_sec: 50,
+            plugin_signing_key: None,
             dev_tools: true,
         }
     }
@@ -249,6 +274,17 @@ impl Config {
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(60),
+            vault_write_budget_per_min: std::env::var("MERIDIAN_VAULT_WRITE_BUDGET_PER_MIN")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(600),
+            vault_bulk_rows_per_sec: std::env::var("MERIDIAN_VAULT_BULK_ROWS_PER_SEC")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(50),
+            plugin_signing_key: std::env::var("MERIDIAN_PLUGIN_SIGNING_KEY")
+                .ok()
+                .filter(|v| !v.trim().is_empty()),
             dev_tools: std::env::var("MERIDIAN_DEV_TOOLS").as_deref() == Ok("1"),
         }
     }
@@ -305,6 +341,9 @@ impl Config {
             migration_rate_limit_per_min: 600,
             dispatch_rate_limit_per_min: 600,
             scheduling_links_rate_limit_per_min: 60,
+            vault_write_budget_per_min: 600,
+            vault_bulk_rows_per_sec: 50,
+            plugin_signing_key: None,
             dev_tools: false,
         }
     }

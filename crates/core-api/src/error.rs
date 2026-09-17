@@ -327,6 +327,20 @@ fn map_unique_constraint(constraint: &str) -> Option<(&'static str, &'static str
             "secret_grant_taken",
             "a grant for this role and folder already exists",
         )),
+        // Wave 16 lane 7 (ADR 0009 distribution, migration 0079): one live
+        // PENDING staged row per (org, manifest name+version) — re-stage
+        // refuses until the older row is reviewed or withdrawn.
+        "plugin_staged_items_pending_org_artifact_key" => Some((
+            "staged_import_already_pending",
+            "this artifact (name + version) is already staged and awaiting review",
+        )),
+        // 0040 skills line: the append-only (org, slug, version) ladder
+        // only ever refuses when two concurrent publishes grabbed the same
+        // max+1 slot (the routes compute version from MAX(version)).
+        "agent_skills_org_id_slug_version_key" => Some((
+            "agent_skill_version_taken",
+            "this version of the skill was just published; republish to append fresh",
+        )),
         _ => None,
     }
 }

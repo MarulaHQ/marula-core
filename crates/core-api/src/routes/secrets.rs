@@ -22,7 +22,7 @@
 use crate::auth::middleware::{authed, require_permission};
 use crate::crypto;
 use crate::error::{ApiError, ApiResult};
-use crate::instant;
+use crate::instant::{self, InstantClaim, MutationOutcome};
 use crate::org_tx;
 use crate::state::AppState;
 use axum::{
@@ -38,7 +38,60 @@ use core_domain::events::types;
 use core_domain::policy::{Action, Module, Permission};
 use serde::{Deserialize, Serialize};
 use sqlx::PgConnection;
+use std::collections::HashMap;
+use std::sync::{OnceLock, PoisonError};
+use std::time::Instant;
 use uuid::Uuid;
+
+// --- A1: per-org vault write-budget admission control (Wave 16 lane 9) ------
+//
+// The noisy-neighbor floor: every secret-record/folder/grant mutation on
+// `/api/secrets/*` (plus the chunked bulk-ingestion worker path) consumes
+// one seat of its ORG'S fixed 60-second budget, so a runaway bulk
+// importer degrades only its own org and interactive vault users keep a
+// guaranteed share. In-memory fixed-window counters — per process, the
+// same posture as the migration/dispatch budgets (operators scale the
+// window capacity with ERA on multi-replica deployments; `0` disables).
+// NO migration: the budget is config-driven
+// (`MERIDIAN_VAULT_WRITE_BUDGET_PER_MIN`), not persisted state.
+
+const VAULT_BUDGET_WINDOW_SECS: u64 = 60;
+
+struct BudgetWindow {
+    started: Instant,
+    count: u32,
+}
+
+static VAULT_BUDGETS: OnceLock<std::sync::Mutex<HashMap<Uuid, BudgetWindow>>> = OnceLock::new();
+
+/// One seat of the org's write budget; `limit == 0` disables (documented
+/// escape hatch). A breach is the typed 429 with `Retry-After`.
+pub fn check_vault_budget(state: &AppState, org_id: Uuid) -> ApiResult<()> {
+    let limit_per_min = state.config.vault_write_budget_per_min;
+    if limit_per_min == 0 {
+        return Ok(());
+    }
+    let buckets = VAULT_BUDGETS.get_or_init(Default::default);
+    let mut map = buckets.lock().unwrap_or_else(PoisonError::into_inner);
+    let now = Instant::now();
+    let window = map.entry(org_id).or_insert(BudgetWindow {
+        started: now,
+        count: 0,
+    });
+    if now.duration_since(window.started).as_secs() >= VAULT_BUDGET_WINDOW_SECS {
+        window.started = now;
+        window.count = 0;
+    }
+    window.count += 1;
+    if window.count > limit_per_min {
+        let elapsed = now.duration_since(window.started).as_secs();
+        let retry_after = VAULT_BUDGET_WINDOW_SECS.saturating_sub(elapsed).max(1);
+        return Err(ApiError::RateLimited {
+            retry_after_secs: i64::try_from(retry_after).unwrap_or(i64::MAX),
+        });
+    }
+    Ok(())
+}
 
 fn secrets(action: Action) -> Permission {
     Permission::Matrix {
@@ -49,6 +102,13 @@ fn secrets(action: Action) -> Permission {
 
 fn seal_error(e: crypto::CryptoError) -> ApiError {
     ApiError::Internal(anyhow::anyhow!("secret sealing failed: {e}"))
+}
+
+/// Typed event payloads serialize straight into the wire value — the
+/// contract goldens pin these structs (core-events contract.rs); no ad
+/// hoc `json!` payloads on the vault's event path.
+fn typed_event<T: serde::Serialize>(payload: &T) -> serde_json::Value {
+    serde_json::to_value(payload).expect("typed secret event payload serializes")
 }
 
 /// The closed field-key vocabulary (metadata entities never carry
@@ -184,6 +244,7 @@ pub async fn create_folder(
 ) -> ApiResult<Json<SecretFolder>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, secrets(Action::Create))?;
+    check_vault_budget(&state, authed.principal.user.org_id)?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     let slug = req.slug.trim().to_lowercase();
@@ -209,11 +270,11 @@ pub async fn create_folder(
             types::SECRET_FOLDER_CREATED,
             "secret_folder",
             Some(folder.id.to_string().as_str()),
-            &serde_json::json!({
-                "folder_id": folder.id,
-                "client_id": req.client_id,
-                "slug": folder.slug,
-                "restricted": folder.restricted,
+            &typed_event(&core_domain::events::SecretFolderCreated {
+                folder_id: folder.id,
+                client_id: req.client_id,
+                slug: folder.slug.clone(),
+                restricted: folder.restricted,
             }),
         )
         .await?;
@@ -236,6 +297,7 @@ pub async fn update_folder(
 ) -> ApiResult<Json<SecretFolder>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, secrets(Action::Edit))?;
+    check_vault_budget(&state, authed.principal.user.org_id)?;
     if req.slug.as_deref() == Some("") || req.label.as_deref() == Some("") {
         return Err(ApiError::Validation("slug/label cannot be empty".into()));
     }
@@ -256,10 +318,10 @@ pub async fn update_folder(
             types::SECRET_FOLDER_UPDATED,
             "secret_folder",
             Some(id.to_string().as_str()),
-            &serde_json::json!({
-                "folder_id": id,
-                "slug": folder.slug,
-                "restricted": folder.restricted,
+            &typed_event(&core_domain::events::SecretFolderUpdated {
+                folder_id: id,
+                slug: folder.slug.clone(),
+                restricted: folder.restricted,
             }),
         )
         .await?;
@@ -281,6 +343,7 @@ pub async fn delete_folder(
 ) -> ApiResult<Json<serde_json::Value>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, secrets(Action::Delete))?;
+    check_vault_budget(&state, authed.principal.user.org_id)?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
@@ -292,7 +355,10 @@ pub async fn delete_folder(
             types::SECRET_FOLDER_DELETED,
             "secret_folder",
             Some(id.to_string().as_str()),
-            &serde_json::json!({ "folder_id": id, "slug": before.slug }),
+            &typed_event(&core_domain::events::SecretFolderDeleted {
+                folder_id: id,
+                slug: before.slug,
+            }),
         )
         .await?;
         Ok((ctx, ()))
@@ -316,6 +382,7 @@ pub async fn fork_folder(
 ) -> ApiResult<Json<Vec<SecretFolder>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, secrets(Action::Create))?;
+    check_vault_budget(&state, authed.principal.user.org_id)?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     let created = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
@@ -336,10 +403,10 @@ pub async fn fork_folder(
                     .as_deref()
                     .unwrap_or(""),
             ),
-            &serde_json::json!({
-                "client_id": req.client_id,
-                "forked_from": id,
-                "slug": source_slug,
+            &typed_event(&core_domain::events::SecretFolderForked {
+                client_id: Some(req.client_id),
+                forked_from: id,
+                slug: source_slug,
             }),
         )
         .await?;
@@ -370,7 +437,18 @@ pub struct SecretFieldValue {
     pub value: String,
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+/// PATCH field entry (A5, Wave 16 lane 9): `value: null` CLEARS the
+/// sealed field (row deleted, audited via the record-updated event);
+/// a value rotates the sealed ciphertext.
+#[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
+pub struct SecretFieldValuePatch {
+    pub field_key: String,
+    /// None (json null) clears the sealed field; Some rotates it.
+    #[serde(default)]
+    pub value: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct CreateSecretRecordRequest {
     /// NULL = org-scope record.
     #[serde(default)]
@@ -390,17 +468,32 @@ pub struct CreateSecretRecordRequest {
     pub file_sha256: Option<String>,
     #[serde(default)]
     pub file_bytes: Option<i64>,
+    /// Instant-first autosave parameters (IF1).
+    #[serde(flatten, default)]
+    pub instant: instant::MutationParams,
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct UpdateSecretRecordRequest {
     pub title: String,
     /// absent = keep; null = clear; value = set.
     #[serde(default)]
     pub expires_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
-    /// Matching keys rotate (sealed); `value: null` clears.
+    /// Matching keys rotate (sealed); `value: null` clears (A5).
     #[serde(default)]
-    pub fields: Vec<SecretFieldValue>,
+    pub fields: Vec<SecretFieldValuePatch>,
+    /// Instant-first autosave parameters (IF1).
+    #[serde(flatten, default)]
+    pub instant: instant::MutationParams,
+}
+
+/// Instant-first mutation response (IF2): the metadata-only record plus
+/// the write-trail/replay metadata (mirrors PasswordMutationResponse).
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct SecretRecordMutationResponse {
+    #[serde(flatten)]
+    pub record: SecretRecord,
+    pub mutation: instant::MutationMeta,
 }
 
 /// GET /api/secrets/records — metadata-only vault rows.
@@ -463,20 +556,22 @@ pub async fn get_record(
     Ok(Json(record))
 }
 
-/// POST /api/secrets/records — seals fields with coordinate AAD.
+/// POST /api/secrets/records — seals fields with coordinate AAD;
+/// instant-first (IF1–IF3) when an idempotency key rides the request.
 #[utoipa::path(operation_id = "secrets_records_create", post, path = "/api/secrets/records", tag = "secrets", security(("bearer" = [])),
     request_body = CreateSecretRecordRequest,
-    responses((status = 200, body = SecretRecord),
+    responses((status = 200, body = SecretRecordMutationResponse),
               (status = 403, description = "restricted category gate denied"),
-              (status = 409, description = "title already exists in this folder"),
+              (status = 409, description = "title already exists in this folder / idempotency key reused"),
               (status = 422, description = "validation error")))]
 pub async fn create_record(
     State(state): State<AppState>,
     extensions: Extensions,
     Json(req): Json<CreateSecretRecordRequest>,
-) -> ApiResult<Json<SecretRecord>> {
+) -> ApiResult<Json<SecretRecordMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, secrets(Action::Create))?;
+    check_vault_budget(&state, authed.principal.user.org_id)?;
     let title = req.title.trim().to_string();
     if title.is_empty() {
         return Err(ApiError::Validation("title is required".into()));
@@ -504,7 +599,24 @@ pub async fn create_record(
         SecretRecordKind::Document => req.file_bytes,
         _ => None,
     };
-    let record = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+    let fingerprint = serde_json::to_value(&req).unwrap_or(serde_json::Value::Null);
+    let idem_key = req.instant.idempotency_key.clone();
+    let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        // IF1 replay gate. Must precede any write so a retry replays
+        // byte-identically and never double-applies.
+        if let InstantClaim::Replay(stored) = instant::claim(
+            &mut ctx,
+            instant::ClaimSpec {
+                entity: "secret_record",
+                entity_id: None,
+                key: idem_key.as_deref(),
+                fingerprint: &fingerprint,
+            },
+        )
+        .await?
+        {
+            return Ok((ctx, MutationOutcome::Replayed(stored)));
+        }
         // The CATEGORY edit gate BEFORE any write (restricted chains deny).
         let role_ids: Vec<Uuid> = authed.roles.iter().map(|r| r.id).collect();
         let allowed = core_db::secret_vault::folder_access(
@@ -541,36 +653,64 @@ pub async fn create_record(
             types::SECRET_RECORD_CREATED,
             "secret_record",
             Some(record_id.to_string().as_str()),
-            &serde_json::json!({
-                "record_id": record_id,
-                "client_id": req.client_id,
-                "folder_id": req.folder_id,
-                "title": title,
+            &typed_event(&core_domain::events::SecretRecordCreated {
+                record_id,
+                client_id: req.client_id,
+                folder_id: req.folder_id,
+                title: title.clone(),
             }),
         )
         .await?;
-        Ok((ctx, record))
+        let write_seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: "secret_record",
+                entity_id: record_id,
+                version: None,
+            },
+        )
+        .await?;
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: "secret_record",
+                entity_id: record_id,
+                op: "create",
+                seq: write_seq,
+                before: None,
+                after: serde_json::to_value(&record).unwrap_or(serde_json::Value::Null),
+                updated_at: record.created_at,
+                key: idem_key.as_deref(),
+                payload: &record,
+                provenance: Default::default(),
+            },
+        )
+        .await?;
+        let response = SecretRecordMutationResponse { record, mutation };
+        Ok((ctx, MutationOutcome::Applied(response)))
     })
     .await?;
-    Ok(Json(record))
+    Ok(Json(outcome.into_response()?))
 }
 
-/// PATCH /api/secrets/records/{id} — metadata + field rotation/clear.
+/// PATCH /api/secrets/records/{id} — metadata + field rotation/clear
+/// (`value: null` clears — A5); instant-first envelope (IF1–IF3).
 #[utoipa::path(operation_id = "secrets_records_update", patch, path = "/api/secrets/records/{id}", tag = "secrets", security(("bearer" = [])),
     params(("id" = Uuid, Path)), request_body = UpdateSecretRecordRequest,
-    responses((status = 200, body = SecretRecord),
+    responses((status = 200, body = SecretRecordMutationResponse),
               (status = 404, description = "record not visible in scope"),
               (status = 403, description = "restricted category gate denied"),
-              (status = 409, description = "title collision"),
+              (status = 409, description = "title collision / version conflict / idempotency key reused"),
               (status = 422, description = "validation error")))]
 pub async fn update_record(
     State(state): State<AppState>,
     extensions: Extensions,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateSecretRecordRequest>,
-) -> ApiResult<Json<SecretRecord>> {
+) -> ApiResult<Json<SecretRecordMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, secrets(Action::Edit))?;
+    check_vault_budget(&state, authed.principal.user.org_id)?;
     if req.title.trim().is_empty() {
         return Err(ApiError::Validation("title is required".into()));
     }
@@ -578,27 +718,47 @@ pub async fn update_record(
     let user_id = authed.principal.user.id;
     let key = state.config.secret_key;
     // Seal BEFORE the tx so a crypto failure never consumes a write.
-    let entries: Vec<(String, String)> = req
+    if let Some(f) = req
         .fields
         .iter()
-        .map(|f| (f.field_key.clone(), f.value.clone()))
-        .collect();
-    let title = req.title.trim().to_string();
-    if let Some((key, _)) = entries
-        .iter()
-        .find(|(k, _)| !FIELD_KEYS.contains(&k.as_str()))
+        .find(|f| !FIELD_KEYS.contains(&f.field_key.as_str()))
     {
         return Err(ApiError::Validation(format!(
             "unknown field key '{}' (allowed: {})",
-            key,
+            f.field_key,
             FIELD_KEYS.join(", ")
         )));
     }
-    let sealed = seal_fields(org_id, id, &key, &entries)?;
-    let record = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+    let to_rotated: Vec<(String, String)> = req
+        .fields
+        .iter()
+        .filter_map(|f| f.value.as_ref().map(|v| (f.field_key.clone(), v.clone())))
+        .collect();
+    let title = req.title.trim().to_string();
+    let sealed = seal_fields(org_id, id, &key, &to_rotated)?;
+    let fingerprint = serde_json::to_value(&req).unwrap_or(serde_json::Value::Null);
+    let idem_key = req.instant.idempotency_key.clone();
+    let provided_version = req.instant.version;
+    let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        // IF1 replay gate first: a retry replays the stored response
+        // without touching state.
+        if let InstantClaim::Replay(stored) = instant::claim(
+            &mut ctx,
+            instant::ClaimSpec {
+                entity: "secret_record",
+                entity_id: Some(id),
+                key: idem_key.as_deref(),
+                fingerprint: &fingerprint,
+            },
+        )
+        .await?
+        {
+            return Ok((ctx, MutationOutcome::Replayed(stored)));
+        }
         let before = core_db::secret_vault::get_record(&mut ctx.tx, org_id, id)
             .await
             .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        let before_folded = serde_json::to_value(&before).unwrap_or(serde_json::Value::Null);
         let role_ids: Vec<Uuid> = authed.roles.iter().map(|r| r.id).collect();
         let allowed = core_db::secret_vault::folder_access(
             &mut ctx.tx,
@@ -612,8 +772,22 @@ pub async fn update_record(
         if !allowed {
             return Err(ApiError::Forbidden("category locked to your role".into()));
         }
-        let field_updates: Vec<(String, Option<Vec<u8>>)> =
-            sealed.into_iter().map(|(k, v)| (k, Some(v))).collect();
+        let field_updates: Vec<(String, Option<Vec<u8>>)> = req
+            .fields
+            .iter()
+            .map(|f| {
+                (
+                    f.field_key.clone(),
+                    f.value.as_ref().map(|_| {
+                        sealed
+                            .iter()
+                            .find(|(k, _)| k == &f.field_key)
+                            .map(|(_, v)| v.clone())
+                            .expect("rotated field was sealed above")
+                    }),
+                )
+            })
+            .collect();
         let record = core_db::secret_vault::update_record(
             &mut ctx.tx,
             org_id,
@@ -629,16 +803,42 @@ pub async fn update_record(
             types::SECRET_RECORD_UPDATED,
             "secret_record",
             Some(id.to_string().as_str()),
-            &serde_json::json!({
-                "record_id": id,
-                "fields_rotated": !field_updates.is_empty(),
+            &typed_event(&core_domain::events::SecretRecordUpdated {
+                record_id: id,
+                fields_rotated: !field_updates.is_empty(),
             }),
         )
         .await?;
-        Ok((ctx, record))
+        let write_seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: "secret_record",
+                entity_id: id,
+                version: provided_version,
+            },
+        )
+        .await?;
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: "secret_record",
+                entity_id: id,
+                op: "update",
+                seq: write_seq,
+                before: Some(before_folded),
+                after: serde_json::to_value(&record).unwrap_or(serde_json::Value::Null),
+                updated_at: record.updated_at,
+                key: idem_key.as_deref(),
+                payload: &record,
+                provenance: Default::default(),
+            },
+        )
+        .await?;
+        let response = SecretRecordMutationResponse { record, mutation };
+        Ok((ctx, MutationOutcome::Applied(response)))
     })
     .await?;
-    Ok(Json(record))
+    Ok(Json(outcome.into_response()?))
 }
 
 /// DELETE /api/secrets/records/{id} — records retire; their fields
@@ -655,6 +855,7 @@ pub async fn delete_record(
 ) -> ApiResult<Json<serde_json::Value>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, secrets(Action::Delete))?;
+    check_vault_budget(&state, authed.principal.user.org_id)?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
@@ -679,7 +880,10 @@ pub async fn delete_record(
             types::SECRET_RECORD_DELETED,
             "secret_record",
             Some(id.to_string().as_str()),
-            &serde_json::json!({ "record_id": id, "title": before.title }),
+            &typed_event(&core_domain::events::SecretRecordDeleted {
+                record_id: id,
+                title: before.title,
+            }),
         )
         .await?;
         Ok((ctx, ()))
@@ -751,7 +955,10 @@ pub async fn reveal_record(
             types::SECRET_REVEALED,
             "secret_record",
             Some(id.to_string().as_str()),
-            &serde_json::json!({ "record_id": id, "title": record.title }),
+            &typed_event(&core_domain::events::SecretRevealed {
+                record_id: id,
+                title: record.title.clone(),
+            }),
         )
         .await?;
         Ok((
@@ -765,6 +972,556 @@ pub async fn reveal_record(
     })
     .await?;
     Ok(Json(reveal))
+}
+
+// ---------------------------------------------------------------------------
+// Document-kind file bytes (A4, Wave 16 lane 9): ciphertext PUT to the
+// object store + audited reveal-file download. The record row carries
+// ONLY the pointer (`object_key`) + `file_sha256` + `file_bytes` of the
+// SEALED payload; plaintext exists exactly twice — in the PUT request and
+// in the audited GET response.
+// ---------------------------------------------------------------------------
+
+/// The storage key for one org's sealed document payload,
+/// content-addressed by the sha256 of the CIPHERTEXT (dedup-safe).
+fn sealed_file_key(org_id: Uuid, ciphertext_sha256_hex: &str) -> String {
+    format!("org/{org_id}/secrets/{ciphertext_sha256_hex}")
+}
+
+fn file_aad(org_id: Uuid, record_id: Uuid) -> Vec<u8> {
+    format!("secret_file:{org_id}:{record_id}").into_bytes()
+}
+
+/// PUT /api/secrets/records/{id}/file — document-kind ONLY. Seals the
+/// uploaded bytes (AAD-bound to the record coordinate), PUTs the
+/// ciphertext to the object store behind the core-store S3/local seam,
+/// and pins the pointer + hash + byte length on the record in the same
+/// tx (event emitted in-commit).
+#[utoipa::path(operation_id = "secrets_records_put_file", put, path = "/api/secrets/records/{id}/file", tag = "secrets", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    request_body(content = String, content_type = "application/octet-stream"),
+    responses((status = 200, body = SecretRecordMutationResponse),
+              (status = 404, description = "record not visible in scope"),
+              (status = 403, description = "restricted category gate denied"),
+              (status = 422, description = "record is not document-kind / body over cap")))]
+pub async fn put_record_file(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    body: axum::body::Bytes,
+) -> ApiResult<Json<SecretRecordMutationResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, secrets(Action::Edit))?;
+    check_vault_budget(&state, authed.principal.user.org_id)?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+    let max_bytes = state.config.max_upload_bytes;
+    if body.len() as i64 > max_bytes {
+        return Err(ApiError::Validation(format!(
+            "file exceeds the {} MB upload cap",
+            max_bytes / (1024 * 1024)
+        )));
+    }
+    if body.is_empty() {
+        return Err(ApiError::Validation("file body must not be empty".into()));
+    }
+    // Seal BEFORE the tx: a crypto failure never consumes a write.
+    let ciphertext = crypto::seal_with_aad(&state.config.secret_key, &body, &file_aad(org_id, id))
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("file sealing failed: {e}")))?;
+    use sha2::Digest as _;
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(&ciphertext);
+    let ct_sha256 = hex::encode(hasher.finalize());
+    let storage_key = sealed_file_key(org_id, &ct_sha256);
+    let ct_len = i64::try_from(ciphertext.len()).unwrap_or(i64::MAX);
+    let store = std::sync::Arc::clone(&state.store);
+
+    let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        let before = core_db::secret_vault::get_record(&mut ctx.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        if before.kind != SecretRecordKind::Document {
+            return Err(ApiError::Validation(
+                "file bytes belong on document-kind records".into(),
+            ));
+        }
+        let role_ids: Vec<Uuid> = authed.roles.iter().map(|r| r.id).collect();
+        let allowed = core_db::secret_vault::folder_access(
+            &mut ctx.tx,
+            org_id,
+            &role_ids,
+            before.folder_id,
+            true,
+        )
+        .await
+        .map_err(ApiError::from)?;
+        if !allowed {
+            return Err(ApiError::Forbidden("category locked to your role".into()));
+        }
+        // Store first (content-addressed, last-writer-wins on identical
+        // bytes is a no-op), then pin the pointer in-commit.
+        store
+            .put(
+                &storage_key,
+                "application/octet-stream",
+                ciphertext.clone().into(),
+            )
+            .await
+            .map_err(crate::routes::attachments::store_error)?;
+        let record = core_db::secret_vault::set_file_pointer(
+            &mut ctx.tx,
+            org_id,
+            id,
+            &storage_key,
+            &ct_sha256,
+            ct_len,
+            user_id,
+        )
+        .await
+        .map_err(ApiError::from)?;
+        ctx.emit(
+            types::SECRET_RECORD_UPDATED,
+            "secret_record",
+            Some(id.to_string().as_str()),
+            &typed_event(&core_domain::events::SecretRecordUpdated {
+                record_id: id,
+                fields_rotated: true,
+            }),
+        )
+        .await?;
+        let write_seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: "secret_record",
+                entity_id: id,
+                version: None,
+            },
+        )
+        .await?;
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: "secret_record",
+                entity_id: id,
+                op: "update",
+                seq: write_seq,
+                before: Some(serde_json::to_value(&before).unwrap_or(serde_json::Value::Null)),
+                after: serde_json::to_value(&record).unwrap_or(serde_json::Value::Null),
+                updated_at: record.updated_at,
+                key: None,
+                payload: &record,
+                provenance: Default::default(),
+            },
+        )
+        .await?;
+        Ok((ctx, MutationOutcome::Applied((record, mutation))))
+    })
+    .await?;
+    let (record, mutation) = outcome.into_response()?;
+    Ok(Json(SecretRecordMutationResponse { record, mutation }))
+}
+
+/// GET /api/secrets/records/{id}/file — the reveal-file path (document
+/// kind ONLY): requires `secrets:edit` + the category gate (the same
+/// posture as field reveal), decrypts the object-store ciphertext, and
+/// emits `secret.revealed` in-commit with the read. The response is the
+/// sole carrier of the plaintext bytes.
+#[utoipa::path(operation_id = "secrets_records_get_file", get, path = "/api/secrets/records/{id}/file", tag = "secrets", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    responses((status = 200, content_type = "application/octet-stream"),
+              (status = 404, description = "record or object not found"),
+              (status = 403, description = "restricted category gate denied"),
+              (status = 409, description = "record has no stored file")))]
+pub async fn get_record_file(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<axum::response::Response> {
+    use axum::response::Response;
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, secrets(Action::Edit))?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+    let store = std::sync::Arc::clone(&state.store);
+
+    let unseal_key = state.config.secret_key;
+    let (plaintext, ct_sha256, content_len) =
+        org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+            let record = core_db::secret_vault::get_record(&mut ctx.tx, org_id, id)
+                .await
+                .map_err(|e| instant::mutation_scope_err(e.into()))?;
+            if record.kind != SecretRecordKind::Document {
+                return Err(ApiError::Validation(
+                    "file bytes belong on document-kind records".into(),
+                ));
+            }
+            let (object_key, file_sha256, file_bytes) = match (
+                record.object_key.as_deref(),
+                record.file_sha256.as_deref(),
+                record.file_bytes,
+            ) {
+                (Some(k), Some(h), Some(n)) => (k.to_string(), h.to_string(), n),
+                _ => return Err(ApiError::Conflict("record has no stored file".into())),
+            };
+            let role_ids: Vec<Uuid> = authed.roles.iter().map(|r| r.id).collect();
+            let allowed = core_db::secret_vault::folder_access(
+                &mut ctx.tx,
+                org_id,
+                &role_ids,
+                record.folder_id,
+                true,
+            )
+            .await
+            .map_err(ApiError::from)?;
+            if !allowed {
+                return Err(ApiError::Forbidden("category locked to your role".into()));
+            }
+            // Reveal event commits with the read (the provenance rail).
+            ctx.emit(
+                types::SECRET_REVEALED,
+                "secret_record",
+                Some(id.to_string().as_str()),
+                &typed_event(&core_domain::events::SecretRevealed {
+                    record_id: id,
+                    title: record.title.clone(),
+                }),
+            )
+            .await?;
+            let obj = store.get(&object_key).await.map_err(store_error_fn)?;
+            // Ciphertext is capped by the upload gate at PUT time; buffer
+            // for authenticated decryption, then hand the plaintext body.
+            let mut ciphertext: Vec<u8> = Vec::with_capacity(obj.size_bytes as usize);
+            use futures_util::StreamExt as _;
+            let mut stream = obj.stream;
+            while let Some(chunk) = stream.next().await {
+                ciphertext.extend_from_slice(&chunk.map_err(store_error_fn)?);
+            }
+            let plaintext = crypto::open_with_aad(&unseal_key, &ciphertext, &file_aad(org_id, id))
+                .map_err(|e| ApiError::Internal(anyhow::anyhow!("file unsealing failed: {e}")))?;
+            let _ = file_bytes;
+            let plaintext_len = i64::try_from(plaintext.len()).unwrap_or(i64::MAX);
+            Ok((ctx, (plaintext, file_sha256, plaintext_len)))
+        })
+        .await?;
+    let response = Response::builder()
+        .status(axum::http::StatusCode::OK)
+        .header(axum::http::header::CONTENT_TYPE, "application/octet-stream")
+        .header("x-file-sha256", ct_sha256)
+        .header(axum::http::header::CONTENT_LENGTH, content_len)
+        .body(axum::body::Body::from(plaintext))
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("response build failed: {e}")))?;
+    Ok(response)
+}
+
+fn store_error_fn(e: core_store::StoreError) -> ApiError {
+    crate::routes::attachments::store_error(e)
+}
+
+// ---------------------------------------------------------------------------
+// Chunked bulk-secret ingestion (A2, Wave 16 lane 9). The WORKER path for
+// one-shot migrations into the vault (e.g. exporting from a legacy
+// password manager): the caller drives chunk by chunk; each ROW commits
+// in its OWN transaction (per-row atomicity — a failed row never rolls
+// back the chunk) behind a stable per-row idempotency key. The checkpoint
+// story is therefore migration-free and exact: a resumed chunk replays
+// rows whose keys already committed (byte-identical, via the IF1 gate)
+// and only APPLIES the remaining ones. Pacing rides
+// `vault_bulk_rows_per_sec` (the rows/second ceiling between commits) and
+// every row consumes one seat of the org's A1 write budget.
+// ---------------------------------------------------------------------------
+
+/// Max records per bulk call — a chunk, never the whole job.
+const BULK_CHUNK_CAP: usize = 100;
+
+#[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
+pub struct BulkSecretRecord {
+    pub title: String,
+    #[serde(default)]
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Material fields — sealed with coordinate AAD before persistence.
+    #[serde(default)]
+    pub fields: Vec<SecretFieldValue>,
+    /// Stable per-row idempotency key — THE resume checkpoint. Generate
+    /// once per source row (e.g. the legacy row's stable id) and reuse it
+    /// verbatim on every chunk retry.
+    pub idempotency_key: String,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct BulkSecretIngestRequest {
+    /// NULL = org-scope records.
+    #[serde(default)]
+    pub client_id: Option<Uuid>,
+    pub folder_id: Uuid,
+    pub kind: SecretRecordKind,
+    /// The chunk: 1..=[`BULK_CHUNK_CAP`] rows.
+    pub records: Vec<BulkSecretRecord>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BulkRowOutcome {
+    /// Applied in this call.
+    Created,
+    /// The row's idempotency key had already committed an identical row
+    /// (a resumed chunk) — replayed, not re-applied.
+    Replayed,
+    /// The row was refused; see `reason`.
+    Refused,
+}
+
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct BulkRowResult {
+    pub idempotency_key: String,
+    pub outcome: BulkRowOutcome,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record_id: Option<Uuid>,
+    /// Typed refusal reason on `refused` rows (validation/unique/key
+    /// reuse); never carries secret material.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct BulkSecretIngestResponse {
+    pub results: Vec<BulkRowResult>,
+    /// Convenience counts for the driver loop.
+    pub created: i64,
+    pub replayed: i64,
+    pub refused: i64,
+    /// True when the caller should send another chunk (informational —
+    /// the driver knows its own queue; the row ceiling is the pacing
+    /// signal to stay under).
+    pub rows_per_sec_ceiling: i64,
+}
+
+/// POST /api/secrets/records/bulk — the chunked worker path.
+#[utoipa::path(operation_id = "secrets_records_bulk", post, path = "/api/secrets/records/bulk", tag = "secrets", security(("bearer" = [])),
+    request_body = BulkSecretIngestRequest,
+    responses((status = 200, body = BulkSecretIngestResponse),
+              (status = 403, description = "restricted category gate denied"),
+              (status = 422, description = "chunk over cap / validation error"),
+              (status = 429, description = "org write budget exhausted")))]
+pub async fn bulk_ingest(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Json(req): Json<BulkSecretIngestRequest>,
+) -> ApiResult<Json<BulkSecretIngestResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, secrets(Action::Edit))?;
+    check_vault_budget(&state, authed.principal.user.org_id)?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+    if req.records.is_empty() {
+        return Err(ApiError::Validation("chunk must not be empty".into()));
+    }
+    if req.records.len() > BULK_CHUNK_CAP {
+        return Err(ApiError::Validation(format!(
+            "chunk exceeds the {BULK_CHUNK_CAP}-row cap; send more chunks"
+        )));
+    }
+    for row in &req.records {
+        if row.title.trim().is_empty() {
+            return Err(ApiError::Validation("every row needs a title".into()));
+        }
+        if row.idempotency_key.trim().is_empty() {
+            return Err(ApiError::Validation(
+                "every row needs a stable idempotency_key".into(),
+            ));
+        }
+        if row
+            .fields
+            .iter()
+            .any(|f| !FIELD_KEYS.contains(&f.field_key.as_str()))
+        {
+            return Err(ApiError::Validation(format!(
+                "unknown field key (allowed: {})",
+                FIELD_KEYS.join(", ")
+            )));
+        }
+    }
+    // The CATEGORY edit gate ONCE before any row (restricted chains deny).
+    {
+        let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+        core_db::set_org_and_user(&mut tx, org_id, user_id)
+            .await
+            .map_err(ApiError::from)?;
+        let role_ids: Vec<Uuid> = authed.roles.iter().map(|r| r.id).collect();
+        let allowed =
+            core_db::secret_vault::folder_access(&mut tx, org_id, &role_ids, req.folder_id, true)
+                .await
+                .map_err(ApiError::from)?;
+        tx.commit().await.map_err(ApiError::from)?;
+        if !allowed {
+            return Err(ApiError::Forbidden(
+                "category locked to your role; request a grant to write here".into(),
+            ));
+        }
+    }
+    let key = state.config.secret_key;
+    let pace_ms = if state.config.vault_bulk_rows_per_sec == 0 {
+        0u64
+    } else {
+        1000u64
+            .saturating_div(u64::from(state.config.vault_bulk_rows_per_sec))
+            .max(1)
+    };
+    let mut results: Vec<BulkRowResult> = Vec::with_capacity(req.records.len());
+    for (idx, row) in req.records.iter().enumerate() {
+        // Pace between per-row commits (never after the last row).
+        if idx > 0 && pace_ms > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(pace_ms)).await;
+        }
+        let record_id = Uuid::now_v7();
+        let title = row.title.trim().to_string();
+        let entries: Vec<(String, String)> = row
+            .fields
+            .iter()
+            .map(|f| (f.field_key.clone(), f.value.clone()))
+            .collect();
+        // Seal BEFORE the tx (crypto failure = row refusal, never a write).
+        let sealed = match seal_fields(org_id, record_id, &key, &entries) {
+            Ok(s) => s,
+            Err(e) => {
+                results.push(BulkRowResult {
+                    idempotency_key: row.idempotency_key.clone(),
+                    outcome: BulkRowOutcome::Refused,
+                    record_id: None,
+                    reason: Some(format!("seal rejected: {e}")),
+                });
+                continue;
+            }
+        };
+        let fingerprint = serde_json::to_value(row).unwrap_or(serde_json::Value::Null);
+        let row_key = row.idempotency_key.clone();
+        let folder_id = req.folder_id;
+        let client_id = req.client_id;
+        let kind = req.kind;
+        let expires_at = row.expires_at;
+        let outcome: Result<(Option<Uuid>, BulkRowOutcome), ApiError> =
+            org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+                if let InstantClaim::Replay(stored) = instant::claim(
+                    &mut ctx,
+                    instant::ClaimSpec {
+                        entity: "secret_record",
+                        entity_id: None,
+                        key: Some(row_key.as_str()),
+                        fingerprint: &fingerprint,
+                    },
+                )
+                .await?
+                {
+                    // Surface the COMMITTED row's id so the driver can
+                    // correlate; the fresh probe id is discarded.
+                    let committed = stored
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| Uuid::parse_str(s).ok());
+                    return Ok((ctx, (committed, BulkRowOutcome::Replayed)));
+                }
+                let record = core_db::secret_vault::create_record(
+                    &mut ctx.tx,
+                    org_id,
+                    client_id,
+                    folder_id,
+                    record_id,
+                    kind,
+                    &title,
+                    expires_at,
+                    None,
+                    None,
+                    None,
+                    &sealed,
+                    user_id,
+                )
+                .await
+                .map_err(|e| match e {
+                    core_db::DbError::Conflict(msg) => ApiError::Conflict(msg),
+                    other => ApiError::from(other),
+                })?;
+                ctx.emit(
+                    types::SECRET_RECORD_CREATED,
+                    "secret_record",
+                    Some(record_id.to_string().as_str()),
+                    &typed_event(&core_domain::events::SecretRecordCreated {
+                        record_id,
+                        client_id,
+                        folder_id,
+                        title: title.clone(),
+                    }),
+                )
+                .await?;
+                let write_seq = instant::entity_seq(
+                    &mut ctx,
+                    instant::SeqSpec {
+                        entity: "secret_record",
+                        entity_id: record_id,
+                        version: None,
+                    },
+                )
+                .await?;
+                instant::record(
+                    &mut ctx,
+                    instant::RecordSpec {
+                        entity: "secret_record",
+                        entity_id: record_id,
+                        op: "create",
+                        seq: write_seq,
+                        before: None,
+                        after: serde_json::to_value(&record).unwrap_or(serde_json::Value::Null),
+                        updated_at: record.created_at,
+                        key: Some(row_key.as_str()),
+                        payload: &record,
+                        provenance: Default::default(),
+                    },
+                )
+                .await?;
+                Ok((ctx, (Some(record_id), BulkRowOutcome::Created)))
+            })
+            .await;
+        match outcome {
+            Ok((committed_id, row_outcome)) => results.push(BulkRowResult {
+                idempotency_key: row.idempotency_key.clone(),
+                outcome: row_outcome,
+                record_id: committed_id,
+                reason: None,
+            }),
+            Err(e) => results.push(BulkRowResult {
+                idempotency_key: row.idempotency_key.clone(),
+                outcome: BulkRowOutcome::Refused,
+                record_id: None,
+                reason: Some(e.to_string()),
+            }),
+        }
+    }
+    let created = i64::try_from(
+        results
+            .iter()
+            .filter(|r| r.outcome == BulkRowOutcome::Created)
+            .count(),
+    )
+    .unwrap_or(i64::MAX);
+    let replayed = i64::try_from(
+        results
+            .iter()
+            .filter(|r| r.outcome == BulkRowOutcome::Replayed)
+            .count(),
+    )
+    .unwrap_or(i64::MAX);
+    let refused = i64::try_from(
+        results
+            .iter()
+            .filter(|r| r.outcome == BulkRowOutcome::Refused)
+            .count(),
+    )
+    .unwrap_or(i64::MAX);
+    Ok(Json(BulkSecretIngestResponse {
+        rows_per_sec_ceiling: i64::from(state.config.vault_bulk_rows_per_sec),
+        results,
+        created,
+        replayed,
+        refused,
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -798,6 +1555,7 @@ pub async fn add_record_link(
 ) -> ApiResult<Json<Vec<ResolvedLink>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, secrets(Action::Edit))?;
+    check_vault_budget(&state, authed.principal.user.org_id)?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     let to_kind = LinkKind::parse(&req.to_kind)
@@ -912,6 +1670,7 @@ pub async fn set_grant(
 ) -> ApiResult<Json<SecretCategoryGrant>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, secrets(Action::Edit))?;
+    check_vault_budget(&state, authed.principal.user.org_id)?;
     if !authed.principal.is_owner_or_admin() {
         return Err(ApiError::Forbidden(
             "grant administration is Owner/Admin only".into(),
@@ -935,12 +1694,12 @@ pub async fn set_grant(
             types::SECRET_GRANT_UPDATED,
             "secret_grant",
             Some(grant.id.to_string().as_str()),
-            &serde_json::json!({
-                "grant_id": grant.id,
-                "role_id": req.role_id,
-                "folder_id": req.folder_id,
-                "can_read": grant.can_read,
-                "can_edit": grant.can_edit,
+            &typed_event(&core_domain::events::SecretGrantUpdated {
+                grant_id: grant.id,
+                role_id: req.role_id,
+                folder_id: req.folder_id,
+                can_read: grant.can_read,
+                can_edit: grant.can_edit,
             }),
         )
         .await?;
@@ -963,6 +1722,7 @@ pub async fn delete_grant(
 ) -> ApiResult<Json<serde_json::Value>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, secrets(Action::Edit))?;
+    check_vault_budget(&state, authed.principal.user.org_id)?;
     if !authed.principal.is_owner_or_admin() {
         return Err(ApiError::Forbidden(
             "grant administration is Owner/Admin only".into(),
@@ -978,7 +1738,10 @@ pub async fn delete_grant(
             types::SECRET_GRANT_DELETED,
             "secret_grant",
             Some(q.role_id.to_string().as_str()),
-            &serde_json::json!({ "role_id": q.role_id, "folder_id": q.folder_id }),
+            &typed_event(&core_domain::events::SecretGrantDeleted {
+                role_id: q.role_id,
+                folder_id: q.folder_id,
+            }),
         )
         .await?;
         Ok((ctx, ()))

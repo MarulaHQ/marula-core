@@ -415,10 +415,20 @@ async fn locked_after_invoicing_and_billing_reads_only_see_approved() {
         .await
         .unwrap();
     let today = chrono::Utc::now().date_naive();
+    // create_entry stamps entries at `now - 8h`; before 08:00 UTC the entry
+    // lands on YESTERDAY's date. The contract must already be effective on
+    // that date or the billing engine (correctly) clips the approved entry
+    // out of the preview — a midnight-crossing fixture flake, not an engine
+    // bug. Effective-from of today-1 guarantees the entry date always falls
+    // inside [effective_from, …] regardless of execution hour.
     sqlx::query(
         "INSERT INTO contracts (id, org_id, client_id, number, name, contract_type, status, currency, effective_from)
          VALUES ($1, $2, $3, 'C-LOCK-1', 'Lock contract', 'time_and_materials', 'active', 'USD', $4)",
     )
+    .bind(contract_id)
+    .bind(org_id)
+    .bind(client_id)
+    .bind(today - chrono::Duration::days(1))
     .bind(contract_id)
     .bind(org_id)
     .bind(client_id)
