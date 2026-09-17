@@ -227,6 +227,7 @@ async fn provenance_chain_should_survive_terminal_uninstall() {
         description: "d".into(),
         capabilities: vec!["tickets.read".into()],
         settings_schema: None,
+        artifact_kind: None,
     };
     let version = core_domain::entities::PluginVersion {
         id: fixed_uuid(6912),
@@ -333,6 +334,7 @@ async fn update_proposal_should_pin_the_old_version_until_consented() {
         description: String::new(),
         capabilities: vec!["tickets.read".into()],
         settings_schema: None,
+        artifact_kind: None,
     };
     let manifest_v2 = core_domain::entities::PluginManifestV2 {
         name: "Consent Plugin".into(),
@@ -342,8 +344,10 @@ async fn update_proposal_should_pin_the_old_version_until_consented() {
         capabilities: vec!["tickets.read".into(), "financial.read".into()],
         settings_schema: Some(serde_json::json!({
             "type": "object",
-            "properties": {"tone": {"type": "string"}}
+            "properties": {"tone": {"type": "string"}},
+            "required": ["tone"]
         })),
+        artifact_kind: None,
     };
     plugins::create_catalog_entry(
         &mut tx,
@@ -466,6 +470,7 @@ async fn install_settings_should_validate_against_the_manifest_schema() {
         description: String::new(),
         capabilities: vec!["tickets.read".into()],
         settings_schema: Some(schema),
+        artifact_kind: None,
     };
     let entry = core_domain::entities::PluginCatalogEntry {
         id: fixed_uuid(6931),

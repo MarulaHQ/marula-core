@@ -180,6 +180,44 @@ pub struct PluginManifestV2 {
     /// consent/enable/disable only. Additive to the v2 shape.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub settings_schema: Option<serde_json::Value>,
+    /// ADR 0009 §6 — the artifact GOVERNANCE profile the manifest
+    /// declares: WASM executables and HTTP connectors ship in one
+    /// lifecycle track but distinct tabs. Absent ⇒ `wasm` (the
+    /// declarative manifest/permission baseline every v1 manifest was
+    /// published as); connectors must DECLARE the kind. Additive to the
+    /// v2 shape; unknown keys reject at deserialization (closed
+    /// vocabulary).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_kind: Option<PluginRuntimeKind>,
+}
+
+/// The plugin-side artifact vocabulary for the roster tabs (WASM vs HTTP
+/// connector). Skills are NOT in this closed set — the skill half lives
+/// on `PluginArtifactKind::Skill` in the distribution seam (0079). Parse
+/// is strict: a manifest naming an ungovernable kind cannot exist.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum PluginRuntimeKind {
+    Wasm,
+    HttpConnector,
+}
+
+impl PluginRuntimeKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Wasm => "wasm",
+            Self::HttpConnector => "http_connector",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "wasm" => Some(Self::Wasm),
+            "http_connector" => Some(Self::HttpConnector),
+            _ => None,
+        }
+    }
 }
 
 impl PluginManifestV2 {
@@ -223,6 +261,14 @@ impl PluginManifestV2 {
             .iter()
             .filter_map(|k| PluginCapability::parse(k))
             .collect()
+    }
+
+    /// The governance profile this manifest declares (the roster-tab
+    /// discriminator). Absent ⇒ `Wasm` — the v1 manifest/permission
+    /// baseline every shipped entry was published as; only connectors
+    /// need to declare.
+    pub fn runtime_kind(&self) -> PluginRuntimeKind {
+        self.artifact_kind.unwrap_or(PluginRuntimeKind::Wasm)
     }
 }
 
@@ -913,6 +959,7 @@ mod tests {
             description: "Summarizes tickets".into(),
             capabilities: capabilities.iter().map(|s| s.to_string()).collect(),
             settings_schema: None,
+            artifact_kind: None,
         }
     }
 
@@ -961,5 +1008,40 @@ mod tests {
         }
         assert_eq!(PluginCapability::parse("special:manage_plugins"), None);
         assert_eq!(PluginCapability::parse("admin.plugins"), None);
+    }
+
+    /// The roster discriminator (lane-10, ADR 0009 §6): WASM is the
+    /// declared-or-default baseline, connectors must declare, unknown
+    /// keys reject at the deserialization boundary.
+    #[test]
+    fn runtime_kind_should_default_to_wasm_and_reject_unknown_keys() {
+        let json = serde_json::json!({
+            "name": "Collector HTTP",
+            "version": "0.9.0",
+            "interface_version": PLUGIN_RUNTIME_INTERFACE_VERSION,
+            "capabilities": ["tickets.read"],
+            "artifact_kind": "http_connector",
+        });
+        let manifest: PluginManifestV2 = serde_json::from_value(json).unwrap();
+        assert_eq!(manifest.runtime_kind(), PluginRuntimeKind::HttpConnector);
+        manifest.validate().expect("declared kind validates");
+
+        let no_kind = serde_json::json!({
+            "name": "Ticket Summarizer",
+            "version": "1.0.0",
+            "interface_version": PLUGIN_RUNTIME_INTERFACE_VERSION,
+            "capabilities": ["tickets.read"],
+        });
+        let manifest = serde_json::from_value::<PluginManifestV2>(no_kind).unwrap();
+        assert_eq!(manifest.runtime_kind(), PluginRuntimeKind::Wasm);
+
+        let bad = serde_json::json!({
+            "name": "Gadget",
+            "version": "1.0.0",
+            "interface_version": PLUGIN_RUNTIME_INTERFACE_VERSION,
+            "capabilities": [],
+            "artifact_kind": "ungoverned_widget",
+        });
+        assert!(serde_json::from_value::<PluginManifestV2>(bad).is_err());
     }
 }

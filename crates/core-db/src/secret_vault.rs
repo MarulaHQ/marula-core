@@ -50,7 +50,12 @@ pub const DEFAULT_FOLDERS: [(&str, &str, SecretFolderKind); 5] = [
 ];
 
 /// Plants the immutable default category tree for a NEW org (the same 5
-/// folders migration 0078 backfilled for orgs that already existed).
+/// folders migration 0078 backfilled for orgs that already existed), then
+/// seeds the ADR 0006 owner/admin category grants: the org owner/admin
+/// must never be locked out of their own vault (deny-by-default stays for
+/// every other role). Idempotent (`secret_grants_role_folder_key` ON
+/// CONFLICT DO NOTHING) — safe on a tree with no restricted chains yet
+/// and unconsumed when the backfill migration 0083 already ran.
 pub async fn seed_default_secret_folders(
     conn: &mut PgConnection,
     org_id: Uuid,
@@ -72,7 +77,41 @@ pub async fn seed_default_secret_folders(
         )
         .await?;
     }
+    seed_admin_grants_for_restricted_folders(conn, org_id, actor).await?;
     Ok(())
+}
+
+/// Upserts `can_read`+`can_edit` category grants on every RESTRICTED
+/// folder of the org for the org's Owner and Admin builtin roles (the
+/// lane-10 directive: deny-by-default for members, never a self-lockout
+/// for the vault's own owners). Called from the org-creation seed path
+/// AND the folder write boundary (create / restrict / fork) so a freshly
+/// restricted or forked chain immediately holds admin access. Idempotent
+/// by the `secret_grants_role_folder_key` unique — reruns no-op. Returns
+/// the number of rows newly inserted (0 on a rerun).
+pub async fn seed_admin_grants_for_restricted_folders(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    actor: Uuid,
+) -> DbResult<u64> {
+    let result = sqlx::query(
+        "INSERT INTO secret_category_grants
+           (id, org_id, role_id, folder_id, can_read, can_edit, created_by, updated_by)
+         SELECT gen_random_uuid(), f.org_id, r.id, f.id, true, true, $3, $3
+         FROM secret_folders f
+         JOIN roles r
+           ON r.org_id = f.org_id
+          AND r.builtin IN ('owner', 'admin')
+         WHERE f.org_id = $1 AND f.restricted
+         ON CONFLICT (role_id, folder_id) DO NOTHING",
+    )
+    .bind(org_id)
+    .bind(Uuid::now_v7())
+    .bind(actor)
+    .execute(&mut *conn)
+    .await
+    .map_err(|e| maybe_conflict(e, "restricted-category seed rejected"))?;
+    Ok(result.rows_affected())
 }
 
 fn folder_row(r: sqlx::postgres::PgRow) -> SecretFolder {

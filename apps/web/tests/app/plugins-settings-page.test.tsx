@@ -35,6 +35,7 @@ function installFixture(overrides: Record<string, unknown> = {}) {
     version: "1.0.0",
     status: "disabled",
     granted_capabilities: ["clients:read", "time:read"],
+    artifact_kind: "wasm",
     effective_permissions: [],
     installed_at: "2026-09-16T00:00:00Z",
     ...overrides,
@@ -214,6 +215,39 @@ describe("/settings/plugins integration", () => {
     await user.click(screen.getByTestId("expand-invoice-export"));
     await screen.findByText(/"default_bucket"/);
    expect(screen.getByText("Provenance chain")).toBeInTheDocument();
+    cleanup();
+  });
+
+  it("splits the roster into the artifact-kind tabs with typed empty states (no fake tabs)", async () => {
+    const mock = setupApi();
+    const user = userEvent.setup();
+    // Seed one HTTP-connector install alongside the WASM baseline.
+    installs.push(
+      installFixture({
+        id: "7a000000-0000-4000-8000-000000000001",
+        slug: "collector-http",
+        name: "Collector HTTP",
+        artifact_kind: "http_connector",
+      }),
+    );
+    render(
+      <AuthProvider>
+        <PluginsSettingsPage />
+      </AuthProvider>,
+    );
+    // WASM tab (default): the wasm install shows, the connector does not.
+    await screen.findByText("Invoice Export");
+    expect(screen.queryByText("Collector HTTP")).toBeNull();
+    // HTTP connectors tab: only the connector install.
+    await user.click(screen.getByTestId("tab-http-connectors"));
+    await screen.findByText("Collector HTTP");
+    expect(screen.queryByText("Invoice Export")).toBeNull();
+    // Removing the connector install from the fixture list types the empty.
+    installs.splice(1, 1);
+    await user.click(screen.getByTestId("tab-wasm"));
+    expect(screen.getByText("Invoice Export")).toBeInTheDocument();
+    await user.click(screen.getByTestId("tab-http-connectors"));
+    await screen.findByText(/No HTTP connectors installed yet/);
     cleanup();
   });
 

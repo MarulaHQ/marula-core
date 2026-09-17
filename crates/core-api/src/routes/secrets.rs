@@ -266,6 +266,17 @@ pub async fn create_folder(
             user_id,
         )
         .await?;
+        // A restricted chain is deny-by-default for EVERYONE — including
+        // the admin who just created it. Ensure the owner/admin grants
+        // land in the SAME transaction (never a self-lockout window).
+        if folder.restricted {
+            core_db::secret_vault::seed_admin_grants_for_restricted_folders(
+                &mut ctx.tx,
+                org_id,
+                user_id,
+            )
+            .await?;
+        }
         ctx.emit(
             types::SECRET_FOLDER_CREATED,
             "secret_folder",
@@ -304,6 +315,7 @@ pub async fn update_folder(
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     let folder = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        let before = core_db::secret_vault::get_folder(&mut *ctx.tx, org_id, id).await?;
         let folder = core_db::secret_vault::update_folder(
             &mut ctx.tx,
             org_id,
@@ -314,6 +326,17 @@ pub async fn update_folder(
             user_id,
         )
         .await?;
+        // Restricting a previously-open chain narrows it back to
+        // deny-by-default in the same transaction that restores owner/
+        // admin access (the seeding idempotently upserts the grants).
+        if !before.restricted && folder.restricted {
+            core_db::secret_vault::seed_admin_grants_for_restricted_folders(
+                &mut ctx.tx,
+                org_id,
+                user_id,
+            )
+            .await?;
+        }
         ctx.emit(
             types::SECRET_FOLDER_UPDATED,
             "secret_folder",
@@ -393,6 +416,17 @@ pub async fn fork_folder(
         let created =
             core_db::secret_vault::fork_folder(&mut ctx.tx, org_id, id, req.client_id, user_id)
                 .await?;
+        // A restricted source forks into a fresh row graph — the new
+        // chain's grant rows don't exist yet; seat owner/admin before
+        // the tx commits (same deny-by-default-with-admin posture).
+        if created.iter().any(|f| f.restricted) {
+            core_db::secret_vault::seed_admin_grants_for_restricted_folders(
+                &mut ctx.tx,
+                org_id,
+                user_id,
+            )
+            .await?;
+        }
         ctx.emit(
             types::SECRET_FOLDER_CREATED,
             "secret_folder",
