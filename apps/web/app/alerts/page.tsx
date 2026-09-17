@@ -1,13 +1,15 @@
-// /alerts — Alert sources admin & incident / alert viewer (Wave 11 lane 8).
+// /alerts — alert ingest sources + alert triage viewer (Wave 11 lane 8;
+// Wave 17 lane 6 triage pass).
 //
-// Purpose:
-//  - Source admin: list sources, create source (generating secret returned once),
-//    rotate secret (create replacement / update secret shown once), enable/disable toggle.
-//  - Alerts & incidents: browse ingested alerts, filter by source / incident ticket,
-//    severity badges, status tags, and drill-in link to ticket (/tickets/[id]).
+// Purpose: browse ingested alerts with severity facets + escalation
+// visibility (the incident ticket a storm collapsed into — or the honest
+// "unrouted" state), filterable by source and ticket; the sources admin
+// (create → secret shown exactly once, rotate posture per docs, enable/
+// disable optimistic).
 //
-// Instant-first: mutation envelope for idempotency, inline errors, typed empty states,
-// Workbench tokens, light+dark, <=120ms transitions.
+// Non-purpose: acknowledge/resolve flows are NOT in the API shape
+// (AlertView carries no ack/status fields) — the surface renders what the
+// contract exposes and the flow rides the incident tickets themselves.
 "use client";
 
 import {
@@ -35,25 +37,31 @@ import {
 } from "@meridian/ui";
 import type { components } from "@meridian/sdk";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, useRequireAuth } from "../../lib/api";
+import { rejectionText } from "../../lib/error-copy";
 
 type AlertSourceView = components["schemas"]["AlertSourceView"];
 type AlertView = components["schemas"]["AlertView"];
 type BoardNavEntry = components["schemas"]["BoardNavEntry"];
 type AlertSeverity = components["schemas"]["AlertSeverity"];
 
-function severityTone(severity: AlertSeverity): "danger" | "warning" | "neutral" {
-  switch (severity) {
-    case "critical":
-      return "danger";
-    case "warning":
-      return "warning";
-    case "info":
-      return "neutral";
-    default:
-      return "neutral";
-  }
+const SEVERITIES: AlertSeverity[] = ["critical", "warning", "info"];
+
+const SEVERITY_TONE: Record<string, "danger" | "warning" | "neutral"> = {
+  critical: "danger",
+  warning: "warning",
+  info: "neutral",
+};
+
+const SEVERITY_FILTERS = ["all", "critical", "warning", "info", "escalated", "unrouted"] as const;
+type SeverityFilter = (typeof SEVERITY_FILTERS)[number];
+
+function matchesFilter(alert: AlertView, filter: SeverityFilter): boolean {
+  if (filter === "all") return true;
+  if (filter === "escalated") return alert.incident_ticket_id !== null && alert.incident_ticket_id !== undefined;
+  if (filter === "unrouted") return alert.incident_ticket_id === null || alert.incident_ticket_id === undefined;
+  return alert.severity === filter;
 }
 
 export default function AlertsPage() {
@@ -83,33 +91,34 @@ export default function AlertsPage() {
     sourceRef: string;
   } | null>(null);
 
-  // Alerts browse state
+  // Alerts triage state
   const [alerts, setAlerts] = useState<AlertView[] | null>(null);
   const [loadingAlerts, setLoadingAlerts] = useState(false);
   const [alertsError, setAlertsError] = useState<string | null>(null);
   const [filterSourceId, setFilterSourceId] = useState<string>("");
   const [filterTicketId, setFilterTicketId] = useState<string>("");
+  const [severityFilter, setSeverityFilter] = useState<SeverityFilter>("all");
+  const [sourceById, setSourceById] = useState<Map<string, AlertSourceView>>(new Map());
 
   const refreshBoards = useCallback(async () => {
     const { data } = await api.api.GET("/api/v1/boards/nav");
-    if (data) {
+    if (data !== undefined) {
       setBoards(data);
-      if (!selectedBoardId && data.length > 0) {
-        setSelectedBoardId(data[0]!.id);
-      }
+      if (data.length > 0) setSelectedBoardId((cur) => (cur === "" ? data[0]!.id : cur));
     }
-  }, [selectedBoardId]);
+  }, []);
 
   const refreshSources = useCallback(async () => {
     setLoadingSources(true);
     setSourcesError(null);
     const { data, error } = await api.api.GET("/api/v1/alert-sources");
     setLoadingSources(false);
-    if (error !== undefined || !data) {
+    if (error !== undefined || data === undefined) {
       setSourcesError("Failed to load alert sources.");
       return;
     }
     setSources(data.sources);
+    setSourceById(new Map(data.sources.map((s) => [s.id, s])));
   }, []);
 
   const refreshAlerts = useCallback(async () => {
@@ -118,15 +127,15 @@ export default function AlertsPage() {
     const { data, error } = await api.api.GET("/api/v1/alerts", {
       params: {
         query: {
-          source_id: filterSourceId ? filterSourceId : undefined,
-          ticket_id: filterTicketId ? filterTicketId : undefined,
+          source_id: filterSourceId === "" ? null : filterSourceId,
+          ticket_id: filterTicketId.trim() === "" ? null : filterTicketId.trim(),
           limit: 100,
         },
       },
     });
     setLoadingAlerts(false);
-    if (error !== undefined || !data) {
-      setAlertsError("Failed to load alerts.");
+    if (error !== undefined || data === undefined) {
+      setAlertsError(rejectionText(error as never, "Failed to load alerts."));
       return;
     }
     setAlerts(data.alerts);
@@ -141,38 +150,34 @@ export default function AlertsPage() {
   }, [auth.status, refreshBoards, refreshSources, refreshAlerts]);
 
   const handleCreateSource = async () => {
-    if (!sourceName.trim() || !selectedBoardId) return;
+    if (sourceName.trim() === "" || selectedBoardId === "") return;
     setCreating(true);
     setCreateError(null);
-    const win = parseInt(windowSecs, 10) || 900;
-    const idempotencyKey =
-      typeof crypto !== "undefined" && crypto.randomUUID
-        ? crypto.randomUUID()
-        : `alsrc-${Date.now()}`;
-
+    const win = Number.parseInt(windowSecs, 10) || 900;
     const { data, error } = await api.api.POST("/api/v1/alert-sources", {
       body: {
         name: sourceName.trim(),
-        source_ref: sourceRef.trim() ? sourceRef.trim() : undefined,
+        source_ref: sourceRef.trim() === "" ? undefined : sourceRef.trim(),
         board_id: selectedBoardId,
         correlation_window_secs: win,
-        idempotency_key: idempotencyKey,
+        idempotency_key:
+          typeof crypto !== "undefined" && crypto.randomUUID !== undefined
+            ? crypto.randomUUID()
+            : `alsrc-${Date.now()}`,
       },
     });
     setCreating(false);
-    if (error !== undefined || !data) {
-      setCreateError("Failed to create alert source. Please verify inputs.");
+    if (error !== undefined || data === undefined) {
+      setCreateError(rejectionText(error as never, "Failed to create the alert source. Verify the inputs."));
       return;
     }
-
-    if (data.secret) {
+    if (data.secret !== undefined && data.secret !== null) {
       setRevealedSecret({
         name: data.name,
         secret: data.secret,
         sourceRef: data.source_ref,
       });
     }
-
     setCreateOpen(false);
     setSourceName("");
     setSourceRef("");
@@ -181,63 +186,85 @@ export default function AlertsPage() {
   };
 
   const handleToggleSource = async (source: AlertSourceView) => {
-    const idempotencyKey =
-      typeof crypto !== "undefined" && crypto.randomUUID
-        ? crypto.randomUUID()
-        : `alsrc-patch-${Date.now()}`;
-
-    await api.api.PATCH("/api/v1/alert-sources/{id}", {
+    setSources((cur) =>
+      (cur ?? []).map((s) => (s.id === source.id ? { ...s, enabled: !s.enabled } : s)),
+    );
+    const { error } = await api.api.PATCH("/api/v1/alert-sources/{id}", {
       params: { path: { id: source.id } },
       body: {
         enabled: !source.enabled,
-        idempotency_key: idempotencyKey,
+        idempotency_key:
+          typeof crypto !== "undefined" && crypto.randomUUID !== undefined
+            ? crypto.randomUUID()
+            : `alsrc-patch-${Date.now()}`,
       },
     });
+    if (error !== undefined) {
+      setSources((cur) =>
+        (cur ?? []).map((s) => (s.id === source.id ? { ...s, enabled: source.enabled } : s)),
+      );
+      setSourcesError(rejectionText(error as never, "The enable toggle was rejected."));
+      return;
+    }
     void refreshSources();
   };
+
+  const filteredAlerts = useMemo(
+    () => (alerts ?? []).filter((a) => matchesFilter(a, severityFilter)),
+    [alerts, severityFilter],
+  );
+
+  const counts = useMemo(() => {
+    const all = { all: 0, escalated: 0, unrouted: 0 };
+    const bySeverity: Record<string, number> = { critical: 0, warning: 0, info: 0 };
+    for (const a of alerts ?? []) {
+      all.all += 1;
+      bySeverity[a.severity] = (bySeverity[a.severity] ?? 0) + 1;
+      if (a.incident_ticket_id !== null && a.incident_ticket_id !== undefined) all.escalated += 1;
+      else all.unrouted += 1;
+    }
+    return { ...all, ...bySeverity };
+  }, [alerts]);
 
   if (auth.status !== "authed") return null;
 
   return (
-    <div className="grid gap-6 max-w-5xl mx-auto p-6">
+    <div className="mx-auto grid w-full max-w-[1100px] gap-6 p-4 md:p-6">
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-lg font-semibold" style={{ color: "var(--m-text)" }}>
-            Alerts & Ingest Sources
-          </h1>
+          <h1 className="text-lg font-semibold">Alerts</h1>
           <p className="mt-1 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            HMAC-signed machine-to-machine alert ingest, storm correlation into incident tickets, and source administration.
+            HMAC-signed machine-to-machine ingest, storm correlation into incident tickets, and source administration.
           </p>
         </div>
-
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2" role="group" aria-label="View">
           <Button
             variant={tab === "alerts" ? "primary" : "secondary"}
             onClick={() => setTab("alerts")}
           >
-            Alerts Feed
+            Alert feed
           </Button>
           <Button
             variant={tab === "sources" ? "primary" : "secondary"}
             onClick={() => setTab("sources")}
           >
-            Alert Sources
+            Sources
           </Button>
         </div>
       </header>
 
-      {/* Secret Shown Once Banner */}
-      {revealedSecret !== null && (
+      {/* Secret shown exactly once */}
+      {revealedSecret !== null ? (
         <Card>
-          <div className="p-4 grid gap-2" style={{ borderLeft: "4px solid var(--m-accent)" }}>
-            <Label className="font-semibold text-sm">
-              HMAC Signing Secret for “{revealedSecret.name}”
+          <div className="grid gap-2 p-4" style={{ borderLeft: "4px solid var(--m-accent)" }}>
+            <Label className="text-sm font-semibold">
+              HMAC signing secret for “{revealedSecret.name}”
             </Label>
             <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-              Ingest endpoint: <code className="px-1 py-0.5 rounded bg-black/10 dark:bg-white/10">/api/v1/alerts/ingest/{revealedSecret.sourceRef}</code>
+              Ingest endpoint: <code className="rounded bg-black/10 px-1 py-0.5 dark:bg-white/10">/api/v1/alerts/ingest/{revealedSecret.sourceRef}</code>
             </p>
             <code
-              className="text-[12px] font-mono break-all rounded-[2px] p-2 select-all"
+              className="select-all rounded-md p-2 font-mono text-[12px] break-all"
               style={{
                 background: "var(--m-surface)",
                 color: "var(--m-text)",
@@ -247,7 +274,9 @@ export default function AlertsPage() {
               {revealedSecret.secret}
             </code>
             <FieldHint>
-              Copy this secret now. It is encrypted in storage and will NEVER be shown again. Sign HTTP payloads using hex HMAC-SHA256 in the <code className="text-[11px]">X-Meridian-Signature</code> header.
+              Copy this secret now. It is encrypted in storage and will NEVER be
+              shown again. Sign HTTP payloads with hex HMAC-SHA256 in the{" "}
+              <code className="text-[11px]">X-Meridian-Signature</code> header.
             </FieldHint>
             <div className="mt-1">
               <Button variant="ghost" size="sm" onClick={() => setRevealedSecret(null)}>
@@ -256,21 +285,24 @@ export default function AlertsPage() {
             </div>
           </div>
         </Card>
-      )}
+      ) : null}
 
-      {tab === "alerts" && (
+      {tab === "alerts" ? (
         <div className="grid gap-4">
           <Card className="p-4">
             <div className="flex flex-wrap items-end gap-3">
               <div className="w-56">
-                <Label htmlFor="filter-source">Filter by Source</Label>
-                <Select value={filterSourceId} onValueChange={(v) => setFilterSourceId(v)}>
+                <Label htmlFor="filter-source">Source</Label>
+                <Select
+                  value={filterSourceId || "all"}
+                  onValueChange={(v) => setFilterSourceId(v === "all" ? "" : v)}
+                >
                   <SelectTrigger id="filter-source" className="w-full">
                     <SelectValue placeholder="All sources" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">All sources</SelectItem>
-                    {sources?.map((s) => (
+                    <SelectItem value="all">All sources</SelectItem>
+                    {(sources ?? []).map((s) => (
                       <SelectItem key={s.id} value={s.id}>
                         {s.name}
                       </SelectItem>
@@ -279,8 +311,8 @@ export default function AlertsPage() {
                 </Select>
               </div>
 
-              <div className="w-64">
-                <Label htmlFor="filter-ticket">Ticket ID</Label>
+              <div className="w-56">
+                <Label htmlFor="filter-ticket">Incident ticket id</Label>
                 <Input
                   id="filter-ticket"
                   placeholder="UUID or leave blank"
@@ -288,68 +320,102 @@ export default function AlertsPage() {
                   onChange={(e) => setFilterTicketId(e.target.value)}
                 />
               </div>
-
-              <Button variant="secondary" onClick={() => void refreshAlerts()}>
-                Filter
-              </Button>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-1" role="group" aria-label="Severity facets">
+              {SEVERITY_FILTERS.map((f) => {
+                const count =
+                  f === "all"
+                    ? counts.all
+                    : f === "unrouted"
+                      ? counts.unrouted
+                      : f === "escalated"
+                        ? counts.escalated
+                        : (bySeverityKey(counts, f as AlertSeverity));
+                const active = severityFilter === f;
+                return (
+                  <button
+                    key={f}
+                    className="rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-opacity duration-100 hover:opacity-80"
+                    style={{
+                      borderColor: active ? "var(--m-accent)" : "var(--m-border)",
+                      background: active ? "var(--m-accent)" : "transparent",
+                      color: active ? "var(--m-background)" : "var(--m-text-secondary)",
+                    }}
+                    aria-pressed={active}
+                    onClick={() => setSeverityFilter(f)}
+                  >
+                    {f}{" "}
+                    <span className="tabular-nums" style={{ opacity: 0.8 }}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </Card>
 
-          {alertsError && (
+          {alertsError !== null ? (
             <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
               {alertsError}
             </p>
-          )}
+          ) : null}
 
           <Card className="overflow-x-auto">
             {loadingAlerts ? (
-              <div className="p-6 flex justify-center">
+              <div className="flex justify-center p-6">
                 <Spinner />
               </div>
-            ) : alerts === null || alerts.length === 0 ? (
+            ) : filteredAlerts.length === 0 ? (
               <div className="p-6">
-                <EmptyState message="No alerts received yet. Incoming webhook alerts from your configured sources will appear here." />
+                <EmptyState
+                  message={
+                    alerts !== null && alerts.length > 0
+                      ? "No alerts match this facet — widen the severity filter."
+                      : "No alerts received yet. Inbound webhook alerts from your configured sources appear here."
+                  }
+                />
               </div>
             ) : (
               <Table>
                 <thead>
                   <tr>
                     <Th>Severity</Th>
-                    <Th>Title / Dedup Key</Th>
-                    <Th>Correlation Key</Th>
-                    <Th>Incident Ticket</Th>
-                    <Th>Timestamp</Th>
+                    <Th>Alert</Th>
+                    <Th>Source</Th>
+                    <Th>Escalation</Th>
+                    <Th>Received</Th>
                   </tr>
                 </thead>
                 <tbody>
-                  {alerts.map((a) => (
+                  {filteredAlerts.map((a) => (
                     <Tr key={a.id}>
                       <Td>
-                        <Tag tone={severityTone(a.severity as AlertSeverity)}>{a.severity}</Tag>
+                        <Tag tone={SEVERITY_TONE[a.severity] ?? "neutral"}>{a.severity}</Tag>
                       </Td>
                       <Td>
-                        <div className="font-medium text-[13px]">{a.title}</div>
+                        <div className="text-[13px] font-medium">{a.title}</div>
                         <div className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
-                          dedup: {a.dedup_key}
+                          dedup {a.dedup_key} · corr {a.correlation_key}
                         </div>
                       </Td>
+                      <Td className="text-[12px]">{sourceById.get(a.source_id)?.name ?? a.source_id.slice(0, 8)}</Td>
                       <Td>
-                        <code className="text-[12px] font-mono">{a.correlation_key}</code>
-                      </Td>
-                      <Td>
-                        {a.incident_ticket_id ? (
-                          <Link
-                            href={`/tickets/${a.incident_ticket_id}`}
-                            className="text-[13px] font-medium underline decoration-[var(--m-border)] underline-offset-2 hover:text-[var(--m-accent)]"
-                          >
-                            Ticket #{a.incident_ticket_id.slice(0, 8)}
-                          </Link>
+                        {a.incident_ticket_id !== null && a.incident_ticket_id !== undefined ? (
+                          <div className="flex items-center gap-2">
+                            <Tag tone="success">escalated</Tag>
+                            <Link
+                              href={`/tickets/${a.incident_ticket_id}`}
+                              className="text-[13px] font-medium underline decoration-[var(--m-border)] underline-offset-2 hover:text-[var(--m-accent)]"
+                            >
+                              Ticket #{a.incident_ticket_id.slice(0, 8)}
+                            </Link>
+                          </div>
                         ) : (
-                          <span style={{ color: "var(--m-text-muted)" }}>—</span>
+                          <Tag tone="neutral">unrouted</Tag>
                         )}
                       </Td>
-                      <Td className="text-[12px] whitespace-nowrap" style={{ color: "var(--m-text-secondary)" }}>
-                        {new Date(a.received_at).toLocaleString()}
+                      <Td className="whitespace-nowrap text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+                        {relativeTime(a.received_at)}
                       </Td>
                     </Tr>
                   ))}
@@ -358,17 +424,25 @@ export default function AlertsPage() {
             )}
           </Card>
         </div>
-      )}
+      ) : null}
 
-      {tab === "sources" && (
+      {tab === "sources" ? (
         <div className="grid gap-4">
-          <div className="flex justify-between items-center">
-            <h2 className="text-sm font-semibold">Configured Sources</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold">Configured sources</h2>
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               <DialogTrigger asChild>
-                <Button>Create alert source</Button>
+                <Button
+                  onClick={() => {
+                    setSourceName("");
+                    setSourceRef("");
+                    setWindowSecs("900");
+                  }}
+                >
+                  New source
+                </Button>
               </DialogTrigger>
-              <DialogContent title="Create Alert Ingest Source">
+              <DialogContent title="New alert ingest source">
                 <div className="grid gap-3 p-4">
                   <div>
                     <Label htmlFor="as-name">Source name</Label>
@@ -382,21 +456,21 @@ export default function AlertsPage() {
                   </div>
 
                   <div>
-                    <Label htmlFor="as-ref">Routing reference (slug)</Label>
+                    <Label htmlFor="as-ref">Routing reference</Label>
                     <Input
                       id="as-ref"
-                      placeholder="Optional: 3-64 chars [a-z0-9-]"
+                      placeholder="3–64 chars [a-z0-9-] · auto-generated if blank"
                       value={sourceRef}
                       onChange={(e) => setSourceRef(e.target.value)}
                     />
-                    <FieldHint>Used in the webhook ingest URL path. Auto-generated if blank.</FieldHint>
+                    <FieldHint>Path segment of the webhook ingest URL.</FieldHint>
                   </div>
 
                   <div>
-                    <Label htmlFor="as-board">Target Incident Board</Label>
+                    <Label htmlFor="as-board">Target incident board</Label>
                     <Select value={selectedBoardId} onValueChange={setSelectedBoardId}>
                       <SelectTrigger id="as-board" className="w-full">
-                        <SelectValue placeholder="Pick target board" />
+                        <SelectValue placeholder="Pick the incident board" />
                       </SelectTrigger>
                       <SelectContent>
                         {boards.map((b) => (
@@ -406,10 +480,11 @@ export default function AlertsPage() {
                         ))}
                       </SelectContent>
                     </Select>
+                    <FieldHint>Alert storms open tickets here.</FieldHint>
                   </div>
 
                   <div>
-                    <Label htmlFor="as-window">Correlation Window (seconds)</Label>
+                    <Label htmlFor="as-window">Correlation window (seconds)</Label>
                     <Input
                       id="as-window"
                       type="number"
@@ -418,21 +493,24 @@ export default function AlertsPage() {
                       value={windowSecs}
                       onChange={(e) => setWindowSecs(e.target.value)}
                     />
-                    <FieldHint>Alert storm deduplication window (10 - 86,400s; default 900s = 15m).</FieldHint>
+                    <FieldHint>Storm dedup window (10–86,400s; default 900s = 15 min).</FieldHint>
                   </div>
 
-                  {createError && (
+                  {createError !== null ? (
                     <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
                       {createError}
                     </p>
-                  )}
+                  ) : null}
 
                   <DialogActions>
                     <Button variant="ghost" onClick={() => setCreateOpen(false)}>
                       Cancel
                     </Button>
-                    <Button onClick={() => void handleCreateSource()} disabled={creating || !sourceName.trim()}>
-                      {creating ? <Spinner /> : null} Save Source
+                    <Button
+                      onClick={() => void handleCreateSource()}
+                      disabled={creating || sourceName.trim() === "" || selectedBoardId === ""}
+                    >
+                      {creating ? <Spinner /> : null} Create source
                     </Button>
                   </DialogActions>
                 </div>
@@ -440,53 +518,54 @@ export default function AlertsPage() {
             </Dialog>
           </div>
 
-          {sourcesError && (
+          {sourcesError !== null ? (
             <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
               {sourcesError}
             </p>
-          )}
+          ) : null}
 
           <Card className="overflow-x-auto">
             {loadingSources ? (
-              <div className="p-6 flex justify-center">
+              <div className="flex justify-center p-6">
                 <Spinner />
               </div>
             ) : sources === null || sources.length === 0 ? (
               <div className="p-6">
-                <EmptyState message="No alert sources configured yet. Create a source to receive automated alerts." />
+                <EmptyState message="No ingest sources yet. Create one to receive webhook alerts." />
               </div>
             ) : (
               <Table>
                 <thead>
                   <tr>
                     <Th>Name</Th>
-                    <Th>Ingest Ref</Th>
-                    <Th>Storm Window</Th>
+                    <Th>Ingest URL</Th>
+                    <Th>Storm window</Th>
                     <Th>Status</Th>
                     <Th className="text-right">Action</Th>
                   </tr>
                 </thead>
                 <tbody>
-                  {sources.map((s) => (
+                  {(sources ?? []).map((s) => (
                     <Tr key={s.id}>
-                      <Td className="font-medium text-[13px]">{s.name}</Td>
+                      <Td className="text-[13px] font-medium">{s.name}</Td>
                       <Td>
-                        <code className="text-[12px] font-mono px-1 py-0.5 rounded bg-black/5 dark:bg-white/5">
-                          {s.source_ref}
+                        <code
+                          className="cursor-pointer rounded px-1 py-0.5 font-mono text-[12px]"
+                          style={{ background: "color-mix(in srgb, var(--m-accent) 8%, transparent)" }}
+                          title="Click to copy the ingest path"
+                          onClick={() => void navigator.clipboard?.writeText(`/api/v1/alerts/ingest/${s.source_ref}`)}
+                        >
+                          /api/v1/alerts/ingest/{s.source_ref}
                         </code>
                       </Td>
-                      <Td className="text-[12px]">{s.correlation_window_secs}s</Td>
+                      <Td className="text-[12px] tabular-nums">{s.correlation_window_secs}s</Td>
                       <Td>
                         <Tag tone={s.enabled ? "success" : "neutral"}>
-                          {s.enabled ? "Enabled" : "Disabled"}
+                          {s.enabled ? "enabled" : "disabled"}
                         </Tag>
                       </Td>
                       <Td className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => void handleToggleSource(s)}
-                        >
+                        <Button variant="ghost" size="sm" onClick={() => void handleToggleSource(s)}>
                           {s.enabled ? "Disable" : "Enable"}
                         </Button>
                       </Td>
@@ -497,7 +576,27 @@ export default function AlertsPage() {
             )}
           </Card>
         </div>
-      )}
+      ) : null}
     </div>
   );
+}
+
+function relativeTime(iso: string): string {
+  const at = new Date(iso).getTime();
+  const deltaMs = Date.now() - at;
+  if (Number.isNaN(at)) return iso;
+  const mins = Math.round(deltaMs / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+/** Severity counts land in the merged record; read them defensively. */
+function bySeverityKey(
+  counts: { all: number; escalated: number; unrouted: number } & Partial<Record<AlertSeverity, number>>,
+  severity: AlertSeverity,
+): number {
+  return counts[severity] ?? 0;
 }
