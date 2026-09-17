@@ -598,10 +598,14 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
                     org_id: su(0),
                     ticket_id: su(1),
                     author_id: Some(su(5)),
+                    // (Wave 17 lane 11) user-written fixture note: no
+                    // machine provenance — workflow_meta stays unset.
+
                     kind: NoteKind::Internal,
                     body: "Routed through on-call.".into(),
                     created_at: st(3),
                     updated_at: None,
+                    workflow_meta: None,
                 },
                 mentioned_user_ids: vec![su(7)],
             }

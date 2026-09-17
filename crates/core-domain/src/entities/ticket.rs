@@ -82,6 +82,14 @@ pub struct TicketComment {
     pub body: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: Option<DateTime<Utc>>,
+    /// Server-composed workflow-note provenance (Wave 17 lane 11,
+    /// migration 0080): `{kind, auto, item_ids}` on notes the server
+    /// appended for task-state transitions; NULL/unsent for every
+    /// user-written note. Machine marking lives HERE, never in body text
+    /// (spoofable, unqueryable). Additive-only contract: absent keys
+    /// deserialize to None.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow_meta: Option<serde_json::Value>,
 }
 
 /// One line of a ticket's pre-close checklist. Items instantiated from the

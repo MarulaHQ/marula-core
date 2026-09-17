@@ -15,6 +15,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { uploadAttachment } from "../../lib/api";
+import { NoteComposer } from "../notes/note-composer";
 import type { NoteKindWire } from "../ticket-workspace/notes-composer";
 
 const INTENTS: { value: NoteKindWire; label: string }[] = [
@@ -40,7 +41,7 @@ export interface WbComposerProps {
   busy: boolean;
   /** Agent-panel draft insertion target. */
   draftRef: { current: string | null };
-  onPost(body: string, kind: NoteKindWire, attachmentIds: string[]): Promise<void>;
+  onPost(body: string, kind: NoteKindWire, attachmentIds: string[], draftKey?: string | null): Promise<void>;
 }
 
 export function WbComposer({ ticketId, disabled, busy, draftRef, onPost }: WbComposerProps): ReactNode {
@@ -51,7 +52,7 @@ export function WbComposer({ ticketId, disabled, busy, draftRef, onPost }: WbCom
   const [toolNote, setToolNote] = useState<string | null>(null);
   const [dictating, setDictating] = useState(false);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
-  const areaRef = useRef<HTMLTextAreaElement | null>(null);
+  const composerRef = useRef<{ focus(): void; draftKey(): string | null } | null>(null);
 
   // AI Assist: the agent panel drops its draft here through the shared ref.
   useEffect(() => {
@@ -59,21 +60,23 @@ export function WbComposer({ ticketId, disabled, busy, draftRef, onPost }: WbCom
       if (draftRef.current !== null) {
         setDraft((prev) => (prev === "" ? (draftRef.current ?? "") : `${prev}\n\n${draftRef.current ?? ""}`));
         draftRef.current = null;
-        areaRef.current?.focus();
+        composerRef.current?.focus();
       }
     }, 200);
     return () => window.clearInterval(tick);
   }, [draftRef]);
 
-  async function post(): Promise<void> {
-    const body = draft.trim();
+  async function post(formattedBody: string): Promise<void> {
+    const body = formattedBody.trim();
     if (body === "" || busy) return;
     try {
       const uploaded: string[] = [];
       for (const file of staged) {
         uploaded.push((await uploadAttachment(ticketId, file)).id);
       }
-      await onPost(body, intent, uploaded);
+      // The autosave claim key rides the envelope so the committed
+      // comment clears this surface's draft row (delete-on-submit, §5.2).
+      await onPost(body, intent, uploaded, composerRef.current?.draftKey() ?? null);
       setDraft("");
       setStaged([]);
       setToolNote(null);
@@ -178,22 +181,20 @@ export function WbComposer({ ticketId, disabled, busy, draftRef, onPost }: WbCom
             </span>
           )}
         </div>
-        <textarea
-          ref={areaRef}
+        {/* The SHARED note composer entry (docs/notes-tasks-workbar.md
+            rule §0.1): one keyboard contract (Enter=new line, ⌘↵=submit),
+            format-on-submit, IF2 draft autosave, paste-plain, Tidy. */}
+        <NoteComposer
+          ref={composerRef as React.Ref<{ focus(): void; draftKey(): string | null } | null>}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              void post();
-            }
-          }}
-          disabled={disabled}
+          onChange={(v) => setDraft(v)}
+          onSubmit={(body) => post(body)}
+          autosaveTicketId={disabled ? null : ticketId}
           placeholder="Add a note, update, or ask a question…"
-          aria-label="Compose a ticket note"
-          data-testid="notes-composer-body"
-          className="block min-h-[58px] w-full resize-none border-0 bg-transparent px-3 py-2.5 text-[12.5px] outline-none"
-          style={{ color: "var(--m-text)" }}
+          ariaLabel="Compose a ticket note"
+          testPrefix="notes-composer"
+          busy={busy}
+          showHints={false}
         />
         <div className="flex items-center gap-3.5 px-2.5 py-1.5">
           <label className="m-wb-tool flex cursor-pointer items-center gap-1 text-[10.5px]" style={{ color: "var(--m-text-muted)" }} title="Attach files">
@@ -247,7 +248,7 @@ export function WbComposer({ ticketId, disabled, busy, draftRef, onPost }: WbCom
             type="button"
             data-testid="note-post"
             disabled={busy || disabled || draft.trim() === ""}
-            onClick={() => void post()}
+            onClick={() => void post(draft)}
             className="flex h-[27px] cursor-pointer items-center gap-1.5 rounded-md border px-3 text-[11px] font-bold"
             style={{
               borderColor: "var(--m-accent)",

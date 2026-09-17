@@ -7445,6 +7445,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tickets/{id}/checklist/complete-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/tickets/{id}/checklist/complete-all — the close gate's Option
+         *     A batch (docs/notes-tasks-workbar.md §4.2/§5.3): every listed task flips
+         *     to `checked` AND lands its server-composed auto-append note, ALL in one
+         *     transaction with per-item idempotency keys (`complete-all:{ticket}:{item}`-
+         *     derived under the caller's envelope key). Items already terminal
+         *     (checked/N-A) are skipped idempotently; an unknown id 404s the whole
+         *     batch (atomicity). Every appended note carries
+         *     `workflow_meta { kind: "task_closeall", auto: true, item_ids: [..] }` —
+         *     the REPORTED auto-close provenance the close-gate dialog displays.
+         *     Also usable pre-close, not only at the gate.
+         */
+        post: operations["tickets_complete_all_checklist"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tickets/{id}/checklist/{item_id}": {
         parameters: {
             query?: never;
@@ -7705,6 +7733,60 @@ export interface paths {
          *     first (IF1/IF2): idempotency-keyed, version-gated, read-your-write.
          */
         post: operations["tickets_move_board"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{id}/note-draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/tickets/{id}/note-draft — restores the caller's autosaved
+         *     composer draft (IF2, §5.2). Typed absence (200 with `draft: null`),
+         *     never a 404: an absent draft is a normal first-open state, not a miss.
+         */
+        get: operations["tickets_get_note_draft"];
+        /**
+         * PUT /api/tickets/{id}/note-draft — debounced autosave of the workbar
+         *     composer draft (NOT a comment; never renders on any ledger). Fresh
+         *     drafts ride the IF idempotency-keyed write path and opportunistically
+         *     purge 30-day-stale rows.
+         */
+        put: operations["tickets_put_note_draft"];
+        post?: never;
+        /** DELETE /api/tickets/{id}/note-draft — explicit draft discard. */
+        delete: operations["tickets_delete_note_draft"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{id}/notes/refine": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/tickets/{id}/notes/refine — Tier-2 grammar pass (docs/notes-
+         *     tasks-workbar.md §2.5): sends the draft to the org's configured
+         *     CompletionProvider (BYOK seam) and returns a PROPOSAL. NEVER a direct
+         *     write: the ledger is untouched; the composer shows a diff with
+         *     Apply/Discard and Apply rides the normal submit path. Provider
+         *     unconfigured/unavailable → typed `status: "unavailable"` + the reason —
+         *     the Tier-1 Tidy always works and the UI owns the "not available yet"
+         *     state (Template-button pattern).
+         */
+        post: operations["tickets_refine_note"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8371,6 +8453,14 @@ export interface components {
              */
             attachment_ids?: string[];
             body: string;
+            /**
+             * @description IF2 delete-on-submit (Wave 17 lane 11, §5.2): the composer autosave
+             *     draft's idempotency key. When a comment with this key commits, the
+             *     author's `note_drafts` row for the ticket is deleted in the SAME
+             *     transaction — the draft never resurrects after submit. Absent in
+             *     legacy clients — purely additive.
+             */
+            draft_key?: string | null;
             kind: components["schemas"]["NoteKind"];
         };
         AddMemberRequest: components["schemas"]["MutationParams"] & {
@@ -9958,6 +10048,20 @@ export interface components {
             /** Format: int64 */
             chunk_index: number;
             committed_at: string;
+        };
+        /**
+         * @description POST /api/tickets/{id}/checklist/complete-all request (Wave 17 lane 11
+         *     §5.3): the close gate's Option A batch — every listed item flips to
+         *     `checked` and each lands its auto-append note, ALL in one transaction
+         *     with per-item idempotency keys (duplicate-proof at the envelope, scored
+         *     as REPORTED auto notes via `workflow_meta.auto = true`).
+         */
+        CompleteAllRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * @description Checklist items to complete. Items already checked/N-A are skipped
+             *     (idempotent); unknown ids 404 the whole call (batch atomicity).
+             */
+            task_ids: string[];
         };
         /** @description Instant-first mutation response (IF2). */
         ConfigItemMutationResponse: components["schemas"]["DeviceAsset"] & {
@@ -13691,6 +13795,19 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        NoteDraftBody: {
+            body: string;
+            /**
+             * @description The autosave claim key — the composer must echo it back on submit
+             *     so the committed comment clears this exact draft row.
+             */
+            idempotency_key: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        NoteDraftResponse: {
+            draft?: null | components["schemas"]["NoteDraftBody"];
+        };
         /**
          * @description Taxonomy of structured ticket notes (§1).
          * @enum {string}
@@ -15363,6 +15480,14 @@ export interface components {
         PutInstallSettingsRequest: {
             config: unknown;
         };
+        PutNoteDraftRequest: {
+            body: string;
+            /**
+             * @description Autosave claim key (IF1): same key on a debounced retry is a no-op
+             *     overwrite (last-writer-wins per §5.2 cadence).
+             */
+            instant?: components["schemas"]["MutationParams"];
+        };
         /**
          * @description PUT body: `{ "state": "set", "value": <typed payload> }` or
          *     `{ "state": "disabled" }`, plus the instant-first parameters.
@@ -15610,6 +15735,27 @@ export interface components {
         RecoveryCodesResponse: {
             /** @description Plaintext codes — displayed once, stored only as argon2id hashes. */
             recovery_codes: string[];
+        };
+        RefineNoteRequest: {
+            body: string;
+        };
+        /**
+         * @description Refine outcome. `proposal` is a SUGGESTION — applying it is an explicit
+         *     user action that posts through the normal comment-create envelope with
+         *     `workflow_meta.kind = "refined"`; AI provenance rides the approval
+         *     pipeline (docs/10-agent-platform.md), never a direct ledger write.
+         */
+        RefineNoteResponse: {
+            model?: string | null;
+            proposal?: string | null;
+            provider?: string | null;
+            reason?: string | null;
+            /**
+             * @description `"proposal"` = a rewrite is offered for the user's Apply/Discard;
+             *     `"unavailable"` = the provider seam is not configured — Tier-1
+             *     Tidy remains fully functional.
+             */
+            status: string;
         };
         RefreshRequest: {
             refresh_token: string;
@@ -16592,6 +16738,15 @@ export interface components {
              *     enforcement and derived progress.
              */
             na?: boolean;
+            /**
+             * @description Server-composed ledger reason (Wave 17 lane 11, §5.1): MANDATORY
+             *     (non-empty, ≤2000 chars) when this call sets N-A (na: true) or
+             *     reverses a terminal state (reopen); ignored for plain checks. The
+             *     reason text lands in the ledger as the auto-appended internal note
+             *     composed and inserted in THIS transaction — never a client-side
+             *     second post.
+             */
+            note_reason?: string | null;
         };
         SetDependenciesRequest: {
             /**
@@ -17029,6 +17184,17 @@ export interface components {
             id: string;
             name: string;
         };
+        /**
+         * @description One unassigned task on the close gate's typed 409 (§4.1): the row the
+         *     UI must resolve (Option A batch-close / Option B manual work) — decision
+         *     text, and whether it is a REQUIRED template item (enforcement pill).
+         */
+        TaskGateItem: {
+            /** Format: uuid */
+            item_id: string;
+            required: boolean;
+            text: string;
+        };
         TaskListQuery: {
             /** Format: uuid */
             assignee_id?: string | null;
@@ -17282,11 +17448,21 @@ export interface components {
             mutation: components["schemas"]["MutationMeta"];
         };
         /**
+         * @description Batch response: full updated checklist view + the appended notes in
+         *     item order so the client reconciles in one round trip.
+         */
+        TicketChecklistBatchResponse: components["schemas"]["TicketChecklistView"] & {
+            appended_notes: components["schemas"]["TicketComment"][];
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        /**
          * @description Same additive envelope for checklist writes: the full checklist view at
          *     the top level (unchanged shape) plus the read-your-write metadata for
-         *     the affected item.
+         *     the affected item. `appended_note` carries the server-composed ledger
+         *     note when the transition wrote one (§3.3/§3.4) — absent otherwise.
          */
         TicketChecklistMutationResponse: components["schemas"]["TicketChecklistView"] & {
+            appended_note?: null | components["schemas"]["TicketComment"];
             mutation: components["schemas"]["MutationMeta"];
         };
         /**
@@ -17319,6 +17495,15 @@ export interface components {
             ticket_id: string;
             /** Format: date-time */
             updated_at?: string | null;
+            /**
+             * @description Server-composed workflow-note provenance (Wave 17 lane 11,
+             *     migration 0080): `{kind, auto, item_ids}` on notes the server
+             *     appended for task-state transitions; NULL/unsent for every
+             *     user-written note. Machine marking lives HERE, never in body text
+             *     (spoofable, unqueryable). Additive-only contract: absent keys
+             *     deserialize to None.
+             */
+            workflow_meta?: unknown;
         };
         /** @description Same additive envelope for comments (plain comment body). */
         TicketCommentMutationResponse: components["schemas"]["TicketComment"] & {
@@ -33519,6 +33704,45 @@ export interface operations {
             };
         };
     };
+    tickets_complete_all_checklist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompleteAllRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketChecklistBatchResponse"];
+                };
+            };
+            /** @description ticket or a listed item not visible in scope (rls_sparse; whole batch atomic) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     tickets_set_checklist_item: {
         parameters: {
             query?: never;
@@ -34195,6 +34419,111 @@ export interface operations {
             };
             /** @description validation error */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tickets_get_note_draft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteDraftResponse"];
+                };
+            };
+        };
+    };
+    tickets_put_note_draft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutNoteDraftRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteDraftResponse"];
+                };
+            };
+            /** @description ticket not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tickets_delete_note_draft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description draft cleared (idempotent; 200 even with none) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tickets_refine_note: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RefineNoteRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RefineNoteResponse"];
+                };
+            };
+            /** @description ticket not visible in scope (rls_sparse) */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

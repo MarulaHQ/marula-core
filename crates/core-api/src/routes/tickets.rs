@@ -119,6 +119,13 @@ pub struct AddCommentRequest {
     /// older clients — purely additive.
     #[serde(default)]
     pub attachment_ids: Vec<Uuid>,
+    /// IF2 delete-on-submit (Wave 17 lane 11, §5.2): the composer autosave
+    /// draft's idempotency key. When a comment with this key commits, the
+    /// author's `note_drafts` row for the ticket is deleted in the SAME
+    /// transaction — the draft never resurrects after submit. Absent in
+    /// legacy clients — purely additive.
+    #[serde(default)]
+    pub draft_key: Option<String>,
     /// Instant-first autosave parameters (IF1): idempotency key. Absent in
     /// legacy clients — purely additive. (Comments are fresh entities, so
     /// there is no version to match.)
@@ -146,10 +153,29 @@ pub struct SetChecklistItemRequest {
     /// enforcement and derived progress.
     #[serde(default)]
     pub na: bool,
+    /// Server-composed ledger reason (Wave 17 lane 11, §5.1): MANDATORY
+    /// (non-empty, ≤2000 chars) when this call sets N-A (na: true) or
+    /// reverses a terminal state (reopen); ignored for plain checks. The
+    /// reason text lands in the ledger as the auto-appended internal note
+    /// composed and inserted in THIS transaction — never a client-side
+    /// second post.
+    #[serde(default)]
+    pub note_reason: Option<String>,
     /// Instant-first autosave parameters (IF1): idempotency key + entity
     /// version. Absent in legacy clients — purely additive.
     #[serde(flatten, default)]
     pub instant: instant::MutationParams,
+}
+
+/// One unassigned task on the close gate's typed 409 (§4.1): the row the
+/// UI must resolve (Option A batch-close / Option B manual work) — decision
+/// text, and whether it is a REQUIRED template item (enforcement pill).
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TaskGateItem {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub item_id: Uuid,
+    pub text: String,
+    pub required: bool,
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams, ToSchema)]
@@ -204,11 +230,39 @@ pub struct TicketCommentMutationResponse {
 
 /// Same additive envelope for checklist writes: the full checklist view at
 /// the top level (unchanged shape) plus the read-your-write metadata for
-/// the affected item.
+/// the affected item. `appended_note` carries the server-composed ledger
+/// note when the transition wrote one (§3.3/§3.4) — absent otherwise.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct TicketChecklistMutationResponse {
     #[serde(flatten)]
     pub view: TicketChecklistView,
+    pub mutation: instant::MutationMeta,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub appended_note: Option<core_domain::entities::TicketComment>,
+}
+
+/// POST /api/tickets/{id}/checklist/complete-all request (Wave 17 lane 11
+/// §5.3): the close gate's Option A batch — every listed item flips to
+/// `checked` and each lands its auto-append note, ALL in one transaction
+/// with per-item idempotency keys (duplicate-proof at the envelope, scored
+/// as REPORTED auto notes via `workflow_meta.auto = true`).
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CompleteAllRequest {
+    /// Checklist items to complete. Items already checked/N-A are skipped
+    /// (idempotent); unknown ids 404 the whole call (batch atomicity).
+    pub task_ids: Vec<Uuid>,
+    /// Instant-first autosave parameters (IF1): idempotency key + version.
+    #[serde(flatten, default)]
+    pub instant: instant::MutationParams,
+}
+
+/// Batch response: full updated checklist view + the appended notes in
+/// item order so the client reconciles in one round trip.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TicketChecklistBatchResponse {
+    #[serde(flatten)]
+    pub view: TicketChecklistView,
+    pub appended_notes: Vec<core_domain::entities::TicketComment>,
     pub mutation: instant::MutationMeta,
 }
 
@@ -955,6 +1009,24 @@ pub async fn change_status(
                     missing: blocked.missing,
                 });
             }
+            // Wave 17 workbar close gate (§4): every task needs a terminal
+            // decision (checked / N-A) — independent of the board's
+            // require_checklist_close posture; empty checklists pass
+            // vacuously. Typed 409 with the exact unassigned rows so raw
+            // API callers get the same gate as any closing surface.
+            if let Err(gate) = core_domain::notes::enforce_tasks_assigned(&checklist) {
+                return Err(ApiError::TasksUnassigned {
+                    items: gate
+                        .items
+                        .iter()
+                        .map(|(item_id, text, required)| TaskGateItem {
+                            item_id: *item_id,
+                            text: text.clone(),
+                            required: *required,
+                        })
+                        .collect(),
+                });
+            }
         }
         if instantiated > 0 {
             ctx.emit(
@@ -1275,8 +1347,23 @@ pub async fn add_comment(
             Some(user_id),
             req.kind,
             req.body.trim(),
+            None,
         )
         .await?;
+
+        // IF2 delete-on-submit (§5.2): a committed comment that carries the
+        // composer draft's idempotency key clears that draft in THIS
+        // transaction — an autosaved draft never survives its own submit.
+        if let Some(draft_key) = &req.draft_key {
+            let _ = core_db::note_drafts::delete_submitted(
+                &mut *ctx.tx,
+                org_id,
+                id,
+                user_id,
+                draft_key,
+            )
+            .await?;
+        }
 
         // Bind composer-uploaded files to this comment (one-shot links;
         // foreign/duplicate ids are skipped rather than failing the note).
@@ -1471,6 +1558,114 @@ fn blocking_of(items: &[ChecklistItem], enforcement_active: bool) -> Vec<String>
         .unwrap_or_default()
 }
 
+/// Classifies one checklist state transition into the server-composed
+/// ledger append kind (docs/notes-tasks-workbar.md §3.3/§3.4): a flip to
+/// `checked` composes the Completed note; a flip to `na` composes N-A
+/// (reason MANDATORY); reverting any terminal state composes Reopened
+/// (reason MANDATORY). `None` = no ledger append.
+fn task_transition_kind(
+    before: (bool, bool),
+    after: (bool, bool),
+) -> Option<core_domain::notes::TaskNoteKind> {
+    use core_domain::notes::TaskNoteKind;
+    match (before, after) {
+        ((false, _), (true, _)) => Some(TaskNoteKind::Completed),
+        ((false, false), (false, true)) => Some(TaskNoteKind::Na),
+        ((true, false) | (false, true), (false, false)) => Some(TaskNoteKind::Reopen),
+        _ => None,
+    }
+}
+
+/// Audited, file-mirrored validation for the mandatory reason (§3.4):
+/// non-empty after trim, ≤ 2000 chars, else typed 422.
+fn validate_reason(reason: &Option<String>) -> ApiResult<String> {
+    match reason.as_ref().map(|r| r.trim()).filter(|r| !r.is_empty()) {
+        Some(r) if r.chars().count() <= 2000 => Ok(r.to_string()),
+        Some(_) => Err(ApiError::Validation(
+            "note_reason must be 2000 characters or fewer".into(),
+        )),
+        None => Err(ApiError::Validation(
+            "note_reason is required to mark an item N-A or reopen it".into(),
+        )),
+    }
+}
+
+/// The server-composed, in-transaction ledger append (§5.1): composes the
+/// standardized body through the SHARED `notes::format_note_body` rules,
+/// inserts the comment, and emits `ticket.comment_added` in the SAME
+/// transaction as the checklist flip — a crash can never leave a flipped
+/// task with no ledger line, and the envelope key makes retries
+/// duplicate-proof. `workflow_meta` marks machine origin at the row level
+/// (never a body-text sentinel). Returns the inserted comment.
+async fn compose_task_append(
+    ctx: &mut crate::org_tx::OrgTx<'_>,
+    key: Option<&str>,
+    item_id: Uuid,
+    ticket_id: Uuid,
+    org_id: Uuid,
+    user_id: Uuid,
+    kind: core_domain::notes::TaskNoteKind,
+    detail: &str,
+) -> ApiResult<core_domain::entities::TicketComment> {
+    use core_domain::events::TicketCommentAdded;
+    use core_domain::status::NoteKind;
+    let body = core_domain::notes::compose_task_note(kind, detail);
+    let meta = serde_json::json!({
+        "kind": kind.as_str(),
+        "auto": true,
+        "item_ids": [item_id],
+    });
+    let note_key = key.map(|k| format!("{k}:{}", kind.key_tag()));
+    let comment = core_db::tickets::insert_comment(
+        &mut *ctx.tx,
+        Uuid::now_v7(),
+        org_id,
+        ticket_id,
+        Some(user_id),
+        NoteKind::Internal,
+        &body,
+        Some(&meta),
+    )
+    .await?;
+    ctx.emit(
+        types::TICKET_COMMENT_ADDED,
+        "ticket_comment",
+        Some(comment.id.to_string().as_str()),
+        &serde_json::to_value(TicketCommentAdded {
+            comment: comment.clone(),
+            mentioned_user_ids: Vec::new(),
+        })
+        .unwrap_or_default(),
+    )
+    .await?;
+    let note_seq = instant::entity_seq(
+        ctx,
+        instant::SeqSpec {
+            entity: "ticket_comment",
+            entity_id: comment.id,
+            version: None,
+        },
+    )
+    .await?;
+    instant::record(
+        ctx,
+        instant::RecordSpec {
+            entity: "ticket_comment",
+            entity_id: comment.id,
+            op: "comment_add",
+            seq: note_seq,
+            before: None,
+            after: serde_json::to_value(&comment).unwrap_or(Value::Null),
+            updated_at: chrono::Utc::now(),
+            key: note_key.as_deref(),
+            payload: &comment,
+            provenance: Default::default(),
+        },
+    )
+    .await?;
+    Ok(comment)
+}
+
 /// GET response for a ticket's checklist: instances, derived progress,
 /// and the board's live enforcement posture. `blocking` lists the unchecked
 /// REQUIRED items when enforcement is active (empty otherwise).
@@ -1654,7 +1849,7 @@ pub async fn add_checklist_item(
         .await?;
         Ok((
             ctx,
-            MutationOutcome::Applied(TicketChecklistMutationResponse { view, mutation }),
+            MutationOutcome::Applied(TicketChecklistMutationResponse { view, mutation, appended_note: None }),
         ))
     })
     .await?;
@@ -1733,6 +1928,38 @@ pub async fn set_checklist_item(
             Some(user_id),
         )
         .await?;
+        // Server-composed ledger append (§3.3/§3.4): classify the flip and,
+        // when it warrants one, compose + insert the note and emit BOTH
+        // events in THIS transaction. Reasons for N-A/reopen are validated
+        // first (typed 422 — nothing flips without its ledger line).
+        let appended = match task_transition_kind(
+            (before.checked, before.na),
+            (req.checked, req.na),
+        ) {
+            Some(kind @ core_domain::notes::TaskNoteKind::Completed) => Some(
+                compose_task_append(
+                    &mut ctx,
+                    key.as_deref(),
+                    item_id,
+                    id,
+                    org_id,
+                    user_id,
+                    kind,
+                    &before.text,
+                )
+                .await?,
+            ),
+            Some(kind @ (core_domain::notes::TaskNoteKind::Na | core_domain::notes::TaskNoteKind::Reopen)) => {
+                let reason = validate_reason(&req.note_reason)?;
+                Some(
+                    compose_task_append(&mut ctx, key.as_deref(), item_id, id, org_id, user_id, kind, &reason)
+                        .await?,
+                )
+            }
+            None => None,
+            Some(core_domain::notes::TaskNoteKind::CloseAll) => None,
+        };
+
         let (items, progress) = core_db::checklists::view(&mut ctx.tx, org_id, id).await?;
         let updated = items
             .iter()
@@ -1790,7 +2017,11 @@ pub async fn set_checklist_item(
         .await?;
         Ok((
             ctx,
-            MutationOutcome::Applied(TicketChecklistMutationResponse { view, mutation }),
+            MutationOutcome::Applied(TicketChecklistMutationResponse {
+                view,
+                mutation,
+                appended_note: appended,
+            }),
         ))
     })
     .await?;
@@ -1831,4 +2062,427 @@ pub async fn ticket_time_entries(
     .await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(entries))
+}
+
+/// POST /api/tickets/{id}/checklist/complete-all — the close gate's Option
+/// A batch (docs/notes-tasks-workbar.md §4.2/§5.3): every listed task flips
+/// to `checked` AND lands its server-composed auto-append note, ALL in one
+/// transaction with per-item idempotency keys (`complete-all:{ticket}:{item}`-
+/// derived under the caller's envelope key). Items already terminal
+/// (checked/N-A) are skipped idempotently; an unknown id 404s the whole
+/// batch (atomicity). Every appended note carries
+/// `workflow_meta { kind: "task_closeall", auto: true, item_ids: [..] }` —
+/// the REPORTED auto-close provenance the close-gate dialog displays.
+/// Also usable pre-close, not only at the gate.
+#[utoipa::path(operation_id = "tickets_complete_all_checklist", post, path = "/api/tickets/{id}/checklist/complete-all", tag = "tickets", security(("bearer" = [])),
+    params(("id" = Uuid, Path)), request_body = CompleteAllRequest,
+    responses((status = 200, body = TicketChecklistBatchResponse),
+              (status = 404, description = "ticket or a listed item not visible in scope (rls_sparse; whole batch atomic)"),
+              (status = 409, description = "idempotency key reused")))]
+pub async fn complete_all_checklist(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    Json(req): Json<CompleteAllRequest>,
+) -> ApiResult<Json<TicketChecklistBatchResponse>> {
+    use core_domain::notes::TaskNoteKind;
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(
+        &authed.principal,
+        tickets(core_domain::policy::Action::Edit),
+    )?;
+    if req.task_ids.is_empty() {
+        return Err(ApiError::Validation(
+            "task_ids must list at least one checklist item".into(),
+        ));
+    }
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    let key = req.instant.idempotency_key.clone();
+
+    let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        if let InstantClaim::Replay(stored) = instant::claim(
+            &mut ctx,
+            instant::ClaimSpec {
+                entity: "checklist_batch",
+                entity_id: Some(id),
+                key: key.as_deref(),
+                fingerprint: &fingerprint,
+            },
+        )
+        .await?
+        {
+            return Ok((ctx, MutationOutcome::Replayed(stored)));
+        }
+        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        authorize_board_op(
+            &mut ctx.tx,
+            &authed.principal,
+            ticket.board_id,
+            BoardOp::WorkTicket,
+        )
+        .await?;
+        let items = core_db::tickets::list_checklist(&mut *ctx.tx, org_id, id).await?;
+        let mut appended_notes = Vec::new();
+        let mut per_item_keys = Vec::new();
+        for task_id in &req.task_ids {
+            let item = items
+                .iter()
+                .find(|i| &i.id == task_id)
+                .ok_or(ApiError::NotFound)?;
+            if item.checked || item.na {
+                continue; // already has a terminal decision — skip
+            }
+            core_db::tickets::set_checklist_item(
+                &mut *ctx.tx,
+                org_id,
+                *task_id,
+                true,
+                false,
+                Some(user_id),
+            )
+            .await?;
+            let note = compose_task_append(
+                &mut ctx,
+                key.as_deref().map(|k| format!("{k}:complete-all:{task_id}")).as_deref(),
+                *task_id,
+                id,
+                org_id,
+                user_id,
+                TaskNoteKind::CloseAll,
+                &item.text,
+            )
+            .await?;
+            appended_notes.push(note);
+            per_item_keys.push(*task_id);
+        }
+        let (items_after, progress) = core_db::checklists::view(&mut ctx.tx, org_id, id).await?;
+        ctx.emit(
+            types::TICKET_CHECKLIST_UPDATED,
+            "ticket",
+            Some(id.to_string().as_str()),
+            &serde_json::to_value(core_domain::events::TicketChecklistUpdated {
+                ticket_id: id,
+                board_id: ticket.board_id,
+                items: items_after.clone(),
+                updated_by: Some(user_id),
+            })
+            .unwrap_or_default(),
+        )
+        .await?;
+        let write_seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: "checklist_batch",
+                entity_id: id,
+                version: req.instant.version,
+            },
+        )
+        .await?;
+        let enforcement_active =
+            checklist_enforcement(&mut ctx.tx, org_id, ticket.board_id).await?;
+        let blocking = blocking_of(&items_after, enforcement_active);
+        let view = TicketChecklistView {
+            items: items_after,
+            progress,
+            enforcement_active,
+            blocking,
+        };
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: "checklist_batch",
+                entity_id: id,
+                op: "checklist_complete_all",
+                seq: write_seq,
+                before: Some(serde_json::to_value(&items).unwrap_or(Value::Null)),
+                after: serde_json::to_value(&view).unwrap_or(Value::Null),
+                updated_at: chrono::Utc::now(),
+                key: key.as_deref(),
+                payload: &view,
+                provenance: Default::default(),
+            },
+        )
+        .await?;
+        Ok((
+            ctx,
+            MutationOutcome::Applied(TicketChecklistBatchResponse {
+                view,
+                appended_notes,
+                mutation,
+            }),
+        ))
+    })
+    .await?;
+    Ok(Json(outcome.into_response()?))
+}
+
+/// GET /api/tickets/{id}/note-draft — restores the caller's autosaved
+/// composer draft (IF2, §5.2). Typed absence (200 with `draft: null`),
+/// never a 404: an absent draft is a normal first-open state, not a miss.
+#[utoipa::path(operation_id = "tickets_get_note_draft", get, path = "/api/tickets/{id}/note-draft", tag = "tickets", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    responses((status = 200, body = NoteDraftResponse)))]
+pub async fn get_note_draft(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<NoteDraftResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(
+        &authed.principal,
+        tickets(core_domain::policy::Action::View),
+    )?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org(&mut tx, org_id).await.map_err(ApiError::from)?;
+    core_db::note_drafts::purge_stale(&mut *tx).await.ok();
+    let row = core_db::note_drafts::get_draft(&mut *tx, org_id, id, user_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(NoteDraftResponse {
+        draft: row.map(|r| NoteDraftBody {
+            body: r.body,
+            idempotency_key: r.idempotency_key,
+            updated_at: r.updated_at,
+        }),
+    }))
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct NoteDraftBody {
+    pub body: String,
+    /// The autosave claim key — the composer must echo it back on submit
+    /// so the committed comment clears this exact draft row.
+    pub idempotency_key: String,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct NoteDraftResponse {
+    /// The caller's draft (per user × ticket); null when none is saved.
+    pub draft: Option<NoteDraftBody>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct PutNoteDraftRequest {
+    pub body: String,
+    /// Autosave claim key (IF1): same key on a debounced retry is a no-op
+    /// overwrite (last-writer-wins per §5.2 cadence).
+    #[serde(default)]
+    pub instant: instant::MutationParams,
+}
+
+/// PUT /api/tickets/{id}/note-draft — debounced autosave of the workbar
+/// composer draft (NOT a comment; never renders on any ledger). Fresh
+/// drafts ride the IF idempotency-keyed write path and opportunistically
+/// purge 30-day-stale rows.
+#[utoipa::path(operation_id = "tickets_put_note_draft", put, path = "/api/tickets/{id}/note-draft", tag = "tickets", security(("bearer" = [])),
+    params(("id" = Uuid, Path)), request_body = PutNoteDraftRequest,
+    responses((status = 200, body = NoteDraftResponse),
+              (status = 404, description = "ticket not visible in scope (rls_sparse)")))]
+pub async fn put_note_draft(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    Json(req): Json<PutNoteDraftRequest>,
+) -> ApiResult<Json<NoteDraftResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(
+        &authed.principal,
+        tickets(core_domain::policy::Action::Edit),
+    )?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+    let key = req
+        .instant
+        .idempotency_key
+        .clone()
+        .unwrap_or_else(|| format!("draft:{id}:{user_id}:{}", Uuid::now_v7()));
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org(&mut tx, org_id).await.map_err(ApiError::from)?;
+    // RLS makes visibility the guard: an out-of-scope ticket id fails here.
+    let exists = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM tickets WHERE org_id = $1 AND id = $2)",
+    )
+    .bind(org_id)
+    .bind(id)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|e| ApiError::Internal(e.into()))?;
+    if !exists {
+        return Err(ApiError::RlsSparse);
+    }
+    if req.body.trim().is_empty() {
+        core_db::note_drafts::delete(&mut *tx, org_id, id, user_id).await?;
+        tx.commit().await.map_err(ApiError::from)?;
+        return Ok(Json(NoteDraftResponse { draft: None }));
+    }
+    let row = core_db::note_drafts::upsert_draft(
+        &mut *tx,
+        Uuid::now_v7(),
+        org_id,
+        id,
+        user_id,
+        req.body.trim(),
+        &key,
+    )
+    .await?;
+    // Retention housekeeping rides the autosave path (deterministic,
+    // write-side, no cron dependency).
+    core_db::note_drafts::purge_stale(&mut *tx).await.ok();
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(NoteDraftResponse {
+        draft: Some(NoteDraftBody {
+            body: row.body,
+            idempotency_key: row.idempotency_key,
+            updated_at: row.updated_at,
+        }),
+    }))
+}
+
+/// DELETE /api/tickets/{id}/note-draft — explicit draft discard.
+#[utoipa::path(operation_id = "tickets_delete_note_draft", delete, path = "/api/tickets/{id}/note-draft", tag = "tickets", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    responses((status = 200, description = "draft cleared (idempotent; 200 even with none)")))]
+pub async fn delete_note_draft(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(
+        &authed.principal,
+        tickets(core_domain::policy::Action::Edit),
+    )?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org(&mut tx, org_id).await.map_err(ApiError::from)?;
+    core_db::note_drafts::delete(&mut *tx, org_id, id, user_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(serde_json::json!({ "cleared": true })))
+}
+
+/// POST /api/tickets/{id}/notes/refine — Tier-2 grammar pass (docs/notes-
+/// tasks-workbar.md §2.5): sends the draft to the org's configured
+/// CompletionProvider (BYOK seam) and returns a PROPOSAL. NEVER a direct
+/// write: the ledger is untouched; the composer shows a diff with
+/// Apply/Discard and Apply rides the normal submit path. Provider
+/// unconfigured/unavailable → typed `status: "unavailable"` + the reason —
+/// the Tier-1 Tidy always works and the UI owns the "not available yet"
+/// state (Template-button pattern).
+#[utoipa::path(operation_id = "tickets_refine_note", post, path = "/api/tickets/{id}/notes/refine", tag = "tickets", security(("bearer" = [])),
+    params(("id" = Uuid, Path)), request_body = RefineNoteRequest,
+    responses((status = 200, body = RefineNoteResponse),
+              (status = 404, description = "ticket not visible in scope (rls_sparse)")))]
+pub async fn refine_note(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    Json(req): Json<RefineNoteRequest>,
+) -> ApiResult<Json<RefineNoteResponse>> {
+    use core_domain::completion::{
+        CompletionError, CompletionMessage, CompletionRequest, MessageRole,
+    };
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(
+        &authed.principal,
+        tickets(core_domain::policy::Action::Edit),
+    )?;
+    if req.body.trim().is_empty() {
+        return Err(ApiError::Validation("refine needs draft text".into()));
+    }
+    let org_id = authed.principal.user.org_id;
+    // RLS-scoped existence guard so a foreign ticket id reads as rls_sparse.
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org(&mut tx, org_id).await.map_err(ApiError::from)?;
+    let visible = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM tickets WHERE org_id = $1 AND id = $2)",
+    )
+    .bind(org_id)
+    .bind(id)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|e| ApiError::Internal(e.into()))?;
+    tx.commit().await.map_err(ApiError::from)?;
+    if !visible {
+        return Err(ApiError::RlsSparse);
+    }
+    let provider = crate::ai::resolve_org_completion_provider(&state, org_id).await;
+    use core_domain::completion::CompletionProvider;
+    let prompt = [
+        "You are a proofreading assistant for MSP technician notes.",
+        "Rewrite the note with corrected grammar, spelling and punctuation.",
+        "Preserve every bullet line, the ordered markup (`- `, `1.`), markdown links,",
+        "technical terms and acronyms exactly. Never add facts. Reply with ONLY the rewritten note.",
+    ]
+    .join(" ");
+    let creq = CompletionRequest {
+        messages: vec![
+            CompletionMessage {
+                role: MessageRole::System,
+                content: prompt,
+            },
+            CompletionMessage {
+                role: MessageRole::User,
+                content: req.body.trim().to_string(),
+            },
+        ],
+        model: None,
+        temperature: Some(0.1),
+        max_tokens: Some(2000),
+    };
+    match provider.complete(&creq).await {
+        Ok(resp) => Ok(Json(RefineNoteResponse {
+            status: "proposal".into(),
+            proposal: Some(resp.content),
+            provider: Some(provider.name().to_string()),
+            model: Some(resp.model),
+            reason: None,
+        })),
+        Err(CompletionError::Unavailable { reason }) => Ok(Json(RefineNoteResponse {
+            status: "unavailable".into(),
+            proposal: None,
+            provider: Some(provider.name().to_string()),
+            model: None,
+            reason: Some(reason),
+        })),
+        Err(CompletionError::RateLimited { .. })
+        | Err(CompletionError::InvalidRequest { .. })
+        | Err(CompletionError::Backend { .. }) => {
+            tracing::warn!(ticket = %id, provider = provider.name(), "notes/refine degraded; proposal suppressed");
+            Ok(Json(RefineNoteResponse {
+                status: "unavailable".into(),
+                proposal: None,
+                provider: Some(provider.name().to_string()),
+                model: None,
+                reason: Some("refinement is not available right now — the draft was not changed".into()),
+            }))
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct RefineNoteRequest {
+    pub body: String,
+}
+
+/// Refine outcome. `proposal` is a SUGGESTION — applying it is an explicit
+/// user action that posts through the normal comment-create envelope with
+/// `workflow_meta.kind = "refined"`; AI provenance rides the approval
+/// pipeline (docs/10-agent-platform.md), never a direct ledger write.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct RefineNoteResponse {
+    /// `"proposal"` = a rewrite is offered for the user's Apply/Discard;
+    /// `"unavailable"` = the provider seam is not configured — Tier-1
+    /// Tidy remains fully functional.
+    pub status: String,
+    pub proposal: Option<String>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub reason: Option<String>,
 }

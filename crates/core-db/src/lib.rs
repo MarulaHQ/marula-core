@@ -46,6 +46,7 @@ pub mod kb_rich;
 pub mod manifest;
 pub mod mfa;
 pub mod notifications;
+pub mod note_drafts;
 pub mod oidc;
 pub mod org_config;
 pub mod org_users;

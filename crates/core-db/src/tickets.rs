@@ -558,6 +558,9 @@ where
     Ok(())
 }
 
+/// Inserts a ticket comment. `workflow_meta` is the machine-provenance
+/// payload for server-composed workflow appends (migration 0080) — None
+/// for user-written notes.
 pub async fn insert_comment<'e, E>(
     executor: E,
     id: Uuid,
@@ -566,20 +569,22 @@ pub async fn insert_comment<'e, E>(
     author_id: Option<Uuid>,
     kind: NoteKind,
     body: &str,
+    workflow_meta: Option<&serde_json::Value>,
 ) -> DbResult<TicketComment>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     let row = sqlx::query!(
-        r#"INSERT INTO ticket_comments (id, org_id, ticket_id, author_id, kind, body)
-           VALUES ($1, $2, $3, $4, $5, $6)
-           RETURNING id, org_id, ticket_id, author_id, kind, body, created_at, updated_at"#,
+        r#"INSERT INTO ticket_comments (id, org_id, ticket_id, author_id, kind, body, workflow_meta)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           RETURNING id, org_id, ticket_id, author_id, kind, body, workflow_meta, created_at, updated_at"#,
         id,
         org_id,
         ticket_id,
         author_id,
         kind.as_str(),
-        body
+        body,
+        workflow_meta
     )
     .fetch_one(executor)
     .await?;
@@ -594,6 +599,7 @@ where
         body: row.body,
         created_at: row.created_at,
         updated_at: row.updated_at,
+        workflow_meta: row.workflow_meta,
     })
 }
 
@@ -603,7 +609,7 @@ where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     let row = sqlx::query!(
-        r#"SELECT id, org_id, ticket_id, author_id, kind, body, created_at, updated_at
+        r#"SELECT id, org_id, ticket_id, author_id, kind, body, workflow_meta, created_at, updated_at
            FROM ticket_comments WHERE org_id = $1 AND id = $2"#,
         org_id,
         id
@@ -622,6 +628,7 @@ where
         body: row.body,
         created_at: row.created_at,
         updated_at: row.updated_at,
+        workflow_meta: row.workflow_meta,
     })
 }
 
@@ -637,7 +644,7 @@ where
     let kind_strs: Option<Vec<String>> =
         kinds.map(|ks| ks.iter().map(|k| k.as_str().to_string()).collect());
     let rows = sqlx::query!(
-        r#"SELECT id, org_id, ticket_id, author_id, kind, body, created_at, updated_at
+        r#"SELECT id, org_id, ticket_id, author_id, kind, body, workflow_meta, created_at, updated_at
            FROM ticket_comments
            WHERE org_id = $1 AND ticket_id = $2
              AND ($3::text[] IS NULL OR kind = ANY($3))
@@ -661,6 +668,7 @@ where
                 body: row.body,
                 created_at: row.created_at,
                 updated_at: row.updated_at,
+                workflow_meta: row.workflow_meta,
             })
         })
         .collect()

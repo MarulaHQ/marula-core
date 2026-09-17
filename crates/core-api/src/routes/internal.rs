@@ -629,6 +629,7 @@ pub async fn effects(
                         None,
                         core_domain::status::NoteKind::Internal,
                         body.trim(),
+                        None,
                     )
                     .await?;
                     let mut payload =

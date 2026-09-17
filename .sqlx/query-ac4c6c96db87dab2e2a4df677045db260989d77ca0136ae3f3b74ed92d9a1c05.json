@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM note_drafts\n           WHERE org_id = $1 AND ticket_id = $2 AND user_id = $3\n             AND idempotency_key = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ac4c6c96db87dab2e2a4df677045db260989d77ca0136ae3f3b74ed92d9a1c05"
+}

@@ -18,7 +18,8 @@
 //! `category_name_taken`, `settings_key_taken`, `alert_source_ref_taken`,
 //! `calendar_sync_connection_name_taken`,
 //! `already_seeded`, `version_conflict`, `idempotency_key_reused`,
-//! `pre_close_checklist_blocked`, `dispatch_move_conflict`,
+//! `pre_close_checklist_blocked`, `tasks_unassigned`,
+//! `dispatch_move_conflict`,
 //! `import_chunk_rejected`,
 //! `migration_cursor_mismatch`, `migration_chunk_reused`, `rate_limited`,
 //! `task_dependencies_unsatisfied`, `undo_reverts_only`,
@@ -81,6 +82,15 @@ pub enum ApiError {
     /// exact blockers without a second round-trip.
     #[error("pre-close checklist incomplete")]
     ChecklistBlocked { missing: Vec<String> },
+    /// Typed 409 for the Wave 17 workbar close gate (docs/notes-tasks-
+    /// workbar.md §4.1): a close-category status change was attempted while
+    /// checklist items remain UNASSIGNED (neither checked nor N-A). Carries
+    /// one gate item per outstanding row so any closing surface (raw API
+    /// callers included) renders the exact decisions needed — Option A
+    /// batches them through `/checklist/complete-all`, Option B navigates
+    /// the Notes & Tasks panel.
+    #[error("tasks remain unassigned")]
+    TasksUnassigned { items: Vec<crate::routes::tickets::TaskGateItem> },
     /// Typed 409 for a rejected dispatch bulk-move (TASKLIST 2.19): names
     /// the offending move index and the blocking booking so the board can
     /// flag the exact drop target and surface the conflict inline.
@@ -449,6 +459,12 @@ impl IntoResponse for ApiError {
                 "pre_close_checklist_blocked",
                 "pre-close checklist incomplete".to_string(),
                 Some(json!({ "missing": missing })),
+            ),
+            ApiError::TasksUnassigned { items } => (
+                StatusCode::CONFLICT,
+                "tasks_unassigned",
+                "tasks remain unassigned — every task needs a completed / N-A status before this ticket can close".to_string(),
+                Some(json!({ "items": items })),
             ),
             ApiError::DispatchMoveConflict {
                 index,

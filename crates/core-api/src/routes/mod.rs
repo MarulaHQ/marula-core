@@ -649,8 +649,24 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             get(tickets::get_checklist).post(tickets::add_checklist_item),
         )
         .route(
+            &rp("/tickets/{id}/checklist/complete-all"),
+            post(tickets::complete_all_checklist),
+        )
+        .route(
             &rp("/tickets/{id}/checklist/{item_id}"),
             post(tickets::set_checklist_item),
+        )
+        // Workbar notes/tasks lane (Wave 17 lane 11): IF2 draft autosave +
+        // Tier-2 refine proposal seam (docs/notes-tasks-workbar.md).
+        .route(
+            &rp("/tickets/{id}/note-draft"),
+            get(tickets::get_note_draft)
+                .put(tickets::put_note_draft)
+                .delete(tickets::delete_note_draft),
+        )
+        .route(
+            &rp("/tickets/{id}/notes/refine"),
+            post(tickets::refine_note),
         )
         // per-ticket email read (Wave 12 lane 6): the timeline's real
         // in/out rows via the 2.4 email path.
