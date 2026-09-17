@@ -72,14 +72,40 @@ Do NOT track lane work in markdown files (LANE-TASKLIST.md or similar) — the
 native to-do list is the single source of truth and is visible in the Agent
 Manager UI. An out-of-date to-do list reads as a stalled lane.
 
+## Codebase lookups: graft vs graphify (routing rule)
+
+Two graph tools coexist in this repo. Route by question shape — never run both
+speculatively in parallel for the same question:
+
+- **graft (default for all concrete work):** any question whose answer lives at
+  specific code locations — "where is X handled", "how does this function work",
+  "who calls this", scoping an edit, skimming an API surface, exhaustive
+  occurrence sweeps. Start with `graft ask "<q>" --source`; `graft grep` when
+  you need every occurrence; `graft callers` / `graft skeleton` for structure.
+  Answers carry exact file:line spans — cite them and edit straight from them.
+- **graphify (structural / semantic questions):** architecture-level asks where
+  the answer is about shape, not locations — "what are the major subsystems",
+  "which modules are god nodes / highest fan-in", community/cluster views,
+  concept explanations spanning many areas, onboarding orientation. Use
+  `graphify query` / `path` / `explain`, `graphify-out/wiki/index.md` (when it
+  exists), or GRAPH_REPORT.md for broad review. Also always when the user types
+  `/graphify`.
+- **Tie-breaker:** if a question is both (e.g. "explain payment sync"), run one
+  cheap `graft ask` first; escalate to graphify only if the answer spans
+  multiple subsystems or the graft results don't connect the pieces.
+
+Freshness after code changes: `graphify update .` for any change, `graft build`
+after big changes — both deterministic/AST-only, no API cost.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
 
-When the user types `/graphify`, use the installed graphify skill or instructions before doing anything else.
+When the user types `/graphify`, use the installed graphify skill or instructions before anything else.
 
 Rules:
-- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- Route codebase questions per the "graft vs graphify (routing rule)" section above: graphify handles structural/semantic questions (subsystems, god nodes, communities, cross-cutting concepts), NOT the default for concrete code lookups — those go to graft.
+- Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
 - Dirty graphify-out/ files are expected after hooks or incremental updates; dirty graph files are not a reason to skip graphify. Only skip graphify if the task is about stale or incorrect graph output, or the user explicitly says not to use it.
 - If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
 - Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
@@ -93,7 +119,8 @@ system and carry exact file:line spans, kept in sync with the code through git.
 
 For ANY task here — understanding how something works, finding where code lives,
 or scoping a change — get context from the graph before grepping or opening
-source files. Re-ask freely (it's cheap) and reuse literal identifiers you
+source files (see the "graft vs graphify (routing rule)" section above for when
+to use graphify instead). Re-ask freely (it's cheap) and reuse literal identifiers you
 already have (symbol, error string, file name) as the query. New to this repo?
 Run `graft map` first — a token-budgeted orientation (dir clusters, hubs,
 hotspots), no LLM, no key.
