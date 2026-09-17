@@ -5,10 +5,14 @@
 // widgets pin user_id to the caller so they stay personal even for
 // managers, org-lens widgets omit it (managers only — the picker and
 // preset filters enforce that; the server re-enforces it regardless).
+// Wave 17 lane 1: mockup-grade card chrome — quiet uppercase title row,
+// hover/focus-revealed actions, typed skeleton loading, error state with
+// retry, and the shared empty sentence per widget. Staggered entrance via
+// .m-rise (transform/opacity, ≤120ms, reduced-motion honored).
 // Non-purpose: no persistence — the page owns widget rows.
 "use client";
 
-import { Button, Card, EmptyState, Spinner, StatusTag, Tag, Table, Td, Th, Tr } from "@meridian/ui";
+import { Button, Card, EmptyState, StatusTag, Tag, Table, Td, Th, Tr } from "@meridian/ui";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { WidgetDef } from "../../lib/dashboards";
@@ -40,6 +44,8 @@ interface Props {
   def: WidgetDef;
   /** Caller's user id — pins personal-lens queries. */
   meUserId: string;
+  /** Staggered-entrance delay in ms (caps at 240 on the page). */
+  entranceDelay?: number;
   onRemove: () => void;
 }
 
@@ -62,8 +68,9 @@ function attainmentTone(pct: number): "success" | "warning" | "danger" {
   return "danger";
 }
 
-export function ReportWidget({ def, meUserId, onRemove }: Props) {
+export function ReportWidget({ def, meUserId, entranceDelay = 0, onRemove }: Props) {
   const [state, setState] = useState<LoadState>({ status: "loading" });
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,7 +90,7 @@ export function ReportWidget({ def, meUserId, onRemove }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [def.kind, def.lens, meUserId]);
+  }, [def.kind, def.lens, meUserId, attempt]);
 
   const exportCsv = () => {
     void downloadReportCsv(
@@ -95,27 +102,40 @@ export function ReportWidget({ def, meUserId, onRemove }: Props) {
 
   let body: ReactNode;
   if (state.status === "loading") {
-    body = <Spinner label={`Loading ${def.title}`} />;
+    body = <WidgetSkeleton label={`Loading ${def.title}`} />;
   } else if (state.status === "error") {
     body = (
-      <p className="text-[13px]" role="alert" style={{ color: "var(--m-status-danger-fg)" }}>
-        {state.error ?? "The report failed to load."}
-      </p>
+      <div className="grid gap-2" role="alert">
+        <p className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
+          {state.error ?? "The report failed to load."}
+        </p>
+        <div>
+          <Button variant="secondary" size="sm" onClick={() => setAttempt((a) => a + 1)}>
+            Retry
+          </Button>
+        </div>
+      </div>
     );
   } else {
     body = <WidgetBody def={def} page={state.page} />;
   }
 
   return (
-    <Card className="p-4 grid gap-3" data-widget-id={def.id}>
+    <Card
+      className="m-rise group grid gap-3 p-4 transition-shadow duration-100 hover:shadow-md"
+      data-widget-id={def.id}
+      style={{ animationDelay: `${entranceDelay}ms` }}
+    >
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <h3 className="text-sm font-semibold">{def.title}</h3>
+        <div className="flex min-w-0 items-center gap-2">
+          <h3 className="truncate text-[13px] font-semibold" style={{ color: "var(--m-text)" }}>
+            {def.title}
+          </h3>
           <Tag tone={def.lens === "org" ? "neutral" : "outline"}>
             {def.lens === "org" ? "Org" : "Mine"}
           </Tag>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 opacity-0 transition-opacity duration-100 group-focus-within:opacity-100 group-hover:opacity-100">
           <Button variant="ghost" size="sm" onClick={exportCsv} aria-label={`Export ${def.title} as CSV`}>
             CSV
           </Button>
@@ -134,6 +154,18 @@ export function ReportWidget({ def, meUserId, onRemove }: Props) {
   );
 }
 
+/** Typed loading state: quiet skeleton bars, no spinner churn. */
+function WidgetSkeleton({ label }: { label: string }) {
+  return (
+    <div className="grid gap-2" aria-busy="true" aria-label={label}>
+      <div className="m-skel h-3 w-1/3" />
+      <div className="m-skel h-3 w-2/3" />
+      <div className="m-skel h-3 w-1/2" />
+      <div className="m-skel h-3 w-1/4" />
+    </div>
+  );
+}
+
 function WidgetBody({ def, page }: { def: WidgetDef; page: ReportPage | undefined }) {
   if (page === undefined) return null;
   if (page.rows.length === 0) {
@@ -147,7 +179,11 @@ function WidgetBody({ def, page }: { def: WidgetDef; page: ReportPage | undefine
       const s = timeRollupSummary(page);
       return (
         <>
-          <RollupBarChart rows={rows} ariaLabel={`${def.title} bar chart, hours per group`} />
+          <RollupBarChart
+            rows={rows}
+            ariaLabel={`${def.title} bar chart, hours per group`}
+            width={def.id.startsWith("time_by_user") ? 1360 : 720}
+          />
           <Footer>
             {formatMinutes(s.total_minutes)} total · {formatMinutes(s.billable_minutes)} billable
           </Footer>
@@ -251,7 +287,10 @@ function WidgetBody({ def, page }: { def: WidgetDef; page: ReportPage | undefine
 
 function Footer({ children }: { children: ReactNode }) {
   return (
-    <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+    <p
+      className="border-t pt-2 text-[12px]"
+      style={{ color: "var(--m-text-secondary)", borderColor: "var(--m-border)" }}
+    >
       {children}
     </p>
   );
@@ -260,10 +299,15 @@ function Footer({ children }: { children: ReactNode }) {
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="grid gap-0.5">
-      <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+      <span
+        className="text-[10px] font-medium uppercase tracking-wide"
+        style={{ color: "var(--m-text-muted)" }}
+      >
         {label}
       </span>
-      <span className="text-lg font-semibold tabular-nums">{value}</span>
+      <span className="font-mono text-lg font-semibold tabular-nums" style={{ color: "var(--m-text)" }}>
+        {value}
+      </span>
     </div>
   );
 }

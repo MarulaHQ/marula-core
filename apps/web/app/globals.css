@@ -118,6 +118,65 @@ body {
 .row-hover:focus-visible {
   background: color-mix(in srgb, var(--m-mist) 14%, transparent);
 }
+
+/*
+ * Wave 17 lane 1 — entrance + feedback motion (docs/theme.md §5):
+ * transform/opacity only, ≤120ms, prefers-reduced-motion honored.
+ */
+@keyframes m-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.m-rise {
+  animation: m-rise 120ms cubic-bezier(0.2, 0, 0, 1) backwards;
+}
+
+/* Quiet skeleton pulse (opacity only) for typed widget loading states. */
+@keyframes m-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+.m-skel {
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--m-mist) 22%, transparent);
+  animation: m-pulse 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .m-rise {
+    animation: none;
+  }
+  .m-skel {
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
+/* Recharts renders a fixed intrinsic SVG (deterministic headless); this
+   scales the drawing to the card width via its viewBox. Recharts sets
+   INLINE widths on both the wrapper div and the svg (e.g. 720px), so the
+   override needs !important; min-width:0 lets the figure shrink inside
+   grid layouts. Without both, the intrinsic size escapes half-width
+   cards and overlaps the neighbor. */
+.m-chart-fluid {
+  min-width: 0;
+}
+.m-chart-fluid > div,
+.m-chart-fluid svg {
+  width: 100% !important;
+  height: auto !important;
+}
 /*
  ---break---
  */

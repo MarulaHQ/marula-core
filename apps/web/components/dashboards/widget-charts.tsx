@@ -4,7 +4,11 @@
 // Purpose: token-driven bar/line charts. Colors come exclusively from
 // chartTokensFor(theme); entrance animations are disabled outright (motion
 // law: transform/opacity only, nothing animates in). Fixed intrinsic sizes
-// keep static rows predictable and render deterministically headless.
+// keep static rows predictable and render deterministically headless — the
+// .m-chart-fluid wrapper scales the drawing to the card width via CSS.
+// Wave 17 lane 1 presentation pass: dashed quiet gridlines, smaller muted
+// ticks, rounded bar caps, labeled tooltips with card chrome, mono axis
+// numerals.
 //
 // Non-purpose: no data fetching; the widget card owns loading/empty/error.
 "use client";
@@ -43,22 +47,29 @@ function tooltipStyle(t: ReturnType<typeof chartTokensFor>) {
       background: t.tooltipBg,
       color: t.tooltipText,
       border: `1px solid ${t.tooltipBorder}`,
-      borderRadius: 3,
+      borderRadius: 6,
+      boxShadow: "var(--m-shadow-overlay)",
       fontSize: 12,
+      padding: "6px 10px",
     },
-    labelStyle: { color: t.tooltipText },
+    labelStyle: { color: t.tooltipText, fontWeight: 600, marginBottom: 2 },
     itemStyle: { color: t.tooltipText },
     cursor: { fill: "transparent" },
   };
 }
 
-/** Horizontal bar rollup (time by person / by client): hours per label. */
+/** Horizontal bar rollup (time by person / by client): hours per label.
+ *  `width` stays a fixed intrinsic size for headless determinism; CSS
+ *  (.m-chart-fluid) scales the drawing to the card. Wide cards pass 1360
+ *  so the full-width lead widget doesn't strand dead space on the right. */
 export function RollupBarChart({
   rows,
   ariaLabel,
+  width = 720,
 }: {
   rows: RollupRow[];
   ariaLabel: string;
+  width?: number;
 }) {
   const t = useChartTokens();
   const data = rows.map((r) => ({
@@ -66,18 +77,18 @@ export function RollupBarChart({
     hours: Math.round((r.metric / 60) * 10) / 10,
   }));
   return (
-    <figure role="img" aria-label={ariaLabel}>
+    <figure role="img" aria-label={ariaLabel} className="m-chart-fluid">
       <BarChart
-        width={720}
+        width={width}
         height={CHART_HEIGHT}
         data={data}
         layout="vertical"
         margin={{ top: 4, right: 24, bottom: 4, left: 8 }}
       >
-        <CartesianGrid stroke={t.grid} horizontal={false} />
+        <CartesianGrid stroke={t.grid} strokeDasharray="3 3" horizontal={false} />
         <XAxis
           type="number"
-          tick={{ fill: t.tick, fontSize: 12 }}
+          tick={{ fill: t.tick, fontSize: 11 }}
           stroke={t.grid}
           tickLine={false}
         />
@@ -90,7 +101,13 @@ export function RollupBarChart({
           tickLine={false}
         />
         <Tooltip {...tooltipStyle(t)} />
-        <Bar dataKey="hours" fill={t.primary} isAnimationActive={false} />
+        <Bar
+          dataKey="hours"
+          fill={t.primary}
+          radius={[0, 3, 3, 0]}
+          barSize={18}
+          isAnimationActive={false}
+        />
       </BarChart>
     </figure>
   );
@@ -110,7 +127,7 @@ export function AttainmentBarChart({
     pct: r.attainment_pct,
   }));
   return (
-    <figure role="img" aria-label={ariaLabel}>
+    <figure role="img" aria-label={ariaLabel} className="m-chart-fluid">
       <BarChart
         width={720}
         height={CHART_HEIGHT}
@@ -118,11 +135,11 @@ export function AttainmentBarChart({
         layout="vertical"
         margin={{ top: 4, right: 24, bottom: 4, left: 8 }}
       >
-        <CartesianGrid stroke={t.grid} horizontal={false} />
+        <CartesianGrid stroke={t.grid} strokeDasharray="3 3" horizontal={false} />
         <XAxis
           type="number"
           domain={[0, 100]}
-          tick={{ fill: t.tick, fontSize: 12 }}
+          tick={{ fill: t.tick, fontSize: 11 }}
           stroke={t.grid}
           tickLine={false}
         />
@@ -135,7 +152,13 @@ export function AttainmentBarChart({
           tickLine={false}
         />
         <Tooltip {...tooltipStyle(t)} />
-        <Bar dataKey="pct" fill={t.primary} isAnimationActive={false} />
+        <Bar
+          dataKey="pct"
+          fill={t.primary}
+          radius={[0, 3, 3, 0]}
+          barSize={18}
+          isAnimationActive={false}
+        />
       </BarChart>
     </figure>
   );
@@ -157,29 +180,35 @@ export function AgingBarChart({
       open: r.open_count,
     }));
   return (
-    <figure role="img" aria-label={ariaLabel}>
+    <figure role="img" aria-label={ariaLabel} className="m-chart-fluid">
       <BarChart
         width={720}
         height={CHART_HEIGHT}
         data={data}
         margin={{ top: 4, right: 24, bottom: 4, left: 8 }}
       >
-        <CartesianGrid stroke={t.grid} vertical={false} />
+        <CartesianGrid stroke={t.grid} strokeDasharray="3 3" vertical={false} />
         <XAxis
           dataKey="name"
-          tick={{ fill: t.tick, fontSize: 12 }}
+          tick={{ fill: t.tick, fontSize: 11 }}
           stroke={t.grid}
           tickLine={false}
         />
         <YAxis
           allowDecimals={false}
-          tick={{ fill: t.tick, fontSize: 12 }}
+          tick={{ fill: t.tick, fontSize: 11 }}
           stroke={t.grid}
           tickLine={false}
           width={40}
         />
         <Tooltip {...tooltipStyle(t)} />
-        <Bar dataKey="open" fill={t.primary} isAnimationActive={false} />
+        <Bar
+          dataKey="open"
+          fill={t.primary}
+          radius={[3, 3, 0, 0]}
+          barSize={28}
+          isAnimationActive={false}
+        />
       </BarChart>
     </figure>
   );
@@ -200,23 +229,23 @@ export function ThroughputLineChart({
     Resolved: r.resolved_count,
   }));
   return (
-    <figure role="img" aria-label={ariaLabel}>
+    <figure role="img" aria-label={ariaLabel} className="m-chart-fluid">
       <LineChart
-        width={720}
-        height={CHART_HEIGHT}
+        width={720}        height={CHART_HEIGHT}
         data={data}
         margin={{ top: 4, right: 24, bottom: 4, left: 8 }}
       >
-        <CartesianGrid stroke={t.grid} vertical={false} />
+        <CartesianGrid stroke={t.grid} strokeDasharray="3 3" vertical={false} />
         <XAxis
           dataKey="day"
-          tick={{ fill: t.tick, fontSize: 12 }}
+          tickFormatter={(day: string) => day.slice(5)}
+          tick={{ fill: t.tick, fontSize: 11 }}
           stroke={t.grid}
           tickLine={false}
         />
         <YAxis
           allowDecimals={false}
-          tick={{ fill: t.tick, fontSize: 12 }}
+          tick={{ fill: t.tick, fontSize: 11 }}
           stroke={t.grid}
           tickLine={false}
           width={40}
@@ -226,14 +255,18 @@ export function ThroughputLineChart({
           type="monotone"
           dataKey="Created"
           stroke={t.primary}
+          strokeWidth={2}
           dot={false}
+          activeDot={{ r: 3, strokeWidth: 0 }}
           isAnimationActive={false}
         />
         <Line
           type="monotone"
           dataKey="Resolved"
           stroke={t.secondary}
+          strokeWidth={2}
           dot={false}
+          activeDot={{ r: 3, strokeWidth: 0 }}
           isAnimationActive={false}
         />
       </LineChart>
