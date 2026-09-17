@@ -177,6 +177,7 @@ import type { MeridianPaths } from "@meridian/sdk";
 const TICKET_ATTACHMENTS_PATH = "/api/v1/tickets/{id}/attachments" satisfies keyof MeridianPaths;
 const ATTACHMENT_DOWNLOAD_PATH =
   "/api/v1/attachments/{id}/download" satisfies keyof MeridianPaths;
+const PLUGIN_ZIP_STAGE_PATH = "/api/v1/plugins/distribution/staged/zip" satisfies keyof MeridianPaths;
 
 /** Auth header for manual fetches against the API base URL. */
 function authHeaders(): HeadersInit {
@@ -238,4 +239,37 @@ export async function downloadAttachment(attachmentId: string, filename: string)
   anchor.download = filename;
   anchor.click();
   URL.revokeObjectURL(url);
+}
+
+export interface StagedItemResponse {
+  id: string;
+  artifact_kind: string;
+  source_kind: string;
+}
+
+/**
+ * Uploads one plugin/skill zip to the staged sandbox import (raw binary
+ * `application/zip` — same bypass as attachments: the generated client
+ * models JSON bodies while this route is binary).
+ */
+export async function uploadPluginZip(
+  file: File,
+): Promise<{ ok: true; staged: StagedItemResponse } | { ok: false; status: number; message?: string }> {
+  const response = await fetch(`${apiBaseUrl()}${PLUGIN_ZIP_STAGE_PATH}`, {
+    method: "POST",
+    headers: { ...authHeaders(), "content-type": "application/zip" },
+    body: file,
+  });
+  const typed = response.headers.get("content-type")?.includes("application/json") ?? false;
+  const detail = typed ? ((await response.json().catch(() => null)) as { error?: { message?: string; reason?: string } } | null) : null;
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      message:
+        detail?.error?.message ??
+        `The archive was rejected during the sandbox import (${response.status}).`,
+    };
+  }
+  return { ok: true, staged: (await response.json()) as StagedItemResponse };
 }

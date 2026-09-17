@@ -35,6 +35,7 @@ const SECTIONS: NavItem[] = [
   { href: "/settings/portal", label: "Portal" },
   { href: "/settings/mail", label: "Mail", pending: true },
   { href: "/settings/integrations", label: "Integrations" },
+  { href: "/settings/plugins", label: "Plugins" },
   { href: "/settings/api-keys", label: "API keys" },
   { href: "/settings/agent-platform", label: "Agent platform" },
   { href: "/settings/ai", label: "AI & connectors" },

@@ -73,6 +73,18 @@ const REASON_COPY: Readonly<Record<string, string>> = {
     "This task still has unfinished dependencies — complete those first.",
   undo_reverts_only:
     "This record is closed — only individual fields can be reverted, not the whole record.",
+  distribution_source_not_pinned:
+    "This source isn't pinned — a git TAG and/or exact commit is required (never HEAD, main, or latest).",
+  distribution_digest_invalid:
+    "The digest doesn't check out — the artifact's sha256 doesn't match the pinned digest.",
+  distribution_signature_invalid:
+    "The signature block is missing or empty — code-signed artifacts are required.",
+  distribution_manifest_invalid:
+    "The manifest is malformed or uses unsupported constructs — nothing was imported.",
+  distribution_archive_cap:
+    "The archive exceeds a sandbox cap (8 MiB archive, 256 entries, 4 MB per member) — nothing was imported.",
+  distribution_archive_invalid:
+    "The archive couldn't be read as a valid zip (traversal-unsafe entries or a missing manifest.json).",
   service_unavailable:
     "This capability is temporarily unavailable. Try again in a moment.",
   internal_error:
