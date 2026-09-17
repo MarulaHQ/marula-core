@@ -6648,8 +6648,28 @@ export interface paths {
         /** GET /api/secrets/records — metadata-only vault rows. */
         get: operations["secrets_records_list"];
         put?: never;
-        /** POST /api/secrets/records — seals fields with coordinate AAD. */
+        /**
+         * POST /api/secrets/records — seals fields with coordinate AAD;
+         *     instant-first (IF1–IF3) when an idempotency key rides the request.
+         */
         post: operations["secrets_records_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/secrets/records/bulk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/secrets/records/bulk — the chunked worker path. */
+        post: operations["secrets_records_bulk"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6674,8 +6694,41 @@ export interface paths {
         delete: operations["secrets_records_delete"];
         options?: never;
         head?: never;
-        /** PATCH /api/secrets/records/{id} — metadata + field rotation/clear. */
+        /**
+         * PATCH /api/secrets/records/{id} — metadata + field rotation/clear
+         *     (`value: null` clears — A5); instant-first envelope (IF1–IF3).
+         */
         patch: operations["secrets_records_update"];
+        trace?: never;
+    };
+    "/api/v1/secrets/records/{id}/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/secrets/records/{id}/file — the reveal-file path (document
+         *     kind ONLY): requires `secrets:edit` + the category gate (the same
+         *     posture as field reveal), decrypts the object-store ciphertext, and
+         *     emits `secret.revealed` in-commit with the read. The response is the
+         *     sole carrier of the plaintext bytes.
+         */
+        get: operations["secrets_records_get_file"];
+        /**
+         * PUT /api/secrets/records/{id}/file — document-kind ONLY. Seals the
+         *     uploaded bytes (AAD-bound to the record coordinate), PUTs the
+         *     ciphertext to the object store behind the core-store S3/local seam,
+         *     and pins the pointer + hash + byte length on the record in the same
+         *     tx (event emitted in-commit).
+         */
+        put: operations["secrets_records_put_file"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/secrets/records/{id}/links": {
@@ -9208,6 +9261,63 @@ export interface components {
         BulkMoveResponse: {
             moved: components["schemas"]["DispatchAppointment"][];
         };
+        /** @enum {string} */
+        BulkRowOutcome: "created" | "replayed" | "refused";
+        BulkRowResult: {
+            idempotency_key: string;
+            outcome: components["schemas"]["BulkRowOutcome"];
+            /**
+             * @description Typed refusal reason on `refused` rows (validation/unique/key
+             *     reuse); never carries secret material.
+             */
+            reason?: string | null;
+            /** Format: uuid */
+            record_id?: string | null;
+        };
+        BulkSecretIngestRequest: {
+            /**
+             * Format: uuid
+             * @description NULL = org-scope records.
+             */
+            client_id?: string | null;
+            /** Format: uuid */
+            folder_id: string;
+            kind: components["schemas"]["SecretRecordKind"];
+            /** @description The chunk: 1..=[`BULK_CHUNK_CAP`] rows. */
+            records: components["schemas"]["BulkSecretRecord"][];
+        };
+        BulkSecretIngestResponse: {
+            /**
+             * Format: int64
+             * @description Convenience counts for the driver loop.
+             */
+            created: number;
+            /** Format: int64 */
+            refused: number;
+            /** Format: int64 */
+            replayed: number;
+            results: components["schemas"]["BulkRowResult"][];
+            /**
+             * Format: int64
+             * @description True when the caller should send another chunk (informational —
+             *     the driver knows its own queue; the row ceiling is the pacing
+             *     signal to stay under).
+             */
+            rows_per_sec_ceiling: number;
+        };
+        BulkSecretRecord: {
+            /** Format: date-time */
+            expires_at?: string | null;
+            /** @description Material fields — sealed with coordinate AAD before persistence. */
+            fields?: components["schemas"]["SecretFieldValue"][];
+            /**
+             * @description Stable per-row idempotency key — THE resume checkpoint. Generate
+             *     once per source row (e.g. the legacy row's stable id) and reuse it
+             *     verbatim on every chunk retry.
+             */
+            idempotency_key: string;
+            title: string;
+        };
         /**
          * @description Weekly business hours in a named IANA timezone, plus holiday dates.
          *     `None` window = non-business day.
@@ -10838,7 +10948,7 @@ export interface components {
             restricted?: boolean;
             slug: string;
         };
-        CreateSecretRecordRequest: {
+        CreateSecretRecordRequest: components["schemas"]["MutationParams"] & {
             /**
              * Format: uuid
              * @description NULL = org-scope record.
@@ -16294,6 +16404,16 @@ export interface components {
             value: string;
         };
         /**
+         * @description PATCH field entry (A5, Wave 16 lane 9): `value: null` CLEARS the
+         *     sealed field (row deleted, audited via the record-updated event);
+         *     a value rotates the sealed ciphertext.
+         */
+        SecretFieldValuePatch: {
+            field_key: string;
+            /** @description None (json null) clears the sealed field; Some rotates it. */
+            value?: string | null;
+        };
+        /**
          * @description A secret category folder (`secret_folders`). Exactly one of org/client
          *     scope rows: org-scope rows carry `org_id` (client_id NULL),
          *     client-scope rows carry `client_id` (org_id NULL — the tenancy spine
@@ -16397,6 +16517,13 @@ export interface components {
          * @enum {string}
          */
         SecretRecordKind: "password" | "api_key" | "certificate" | "recovery_code" | "document";
+        /**
+         * @description Instant-first mutation response (IF2): the metadata-only record plus
+         *     the write-trail/replay metadata (mirrors PasswordMutationResponse).
+         */
+        SecretRecordMutationResponse: components["schemas"]["SecretRecord"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
         /**
          * @description The audited reveal response: the ONLY plaintext carrier for secret
          *     records, mirroring `/passwords/{id}/reveal` (requires secrets:edit,
@@ -16738,6 +16865,11 @@ export interface components {
             staged_chunks: number;
         };
         StageFromGithubRequest: {
+            /**
+             * @description Optional release-asset URL for B2 cross-digest verification of
+             *     the actual artifact bytes (same posture as the registry source).
+             */
+            artifact_url?: string | null;
             /** @description Pinned 40-hex commit the tag resolves to. */
             commit: string;
             owner: string;
@@ -16746,6 +16878,14 @@ export interface components {
             tag: string;
         };
         StageFromRegistryRequest: {
+            /**
+             * @description Optional direct artifact URL (marketplace CDN / release asset).
+             *     When present the server RE-FETCHES the bytes and verifies their
+             *     sha256 against the catalog-pinned digest BEFORE the staged row
+             *     exists (B2 cross-digest verification; typed
+             *     `distribution_digest_invalid` on mismatch).
+             */
+            artifact_url?: string | null;
             url: string;
         };
         StageListQuery: {
@@ -17544,8 +17684,7 @@ export interface components {
             decided_at?: string | null;
             /** Format: uuid */
             decided_by?: string | null;
-            /** Format: uuid */
-            entry: string;
+            entry: components["schemas"]["TimeEntry"];
             /** @description True once the entry is consumed by an invoice — frozen forever. */
             locked: boolean;
             /** Format: date-time */
@@ -18052,14 +18191,14 @@ export interface components {
             restricted?: boolean | null;
             slug?: string | null;
         };
-        UpdateSecretRecordRequest: {
+        UpdateSecretRecordRequest: components["schemas"]["MutationParams"] & {
             /**
              * Format: date-time
              * @description absent = keep; null = clear; value = set.
              */
             expires_at?: string | null;
-            /** @description Matching keys rotate (sealed); `value: null` clears. */
-            fields?: components["schemas"]["SecretFieldValue"][];
+            /** @description Matching keys rotate (sealed); `value: null` clears (A5). */
+            fields?: components["schemas"]["SecretFieldValuePatch"][];
             title: string;
         };
         UpdateSettingRequest: {
@@ -31562,7 +31701,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SecretRecord"];
+                    "application/json": components["schemas"]["SecretRecordMutationResponse"];
                 };
             };
             /** @description restricted category gate denied */
@@ -31572,7 +31711,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description title already exists in this folder */
+            /** @description title already exists in this folder / idempotency key reused */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -31581,6 +31720,50 @@ export interface operations {
             };
             /** @description validation error */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    secrets_records_bulk: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkSecretIngestRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkSecretIngestResponse"];
+                };
+            };
+            /** @description restricted category gate denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description chunk over cap / validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description org write budget exhausted */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -31670,7 +31853,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SecretRecord"];
+                    "application/json": components["schemas"]["SecretRecordMutationResponse"];
                 };
             };
             /** @description restricted category gate denied */
@@ -31687,7 +31870,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description title collision */
+            /** @description title collision / version conflict / idempotency key reused */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -31695,6 +31878,94 @@ export interface operations {
                 content?: never;
             };
             /** @description validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    secrets_records_get_file: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": unknown;
+                };
+            };
+            /** @description restricted category gate denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description record or object not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description record has no stored file */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    secrets_records_put_file: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretRecordMutationResponse"];
+                };
+            };
+            /** @description restricted category gate denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description record not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description record is not document-kind / body over cap */
             422: {
                 headers: {
                     [name: string]: unknown;

@@ -2255,6 +2255,156 @@ pub struct ClientWorkflowOverrideCleared {
     pub occurred_at: DateTime<Utc>,
 }
 
+// --- native secrets vault (Wave 16 lane 3, migration 0078; contract
+// registration Wave 16 lane 9) ----------------------------------------------
+
+/// `secret.folder_created` — a category folder appeared (admin create OR
+/// the fork path in the `"fork"` variant). Scope carries `client_id` only
+/// for client-scope folders; org-scope rows are `null`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SecretFolderCreated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub folder_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub client_id: Option<uuid::Uuid>,
+    pub slug: String,
+    pub restricted: bool,
+}
+
+/// `secret.folder_created` variant `"fork"` — the deep-copy fork of a
+/// subtree into client scope; provenance stays on the row itself.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SecretFolderForked {
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub client_id: Option<uuid::Uuid>,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub forked_from: uuid::Uuid,
+    pub slug: String,
+}
+
+/// `secret.folder_updated` — label/slug/kind/restricted edits (seed rows
+/// already refuse; the store enforces the fork mandate).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SecretFolderUpdated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub folder_id: uuid::Uuid,
+    pub slug: String,
+    pub restricted: bool,
+}
+
+/// `secret.folder_deleted` — the folder grew no records (delete is
+/// refused otherwise).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SecretFolderDeleted {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub folder_id: uuid::Uuid,
+    pub slug: String,
+}
+
+/// `secret.record_created` — a sealed record landed in a folder. Field
+/// material (ciphertext, plaintext) NEVER rides here.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SecretRecordCreated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub record_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub client_id: Option<uuid::Uuid>,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub folder_id: uuid::Uuid,
+    pub title: String,
+}
+
+/// `secret.record_updated` — record metadata (title/notes/url edits or
+/// field rotation/clear) changed; `fields_rotated` flags whether any
+/// SEALED field bytes churned.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SecretRecordUpdated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub record_id: uuid::Uuid,
+    pub fields_rotated: bool,
+}
+
+/// `secret.record_deleted` — the record and its sealed fields are gone.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SecretRecordDeleted {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub record_id: uuid::Uuid,
+    pub title: String,
+}
+
+/// `secret.revealed` — the audit provenance rail for a decrypt: who saw
+/// the record's sealed fields is queryable; the payloads carry ids/titles
+/// only and NEVER the plaintext or ciphertext.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SecretRevealed {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub record_id: uuid::Uuid,
+    pub title: String,
+}
+
+/// `secret.grant_updated` — a (role × folder) deny-by-default grant was
+/// upserted in `secret_category_grants`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SecretGrantUpdated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub grant_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub role_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub folder_id: uuid::Uuid,
+    pub can_read: bool,
+    pub can_edit: bool,
+}
+
+/// `secret.grant_deleted` — one grant row was revoked; the folder chain
+/// falls back to deny-by-default matching.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SecretGrantDeleted {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub role_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub folder_id: uuid::Uuid,
+}
+
+/// `agent_skill.created` / `agent_skill.updated` default — the original
+/// publish path (0040 lane): a skill slug versioned at max+1. Wave 16
+/// lane 9 contract typing; the wire shape is unchanged.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AgentSkillEventPayload {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub skill_id: uuid::Uuid,
+    pub slug: String,
+    pub version: i32,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub created_by: uuid::Uuid,
+}
+
+/// `agent_skill.updated` variant `"enabled"` — the ADR 0009 enable
+/// toggle from the distribution lifecycle (deny-by-default gate flips on
+/// the ACTIVE version row).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AgentSkillEnabledPayload {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub skill_id: uuid::Uuid,
+    pub slug: String,
+    pub version: i32,
+    pub enabled: bool,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub updated_by: uuid::Uuid,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

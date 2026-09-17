@@ -436,23 +436,24 @@ use core_domain::entities::{
     TicketComment, TicketCostLine, TicketExpense, TicketLinkType, TimeEntry,
 };
 use core_domain::events::{
-    types, AlertIngested, AppointmentCancelled, AppointmentCreated, AppointmentRequestApproved,
-    AppointmentRequestCancelled, AppointmentRequestCreated, AppointmentRequestDeclined,
-    AppointmentUpdated, AttachmentAdded, AttachmentDeleted, AttachmentLinked, AvailabilityChanged,
-    BoardFavoriteToggled, BoardGroupCreated, BoardGroupRemoved, BoardGroupUpdated,
-    BoardMembershipRemoved, BoardMembershipUpdated, BoardStatusAdded, BoardStatusRemoved,
-    BoardStatusUpdated, BoardTransitionsUpdated, CalendarExclusionChanged, CalendarSyncCompleted,
-    CalendarSyncConnectionUpdated, CatalogItemArchived, CatalogItemCreated, CatalogItemUpdated,
-    ClientCreated, ClientUpdated, ClientWorkflowOverrideCleared, ClientWorkflowOverrideSet,
-    ConfigItemCreated, ConfigItemMergeUndone, ConfigItemMerged, ConfigItemUpdated, ContactCreated,
-    ContactUpdated, ContractCreated, ContractRemoved, ContractUpdated, CreditNoteApplied,
-    CreditNoteIssued, CreditNoteRefunded, DispatchQueueUpdated, DispatchStatusUpdated,
-    FxBaseCurrencyChanged, FxRateRecorded, ImportBatchFinished, ImportBatchStarted, InvoiceCreated,
-    InvoiceDunningChanged, InvoicePaymentRecorded, InvoiceRunCompleted, InvoiceVoided,
-    MigrationPushSessionFinished, MigrationPushSessionStarted, NotificationCreated, OnCallChanged,
-    PipelineDealCreated, PipelineDealStageChanged, PipelineDealUpdated, PipelineStageCreated,
-    PipelineStageUpdated, PluginCatalogEntryCreated, PluginInstallRevoked, PluginInstallUpdated,
-    PluginInstalled, PluginSettingsUpdated, PluginStagedImportApproved, PluginStagedImportCreated,
+    types, AgentSkillEnabledPayload, AlertIngested, AppointmentCancelled, AppointmentCreated,
+    AppointmentRequestApproved, AppointmentRequestCancelled, AppointmentRequestCreated,
+    AppointmentRequestDeclined, AppointmentUpdated, AttachmentAdded, AttachmentDeleted,
+    AttachmentLinked, AvailabilityChanged, BoardFavoriteToggled, BoardGroupCreated,
+    BoardGroupRemoved, BoardGroupUpdated, BoardMembershipRemoved, BoardMembershipUpdated,
+    BoardStatusAdded, BoardStatusRemoved, BoardStatusUpdated, BoardTransitionsUpdated,
+    CalendarExclusionChanged, CalendarSyncCompleted, CalendarSyncConnectionUpdated,
+    CatalogItemArchived, CatalogItemCreated, CatalogItemUpdated, ClientCreated, ClientUpdated,
+    ClientWorkflowOverrideCleared, ClientWorkflowOverrideSet, ConfigItemCreated,
+    ConfigItemMergeUndone, ConfigItemMerged, ConfigItemUpdated, ContactCreated, ContactUpdated,
+    ContractCreated, ContractRemoved, ContractUpdated, CreditNoteApplied, CreditNoteIssued,
+    CreditNoteRefunded, DispatchQueueUpdated, DispatchStatusUpdated, FxBaseCurrencyChanged,
+    FxRateRecorded, ImportBatchFinished, ImportBatchStarted, InvoiceCreated, InvoiceDunningChanged,
+    InvoicePaymentRecorded, InvoiceRunCompleted, InvoiceVoided, MigrationPushSessionFinished,
+    MigrationPushSessionStarted, NotificationCreated, OnCallChanged, PipelineDealCreated,
+    PipelineDealStageChanged, PipelineDealUpdated, PipelineStageCreated, PipelineStageUpdated,
+    PluginCatalogEntryCreated, PluginInstallRevoked, PluginInstallUpdated, PluginInstalled,
+    PluginSettingsUpdated, PluginStagedImportApproved, PluginStagedImportCreated,
     PluginStagedImportRefused, PluginUpdatePending, PmScheduleChanged, PmScheduleDeleted,
     PodVisibilityUpdated, ProjectCreated, ProjectMilestoneCompleted, ProjectPhaseCompleted,
     ProjectPhaseCreated, ProjectPhaseUpdated, ProjectTaskCompleted, ProjectTaskCreated,
@@ -460,14 +461,16 @@ use core_domain::events::{
     ProjectViewRemoved, ProjectViewUpdated, QuoteAccepted, QuoteConverted, QuoteCreated,
     QuoteDeclined, QuoteExpired, QuoteSent, QuoteUpdated, RoleForked, RoleRestored,
     SchedulingLinkCreated, SchedulingLinkRevoked, SchedulingLinkScheduled, SchedulingLinkViewed,
-    ScorecardSettingsUpdated, SiteCreated, SiteUpdated, TagCreated, TagDeleted, TagUpdated,
-    TemplateCreated, TemplateRemoved, TemplateUpdated, TicketAssigned, TicketBoardMoved,
-    TicketChecklistUpdated, TicketCommentAdded, TicketCostLineAdded, TicketCostLineRemoved,
-    TicketCreated, TicketExpenseRecorded, TicketExpenseRemoved, TicketLinkChanged, TicketMerged,
-    TicketReverted, TicketStatusChanged, TicketTagsChanged, TimeEntryApprovalApproved,
-    TimeEntryApprovalRejected, TimeEntryApprovalSubmitted, TimeEntryCreated, TimerPaused,
-    TimerStarted, TimerStopped, TravelDraftSubmitted, UserActivated, UserDeactivated, UserInvited,
-    UserRoleChanged,
+    ScorecardSettingsUpdated, SecretFolderCreated, SecretFolderDeleted, SecretFolderForked,
+    SecretFolderUpdated, SecretGrantDeleted, SecretGrantUpdated, SecretRecordCreated,
+    SecretRecordDeleted, SecretRecordUpdated, SecretRevealed, SiteCreated, SiteUpdated, TagCreated,
+    TagDeleted, TagUpdated, TemplateCreated, TemplateRemoved, TemplateUpdated, TicketAssigned,
+    TicketBoardMoved, TicketChecklistUpdated, TicketCommentAdded, TicketCostLineAdded,
+    TicketCostLineRemoved, TicketCreated, TicketExpenseRecorded, TicketExpenseRemoved,
+    TicketLinkChanged, TicketMerged, TicketReverted, TicketStatusChanged, TicketTagsChanged,
+    TimeEntryApprovalApproved, TimeEntryApprovalRejected, TimeEntryApprovalSubmitted,
+    TimeEntryCreated, TimerPaused, TimerStarted, TimerStopped, TravelDraftSubmitted, UserActivated,
+    UserDeactivated, UserInvited, UserRoleChanged,
 };
 use core_domain::money::{CurrencyCode, Money};
 use core_domain::policy::BoardRole;
@@ -3500,6 +3503,153 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             })
         ),
     },
+    // -- native secrets vault (Wave 16 lane 3; contract-registered Wave 16
+    // lane 9 — replaces the temporary RESERVED heal) --------------------------
+    PublishedEvent {
+        event_type: types::SECRET_FOLDER_CREATED,
+        entity: "secret_folder",
+        variant: "default",
+        shape: typed_shape!(
+            SecretFolderCreated,
+            SecretFolderCreated {
+                folder_id: su(72),
+                client_id: None,
+                slug: "api-keys".into(),
+                restricted: true,
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::SECRET_FOLDER_CREATED,
+        entity: "secret_folder",
+        variant: "fork",
+        shape: typed_shape!(
+            SecretFolderForked,
+            SecretFolderForked {
+                client_id: Some(su(3)),
+                forked_from: su(72),
+                slug: "api-keys".into(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::SECRET_FOLDER_UPDATED,
+        entity: "secret_folder",
+        variant: "default",
+        shape: typed_shape!(
+            SecretFolderUpdated,
+            SecretFolderUpdated {
+                folder_id: su(72),
+                slug: "api-keys".into(),
+                restricted: true,
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::SECRET_FOLDER_DELETED,
+        entity: "secret_folder",
+        variant: "default",
+        shape: typed_shape!(
+            SecretFolderDeleted,
+            SecretFolderDeleted {
+                folder_id: su(72),
+                slug: "api-keys".into(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::SECRET_RECORD_CREATED,
+        entity: "secret_record",
+        variant: "default",
+        shape: typed_shape!(
+            SecretRecordCreated,
+            SecretRecordCreated {
+                record_id: su(73),
+                client_id: None,
+                folder_id: su(72),
+                title: "PagerDuty service key".into(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::SECRET_RECORD_UPDATED,
+        entity: "secret_record",
+        variant: "default",
+        shape: typed_shape!(
+            SecretRecordUpdated,
+            SecretRecordUpdated {
+                record_id: su(73),
+                fields_rotated: true,
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::SECRET_RECORD_DELETED,
+        entity: "secret_record",
+        variant: "default",
+        shape: typed_shape!(
+            SecretRecordDeleted,
+            SecretRecordDeleted {
+                record_id: su(73),
+                title: "PagerDuty service key".into(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::SECRET_REVEALED,
+        entity: "secret_record",
+        variant: "default",
+        shape: typed_shape!(
+            SecretRevealed,
+            SecretRevealed {
+                record_id: su(73),
+                title: "PagerDuty service key".into(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::SECRET_GRANT_UPDATED,
+        entity: "secret_grant",
+        variant: "default",
+        shape: typed_shape!(
+            SecretGrantUpdated,
+            SecretGrantUpdated {
+                grant_id: su(74),
+                role_id: su(6),
+                folder_id: su(72),
+                can_read: true,
+                can_edit: true,
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::SECRET_GRANT_DELETED,
+        entity: "secret_grant",
+        variant: "default",
+        shape: typed_shape!(
+            SecretGrantDeleted,
+            SecretGrantDeleted {
+                role_id: su(6),
+                folder_id: su(72),
+            }
+        ),
+    },
+    // -- agent skills (0040 lane payloads, typed Wave 16 lane 9) --------------
+    PublishedEvent {
+        event_type: types::AGENT_SKILL_UPDATED,
+        entity: "agent_skill",
+        variant: "enabled",
+        shape: typed_shape!(
+            AgentSkillEnabledPayload,
+            AgentSkillEnabledPayload {
+                skill_id: su(36),
+                slug: "triage-drafter".into(),
+                version: 2,
+                enabled: true,
+                updated_by: su(5),
+            }
+        ),
+    },
     // -- alert ingestor ------------------------------------------------------
     PublishedEvent {
         event_type: types::ALERT_INGESTED,
@@ -3702,19 +3852,10 @@ pub static RESERVED_EVENT_TYPES: &[&str] = &[
     // Wave 11 lane 7 (docs-platform) emission-site types are PUBLISHED
     // now (typed shapes + goldens registered; the lane-9 temporary
     // reservations were dropped 2026-09-10 by the backend-gaps lane).
-    // Wave 16 lane 3 (0078 secret vault) emission-site types: the
-    // constants ship with the routes but their typed golden shapes were
-    // not registered at merge — reserved until the vault close-out lane
-    // registers them as PublishedEvents (conformance gate stays green).
-    types::SECRET_FOLDER_CREATED,
-    types::SECRET_FOLDER_UPDATED,
-    types::SECRET_FOLDER_DELETED,
-    types::SECRET_RECORD_CREATED,
-    types::SECRET_RECORD_UPDATED,
-    types::SECRET_RECORD_DELETED,
-    types::SECRET_REVEALED,
-    types::SECRET_GRANT_UPDATED,
-    types::SECRET_GRANT_DELETED,
+    // Wave 16 lane 3 (0078 secret vault) emission-site types were
+    // REGISTERED as PublishedEvents (typed shapes + goldens) by the
+    // Wave 16 lane 9 straggler sweep — the temporary reservations above
+    // (nine secret.* constants) dropped there.
 ];
 
 /// A retired event type (policy §2: "retired event types keep emitting

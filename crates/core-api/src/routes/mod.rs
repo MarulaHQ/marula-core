@@ -858,6 +858,11 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             post(secrets::reveal_record),
         )
         .route(
+            &rp("/secrets/records/{id}/file"),
+            axum::routing::put(secrets::put_record_file).get(secrets::get_record_file),
+        )
+        .route(&rp("/secrets/records/bulk"), post(secrets::bulk_ingest))
+        .route(
             &rp("/secrets/records/{id}/links"),
             get(secrets::list_record_links).post(secrets::add_record_link),
         )

@@ -518,7 +518,7 @@ pub async fn skills_publish(
         &req.manifest,
     )
     .await?;
-    let (event, action) = if version == 1 {
+    let (event, action): (&'static str, &'static str) = if version == 1 {
         (types::AGENT_SKILL_CREATED, "agent_skill.created")
     } else {
         (types::AGENT_SKILL_UPDATED, "agent_skill.updated")
@@ -536,12 +536,13 @@ pub async fn skills_publish(
         event,
         "agent_skill",
         Some(row.id.to_string().as_str()),
-        &serde_json::json!({
-            "skill_id": row.id,
-            "slug": row.slug,
-            "version": row.version,
-            "created_by": user_id,
-        }),
+        &serde_json::to_value(&core_domain::events::AgentSkillEventPayload {
+            skill_id: row.id,
+            slug: row.slug.clone(),
+            version: row.version,
+            created_by: user_id,
+        })
+        .expect("typed agent-skill event payload serializes"),
     )
     .await?;
     tx.commit().await?;

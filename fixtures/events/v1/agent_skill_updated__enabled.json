@@ -1,0 +1,14 @@
+{
+  "event_type": "agent_skill.updated",
+  "entity": "agent_skill",
+  "variant": "enabled",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "enabled": true,
+    "skill_id": "00000000-0000-0000-0000-000000000024",
+    "slug": "triage-drafter",
+    "updated_by": "00000000-0000-0000-0000-000000000005",
+    "version": 2
+  }
+}

@@ -204,7 +204,8 @@ pub struct TimeEntryApprovalRecord {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TimeEntryQueueItem {
-    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    // The wire carries the FULL TimeEntry (not just its uuid — the earlier
+    // value_type = uuid::Uuid annotation lied; fixed Wave 16 lane 9).
     pub entry: TimeEntry,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub submitted_by: Option<UserId>,

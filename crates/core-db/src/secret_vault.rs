@@ -682,6 +682,60 @@ pub async fn update_record(
     get_record(conn, org_id, id).await
 }
 
+/// Sets the document-kind ciphertext-file pointer columns (A4, Wave 16
+/// lane 9): the record row carries ONLY the object-storage key + the
+/// sha256 + byte length of the SEALED payload — never the bytes
+/// themselves, which live in the object store behind [`core_store`].
+/// Refused for non-document records (kind gate).
+pub async fn set_file_pointer(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    id: Uuid,
+    object_key: &str,
+    file_sha256: &str,
+    file_bytes: i64,
+    actor: Uuid,
+) -> DbResult<SecretRecord> {
+    let r = sqlx::query(
+        "UPDATE secret_records SET
+           object_key = $3, file_sha256 = $4, file_bytes = $5,
+           updated_by = $6, updated_at = now()
+         WHERE id = $2 AND org_id = $1 AND kind = 'document'",
+    )
+    .bind(org_id)
+    .bind(id)
+    .bind(object_key)
+    .bind(file_sha256)
+    .bind(file_bytes)
+    .bind(actor)
+    .execute(&mut *conn)
+    .await?;
+    if r.rows_affected() == 0 {
+        return Err(DbError::NotFound);
+    }
+    get_record(conn, org_id, id).await
+}
+
+/// Counts other document records in the org pointing at the same storage
+/// key (content-addressed ciphertext dedup — safe object deletion check).
+pub async fn count_other_file_refs(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    object_key: &str,
+    exclude_record: Uuid,
+) -> DbResult<i64> {
+    let n: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM secret_records
+         WHERE org_id = $1 AND object_key = $2 AND id <> $3",
+    )
+    .bind(org_id)
+    .bind(object_key)
+    .bind(exclude_record)
+    .fetch_one(&mut *conn)
+    .await?;
+    Ok(n)
+}
+
 pub async fn delete_record(conn: &mut PgConnection, org_id: Uuid, id: Uuid) -> DbResult<()> {
     let r = sqlx::query("DELETE FROM secret_records WHERE id = $2 AND org_id = $1")
         .bind(org_id)

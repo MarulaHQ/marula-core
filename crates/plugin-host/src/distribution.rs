@@ -30,6 +30,58 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     hex::encode(hasher.finalize())
 }
 
+// --- B1: ed25519 artifact signature verification (Wave 16 lane 9) ---------
+//
+// Signing convention (documented, stable): the operator's ed25519 PUBLIC
+// key (64 hex chars) is configured server-side
+// (`MERIDIAN_PLUGIN_SIGNING_KEY`); the artifact signature is an ed25519
+// signature over the RAW 32 BYTES the artifact digest hex decodes to,
+// hex-encoded (128 chars) on the wire. Verification is a REAL
+// cryptographic check — a configured key plus any invalid/missing
+// signature refuses the artifact with `BadSignature`; with NO key
+// configured the seam degrades to the structural-only check and says so
+// loudly in the log (dev posture, never production).
+
+use ed25519_dalek::{Signature, VerifyingKey};
+
+/// One signature verification: key + digest hex + wire signature (hex).
+/// The typed refusal is ALWAYS [`IngestReason::BadSignature`] — key
+/// material never reaches error text.
+pub fn verify_artifact_signature(
+    signing_key_hex: &str,
+    artifact_digest_hex: &str,
+    signature_hex: &str,
+) -> Result<(), IngestReason> {
+    let key_bytes: [u8; 32] = hex::decode(signing_key_hex.trim())
+        .ok()
+        .and_then(|v| v.try_into().ok())
+        .ok_or(IngestReason::BadSignature)?;
+    let vk = VerifyingKey::from_bytes(&key_bytes).map_err(|_| IngestReason::BadSignature)?;
+    let digest_bytes: [u8; 32] = hex::decode(artifact_digest_hex.trim())
+        .ok()
+        .and_then(|v| v.try_into().ok())
+        .ok_or(IngestReason::BadSignature)?;
+    let sig_bytes: [u8; 64] = hex::decode(signature_hex.trim())
+        .ok()
+        .and_then(|v| v.try_into().ok())
+        .ok_or(IngestReason::BadSignature)?;
+    let sig = Signature::from_bytes(&sig_bytes);
+    vk.verify_strict(&digest_bytes, &sig)
+        .map_err(|_| IngestReason::BadSignature)
+}
+
+/// B2 helper — cross-digest verification of RE-FETCHED artifact bytes:
+/// the sha256 over the actual bytes must equal the digest the catalog /
+/// manifest pinned. `distribution_digest_invalid` on any mismatch.
+pub fn verify_artifact_bytes(bytes: &[u8], expected_digest: &str) -> Result<(), IngestReason> {
+    require_sha256(expected_digest)?;
+    if sha256_hex(bytes) == expected_digest.trim().to_lowercase() {
+        Ok(())
+    } else {
+        Err(IngestReason::BadDigest)
+    }
+}
+
 /// Typed refusal reasons (deny-by-default surface — typed codes, never
 /// prose to parse; these ride audit details and API errors).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -118,7 +170,10 @@ pub const MAX_ARCHIVE_UNCOMPRESSED: usize = 8 * 1024 * 1024;
 /// shape: static catalog JSON + git tag + code-signature/digest). The
 /// registry itself is the review channel for this source, but the org
 /// still lands through the staged consent diff.
-pub fn ingest_registry_entry(catalog_json: &[u8]) -> Result<DistributionBundle, IngestReason> {
+pub fn ingest_registry_entry(
+    catalog_json: &[u8],
+    signing_key: Option<&str>,
+) -> Result<DistributionBundle, IngestReason> {
     let Ok(value) = serde_json::from_slice::<serde_json::Value>(catalog_json) else {
         return Err(IngestReason::BadManifest);
     };
@@ -133,6 +188,11 @@ pub fn ingest_registry_entry(catalog_json: &[u8]) -> Result<DistributionBundle, 
         .ok_or(IngestReason::BadManifest)?;
     if signature.trim().is_empty() {
         return Err(IngestReason::BadSignature);
+    }
+    // B1: with an operator key configured the signature is CRYPTOGRAPHICALLY
+    // verified against the digest; without one this stays structural-only.
+    if let Some(key) = signing_key {
+        verify_artifact_signature(key, digest, signature)?;
     }
     let manifest =
         validate_plugin_manifest(value.get("manifest").ok_or(IngestReason::BadManifest)?)?;
@@ -160,6 +220,7 @@ pub fn ingest_github_pull(
     commit_sha: &str,
     manifest_json: serde_json::Value,
     artifact_digest: &str,
+    signing_key: Option<&str>,
 ) -> Result<DistributionBundle, IngestReason> {
     if owner.trim().is_empty() || repo.trim().is_empty() {
         return Err(IngestReason::BadManifest);
@@ -173,6 +234,16 @@ pub fn ingest_github_pull(
         return Err(IngestReason::NoPin);
     }
     require_sha256(artifact_digest)?;
+    // B1: when the operator key is configured the pinned manifest MUST
+    // carry a valid ed25519 signature over the digest (deny-by-default).
+    if let Some(key) = signing_key {
+        let sig = manifest_json
+            .get("signature")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.trim().is_empty())
+            .ok_or(IngestReason::BadSignature)?;
+        verify_artifact_signature(key, artifact_digest, sig)?;
+    }
     let manifest = validate_plugin_manifest(&manifest_json)?;
     Ok(bundle(
         PluginArtifactKind::Plugin,
@@ -414,7 +485,7 @@ mod tests {
             },
             "manifest": serde_json::from_str::<serde_json::Value>(GOOD_MANIFEST).unwrap()
         });
-        let bundle = ingest_registry_entry(&serde_json::to_vec(&payload).unwrap()).unwrap();
+        let bundle = ingest_registry_entry(&serde_json::to_vec(&payload).unwrap(), None).unwrap();
         assert_eq!(bundle.fetched_ref.as_deref(), Some("v1.2.0"));
         assert_eq!(bundle.source_kind, PluginSourceKind::MarketplaceRegistry);
         assert!(is_sha256_hex(&bundle.artifact_digest));
@@ -434,22 +505,22 @@ mod tests {
             "manifest": serde_json::from_str::<serde_json::Value>(GOOD_MANIFEST).unwrap()
         });
         assert_eq!(
-            ingest_registry_entry(&serde_json::to_vec(&payload).unwrap()).unwrap_err(),
+            ingest_registry_entry(&serde_json::to_vec(&payload).unwrap(), None).unwrap_err(),
             IngestReason::BadSignature
         );
         payload["tag"] = json!("HEAD");
         assert_eq!(
-            ingest_registry_entry(&serde_json::to_vec(&payload).unwrap()).unwrap_err(),
+            ingest_registry_entry(&serde_json::to_vec(&payload).unwrap(), None).unwrap_err(),
             IngestReason::NoPin
         );
         payload["tag"] = json!("main");
         assert_eq!(
-            ingest_registry_entry(&serde_json::to_vec(&payload).unwrap()).unwrap_err(),
+            ingest_registry_entry(&serde_json::to_vec(&payload).unwrap(), None).unwrap_err(),
             IngestReason::NoPin
         );
         // TotMalformed archive (not JSON at all).
         assert_eq!(
-            ingest_registry_entry(b"not json").unwrap_err(),
+            ingest_registry_entry(b"not json", None).unwrap_err(),
             IngestReason::BadManifest
         );
     }
@@ -458,13 +529,29 @@ mod tests {
     fn github_pull_should_refuse_head_pins_and_missing_columns() {
         let manifest = serde_json::from_str::<serde_json::Value>(GOOD_MANIFEST).unwrap();
         assert_eq!(
-            ingest_github_pull("org", "repo", "", "", manifest.clone(), &digest_of("x"))
-                .unwrap_err(),
+            ingest_github_pull(
+                "org",
+                "repo",
+                "",
+                "",
+                manifest.clone(),
+                &digest_of("x"),
+                None
+            )
+            .unwrap_err(),
             IngestReason::NoPin
         );
         assert_eq!(
-            ingest_github_pull("org", "repo", "HEAD", "", manifest.clone(), &digest_of("x"))
-                .unwrap_err(),
+            ingest_github_pull(
+                "org",
+                "repo",
+                "HEAD",
+                "",
+                manifest.clone(),
+                &digest_of("x"),
+                None
+            )
+            .unwrap_err(),
             IngestReason::NoPin
         );
         assert_eq!(
@@ -474,7 +561,8 @@ mod tests {
                 "v1.0.2",
                 "short-sha",
                 manifest.clone(),
-                &digest_of("x")
+                &digest_of("x"),
+                None,
             )
             .unwrap_err(),
             IngestReason::NoPin
@@ -486,7 +574,8 @@ mod tests {
                 "v1.0.2",
                 &commit_sample(),
                 manifest.clone(),
-                "zzz"
+                "zzz",
+                None,
             )
             .unwrap_err(),
             IngestReason::BadDigest
@@ -498,6 +587,7 @@ mod tests {
             &commit_sample(),
             manifest,
             &digest_of("x"),
+            None,
         )
         .unwrap();
         assert_eq!(
@@ -587,6 +677,58 @@ mod tests {
         .unwrap();
         assert_eq!(ok.fetched_ref.as_deref(), Some("v3.1.0"));
         assert_eq!(ok.manifest_name().unwrap(), "Triage Helper");
+    }
+
+    #[test]
+    fn artifact_signature_verification_accepts_only_the_real_key_and_sig() {
+        use ed25519_dalek::Signer as _;
+        let signing = ed25519_dalek::SigningKey::from_bytes(&[7u8; 32]);
+        let key_hex = hex::encode(signing.verifying_key().as_bytes());
+        let digest = digest_of("artifact bytes");
+        let digest_bytes: [u8; 32] = hex::decode(&digest).unwrap().try_into().unwrap();
+        let sig_hex = hex::encode(signing.sign(&digest_bytes).to_bytes());
+        // Real key + real signature verify.
+        assert_eq!(
+            verify_artifact_signature(&key_hex, &digest, &sig_hex),
+            Ok(())
+        );
+        // Wrong key refuses (typed BadSignature, never key material).
+        let other = ed25519_dalek::SigningKey::from_bytes(&[9u8; 32]);
+        let wrong_key_hex = hex::encode(other.verifying_key().as_bytes());
+        assert_eq!(
+            verify_artifact_signature(&wrong_key_hex, &digest, &sig_hex),
+            Err(IngestReason::BadSignature)
+        );
+        // Tampered digest refuses.
+        assert_eq!(
+            verify_artifact_signature(&key_hex, &digest_of("other bytes"), &sig_hex),
+            Err(IngestReason::BadSignature)
+        );
+        // Non-hex / short signature refuses.
+        assert_eq!(
+            verify_artifact_signature(&key_hex, &digest, "sig-bytes"),
+            Err(IngestReason::BadSignature)
+        );
+        // Malformed key refuses closed.
+        assert_eq!(
+            verify_artifact_signature("zz", &digest, &sig_hex),
+            Err(IngestReason::BadSignature)
+        );
+    }
+
+    #[test]
+    fn refetched_artifact_bytes_cross_digest() {
+        let bytes = b"artifact bytes".to_vec();
+        let good = sha256_hex(&bytes);
+        assert_eq!(verify_artifact_bytes(&bytes, &good), Ok(()));
+        assert_eq!(
+            verify_artifact_bytes(b"tampered", &good),
+            Err(IngestReason::BadDigest)
+        );
+        assert_eq!(
+            verify_artifact_bytes(&bytes, "not-a-digest"),
+            Err(IngestReason::BadDigest)
+        );
     }
 
     #[test]
