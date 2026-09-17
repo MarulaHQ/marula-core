@@ -1,10 +1,12 @@
-// /billing — staff invoicing (Wave 9 lane 1 close-out).
+// /billing — staff invoicing (Wave 9 lane 1 close-out; Wave 17 lane 5 UX pass).
 //
-// Purpose: the invoice ledger for the org: filterable invoice list
-// (status/dunning), invoice-run history, and the run composer — org-wide
-// billing preview over a window (GET /billing/preview) followed by the
-// gated run create (POST /billing/invoice-runs) whose IF2 envelope
-// reconciles the optimistic run row and issued invoices.
+// Purpose: the invoice ledger for the org: glanceable recovery posture
+// (stat tiles over stored counts + single-currency sums only), a
+// filterable invoice list (search / status / dunning), invoice-run
+// history, and the run composer — org-wide billing preview over a window
+// (GET /billing/preview) followed by the gated run create
+// (POST /billing/invoice-runs) whose IF2 envelope reconciles the
+// optimistic run row and issued invoices.
 //
 // Non-purpose: no invoice editing (documents are issued artifacts); per-
 // invoice actions live on /billing/[id].
@@ -36,10 +38,17 @@ import {
 } from "@meridian/ui";
 import type { components } from "@meridian/sdk";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, useRequireAuth } from "../../lib/api";
 import { runEnvelopeMutation } from "../../lib/envelope-write";
 import { money } from "../../lib/format";
+import { dueBucket } from "../../lib/format";
+import {
+  dunningTone,
+  invoiceStatusTone,
+  perCurrencySum,
+  type Tone,
+} from "../../lib/money-summary";
 
 type Invoice = components["schemas"]["Invoice"];
 type InvoiceRun = components["schemas"]["InvoiceRun"];
@@ -71,26 +80,16 @@ function isoDay(offsetDays: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-// Semantic status tones (theme.md §3): paid is success-green, dunning
-// escalation runs neutral → warning (reminder) → danger (overdue+).
-function invoiceStatusTone(status: InvoiceStatus): "success" | "neutral" {
-  if (status === "paid") return "success";
-  return "neutral";
-}
-
-function dunningTone(state: DunningState): "neutral" | "warning" | "danger" {
-  if (state === "reminder_sent") return "warning";
-  if (state === "overdue" || state === "final_notice" || state === "collections") {
-    return "danger";
-  }
-  return "neutral";
-}
+// Dunning escalation tones (theme.md §3 semantic pairs) share one mapping
+// with the detail page via lib/money-summary; paid is success-green and
+// dunning escalation walks neutral → warning → danger.
 
 export default function BillingPage() {
   const auth = useRequireAuth();
   const [invoices, setInvoices] = useState<Invoice[] | null>(null);
   const [runs, setRuns] = useState<InvoiceRun[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
   const [statusFilter, setStatusFilter] = useState<InvoiceStatus | "all">("all");
   const [dunningFilter, setDunningFilter] = useState<DunningState | "all">("all");
@@ -128,12 +127,29 @@ export default function BillingPage() {
 
   const filtered = useMemo(() => {
     if (invoices === null) return null;
+    const q = query.trim().toLowerCase();
     return invoices.filter(
       (i) =>
+        (q === "" || i.number.toLowerCase().includes(q)) &&
         (statusFilter === "all" || i.status === statusFilter) &&
         (dunningFilter === "all" || i.dunning_state === dunningFilter),
     );
-  }, [invoices, statusFilter, dunningFilter]);
+  }, [invoices, statusFilter, dunningFilter, query]);
+
+  // Posture tiles — counts over the real list; the outstanding sum only
+  // materializes when the selection is single-currency (never a made-up FX sum).
+  const posture = useMemo(() => {
+    const list = invoices ?? [];
+    const open = list.filter((i) => i.status === "issued" || i.status === "draft");
+    const overdue = open.filter(
+      (i) => i.dunning_state === "overdue" || i.dunning_state === "final_notice" || i.dunning_state === "collections",
+    );
+    const paid = list.filter((i) => i.status === "paid");
+    const outstanding = perCurrencySum(
+      open.filter((i) => i.status === "issued").map((i) => ({ currency: i.currency, amount: i.total_minor - i.total_paid_minor })),
+    );
+    return { openCount: open.length, overdueCount: overdue.length, paidCount: paid.length, outstanding };
+  }, [invoices]);
 
   const loadPreview = async () => {
     setPreviewing(true);
@@ -204,10 +220,37 @@ export default function BillingPage() {
 
   if (auth.status !== "authed") return null;
 
+  const tiles: { label: string; value: React.ReactNode; hint?: string; dataTestId?: string }[] = [
+    {
+      label: "Open",
+      value: posture.openCount,
+      hint: "draft + issued invoices",
+      dataTestId: "billing-stat-open",
+    },
+    {
+      label: "Overdue",
+      value: posture.overdueCount,
+      hint: "in collections posture",
+      dataTestId: "billing-stat-overdue",
+    },
+    {
+      label: "Outstanding",
+      value: posture.outstanding.value,
+      hint: posture.outstanding.currency ?? "issued invoices only",
+      dataTestId: "billing-stat-outstanding",
+    },
+    {
+      label: "Paid",
+      value: posture.paidCount,
+      hint: "settled invoices",
+      dataTestId: "billing-stat-paid",
+    },
+  ];
+
   return (
-    <div className="mx-auto grid w-full max-w-[1400px] gap-8 p-4 md:p-6">
+    <div className="mx-auto grid w-full max-w-[1400px] gap-6 p-4 md:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
+        <div className="m-rise">
           <h1 className="text-lg font-semibold">Billing</h1>
           <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
             Invoices, payment receipts, and collection posture.
@@ -224,7 +267,7 @@ export default function BillingPage() {
           }}
         >
           <DialogTrigger asChild>
-            <Button>New invoice run</Button>
+            <Button className="m-rise">New invoice run</Button>
           </DialogTrigger>
           <DialogContent
             title="New invoice run"
@@ -266,7 +309,10 @@ export default function BillingPage() {
                 {previewing ? <Spinner /> : null} Preview
               </Button>
               {preview !== null ? (
-                <div className="rounded-[2px] border p-3 text-[13px]" style={{ borderColor: "var(--m-border)" }}>
+                <div
+                  className="rounded-[var(--m-radius-control)] border p-3 text-[13px]"
+                  style={{ borderColor: "var(--m-border)", background: "var(--m-bg-subtle)" }}
+                >
                   <p>
                     {preview.evaluations.length} billable contract
                     {preview.evaluations.length === 1 ? "" : "s"},{" "}
@@ -275,9 +321,9 @@ export default function BillingPage() {
                   </p>
                   <ul className="mt-2 grid gap-1">
                     {preview.evaluations.map((e) => (
-                      <li key={e.contract_id} className="flex justify-between gap-4">
-                        <span>{e.contract_number}</span>
-                        <span className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+                      <li key={e.contract_id} className="flex justify-between gap-4 tabular-nums">
+                        <span className="font-mono">{e.contract_number}</span>
+                        <span style={{ color: "var(--m-text-secondary)" }}>
                           {money(e.total_minor, e.currency)}
                         </span>
                       </li>
@@ -312,12 +358,45 @@ export default function BillingPage() {
         </p>
       ) : null}
 
-      <Card>
-        <div className="flex flex-wrap items-center justify-between gap-3 p-4 pb-0">
+      {/* Recovery-posture strip — counts + single-currency sums over the real list. */}
+      <div data-testid="billing-stat-strip" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {tiles.map((t, i) => (
+          <Card
+            key={t.label}
+            className="m-rise p-4"
+            style={{ animationDelay: `${Math.min(i, 6) * 40}ms` }}
+          >
+            <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
+              {t.label}
+            </p>
+            <p
+              className="mt-1 font-mono text-xl font-semibold tabular-nums"
+              style={{ color: "var(--m-text)" }}
+              data-testid={t.dataTestId}
+            >
+              {t.value}
+            </p>
+            <p className="mt-0.5 text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+              {t.hint}
+            </p>
+          </Card>
+        ))}
+      </div>
+
+      <Card className="m-rise overflow-x-auto">
+        <div className="flex flex-wrap items-center justify-between gap-3 p-4 pb-3">
           <h2 className="text-sm font-semibold">Invoices</h2>
-          <div className="flex shrink-0 gap-2">
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search by number…"
+              aria-label="Search invoices by number"
+              data-testid="billing-search"
+              style={{ width: 180 }}
+            />
             <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as InvoiceStatus | "all")}>
-              <SelectTrigger aria-label="Filter by status" className="w-36 whitespace-nowrap">
+              <SelectTrigger aria-label="Filter by status" style={{ width: 150 }}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -332,7 +411,7 @@ export default function BillingPage() {
               value={dunningFilter}
               onValueChange={(v) => setDunningFilter(v as DunningState | "all")}
             >
-              <SelectTrigger aria-label="Filter by dunning state" className="w-44 whitespace-nowrap">
+              <SelectTrigger aria-label="Filter by dunning state" style={{ width: 180 }}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -371,38 +450,65 @@ export default function BillingPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((inv) => (
-                <Tr key={inv.id}>
-                  <Td>
-                    <Link
-                      href={`/billing/${inv.id}`}
-                      className="underline decoration-[var(--m-border)] underline-offset-2"
-                    >
-                      {inv.number}
-                    </Link>
-                  </Td>
-                  <Td>
-                    <Tag tone={invoiceStatusTone(inv.status)}>{inv.status}</Tag>
-                  </Td>
-                  <Td>
-                    {inv.dunning_state !== "none" ? (
-                      <Tag tone={dunningTone(inv.dunning_state)}>{inv.dunning_state}</Tag>
-                    ) : (
-                      <span style={{ color: "var(--m-text-muted)" }}>—</span>
-                    )}
-                  </Td>
-                  <Td>{inv.issued_at}</Td>
-                  <Td>{inv.due_on}</Td>
-                  <Td className="text-right tabular-nums">{money(inv.total_minor, inv.currency)}</Td>
-                  <Td className="text-right tabular-nums">{money(inv.total_paid_minor, inv.currency)}</Td>
-                </Tr>
-              ))}
+              {filtered.map((inv, i) => {
+                const bucket = dueBucket(inv.due_on ?? null);
+                const unpaid = inv.total_minor - inv.total_paid_minor;
+                // Overdue is a balance posture: only issued invoices with an
+                // unpaid remainder carry the due-date chip.
+                const chipVisible = inv.status === "issued" && unpaid > 0;
+                return (
+                  <Tr key={inv.id} className="row-hover">
+                    <Td>
+                      <Link
+                        href={`/billing/${inv.id}`}
+                        className="font-mono text-[13px] underline decoration-[var(--m-border)] underline-offset-2"
+                      >
+                        {inv.number}
+                      </Link>
+                    </Td>
+                    <Td>
+                      <Tag tone={invoiceStatusTone(inv.status)}>{inv.status}</Tag>
+                    </Td>
+                    <Td>
+                      {inv.dunning_state !== "none" ? (
+                        <Tag tone={dunningTone(inv.dunning_state) as "warning" | "danger" | "neutral"}>{inv.dunning_state}</Tag>
+                      ) : (
+                        <span style={{ color: "var(--m-text-muted)" }}>—</span>
+                      )}
+                    </Td>
+                    <Td className="text-[12px]">{inv.issued_at ?? "—"}</Td>
+                    <Td>
+                      {inv.due_on ?? "—"}
+                      {chipVisible && bucket === "overdue" ? (
+                        <Tag tone="danger" className="ml-1">
+                          overdue
+                        </Tag>
+                      ) : chipVisible && bucket === "today" ? (
+                        <Tag tone="warning" className="ml-1">
+                          due today
+                        </Tag>
+                      ) : null}
+                    </Td>
+                    <Td className="text-right font-mono text-[12px] tabular-nums">{money(inv.total_minor, inv.currency)}</Td>
+                    <Td className="text-right font-mono text-[12px] tabular-nums">
+                      {inv.status === "issued" && unpaid > 0 ? (
+                        <span style={{ color: "var(--m-text-secondary)" }}>
+                          {money(inv.total_paid_minor, inv.currency)}
+                          <span style={{ color: "var(--m-text-muted)" }}> · {money(unpaid, inv.currency)} left</span>
+                        </span>
+                      ) : (
+                        money(inv.total_paid_minor, inv.currency)
+                      )}
+                    </Td>
+                  </Tr>
+                );
+              })}
             </tbody>
           </Table>
         )}
       </Card>
 
-      <Card>
+      <Card className="m-rise overflow-x-auto">
         <h2 className="p-4 pb-0 text-sm font-semibold">Invoice runs</h2>
         {runs === null ? (
           <div className="p-4">
@@ -425,23 +531,23 @@ export default function BillingPage() {
             </thead>
             <tbody>
               {runs.map((r) => (
-                <Tr key={r.id}>
-                  <Td>{r.number}</Td>
-                  <Td>
+                <Tr key={r.id} className="row-hover">
+                  <Td className="font-mono text-[13px]">{r.number}</Td>
+                  <Td className="tabular-nums">
                     {r.period_from} → {r.period_to}
                   </Td>
                   <Td className="text-right tabular-nums">{r.invoice_count}</Td>
-                  <Td className="text-right tabular-nums">
-                    {r.currency != null ? money(r.total_minor, r.currency) : "—"}
+                  <Td className="text-right font-mono text-[12px] tabular-nums">
+                    {r.currency != null ? money(r.total_minor, r.currency) : "…"}
                   </Td>
-                  <Td>{r.created_at !== undefined ? new Date(r.created_at).toLocaleString() : "—"}</Td>
+                  <Td className="text-[12px]">{r.created_at !== undefined ? new Date(r.created_at).toLocaleString() : "—"}</Td>
                 </Tr>
               ))}
             </tbody>
           </Table>
         )}
       </Card>
-      <Card>
+      <Card className="m-rise overflow-x-auto">
         <h2 className="p-4 pb-0 text-sm font-semibold">Unbilled ticket candidates</h2>
         <p className="px-4 pt-1 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
           Billable cost lines and expenses waiting to be picked up by an invoice run (read-only — consumption is marked through <code className="font-mono text-[11px]">invoice_line_id</code> when a run lands).
@@ -462,7 +568,7 @@ export default function BillingPage() {
             </thead>
             <tbody>
               {candidates.map((c) => (
-                <Tr key={c.line_id}>
+                <Tr key={c.line_id} className="row-hover">
                   <Td>
                     <Tag tone={c.source === "cost" ? "neutral" : "success"}>{c.source}</Tag>
                   </Td>
@@ -472,7 +578,7 @@ export default function BillingPage() {
                       {c.ticket_id.slice(0, 8)}…
                     </Link>
                   </Td>
-                  <Td className="text-right tabular-nums">{money(c.amount_minor, c.currency)}</Td>
+                  <Td className="text-right font-mono text-[12px] tabular-nums">{money(c.amount_minor, c.currency)}</Td>
                 </Tr>
               ))}
             </tbody>

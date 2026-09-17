@@ -33,10 +33,11 @@ import {
 import type { components } from "@meridian/sdk";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
 import { money } from "../../../lib/format";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
+import { contractStatusTone, termSignal } from "../../../lib/money-summary";
 
 type ContractDetail = components["schemas"]["ContractDetail"];
 type ContractMutationResponse = components["schemas"]["ContractMutationResponse"];
@@ -44,7 +45,7 @@ type BillingEvaluation = components["schemas"]["BillingEvaluation"];
 type RateSpec = components["schemas"]["RateSpec"];
 type FeeSpec = components["schemas"]["FeeSpec"];
 
-export default function ContractDetailPage() {
+export default function ContractDetailPage(): ReactNode {
   const auth = useRequireAuth();
   const params = useParams<{ id: string }>();
   const contractId = params.id;
@@ -201,24 +202,32 @@ export default function ContractDetailPage() {
   const isRetainer = contract.contract_type === "retainer";
 
   return (
-    <div className="grid gap-6 p-6">
-      <div>
+    <div className="mx-auto grid w-full max-w-[1400px] gap-6 p-4 md:p-6">
+      <div className="m-rise">
         <Link href="/contracts" className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2" style={{ color: "var(--m-text-secondary)" }}>
           ← Contracts
         </Link>
-        <div className="mt-2 flex items-center gap-3">
-          <h1 className="text-lg font-semibold">{contract.number}</h1>
-          <Tag>{contract.status}</Tag>
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          <h1 className="font-mono text-lg font-semibold tabular-nums">{contract.number}</h1>
+          <Tag tone={contractStatusTone(contract.status)}>{contract.status}</Tag>
           <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
             {contract.contract_type.replaceAll("_", " ")} · {contract.currency}
           </span>
+          {(() => {
+            const sig = termSignal(contract.effective_until);
+            return sig !== null ? (
+              <Tag tone={sig.tone === "warning" ? "warning" : "danger"} data-testid="contract-term-signal">
+                {sig.label}
+              </Tag>
+            ) : null;
+          })()}
+          <Link
+            href={`/clients/${contract.client_id}`}
+            className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2"
+          >
+            View client
+          </Link>
         </div>
-        <Link
-          href={`/clients/${contract.client_id}`}
-          className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2"
-        >
-          View client
-        </Link>
       </div>
 
       {saveError !== null ? (

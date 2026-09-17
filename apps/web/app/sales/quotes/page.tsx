@@ -31,6 +31,7 @@ import {
   SelectValue,
   Spinner,
   StatusTag,
+  Tag,
   Table,
   Td,
   Th,
@@ -43,6 +44,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { money } from "../../../lib/format";
+import { daysUntil, QUOTE_STATUS_TONE } from "../../../lib/money-summary";
 
 type Quote = components["schemas"]["Quote"];
 type QuoteStatus = components["schemas"]["QuoteStatus"];
@@ -60,13 +62,6 @@ const STATUSES: readonly (QuoteStatus | "all")[] = [
   "declined",
   "expired",
 ];
-
-function statusTone(status: QuoteStatus): "neutral" | "success" | "warning" | "danger" {
-  if (status === "accepted") return "success";
-  if (status === "declined" || status === "expired") return "danger";
-  if (status === "sent") return "warning";
-  return "neutral";
-}
 
 const PENDING_STATUS: Record<"send" | "accept" | "decline" | "expire", QuoteStatus> = {
   send: "sent",
@@ -319,15 +314,14 @@ export default function QuotesPage(): ReactNode {
   const totals = quoteTotals();
 
   return (
-    <div className="mx-auto grid w-full max-w-[1400px] gap-4 p-4 md:p-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
+    <div className="mx-auto grid w-full max-w-[1400px] gap-6 p-4 md:p-6">
+      <header className="m-rise flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold" style={{ color: "var(--m-text)" }}>
             Quotes
           </h1>
           <p className="mt-0.5 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Build quotes, walk them through send → decision, convert accepted
-            ones to invoices.
+            Build quotes, walk them through send → decision, convert accepted ones to invoices.
           </p>
         </div>
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
@@ -378,7 +372,7 @@ export default function QuotesPage(): ReactNode {
                 {lines.map((line, index) => (
                   <div
                     key={index}
-                    className="grid gap-2 rounded-[3px] border p-2"
+                    className="grid gap-2 rounded-[var(--m-radius-control)] border p-2.5"
                     style={{ borderColor: "var(--m-border)" }}
                     data-testid={`quote-line-${index}`}
                   >
@@ -526,15 +520,16 @@ export default function QuotesPage(): ReactNode {
         </Dialog>
       </header>
 
-      <div className="flex flex-wrap gap-1" role="group" aria-label="Filter by status">
+      <div className="m-rise flex flex-wrap gap-1.5" role="group" aria-label="Filter by status">
         {STATUSES.map((s) => (
           <button
             key={s}
             type="button"
-            className="rounded-[2px] border px-2 py-0.5 text-[11px] transition-opacity duration-100"
+            className="rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-opacity duration-100 hover:opacity-100"
             style={{
               borderColor: statusFilter === s ? "var(--m-accent)" : "var(--m-border)",
               color: statusFilter === s ? "var(--m-accent)" : "var(--m-text-muted)",
+              background: statusFilter === s ? "var(--m-accent-soft, var(--m-bg-subtle))" : "transparent",
               opacity: statusFilter === s ? 1 : 0.85,
             }}
             data-testid={`quotes-filter-${s}`}
@@ -552,70 +547,89 @@ export default function QuotesPage(): ReactNode {
         </p>
       )}
 
-      <Card className="overflow-x-auto p-0">
+      <Card className="m-rise overflow-x-auto p-0">
         <Table data-testid="quotes-table">
           <thead>
             <tr>
               <Th>Number</Th>
               <Th>Client</Th>
               <Th>Status</Th>
-              <Th>Total</Th>
+              <Th className="text-right">Total</Th>
               <Th>Valid until</Th>
-              <Th>Actions</Th>
+              <Th className="text-right">Actions</Th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map((q) => (
-              <Tr key={q.id} data-testid={`quotes-row-${q.id}`}>
-                <Td>
-                  <span className="font-medium">{q.number}</span>
-                </Td>
-                <Td>
-                  <Link
-                    href={`/clients/${q.client_id}`}
-                    className="underline underline-offset-2"
-                    style={{ color: "var(--m-accent)" }}
-                  >
-                    {(clients ?? []).find((c) => c.id === q.client_id)?.name ?? "Client record →"}
-                  </Link>
-                </Td>
-                <Td>
-                  <StatusTag tone={statusTone(q.status)}>{q.status}</StatusTag>
-                </Td>
-                <Td>{money(q.total_minor, q.currency)}</Td>
-                <Td>{q.valid_until}</Td>
-                <Td>
-                  <div className="flex flex-wrap gap-1">
-                    {q.status === "draft" && (
-                      <Button size="sm" disabled={busyQuoteId === q.id} onClick={() => void runQuoteAction(q, "send")}>
-                        Send
-                      </Button>
-                    )}
-                    {q.status === "sent" && (
-                      <>
-                        <Button size="sm" disabled={busyQuoteId === q.id} onClick={() => void runQuoteAction(q, "accept")}>
-                          Accept
+            {filtered.map((q) => {
+              const validDays = daysUntil(q.valid_until ?? "");
+              return (
+                <Tr key={q.id} className="row-hover" data-testid={`quotes-row-${q.id}`}>
+                  <Td>
+                    <span className="font-mono text-[13px] font-medium">{q.number}</span>
+                  </Td>
+                  <Td>
+                    <Link
+                      href={`/clients/${q.client_id}`}
+                      className="underline decoration-[var(--m-border)] underline-offset-2"
+                      style={{ color: "var(--m-accent)" }}
+                    >
+                      {(clients ?? []).find((c) => c.id === q.client_id)?.name ?? "Client"}
+                    </Link>
+                  </Td>
+                  <Td>
+                    <StatusTag tone={QUOTE_STATUS_TONE[q.status]}>{q.status}</StatusTag>
+                    {q.converted_invoice_id != null ? (
+                      <Link
+                        href={`/billing/${q.converted_invoice_id}`}
+                        className="ml-1.5 text-[11px] underline decoration-[var(--m-border)] underline-offset-2"
+                        data-testid={`quote-invoice-link-${q.id}`}
+                      >
+                        invoice →
+                      </Link>
+                    ) : null}
+                  </Td>
+                  <Td className="text-right font-mono text-[13px] tabular-nums">{money(q.total_minor, q.currency)}</Td>
+                  <Td>
+                    <span className="tabular-nums">{q.valid_until}</span>
+                    {validDays !== null && validDays < 0 && q.status === "sent" ? (
+                      <Tag tone="danger" className="ml-1">past valid-until</Tag>
+                    ) : validDays !== null && validDays <= 7 && q.status === "sent" ? (
+                      <Tag tone="warning" className="ml-1">expires soon</Tag>
+                    ) : null}
+                  </Td>
+                  <Td>
+                    <div className="flex justify-end gap-1">
+                      {q.status === "draft" && (
+                        <Button size="sm" disabled={busyQuoteId === q.id} onClick={() => void runQuoteAction(q, "send")}>
+                          Send
                         </Button>
-                        <Button size="sm" variant="secondary" disabled={busyQuoteId === q.id} onClick={() => void runQuoteAction(q, "decline")}>
-                          Decline
+                      )}
+                      {q.status === "sent" && (
+                        <>
+                          <Button size="sm" disabled={busyQuoteId === q.id} onClick={() => void runQuoteAction(q, "accept")}>
+                            Accept
+                          </Button>
+                          <Button size="sm" variant="secondary" disabled={busyQuoteId === q.id} onClick={() => void runQuoteAction(q, "decline")}>
+                            Decline
+                          </Button>
+                          <Button size="sm" variant="ghost" disabled={busyQuoteId === q.id} onClick={() => void runQuoteAction(q, "expire")}>
+                            Expire
+                          </Button>
+                        </>
+                      )}
+                      {q.status === "accepted" && (
+                        <Button size="sm" disabled={busyQuoteId === q.id} onClick={() => void convertQuote(q)}>
+                          Convert to invoice
                         </Button>
-                        <Button size="sm" variant="ghost" disabled={busyQuoteId === q.id} onClick={() => void runQuoteAction(q, "expire")}>
-                          Expire
-                        </Button>
-                      </>
-                    )}
-                    {q.status === "accepted" && (
-                      <Button size="sm" disabled={busyQuoteId === q.id} onClick={() => void convertQuote(q)}>
-                        Convert to invoice
-                      </Button>
-                    )}
-                    {(q.status === "declined" || q.status === "expired") && (
-                      <span style={{ color: "var(--m-text-muted)" }}>Decided</span>
-                    )}
-                  </div>
-                </Td>
-              </Tr>
-            ))}
+                      )}
+                      {(q.status === "declined" || q.status === "expired") && (
+                        <span style={{ color: "var(--m-text-muted)" }}>Decided</span>
+                      )}
+                    </div>
+                  </Td>
+                </Tr>
+              );
+            })}
             {filtered.length === 0 && (
               <Tr>
                 <Td>

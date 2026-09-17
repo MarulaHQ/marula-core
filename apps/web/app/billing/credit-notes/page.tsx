@@ -40,11 +40,12 @@ import {
 import type { components } from "@meridian/sdk";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { money } from "../../../lib/format";
+import { perCurrencySum } from "../../../lib/money-summary";
 
 type CreditNote = components["schemas"]["CreditNote"];
 type CreditNoteDetail = components["schemas"]["CreditNoteDetail"];
@@ -214,7 +215,12 @@ function CreditNotesInner() {
     setActionError(null);
   };
 
-  const remainingOf = (note: CreditNote) => note.total_minor - note.applied_minor - note.refunded_minor;
+  // Money-correctness: a voided note carries no usable credit — the raw
+  // counter difference must never re-materialize as spendable balance.
+  const remainingOf = (note: CreditNote) =>
+    note.status === "void"
+      ? 0
+      : note.total_minor - note.applied_minor - note.refunded_minor;
 
   const runAction = async () => {
     if (action === null) return;
@@ -325,7 +331,7 @@ function CreditNotesInner() {
 
   return (
     <div className="mx-auto grid w-full max-w-[1400px] gap-6 p-4 md:p-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <header className="m-rise flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold">Credit notes</h1>
           <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
@@ -334,7 +340,7 @@ function CreditNotesInner() {
         </div>
         <div className="flex items-center gap-2">
           <Select value={clientFilter} onValueChange={setClientFilter}>
-            <SelectTrigger className="w-48" aria-label="Filter by client">
+            <SelectTrigger style={{ width: 192 }} aria-label="Filter by client">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -356,13 +362,51 @@ function CreditNotesInner() {
             Issue credit note
           </Button>
         </div>
-      </div>
+      </header>
 
       {rowNote !== null ? (
         <p role="status" className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
           {rowNote}
         </p>
       ) : null}
+
+      {/* Open-credit posture — counts + a remaining sum only for one currency. */}
+      {notes !== null && (
+        <div data-testid="credit-stat-strip" className="grid gap-3 sm:grid-cols-3">
+          {(() => {
+            const openCredits = notes.filter((n) => n.status === "issued");
+            const remaining = perCurrencySum(
+              openCredits.map((n) => ({ currency: n.currency as string, amount: n.total_minor - n.applied_minor - n.refunded_minor })),
+            );
+            const tiles: { label: string; value: ReactNode; hint: string }[] = [
+              { label: "Open credits", value: openCredits.length, hint: "issued, not fully used" },
+              {
+                label: "Remaining credit",
+                value: remaining.value,
+                hint: remaining.currency ?? "single-currency roll-up only",
+              },
+              { label: "All notes", value: notes.length, hint: "issued + void" },
+            ];
+            return tiles.map((t, i) => (
+              <Card
+                key={t.label}
+                className="m-rise p-4"
+                style={{ animationDelay: `${Math.min(i, 6) * 40}ms` }}
+              >
+                <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
+                  {t.label}
+                </p>
+                <p className="mt-1 font-mono text-xl font-semibold tabular-nums" style={{ color: "var(--m-text)" }}>
+                  {t.value}
+                </p>
+                <p className="mt-0.5 text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+                  {t.hint}
+                </p>
+              </Card>
+            ));
+          })()}
+        </div>
+      )}
 
       {loadError !== null ? (
         <p role="alert" className="text-[13px]">
@@ -379,7 +423,7 @@ function CreditNotesInner() {
           <EmptyState message="No credit notes yet. Issue one against an invoice or as free-standing credit for a client." />
         </Card>
       ) : (
-        <Card className="overflow-x-auto">
+        <Card className="m-rise overflow-x-auto">
           <Table>
             <thead>
               <tr>
@@ -388,8 +432,7 @@ function CreditNotesInner() {
                 <Th>Lifecycle</Th>
                 <Th>Against invoice</Th>
                 <Th className="text-right">Total</Th>
-                <Th className="text-right">Applied</Th>
-                <Th className="text-right">Refunded</Th>
+                <Th>Usage</Th>
                 <Th className="text-right">Remaining</Th>
                 <Th className="text-right">Actions</Th>
               </tr>
@@ -398,9 +441,12 @@ function CreditNotesInner() {
               {filteredNotes.map((note) => {
                 const life = lifecycleOf(note);
                 const remaining = remainingOf(note);
+                const total = note.total_minor;
+                const appliedPct = total > 0 ? Math.min(100, Math.round((note.applied_minor / total) * 100)) : 0;
+                const refundedPct = total > 0 ? Math.min(100 - appliedPct, Math.round((note.refunded_minor / total) * 100)) : 0;
                 return (
-                  <Tr key={note.id}>
-                    <Td className="text-[13px] font-medium tabular-nums">
+                  <Tr key={note.id} className="row-hover">
+                    <Td className="text-[13px] font-mono font-medium tabular-nums">
                       <button
                         type="button"
                         className="cursor-pointer border-none bg-transparent p-0 underline decoration-[var(--m-border)] underline-offset-2"
@@ -422,10 +468,21 @@ function CreditNotesInner() {
                         <span style={{ color: "var(--m-text-muted)" }}>free-standing</span>
                       )}
                     </Td>
-                    <Td className="text-right tabular-nums text-[12px]">{money(note.total_minor, note.currency)}</Td>
-                    <Td className="text-right tabular-nums text-[12px]">{money(note.applied_minor, note.currency)}</Td>
-                    <Td className="text-right tabular-nums text-[12px]">{money(note.refunded_minor, note.currency)}</Td>
-                    <Td className="text-right tabular-nums text-[12px] font-medium">{money(remaining, note.currency)}</Td>
+                    <Td className="text-right font-mono text-[12px] tabular-nums">{money(note.total_minor, note.currency)}</Td>
+                    <Td>
+                      <div
+                        aria-hidden="true"
+                        className="flex h-1.5 w-24 overflow-hidden rounded-full"
+                        style={{ background: "var(--m-border)" }}
+                      >
+                        <span style={{ width: `${appliedPct}%`, background: "var(--m-status-success-fg)" }} />
+                        <span style={{ width: `${refundedPct}%`, background: "var(--m-status-danger-fg)" }} />
+                      </div>
+                      <span className="font-mono text-[11px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
+                        applied {money(note.applied_minor, note.currency)} · refunded {money(note.refunded_minor, note.currency)}
+                      </span>
+                    </Td>
+                    <Td className="text-right font-mono text-[12px] font-medium tabular-nums">{money(remaining, note.currency)}</Td>
                     <Td className="text-right">
                       <div className="flex justify-end gap-1">
                         <Button size="sm" variant="ghost" disabled={remaining <= 0} onClick={() => openAction("apply", note)}>
