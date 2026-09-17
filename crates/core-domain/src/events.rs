@@ -160,6 +160,22 @@ pub mod types {
     pub const PLUGIN_INSTALLED: &str = "plugin.installed";
     pub const PLUGIN_INSTALL_UPDATED: &str = "plugin.install_updated";
     pub const PLUGIN_INSTALL_REVOKED: &str = "plugin.install_revoked";
+    /// ADR 0009 distribution lifecycle (Wave 16 lane 7):
+    /// `plugin.staged_import_created` — a member upload landed staged
+    /// (pending, validated, un-executed, uploader+admin visible);
+    /// `plugin.staged_import_approved` — owner/admin consent diff passed
+    /// and the adoption/skill was minted; `plugin.staged_import_refused`
+    /// — the reviewer declined (terminal, with note);
+    /// `plugin.update_pending` — an update proposal pinned the OLD
+    /// version while awaiting the re-consent diff;
+    /// `plugin.settings_updated` — per-install config (rendered FROM the
+    /// manifest's settings JSON-Schema) changed. Every chain touch also
+    /// appends to the provenance read surface via audit.
+    pub const PLUGIN_STAGED_IMPORT_CREATED: &str = "plugin.staged_import_created";
+    pub const PLUGIN_STAGED_IMPORT_APPROVED: &str = "plugin.staged_import_approved";
+    pub const PLUGIN_STAGED_IMPORT_REFUSED: &str = "plugin.staged_import_refused";
+    pub const PLUGIN_UPDATE_PENDING: &str = "plugin.update_pending";
+    pub const PLUGIN_SETTINGS_UPDATED: &str = "plugin.settings_updated";
     /// Emitted when an org- or user-scoped setting changes through the
     /// typed settings registry.
     pub const SETTING_UPDATED: &str = "setting.updated";
@@ -1150,6 +1166,106 @@ pub struct PluginInstallRevoked {
     pub reason: Option<String>,
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
     pub revoked_at: DateTime<Utc>,
+}
+
+// --- plugin & skill distribution lifecycle (Wave 16 lane 7, ADR 0009) --------
+
+/// `plugin.staged_import_created` — a member upload (skill or plugin)
+/// landed staged: validated, never executed, visible only to its
+/// uploader and admins. Capabilities are the staged manifest's DECLARED
+/// keys; consent happens at approval, never here.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PluginStagedImportCreated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub staged_item_id: Uuid,
+    /// `plugin` | `skill`.
+    pub artifact_kind: String,
+    /// `marketplace_registry` | `github_repo` | `local_zip` |
+    /// `skill_community` | `manual_upload`.
+    pub source_kind: String,
+    pub source_url: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>))]
+    pub fetched_ref: Option<String>,
+    pub artifact_digest: String,
+    pub declared_capabilities: Vec<String>,
+    pub uploaded_by: Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub uploaded_at: DateTime<Utc>,
+}
+
+/// `plugin.staged_import_approved` — an owner/admin reviewed the consent
+/// diff and the wait ended in adoption: the catalog entry/version +
+/// install were minted (plugins) or the agent skill was imported
+/// (skills), provenance recorded, still deny-by-default on enable.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PluginStagedImportApproved {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub staged_item_id: Uuid,
+    pub reviewed_by: Uuid,
+    pub review_note: Option<String>,
+    pub artifact_kind: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub adopted_install_id: Option<crate::ids::PluginInstallId>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<Uuid>))]
+    pub adopted_skill_id: Option<crate::ids::PluginCatalogEntryId>,
+    pub granted_capabilities: Vec<String>,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub approved_at: DateTime<Utc>,
+}
+
+/// `plugin.staged_import_refused` — the reviewer declined the staged
+/// import (terminal for that row; the uploader may re-stage fresh).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PluginStagedImportRefused {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub staged_item_id: Uuid,
+    pub reviewed_by: Uuid,
+    pub review_note: Option<String>,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub refused_at: DateTime<Utc>,
+}
+
+/// `plugin.update_pending` — an update proposal is waiting on the
+/// re-consent diff: the OLD version stays pinned and running until the
+/// owner/admin consents; consent commits the swap.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PluginUpdatePending {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub install_id: crate::ids::PluginInstallId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub catalog_id: crate::ids::PluginCatalogEntryId,
+    pub slug: String,
+    /// The version still running (pinned until consented).
+    pub current_version: String,
+    /// The candidate version awaiting consent.
+    pub pending_version: String,
+    pub pending_digest: String,
+    pub added_capabilities: Vec<String>,
+    pub removed_capabilities: Vec<String>,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// `plugin.settings_updated` — a per-install config rendered FROM the
+/// pinned manifest's settings JSON-Schema changed (validated at the
+/// write boundary; no hand-authored per-plugin settings pages exist).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PluginSettingsUpdated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub install_id: crate::ids::PluginInstallId,
+    pub slug: String,
+    pub version: String,
+    /// The validated config keys (values stay server-side; consumers
+    /// refetch through the settings surface).
+    pub config_keys: Vec<String>,
+    pub updated_by: Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub occurred_at: DateTime<Utc>,
 }
 
 // --- projects line (TASKLIST Phase 3, migration 0030) ------------------------

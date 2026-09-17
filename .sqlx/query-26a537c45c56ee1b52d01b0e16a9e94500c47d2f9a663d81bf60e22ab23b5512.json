@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE plugin_installs SET\n             pending_version = NULL,\n             pending_manifest = NULL,\n             pending_digest = NULL,\n             pending_capabilities = NULL,\n             pending_consent_at = NULL,\n             updated_at = now()\n           WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "26a537c45c56ee1b52d01b0e16a9e94500c47d2f9a663d81bf60e22ab23b5512"
+}

@@ -81,6 +81,7 @@ repository = "https://github.com/Marlin-Hofmeyer/meridian"
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }
+zip = { version = "4", default-features = false, features = ["deflate"] }
 axum = { version = "0.8", features = ["ws"] }
 sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "json", "migrate"] }
 serde = { version = "1", features = ["derive"] }

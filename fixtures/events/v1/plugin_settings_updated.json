@@ -1,0 +1,17 @@
+{
+  "event_type": "plugin.settings_updated",
+  "entity": "plugin_install",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "config_keys": [
+      "tone"
+    ],
+    "install_id": "00000000-0000-0000-0000-000000000033",
+    "occurred_at": "2023-11-14T22:13:40Z",
+    "slug": "ticket-summarizer",
+    "updated_by": "00000000-0000-0000-0000-000000000036",
+    "version": "1.0.0"
+  }
+}

@@ -5,8 +5,8 @@
   "payload_schema_ref": "core-domain/v1",
   "pinned_in": "0.1.0",
   "payload": {
-    "user_id": "00000000-0000-0000-0000-000000000004",
     "gamification_opt_in": true,
-    "occurred_at": "2023-11-14T22:13:38Z"
+    "occurred_at": "2023-11-14T22:13:38Z",
+    "user_id": "00000000-0000-0000-0000-000000000004"
   }
 }

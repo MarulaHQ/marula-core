@@ -1,0 +1,20 @@
+{
+  "event_type": "plugin.staged_import_created",
+  "entity": "plugin_staged_item",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "artifact_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "artifact_kind": "plugin",
+    "declared_capabilities": [
+      "tickets.read"
+    ],
+    "fetched_ref": null,
+    "source_kind": "local_zip",
+    "source_url": "local://zip-import",
+    "staged_item_id": "00000000-0000-0000-0000-000000000034",
+    "uploaded_at": "2023-11-14T22:13:39Z",
+    "uploaded_by": "00000000-0000-0000-0000-000000000035"
+  }
+}

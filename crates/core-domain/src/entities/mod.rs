@@ -1,5 +1,6 @@
 //! Domain entity structs — the serde shapes shared by DB mapping and the API.
 
+pub mod agent_skills;
 pub mod appointment_request;
 pub mod attachment;
 pub mod audit;

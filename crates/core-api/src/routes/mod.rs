@@ -81,6 +81,7 @@ pub mod org_config;
 pub mod org_users;
 pub mod passwords;
 pub mod pipeline;
+pub mod plugin_distribution;
 pub mod plugins;
 pub mod portal;
 pub mod portal_admin;
@@ -1167,6 +1168,71 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/plugins/installed/{id}"),
             axum::routing::patch(plugins::update_install).delete(plugins::delete_install),
+        )
+        // ADR 0009 distribution lifecycle (Wave 16 lane 7): sources,
+        // staged imports, update re-consent, settings-from-manifest,
+        // provenance. Reads are plugins:view; lifecycle writes are
+        // owner/admin (special:manage_plugins) as in the seam above.
+        .route(
+            &rp("/plugins/distribution/staged"),
+            get(plugin_distribution::list_staged),
+        )
+        .route(
+            &rp("/plugins/distribution/staged/registry"),
+            post(plugin_distribution::stage_from_registry),
+        )
+        .route(
+            &rp("/plugins/distribution/staged/github"),
+            post(plugin_distribution::stage_from_github),
+        )
+        .route(
+            &rp("/plugins/distribution/staged/zip"),
+            post(plugin_distribution::stage_from_zip),
+        )
+        .route(
+            &rp("/plugins/distribution/staged/skill"),
+            post(plugin_distribution::stage_from_skill),
+        )
+        .route(
+            &rp("/plugins/distribution/staged/{id}/consent"),
+            get(plugin_distribution::get_staged_consent),
+        )
+        .route(
+            &rp("/plugins/distribution/staged/{id}/approve"),
+            post(plugin_distribution::approve_staged),
+        )
+        .route(
+            &rp("/plugins/distribution/staged/{id}/refuse"),
+            post(plugin_distribution::refuse_staged),
+        )
+        .route(
+            &rp("/plugins/installed/{id}/update"),
+            get(plugin_distribution::get_update_proposal).post(plugin_distribution::propose_update),
+        )
+        .route(
+            &rp("/plugins/installed/{id}/consent"),
+            post(plugin_distribution::consent_update),
+        )
+        .route(
+            &rp("/plugins/installed/{id}/discard-update"),
+            post(plugin_distribution::discard_update),
+        )
+        .route(
+            &rp("/plugins/installed/{id}/settings"),
+            get(plugin_distribution::get_install_settings)
+                .patch(plugin_distribution::put_install_settings),
+        )
+        .route(
+            &rp("/plugins/installed/{id}/provenance"),
+            get(plugin_distribution::list_install_provenance),
+        )
+        .route(
+            &rp("/plugins/distribution/agent-skills"),
+            get(plugin_distribution::list_org_skills),
+        )
+        .route(
+            &rp("/plugins/distribution/agent-skills/{id}/enabled"),
+            post(plugin_distribution::set_skill_enabled),
         )
         .route(&rp("/calendar/week"), get(calendar::calendar_week))
         .route(&rp("/calendar/team"), get(calendar::calendar_team))

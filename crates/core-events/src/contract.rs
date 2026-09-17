@@ -452,20 +452,22 @@ use core_domain::events::{
     MigrationPushSessionFinished, MigrationPushSessionStarted, NotificationCreated, OnCallChanged,
     PipelineDealCreated, PipelineDealStageChanged, PipelineDealUpdated, PipelineStageCreated,
     PipelineStageUpdated, PluginCatalogEntryCreated, PluginInstallRevoked, PluginInstallUpdated,
-    PluginInstalled, PmScheduleChanged, PmScheduleDeleted, PodVisibilityUpdated, ProjectCreated,
-    ProjectMilestoneCompleted, ProjectPhaseCompleted, ProjectPhaseCreated, ProjectPhaseUpdated,
-    ProjectTaskCompleted, ProjectTaskCreated, ProjectTaskUpdated, ProjectTemplateRemoved,
-    ProjectTemplateUpdated, ProjectUpdated, ProjectViewRemoved, ProjectViewUpdated, QuoteAccepted,
-    QuoteConverted, QuoteCreated, QuoteDeclined, QuoteExpired, QuoteSent, QuoteUpdated, RoleForked,
-    RoleRestored, SchedulingLinkCreated, SchedulingLinkRevoked, SchedulingLinkScheduled,
-    SchedulingLinkViewed, ScorecardSettingsUpdated, SiteCreated, SiteUpdated, TagCreated,
-    TagDeleted, TagUpdated, TemplateCreated, TemplateRemoved, TemplateUpdated, TicketAssigned,
-    TicketBoardMoved, TicketChecklistUpdated, TicketCommentAdded, TicketCostLineAdded,
-    TicketCostLineRemoved, TicketCreated, TicketExpenseRecorded, TicketExpenseRemoved,
-    TicketLinkChanged, TicketMerged, TicketReverted, TicketStatusChanged, TicketTagsChanged,
-    TimeEntryApprovalApproved, TimeEntryApprovalRejected, TimeEntryApprovalSubmitted,
-    TimeEntryCreated, TimerPaused, TimerStarted, TimerStopped, TravelDraftSubmitted, UserActivated,
-    UserDeactivated, UserInvited, UserRoleChanged,
+    PluginInstalled, PluginSettingsUpdated, PluginStagedImportApproved, PluginStagedImportCreated,
+    PluginStagedImportRefused, PluginUpdatePending, PmScheduleChanged, PmScheduleDeleted,
+    PodVisibilityUpdated, ProjectCreated, ProjectMilestoneCompleted, ProjectPhaseCompleted,
+    ProjectPhaseCreated, ProjectPhaseUpdated, ProjectTaskCompleted, ProjectTaskCreated,
+    ProjectTaskUpdated, ProjectTemplateRemoved, ProjectTemplateUpdated, ProjectUpdated,
+    ProjectViewRemoved, ProjectViewUpdated, QuoteAccepted, QuoteConverted, QuoteCreated,
+    QuoteDeclined, QuoteExpired, QuoteSent, QuoteUpdated, RoleForked, RoleRestored,
+    SchedulingLinkCreated, SchedulingLinkRevoked, SchedulingLinkScheduled, SchedulingLinkViewed,
+    ScorecardSettingsUpdated, SiteCreated, SiteUpdated, TagCreated, TagDeleted, TagUpdated,
+    TemplateCreated, TemplateRemoved, TemplateUpdated, TicketAssigned, TicketBoardMoved,
+    TicketChecklistUpdated, TicketCommentAdded, TicketCostLineAdded, TicketCostLineRemoved,
+    TicketCreated, TicketExpenseRecorded, TicketExpenseRemoved, TicketLinkChanged, TicketMerged,
+    TicketReverted, TicketStatusChanged, TicketTagsChanged, TimeEntryApprovalApproved,
+    TimeEntryApprovalRejected, TimeEntryApprovalSubmitted, TimeEntryCreated, TimerPaused,
+    TimerStarted, TimerStopped, TravelDraftSubmitted, UserActivated, UserDeactivated, UserInvited,
+    UserRoleChanged,
 };
 use core_domain::money::{CurrencyCode, Money};
 use core_domain::policy::BoardRole;
@@ -1962,6 +1964,93 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
                 slug: "ticket-summarizer".into(),
                 reason: Some("upstream vulnerability".into()),
                 revoked_at: st(21),
+            }
+        ),
+    },
+    // -- ADR 0009 plugin & skill distribution (Wave 16 lane 7) ---------------
+    PublishedEvent {
+        event_type: types::PLUGIN_STAGED_IMPORT_CREATED,
+        entity: "plugin_staged_item",
+        variant: "default",
+        shape: typed_shape!(
+            PluginStagedImportCreated,
+            PluginStagedImportCreated {
+                staged_item_id: su(52),
+                artifact_kind: "plugin".into(),
+                source_kind: "local_zip".into(),
+                source_url: "local://zip-import".into(),
+                fetched_ref: None,
+                artifact_digest: "aa".repeat(32),
+                declared_capabilities: vec!["tickets.read".into()],
+                uploaded_by: su(53),
+                uploaded_at: st(19),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PLUGIN_STAGED_IMPORT_APPROVED,
+        entity: "plugin_staged_item",
+        variant: "default",
+        shape: typed_shape!(
+            PluginStagedImportApproved,
+            PluginStagedImportApproved {
+                staged_item_id: su(52),
+                reviewed_by: su(54),
+                review_note: None,
+                artifact_kind: "plugin".into(),
+                adopted_install_id: Some(su(51)),
+                adopted_skill_id: None,
+                granted_capabilities: vec!["tickets.read".into()],
+                approved_at: st(20),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PLUGIN_STAGED_IMPORT_REFUSED,
+        entity: "plugin_staged_item",
+        variant: "default",
+        shape: typed_shape!(
+            PluginStagedImportRefused,
+            PluginStagedImportRefused {
+                staged_item_id: su(52),
+                reviewed_by: su(54),
+                review_note: Some("digest did not verify".into()),
+                refused_at: st(20),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PLUGIN_UPDATE_PENDING,
+        entity: "plugin_install",
+        variant: "default",
+        shape: typed_shape!(
+            PluginUpdatePending,
+            PluginUpdatePending {
+                install_id: su(51),
+                catalog_id: su(50),
+                slug: "ticket-summarizer".into(),
+                current_version: "1.0.0".into(),
+                pending_version: "1.1.0".into(),
+                pending_digest: "bb".repeat(32),
+                added_capabilities: vec!["financial.read".into()],
+                removed_capabilities: Vec::new(),
+                occurred_at: st(20),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PLUGIN_SETTINGS_UPDATED,
+        entity: "plugin_install",
+        variant: "default",
+        shape: typed_shape!(
+            PluginSettingsUpdated,
+            PluginSettingsUpdated {
+                install_id: su(51),
+                slug: "ticket-summarizer".into(),
+                version: "1.0.0".into(),
+                config_keys: vec!["tone".into()],
+                updated_by: su(54),
+                occurred_at: st(20),
             }
         ),
     },
@@ -3613,6 +3702,19 @@ pub static RESERVED_EVENT_TYPES: &[&str] = &[
     // Wave 11 lane 7 (docs-platform) emission-site types are PUBLISHED
     // now (typed shapes + goldens registered; the lane-9 temporary
     // reservations were dropped 2026-09-10 by the backend-gaps lane).
+    // Wave 16 lane 3 (0078 secret vault) emission-site types: the
+    // constants ship with the routes but their typed golden shapes were
+    // not registered at merge — reserved until the vault close-out lane
+    // registers them as PublishedEvents (conformance gate stays green).
+    types::SECRET_FOLDER_CREATED,
+    types::SECRET_FOLDER_UPDATED,
+    types::SECRET_FOLDER_DELETED,
+    types::SECRET_RECORD_CREATED,
+    types::SECRET_RECORD_UPDATED,
+    types::SECRET_RECORD_DELETED,
+    types::SECRET_REVEALED,
+    types::SECRET_GRANT_UPDATED,
+    types::SECRET_GRANT_DELETED,
 ];
 
 /// A retired event type (policy §2: "retired event types keep emitting

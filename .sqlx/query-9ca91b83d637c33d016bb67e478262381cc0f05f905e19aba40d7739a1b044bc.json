@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO plugin_install_settings (install_id, config, updated_by)\n           VALUES ($1, $2::jsonb, $3)\n           ON CONFLICT (install_id)\n           DO UPDATE SET config = EXCLUDED.config,\n                        updated_by = EXCLUDED.updated_by,\n                        updated_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9ca91b83d637c33d016bb67e478262381cc0f05f905e19aba40d7739a1b044bc"
+}
