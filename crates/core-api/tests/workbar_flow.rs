@@ -113,14 +113,22 @@ async fn register_org(app: &Router, slug: String) -> Org {
     .await;
     let (status, v) = as_json(response).await;
     assert_eq!(status, 200, "register must succeed");
-    Org { token: v["access_token"].as_str().unwrap().to_string() }
+    Org {
+        token: v["access_token"].as_str().unwrap().to_string(),
+    }
 }
 
 async fn setup_ticket(app: &Router, org: &Org) -> (String, String) {
     // Default board (seeded).
     let (_, nav) = as_json(
-        send(app, axum::http::Method::GET, "/api/boards/nav", Some(&org.token), None)
-            .await,
+        send(
+            app,
+            axum::http::Method::GET,
+            "/api/boards/nav",
+            Some(&org.token),
+            None,
+        )
+        .await,
     )
     .await;
     let board = nav[0]["id"].as_str().unwrap().to_string();
@@ -193,7 +201,12 @@ async fn closed_status(app: &Router, org: &Org, board: &str) -> String {
         .to_string()
 }
 
-async fn try_close(app: &Router, org: &Org, ticket_id: &str, status_id: &str) -> (u16, serde_json::Value) {
+async fn try_close(
+    app: &Router,
+    org: &Org,
+    ticket_id: &str,
+    status_id: &str,
+) -> (u16, serde_json::Value) {
     as_json(
         send(
             app,
@@ -297,9 +310,7 @@ async fn na_requires_reason_and_composes_the_note_in_one_tx() {
     )
     .await;
     assert_eq!(st, 200);
-    assert_eq!(
-        res["appended_note"]["workflow_meta"]["kind"], "task_reopen",
-    );
+    assert_eq!(res["appended_note"]["workflow_meta"]["kind"], "task_reopen",);
     assert!(res["appended_note"]["body"]
         .as_str()
         .unwrap()
@@ -319,7 +330,12 @@ async fn close_gate_typed_409_and_option_a_batch() {
     // Two items already have terminal decisions.
     for (id, checked, na, reason) in [
         (done.clone(), true, false, None),
-        (na.clone(), false, true, Some("not applicable on this ticket".to_string())),
+        (
+            na.clone(),
+            false,
+            true,
+            Some("not applicable on this ticket".to_string()),
+        ),
     ] {
         let (st, _) = as_json(
             send(
@@ -368,7 +384,10 @@ async fn close_gate_typed_409_and_option_a_batch() {
     assert_eq!(notes[0]["workflow_meta"]["kind"], "task_closeall");
     assert_eq!(notes[0]["workflow_meta"]["auto"], true);
     assert!(
-        notes[0]["body"].as_str().unwrap().starts_with("- **Completed:** Verify backups"),
+        notes[0]["body"]
+            .as_str()
+            .unwrap()
+            .starts_with("- **Completed:** Verify backups"),
         "CloseAll composes the Completed lead through the shared formatter"
     );
     // The batch response FLATTENS the checklist view (same additive
@@ -381,7 +400,10 @@ async fn close_gate_typed_409_and_option_a_batch() {
 
     // The close now succeeds — the re-issue path completes the loop.
     let (st, close_res) = try_close(&app, &org, &ticket_id, &closed).await;
-    assert_eq!(st, 200, "close succeeds after Option A resolved the gate: {close_res:?}");
+    assert_eq!(
+        st, 200,
+        "close succeeds after Option A resolved the gate: {close_res:?}"
+    );
 }
 
 #[tokio::test]

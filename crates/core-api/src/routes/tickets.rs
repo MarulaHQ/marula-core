@@ -1849,7 +1849,11 @@ pub async fn add_checklist_item(
         .await?;
         Ok((
             ctx,
-            MutationOutcome::Applied(TicketChecklistMutationResponse { view, mutation, appended_note: None }),
+            MutationOutcome::Applied(TicketChecklistMutationResponse {
+                view,
+                mutation,
+                appended_note: None,
+            }),
         ))
     })
     .await?;
@@ -1932,33 +1936,43 @@ pub async fn set_checklist_item(
         // when it warrants one, compose + insert the note and emit BOTH
         // events in THIS transaction. Reasons for N-A/reopen are validated
         // first (typed 422 — nothing flips without its ledger line).
-        let appended = match task_transition_kind(
-            (before.checked, before.na),
-            (req.checked, req.na),
-        ) {
-            Some(kind @ core_domain::notes::TaskNoteKind::Completed) => Some(
-                compose_task_append(
-                    &mut ctx,
-                    key.as_deref(),
-                    item_id,
-                    id,
-                    org_id,
-                    user_id,
-                    kind,
-                    &before.text,
-                )
-                .await?,
-            ),
-            Some(kind @ (core_domain::notes::TaskNoteKind::Na | core_domain::notes::TaskNoteKind::Reopen)) => {
-                let reason = validate_reason(&req.note_reason)?;
+        let appended =
+            match task_transition_kind((before.checked, before.na), (req.checked, req.na)) {
+                Some(kind @ core_domain::notes::TaskNoteKind::Completed) => Some(
+                    compose_task_append(
+                        &mut ctx,
+                        key.as_deref(),
+                        item_id,
+                        id,
+                        org_id,
+                        user_id,
+                        kind,
+                        &before.text,
+                    )
+                    .await?,
+                ),
                 Some(
-                    compose_task_append(&mut ctx, key.as_deref(), item_id, id, org_id, user_id, kind, &reason)
+                    kind @ (core_domain::notes::TaskNoteKind::Na
+                    | core_domain::notes::TaskNoteKind::Reopen),
+                ) => {
+                    let reason = validate_reason(&req.note_reason)?;
+                    Some(
+                        compose_task_append(
+                            &mut ctx,
+                            key.as_deref(),
+                            item_id,
+                            id,
+                            org_id,
+                            user_id,
+                            kind,
+                            &reason,
+                        )
                         .await?,
-                )
-            }
-            None => None,
-            Some(core_domain::notes::TaskNoteKind::CloseAll) => None,
-        };
+                    )
+                }
+                None => None,
+                Some(core_domain::notes::TaskNoteKind::CloseAll) => None,
+            };
 
         let (items, progress) = core_db::checklists::view(&mut ctx.tx, org_id, id).await?;
         let updated = items
@@ -2147,7 +2161,9 @@ pub async fn complete_all_checklist(
             .await?;
             let note = compose_task_append(
                 &mut ctx,
-                key.as_deref().map(|k| format!("{k}:complete-all:{task_id}")).as_deref(),
+                key.as_deref()
+                    .map(|k| format!("{k}:complete-all:{task_id}"))
+                    .as_deref(),
                 *task_id,
                 id,
                 org_id,
@@ -2239,7 +2255,9 @@ pub async fn get_note_draft(
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
-    core_db::set_org(&mut tx, org_id).await.map_err(ApiError::from)?;
+    core_db::set_org(&mut tx, org_id)
+        .await
+        .map_err(ApiError::from)?;
     core_db::note_drafts::purge_stale(&mut *tx).await.ok();
     let row = core_db::note_drafts::get_draft(&mut *tx, org_id, id, user_id).await?;
     tx.commit().await.map_err(ApiError::from)?;
@@ -2303,7 +2321,9 @@ pub async fn put_note_draft(
         .clone()
         .unwrap_or_else(|| format!("draft:{id}:{user_id}:{}", Uuid::now_v7()));
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
-    core_db::set_org(&mut tx, org_id).await.map_err(ApiError::from)?;
+    core_db::set_org(&mut tx, org_id)
+        .await
+        .map_err(ApiError::from)?;
     // RLS makes visibility the guard: an out-of-scope ticket id fails here.
     let exists = sqlx::query_scalar::<_, bool>(
         "SELECT EXISTS(SELECT 1 FROM tickets WHERE org_id = $1 AND id = $2)",
@@ -2361,7 +2381,9 @@ pub async fn delete_note_draft(
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
-    core_db::set_org(&mut tx, org_id).await.map_err(ApiError::from)?;
+    core_db::set_org(&mut tx, org_id)
+        .await
+        .map_err(ApiError::from)?;
     core_db::note_drafts::delete(&mut *tx, org_id, id, user_id).await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(serde_json::json!({ "cleared": true })))
@@ -2399,7 +2421,9 @@ pub async fn refine_note(
     let org_id = authed.principal.user.org_id;
     // RLS-scoped existence guard so a foreign ticket id reads as rls_sparse.
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
-    core_db::set_org(&mut tx, org_id).await.map_err(ApiError::from)?;
+    core_db::set_org(&mut tx, org_id)
+        .await
+        .map_err(ApiError::from)?;
     let visible = sqlx::query_scalar::<_, bool>(
         "SELECT EXISTS(SELECT 1 FROM tickets WHERE org_id = $1 AND id = $2)",
     )
@@ -2460,7 +2484,9 @@ pub async fn refine_note(
                 proposal: None,
                 provider: Some(provider.name().to_string()),
                 model: None,
-                reason: Some("refinement is not available right now — the draft was not changed".into()),
+                reason: Some(
+                    "refinement is not available right now — the draft was not changed".into(),
+                ),
             }))
         }
     }

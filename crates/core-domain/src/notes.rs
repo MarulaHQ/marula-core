@@ -125,13 +125,7 @@ pub fn enforce_tasks_assigned(items: &[ChecklistItem]) -> Result<(), TasksUnassi
     let open: Vec<_> = items
         .iter()
         .filter(|i| !i.checked && !i.na)
-        .map(|i| {
-            (
-                i.id,
-                i.text.clone(),
-                i.template_item_id.is_some(),
-            )
-        })
+        .map(|i| (i.id, i.text.clone(), i.template_item_id.is_some()))
         .collect();
     if open.is_empty() {
         Ok(())
@@ -194,12 +188,7 @@ pub fn compose_task_note(kind: TaskNoteKind, detail: &str) -> String {
         Some(idx) => {
             let mut cs = detail[idx..].chars();
             let first = cs.next().expect("idx found");
-            format!(
-                "{}{}{}",
-                &detail[..idx],
-                first.to_uppercase(),
-                cs.as_str()
-            )
+            format!("{}{}{}", &detail[..idx], first.to_uppercase(), cs.as_str())
         }
         None => detail.to_string(),
     };
@@ -256,7 +245,9 @@ pub fn format_note_body(draft: &str) -> String {
         // chose a numbered list; do not re-bullet it). "1." / "12)" forms.
         let numerable = ordered_numeral_start(marker_stripped);
         // L3: a line consisting SOLELY of a bare host URL gets https://.
-        let text = if !numerable && !marker_stripped.contains(' ') && looks_like_bare_host(marker_stripped)
+        let text = if !numerable
+            && !marker_stripped.contains(' ')
+            && looks_like_bare_host(marker_stripped)
         {
             format!("https://{marker_stripped}")
         } else {
@@ -480,7 +471,10 @@ mod tests {
 
     #[test]
     fn bullets_every_line_canonically() {
-        assert_eq!(fmt("fixed printer\ndiagnosed cable"), "- Fixed printer\n- Diagnosed cable");
+        assert_eq!(
+            fmt("fixed printer\ndiagnosed cable"),
+            "- Fixed printer\n- Diagnosed cable"
+        );
     }
 
     #[test]
@@ -490,7 +484,10 @@ mod tests {
 
     #[test]
     fn preserves_ordered_numerals() {
-        assert_eq!(fmt("1. boot scan\n2) run diags"), "1. Boot scan\n2) Run diags");
+        assert_eq!(
+            fmt("1. boot scan\n2) run diags"),
+            "1. Boot scan\n2) Run diags"
+        );
     }
 
     #[test]
@@ -501,7 +498,10 @@ mod tests {
 
     #[test]
     fn capitalizes_first_char_only() {
-        assert_eq!(fmt("dns forwarded after TTL refresh"), "- Dns forwarded after TTL refresh");
+        assert_eq!(
+            fmt("dns forwarded after TTL refresh"),
+            "- Dns forwarded after TTL refresh"
+        );
         assert_eq!(fmt("IBM drive replaced"), "- IBM drive replaced");
     }
 
@@ -524,14 +524,23 @@ mod tests {
     #[test]
     fn links_pass_verbatim_l1_l2() {
         // L1: full URLs with a scheme stay untouched by L3 handling.
-        assert_eq!(fmt("https://example.com/x?y=1 &z"), "- https://example.com/x?y=1 &z");
+        assert_eq!(
+            fmt("https://example.com/x?y=1 &z"),
+            "- https://example.com/x?y=1 &z"
+        );
         // L2: markdown link syntax passes through untouched.
-        assert_eq!(fmt("[docs](https://example.com/docs)"), "- [docs](https://example.com/docs)");
+        assert_eq!(
+            fmt("[docs](https://example.com/docs)"),
+            "- [docs](https://example.com/docs)"
+        );
     }
 
     #[test]
     fn bare_host_line_gets_https_prefix_l3() {
-        assert_eq!(fmt("www.example.com/status"), "- https://www.example.com/status");
+        assert_eq!(
+            fmt("www.example.com/status"),
+            "- https://www.example.com/status"
+        );
         assert_eq!(fmt("example.com/docs"), "- https://example.com/docs");
         // Not a URL line: has spaces or is markdown -> untouched.
         assert_eq!(fmt("example.com hosted here"), "- Example.com hosted here");
@@ -613,7 +622,11 @@ mod tests {
 
     #[test]
     fn tasks_gate_blocks_only_unassigned() {
-        let items = vec![task("done one", true, false), task("n-a one", false, true), task("still open", false, false)];
+        let items = vec![
+            task("done one", true, false),
+            task("n-a one", false, true),
+            task("still open", false, false),
+        ];
         let blocked = enforce_tasks_assigned(&items).expect_err("one open");
         assert_eq!(blocked.items.len(), 1);
         assert_eq!(blocked.items[0].1, "still open");

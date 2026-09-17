@@ -90,7 +90,9 @@ pub enum ApiError {
     /// batches them through `/checklist/complete-all`, Option B navigates
     /// the Notes & Tasks panel.
     #[error("tasks remain unassigned")]
-    TasksUnassigned { items: Vec<crate::routes::tickets::TaskGateItem> },
+    TasksUnassigned {
+        items: Vec<crate::routes::tickets::TaskGateItem>,
+    },
     /// Typed 409 for a rejected dispatch bulk-move (TASKLIST 2.19): names
     /// the offending move index and the blocking booking so the board can
     /// flag the exact drop target and surface the conflict inline.

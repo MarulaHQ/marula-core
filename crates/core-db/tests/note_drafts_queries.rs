@@ -39,9 +39,17 @@ async fn seed_org(app: &PgPool, n: u64) -> Seeded {
     orgs::seed_default_roles(&mut tx, org).await.expect("roles");
     orgs::seed_default_board(&mut tx, org).await.expect("board");
     let user = fixed_uuid(n + 1);
-    users::create_user(&mut *tx, user, org, &format!("u{n}@wb.test"), "Tech User", "argon2hash", "UTC")
-        .await
-        .expect("user");
+    users::create_user(
+        &mut *tx,
+        user,
+        org,
+        &format!("u{n}@wb.test"),
+        "Tech User",
+        "argon2hash",
+        "UTC",
+    )
+    .await
+    .expect("user");
     tx.commit().await.expect("commit seed");
     let (board, ticket) = {
         let mut tx = org_tx(app, org).await;
@@ -137,12 +145,10 @@ async fn draft_upsert_is_one_row_per_user_ticket() {
         .await
         .expect("delete");
     assert!(cleared);
-    assert!(
-        note_drafts::get_draft(&mut *tx, s.org, s.ticket, s.user)
-            .await
-            .expect("get after")
-            .is_none()
-    );
+    assert!(note_drafts::get_draft(&mut *tx, s.org, s.ticket, s.user)
+        .await
+        .expect("get after")
+        .is_none());
     tx.commit().await.expect("commit");
 }
 
@@ -154,9 +160,17 @@ async fn drafts_are_isolated_per_user() {
     let other = fixed_uuid(199);
     {
         let mut tx = org_tx(&app, s.org).await;
-        users::create_user(&mut *tx, other, s.org, "b199@wb.test", "B One", "argon2hash", "UTC")
-            .await
-            .expect("user b");
+        users::create_user(
+            &mut *tx,
+            other,
+            s.org,
+            "b199@wb.test",
+            "B One",
+            "argon2hash",
+            "UTC",
+        )
+        .await
+        .expect("user b");
         tx.commit().await.expect("commit");
     }
     let mut tx = org_tx(&app, s.org).await;
@@ -248,7 +262,10 @@ async fn workflow_meta_round_trips_on_the_row() {
     )
     .await
     .expect("insert machine");
-    assert!(machine.workflow_meta.is_some(), "machine note carries workflow_meta");
+    assert!(
+        machine.workflow_meta.is_some(),
+        "machine note carries workflow_meta"
+    );
 
     // Handwritten (different kind) untouched by the classification above.
     let fetched_all = tickets::list_comments(&mut *tx, s.org, s.ticket, None)
@@ -339,4 +356,3 @@ async fn ticket_draft_visibility_requires_scope() {
     );
     tx.commit().await.expect("commit");
 }
-

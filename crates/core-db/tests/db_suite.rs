@@ -1890,9 +1890,18 @@ async fn note_kind_backfill_is_idempotent_and_preserves_taxonomy() {
         (5003, NoteKind::ClientVisible),
         (5004, NoteKind::InHouseUpdate),
     ] {
-        tickets::insert_comment(&mut *tx, fixed_uuid(n), s.org, t.id, Some(u), kind, "body", None)
-            .await
-            .expect("comment");
+        tickets::insert_comment(
+            &mut *tx,
+            fixed_uuid(n),
+            s.org,
+            t.id,
+            Some(u),
+            kind,
+            "body",
+            None,
+        )
+        .await
+        .expect("comment");
     }
     tx.commit().await.expect("commit");
 

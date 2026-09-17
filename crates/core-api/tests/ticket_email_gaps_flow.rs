@@ -421,9 +421,7 @@ async fn checklist_na_is_shared_server_truth_with_checked_compat() {
     // Wave 17 lane 11 (§3.4): the N-A flip composes its ledger line in the
     // SAME transaction — the note comes back on the response with
     // row-level machine provenance (never a body-text sentinel).
-    assert_eq!(
-        toggled["appended_note"]["workflow_meta"]["kind"], "task_na",
-    );
+    assert_eq!(toggled["appended_note"]["workflow_meta"]["kind"], "task_na",);
     assert_eq!(
         toggled["appended_note"]["body"],
         "- **N/A:** N/A'd pending platform upgrade (Wave 17 close gate)"
@@ -458,7 +456,10 @@ async fn checklist_na_is_shared_server_truth_with_checked_compat() {
     )
     .await;
     assert_eq!(untoggled["items"][0]["na"], false);
-    assert_eq!(untoggled["appended_note"]["workflow_meta"]["kind"], "task_reopen");
+    assert_eq!(
+        untoggled["appended_note"]["workflow_meta"]["kind"],
+        "task_reopen"
+    );
     assert_eq!(untoggled["progress"]["required_open"], 1);
 
     // Asking for BOTH states is a client bug: typed 422.

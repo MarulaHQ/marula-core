@@ -600,7 +600,6 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
                     author_id: Some(su(5)),
                     // (Wave 17 lane 11) user-written fixture note: no
                     // machine provenance — workflow_meta stays unset.
-
                     kind: NoteKind::Internal,
                     body: "Routed through on-call.".into(),
                     created_at: st(3),
