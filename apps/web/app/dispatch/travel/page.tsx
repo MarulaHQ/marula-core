@@ -29,6 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
+  StatusTag,
   Table,
   Tag,
   Td,
@@ -253,12 +254,23 @@ export default function TravelDraftsPage() {
 
   if (auth.status !== "authed") return null;
 
-  const visible = (drafts ?? []).filter(
-    (d) => statusFilter === "all" || d.status === statusFilter,
+  const visible = (drafts ?? [])
+    .filter((d) => statusFilter === "all" || d.status === statusFilter)
+    .sort((a, b) => Date.parse(a.started_at) - Date.parse(b.started_at));
+
+  // Trip totals for the ledger footer: distance per unit plus the billable
+  // split, so the day's sequence reads as one coherent route record.
+  const totals = visible.reduce(
+    (acc, d) => {
+      acc.units[d.distance_unit] = (acc.units[d.distance_unit] ?? 0) + d.distance;
+      if (d.billable) acc.billable += d.distance;
+      return acc;
+    },
+    { units: {} as Record<string, number>, billable: 0 },
   );
 
   return (
-    <div className="grid gap-6">
+    <div className="grid gap-6 p-4 md:p-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-semibold">Travel &amp; mileage</h1>
@@ -308,6 +320,7 @@ export default function TravelDraftsPage() {
           <Table>
             <thead>
               <tr>
+                <Th>#</Th>
                 <Th>Ticket</Th>
                 <Th>When</Th>
                 <Th>Vehicle</Th>
@@ -318,8 +331,18 @@ export default function TravelDraftsPage() {
               </tr>
             </thead>
             <tbody>
-              {visible.map((d) => (
+              {visible.map((d, i) => (
                 <Tr key={d.id}>
+                  <Td>
+                    <span
+                      aria-label={`Trip ${i + 1} of ${visible.length}`}
+                      title={`Trip ${i + 1} of ${visible.length}`}
+                      className="inline-grid h-5 w-5 place-items-center rounded-full text-[10px] font-semibold tabular-nums"
+                      style={{ background: "var(--m-accent-soft)", color: "var(--m-accent)" }}
+                    >
+                      {i + 1}
+                    </span>
+                  </Td>
                   <Td className="tabular-nums">{d.ticket_id.slice(0, 8)}…</Td>
                   <Td>
                     {new Date(d.started_at).toLocaleString()} →{" "}
@@ -331,7 +354,7 @@ export default function TravelDraftsPage() {
                   </Td>
                   <Td>{d.billable ? "yes" : "no"}</Td>
                   <Td>
-                    <Tag>{d.status}</Tag>
+                    <StatusTag tone={d.status === "submitted" ? "success" : "neutral"}>{d.status}</StatusTag>
                   </Td>
                   <Td className="text-right">
                     {d.status === "draft" ? (
@@ -357,10 +380,30 @@ export default function TravelDraftsPage() {
                   </Td>
                 </Tr>
               ))}
-            </tbody>
-          </Table>
-        )}
-      </Card>
+                </tbody>
+              </Table>
+            )}
+            {visible.length > 0 && (
+              <div
+                className="flex flex-wrap items-center gap-4 border-t px-4 py-2 text-[11px] tabular-nums"
+                style={{ borderColor: "var(--m-border)", color: "var(--m-text-secondary)" }}
+                data-testid="travel-totals"
+              >
+                <span>{visible.length} trips</span>
+                {Object.entries(totals.units).map(([unit, total]) => (
+                  <span key={unit}>
+                    {total.toFixed(1)} {unit} total
+                  </span>
+                ))}
+                <span>
+                  {totals.billable.toFixed(1)} billable
+                </span>
+                <span style={{ color: "var(--m-text-muted)" }}>
+                  ordered by start time
+                </span>
+              </div>
+            )}
+          </Card>
 
       <Dialog open={formOpen} onOpenChange={(o) => { setFormOpen(o); if (!o) setFormError(null); }}>
         <DialogContent

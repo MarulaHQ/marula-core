@@ -178,12 +178,16 @@
   white-space: nowrap;
 }
 
-/* Wrap up keeps the preset primary; hover deepens via the token hover. */
-button[style*="var(--m-accent)"]:hover:not(:disabled) {
+/* Wrap up keeps the preset primary; hover deepens via the token hover.
+ * Scoped to the workbar wrap-up button (wave 17 lane 3 fix: the old
+ * button[style*="var(--m-accent)"] attribute heuristic matched ANY button
+ * whose inline style merely mentioned the accent token — e.g. chips and
+ * type tiles that set border-color — and repainted them solid on hover. */
+button.m-workbar-wrapup:hover:not(:disabled) {
   background: var(--m-accent-hover) !important;
 }
 
-button[style*="var(--m-accent)"]:focus-visible {
+button.m-workbar-wrapup:focus-visible {
   outline: 2px solid var(--m-focus-ring);
   outline-offset: 1px;
 }

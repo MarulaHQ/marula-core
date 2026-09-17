@@ -276,10 +276,12 @@ export default function DispatchPage() {
         </div>
       )}
 
-      <div className="flex flex-1 overflow-hidden">
+      {/* Narrow layouts stack: team rail hides below lg, the queue drops
+          under the board instead of squeezing it off-screen. */}
+      <div className="flex flex-1 flex-col overflow-hidden lg:flex-row">
         {/* TEAM rail */}
         <aside
-          className="w-56 shrink-0 overflow-auto border-r p-3"
+          className="hidden w-56 shrink-0 overflow-auto border-r p-3 lg:block"
           style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
           aria-label="Team capacity"
         >
@@ -380,6 +382,13 @@ export default function DispatchPage() {
               </Button>
               <Button variant="secondary" size="sm" onClick={() => board.setDate(isoDay(0))}>
                 Today
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => window.open("/dispatch/scheduling", "_self")}
+              >
+                Scheduling templates
               </Button>
             </div>
           </div>
@@ -487,7 +496,7 @@ export default function DispatchPage() {
 
         {/* Unassigned queue rail */}
         <aside
-          className="flex w-72 shrink-0 flex-col border-l"
+          className="flex w-full shrink-0 flex-col border-t lg:h-auto lg:w-72 lg:border-l lg:border-t-0"
           style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
           aria-label="Unassigned queue"
         >
@@ -509,7 +518,7 @@ export default function DispatchPage() {
                 type="button"
                 aria-pressed={priorityFilter === p}
                 onClick={() => setPriorityFilter(p)}
-                className="rounded-[2px] border px-1.5 py-0.5 text-[10px] uppercase"
+                className="rounded-full border px-2 py-0.5 text-[10px] uppercase transition-colors duration-100"
                 style={{
                   borderColor:
                     priorityFilter === p ? "var(--m-accent)" : "var(--m-border)",
@@ -521,7 +530,7 @@ export default function DispatchPage() {
               </button>
             ))}
           </div>
-          <div className="flex-1 space-y-2 overflow-auto px-3 pb-3">
+          <div className="flex-1 space-y-2 overflow-auto px-3 pb-3 max-h-64 lg:max-h-none">
             {filteredQueue.map((item) => (
               <QueueCard
                 key={item.id}
@@ -712,7 +721,7 @@ function Column(props: {
       {props.ghost && (
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-x-1 rounded-[2px] px-1"
+          className="pointer-events-none absolute inset-x-1 rounded-[var(--m-radius-control)] px-1"
           style={{
             top: topFor(props.ghost.startIso, props.dayBaseMs),
             height: heightFor(props.ghost.startIso, props.ghost.endIso),
@@ -805,7 +814,7 @@ function BookedBlock(props: {
           style={{
             top: Math.max(0, top - travelPx),
             height: travelPx,
-            borderRadius: 2,
+            borderRadius: "var(--m-radius-control)",
             border: "1px dashed var(--m-border-strong)",
             background:
               "repeating-linear-gradient(135deg, transparent 0 4px, var(--m-border-strong) 4px 5px)",
@@ -817,11 +826,11 @@ function BookedBlock(props: {
         type="button"
         aria-label={`${b.title}, ${utcTimeLabel(b.starts_at)} to ${utcTimeLabel(b.ends_at)}. Press Enter to pick up${props.conflicted ? ", currently conflicting with availability" : ""}.`}
         onClick={() => props.onPickUp(b)}
-        className="absolute inset-x-1 cursor-grab overflow-auto px-1 py-0.5 text-left focus-visible:ring-2"
+        className="kanban-card absolute inset-x-1 cursor-grab overflow-auto px-1 py-0.5 text-left focus-visible:ring-2"
         style={{
           top,
           height: heightFor(b.starts_at, b.ends_at),
-          borderRadius: 2,
+          borderRadius: "var(--m-radius-control)",
           background: props.conflicted
             ? "var(--m-status-warning-bg)"
             : "var(--m-surface)",
@@ -899,7 +908,7 @@ function QueueCard(props: {
           props.onCancel();
         }
       }}
-      className={`w-full cursor-grab rounded-[2px] border p-2 text-left${props.dragged ? " opacity-40" : ""}`}
+      className={`kanban-card w-full cursor-grab rounded-[var(--m-radius-control)] border p-2 text-left${props.dragged ? " opacity-40" : ""}`}
       style={{
         borderColor: props.dragged ? "var(--m-accent)" : "var(--m-border)",
         background: "var(--m-surface)",
@@ -908,7 +917,7 @@ function QueueCard(props: {
     >
       <span className="flex items-center gap-1.5">
         <span
-          className="rounded-[2px] px-1 py-0 text-[9px] uppercase tabular-nums"
+          className="rounded-full px-1.5 py-0 text-[9px] uppercase tabular-nums"
           style={{
             border: `1px solid ${p1 ? "var(--m-accent)" : "var(--m-border-strong)"}`,
             color: p1 ? "var(--m-accent)" : "var(--m-text-secondary)",
