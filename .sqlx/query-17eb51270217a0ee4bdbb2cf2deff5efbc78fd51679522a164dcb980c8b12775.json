@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE plugin_installs SET\n             pending_version = $3,\n             pending_manifest = $4::jsonb,\n             pending_digest = $5,\n             pending_capabilities = $6::jsonb,\n             pending_consent_at = $7,\n             updated_at = now()\n           WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Jsonb",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "17eb51270217a0ee4bdbb2cf2deff5efbc78fd51679522a164dcb980c8b12775"
+}

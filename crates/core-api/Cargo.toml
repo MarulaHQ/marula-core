@@ -28,6 +28,7 @@ path = "src/bin/dump_openapi.rs"
 async-trait = { workspace = true }
 core-db = { path = "../core-db" }
 core-domain = { path = "../core-domain", features = ["openapi"] }
+plugin-host = { path = "../plugin-host" }
 core-billing = { path = "../core-billing" }
 core-documents = { path = "../core-documents" }
 core-kb = { path = "../core-kb" }

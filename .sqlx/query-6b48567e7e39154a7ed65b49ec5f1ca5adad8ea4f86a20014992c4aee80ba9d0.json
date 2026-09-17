@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE agent_skills SET enabled = true, enabled_by = $3,\n                 enabled_at = $4\n             WHERE org_id = $1 AND slug = $2\n               AND version = (SELECT MAX(version) FROM agent_skills\n                              WHERE org_id = $1 AND slug = $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6b48567e7e39154a7ed65b49ec5f1ca5adad8ea4f86a20014992c4aee80ba9d0"
+}

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO plugin_staged_items\n             (id, org_id, artifact_kind, source_kind, source_url, fetched_ref,\n              artifact_digest, manifest, declared_capabilities, status, uploaded_by)\n           VALUES ($1, $2, $3::text::plugin_artifact_kind, $4::text::plugin_source_kind,\n                   $5, $6, $7, $8::jsonb, $9::jsonb, 'pending', $10)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Jsonb",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3ca45e7c10712833450a508372e122ea1b3062e543ed6f2a93f788a27d18aa68"
+}

@@ -1,0 +1,20 @@
+{
+  "event_type": "plugin.update_pending",
+  "entity": "plugin_install",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "added_capabilities": [
+      "financial.read"
+    ],
+    "catalog_id": "00000000-0000-0000-0000-000000000032",
+    "current_version": "1.0.0",
+    "install_id": "00000000-0000-0000-0000-000000000033",
+    "occurred_at": "2023-11-14T22:13:40Z",
+    "pending_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "pending_version": "1.1.0",
+    "removed_capabilities": [],
+    "slug": "ticket-summarizer"
+  }
+}

@@ -4613,6 +4613,224 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/plugins/distribution/agent-skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/plugins/distribution/agent-skills — the ACTIVE version of
+         *     every org skill, with its provenance.
+         */
+        get: operations["plugin_distribution_skills_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/distribution/agent-skills/{id}/enabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/plugins/distribution/agent-skills/{id}/enabled — the skills
+         *     half's enable gate (deny-by-default: enable is an explicit
+         *     owner/admin action on the active version row; version rows other than
+         *     the active one are never enabled).
+         */
+        post: operations["plugin_distribution_skill_enabled"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/distribution/staged": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/plugins/distribution/staged — pending + terminal rows.
+         *     Owners/admins see everything; plain members see only their OWN
+         *     uploads (the deny-by-default staged visibility).
+         */
+        get: operations["plugin_distribution_staged_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/distribution/staged/github": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/plugins/distribution/staged/github — the pinned GitHub
+         *     pull: the manifest is fetched AT THE PINNED COMMIT (never HEAD), the
+         *     digest is computed over the fetched bytes, the pin is recorded on the
+         *     staged row; a no-pin call is refused.
+         */
+        post: operations["plugin_distribution_stage_github"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/distribution/staged/registry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/plugins/distribution/staged/registry — a public marketplace
+         *     registry entry (static JSON, git-tag pinned, code-signature/digest
+         *     shape: the BUILD-PROMPT v1 fixture). The SERVER fetches and the
+         *     adapter validates BEFORE anything registers.
+         */
+        post: operations["plugin_distribution_stage_registry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/distribution/staged/skill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/plugins/distribution/staged/skill — skills from free/open
+         *     community marketplaces/repo APIs (`skill_community`: the server
+         *     refetches the manifest and digest-verifies it before the row exists)
+         *     and manual member uploads (`manual_upload`: inline manifest). Skill
+         *     content is UNTRUSTED RAG-class data — staged, never executed.
+         */
+        post: operations["plugin_distribution_stage_skill"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/distribution/staged/zip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/plugins/distribution/staged/zip — the local zip import.
+         *     ALL the sandbox validation (manifest schema, artifact digest,
+         *     size/entry caps, exactly one root manifest.json, traversal safety)
+         *     runs BEFORE the row exists; the declared capability list rides into
+         *     the SAME consent screen.
+         */
+        post: operations["plugin_distribution_stage_zip"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/distribution/staged/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/plugins/distribution/staged/{id}/approve — the owner/admin
+         *     review. Approve MINTS but remains deny-by-default: a plugin adopt is
+         *     created DISABLED (a public-registry source lands the SAME staged
+         *     pipeline — browsing is help, not bypass); a skill lands disabled
+         *     until enabled. Grants must subset the staged manifest's declared set.
+         */
+        post: operations["plugin_distribution_staged_approve"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/distribution/staged/{id}/consent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/plugins/distribution/staged/{id}/consent — the SAME consent
+         *     shape for every source: declared capabilities + the manifest's
+         *     settings JSON-Schema (the typed-registry render source).
+         */
+        get: operations["plugin_distribution_staged_consent"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/distribution/staged/{id}/refuse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/plugins/distribution/staged/{id}/refuse — the reviewer
+         *     declines: terminal for the staged row (the uploader may re-stage a
+         *     fresh upload). A typed note is required.
+         */
+        post: operations["plugin_distribution_staged_refuse"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/plugins/installed": {
         parameters: {
             query?: never;
@@ -4659,6 +4877,122 @@ export interface paths {
          *     terminal.
          */
         patch: operations["plugin_install_update"];
+        trace?: never;
+    };
+    "/api/v1/plugins/installed/{id}/consent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/plugins/installed/{id}/consent — commit the CONSENTED
+         *     update: the swap IS the consent action (deny-by-default — until the
+         *     owner/admin consents, the OLD version is what runs). Consent appends
+         *     the provenance chain and rides the existing update event.
+         */
+        post: operations["plugin_install_update_consent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/installed/{id}/discard-update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/plugins/installed/{id}/discard-update — abandon the pending
+         *     re-consent (the OLD version keeps running; the pending columns clear).
+         */
+        post: operations["plugin_install_update_discard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/installed/{id}/provenance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/plugins/installed/{id}/provenance — the append-only
+         *     `{source_kind, source_url, fetched_ref, artifact_digest, uploader}`
+         *     for one install. The chain SURVIVES terminal uninstalls (no cascade).
+         */
+        get: operations["plugin_distribution_provenance_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/installed/{id}/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/plugins/installed/{id}/settings — the render source: the
+         *     pinned manifest's declared JSON-Schema + the validated config.
+         */
+        get: operations["plugin_install_settings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/plugins/installed/{id}/settings — the config is validated
+         *     against the pinned manifest's schema AT THE WRITE BOUNDARY (the
+         *     typed-registry doctrine: no hand-authored per-plugin pages, and a
+         *     plugin with no declared schema gets consent/enable/disable only —
+         *     this endpoint refuses its config writes). Every write is audited.
+         */
+        patch: operations["plugin_install_settings_put"];
+        trace?: never;
+    };
+    "/api/v1/plugins/installed/{id}/update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/plugins/installed/{id}/update — the pending-state read (the
+         *     consent screen shows exactly what consent would do).
+         */
+        get: operations["plugin_install_update_get"];
+        put?: never;
+        /**
+         * POST /api/plugins/installed/{id}/update — propose the update: the
+         *     candidate version lands in the pending columns while the OLD version
+         *     keeps running; the response IS the re-consent diff the consent screen
+         *     renders.
+         */
+        post: operations["plugin_install_update_propose"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/pm-schedules": {
@@ -8043,6 +8377,37 @@ export interface components {
         AgentSkillList: {
             skills: components["schemas"]["AgentSkillView"][];
         };
+        /**
+         * @description One skill VERSION row (the migration-0040 shape + the distribution
+         *     columns from migration 0079). History is append-only; rollback
+         *     appends a NEW version carrying an old manifest. Enablement rides the
+         *     org's active version row — deny-by-default.
+         */
+        AgentSkillVersion: {
+            artifact_digest: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            description: string;
+            /** @description Deny-by-default enable gate on the active row. */
+            enabled: boolean;
+            /** Format: date-time */
+            enabled_at?: string | null;
+            /** Format: uuid */
+            enabled_by?: string | null;
+            fetched_ref?: string | null;
+            /** Format: uuid */
+            id: string;
+            manifest: components["schemas"]["SkillManifest"];
+            /** Format: uuid */
+            org_id: string;
+            slug: string;
+            source_kind: components["schemas"]["PluginSourceKind"];
+            source_url: string;
+            /** Format: int32 */
+            version: number;
+        };
         /** @description One immutable skill version. */
         AgentSkillView: {
             created_at: string;
@@ -8301,6 +8666,14 @@ export interface components {
          * @enum {string}
          */
         ApprovalStatus: "draft" | "submitted" | "approved" | "rejected";
+        ApproveStagedRequest: {
+            /**
+             * @description Capability keys granted at adopt time (a subset of the staged
+             *     manifest's declared set; unknown keys are refused).
+             */
+            granted_capabilities?: string[];
+            review_note?: string | null;
+        };
         ArchiveCatalogItemRequest: components["schemas"]["MutationParams"];
         /**
          * @description The single-article read surface (GET): article fields at the top
@@ -9616,6 +9989,24 @@ export interface components {
         };
         ConnectorTechniciansView: {
             technicians: components["schemas"]["ConnectorTechnician"][];
+        };
+        ConsentDiffView: {
+            added: string[];
+            removed: string[];
+            unchanged: string[];
+        };
+        /**
+         * @description The consent screen payload — ONE component shared by every source
+         *     (same shape the update re-consent flow shows).
+         */
+        ConsentView: {
+            artifact_digest: string;
+            artifact_kind: string;
+            declared_capabilities: string[];
+            fetched_ref?: string | null;
+            settings_schema?: unknown;
+            source_kind: string;
+            source_url: string;
         };
         Contact: {
             /** Format: uuid */
@@ -11962,6 +12353,13 @@ export interface components {
             /** @description Pin the adopted version; defaults to the entry's latest. */
             version?: string | null;
         };
+        InstallSettingsView: {
+            config: unknown;
+            /** @description The pinned manifest's declared JSON-Schema (the render source). */
+            settings_schema?: unknown;
+            slug: string;
+            version: string;
+        };
         InstallView: {
             /**
              * @description The effective permission keys the grants resolve onto (the
@@ -13742,6 +14140,8 @@ export interface components {
         PluginManifestBody: {
             capabilities: string[];
             description?: string;
+            /** @description ADR 0009 §4 — optional JSON-Schema for manifest-rendered settings. */
+            settings_schema?: unknown;
         };
         /**
          * @description The declarative v2 plugin manifest: name/version/capabilities — a
@@ -13766,7 +14166,121 @@ export interface components {
              */
             interface_version: number;
             name: string;
+            /**
+             * @description ADR 0009 §4 — the optional JSON-Schema the manifest declares for
+             *     its per-install settings. The Plugins surface renders config FROM
+             *     this schema (typed-registry doctrine: no hand-authored
+             *     per-plugin pages); a manifest with no schema gets
+             *     consent/enable/disable only. Additive to the v2 shape.
+             */
+            settings_schema?: unknown;
             version: string;
+        };
+        /**
+         * @description `plugin.settings_updated` — a per-install config rendered FROM the
+         *     pinned manifest's settings JSON-Schema changed (validated at the
+         *     write boundary; no hand-authored per-plugin settings pages exist).
+         */
+        PluginSettingsUpdated: {
+            /**
+             * @description The validated config keys (values stay server-side; consumers
+             *     refetch through the settings surface).
+             */
+            config_keys: string[];
+            /** Format: uuid */
+            install_id: string;
+            /** Format: date-time */
+            occurred_at: string;
+            slug: string;
+            /** Format: uuid */
+            updated_by: string;
+            version: string;
+        };
+        /**
+         * @description The closed source vocabulary — every distribution adapter records the
+         *     same provenance chain, typed by the kind of source it is.
+         * @enum {string}
+         */
+        PluginSourceKind: "marketplace_registry" | "github_repo" | "local_zip" | "skill_community" | "manual_upload";
+        /**
+         * @description `plugin.staged_import_approved` — an owner/admin reviewed the consent
+         *     diff and the wait ended in adoption: the catalog entry/version +
+         *     install were minted (plugins) or the agent skill was imported
+         *     (skills), provenance recorded, still deny-by-default on enable.
+         */
+        PluginStagedImportApproved: {
+            /** Format: uuid */
+            adopted_install_id?: string | null;
+            /** Format: uuid */
+            adopted_skill_id?: string | null;
+            /** Format: date-time */
+            approved_at: string;
+            artifact_kind: string;
+            granted_capabilities: string[];
+            review_note?: string | null;
+            /** Format: uuid */
+            reviewed_by: string;
+            /** Format: uuid */
+            staged_item_id: string;
+        };
+        /**
+         * @description `plugin.staged_import_created` — a member upload (skill or plugin)
+         *     landed staged: validated, never executed, visible only to its
+         *     uploader and admins. Capabilities are the staged manifest's DECLARED
+         *     keys; consent happens at approval, never here.
+         */
+        PluginStagedImportCreated: {
+            artifact_digest: string;
+            /** @description `plugin` | `skill`. */
+            artifact_kind: string;
+            declared_capabilities: string[];
+            fetched_ref?: string | null;
+            /**
+             * @description `marketplace_registry` | `github_repo` | `local_zip` |
+             *     `skill_community` | `manual_upload`.
+             */
+            source_kind: string;
+            source_url: string;
+            /** Format: uuid */
+            staged_item_id: string;
+            /** Format: date-time */
+            uploaded_at: string;
+            /** Format: uuid */
+            uploaded_by: string;
+        };
+        /**
+         * @description `plugin.staged_import_refused` — the reviewer declined the staged
+         *     import (terminal for that row; the uploader may re-stage fresh).
+         */
+        PluginStagedImportRefused: {
+            /** Format: date-time */
+            refused_at: string;
+            review_note?: string | null;
+            /** Format: uuid */
+            reviewed_by: string;
+            /** Format: uuid */
+            staged_item_id: string;
+        };
+        /**
+         * @description `plugin.update_pending` — an update proposal is waiting on the
+         *     re-consent diff: the OLD version stays pinned and running until the
+         *     owner/admin consents; consent commits the swap.
+         */
+        PluginUpdatePending: {
+            added_capabilities: string[];
+            /** Format: uuid */
+            catalog_id: string;
+            /** @description The version still running (pinned until consented). */
+            current_version: string;
+            /** Format: uuid */
+            install_id: string;
+            /** Format: date-time */
+            occurred_at: string;
+            pending_digest: string;
+            /** @description The candidate version awaiting consent. */
+            pending_version: string;
+            removed_capabilities: string[];
+            slug: string;
         };
         /** @description One append-only PM run ledger row. */
         PmRun: {
@@ -14372,6 +14886,15 @@ export interface components {
          * @enum {string}
          */
         ProposalStatus: "proposed" | "approved" | "declined" | "withdrawn" | "applied";
+        ProposeUpdateRequest: {
+            /**
+             * @description The grant set that WOULD apply post-consent (defaults to the
+             *     current grants; a widening validates against the new manifest).
+             */
+            granted_capabilities?: string[] | null;
+            /** @description Pin this catalog version as the update candidate. */
+            version: string;
+        };
         /** @description One provenance entry: a single field change within one applied write. */
         ProvenanceEvent: {
             /**
@@ -14422,6 +14945,21 @@ export interface components {
             events: components["schemas"]["ProvenanceEvent"][];
             /** @description Opaque cursor for the next page; absent when exhausted. */
             next_cursor?: string | null;
+        };
+        ProvenanceView: {
+            action: string;
+            artifact_digest: string;
+            fetched_ref?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            install_id: string;
+            /** Format: date-time */
+            recorded_at: string;
+            source_kind: string;
+            source_url: string;
+            /** Format: uuid */
+            uploader?: string | null;
         };
         /** @description Instant-first mutation response (IF2) for provider rows. */
         ProviderMutationResponse: components["schemas"]["KbEmbedProvider"] & {
@@ -14712,6 +15250,9 @@ export interface components {
              */
             visible_status_ids: string[];
         };
+        PutInstallSettingsRequest: {
+            config: unknown;
+        };
         /**
          * @description PUT body: `{ "state": "set", "value": <typed payload> }` or
          *     `{ "state": "disabled" }`, plus the instant-first parameters.
@@ -14977,6 +15518,9 @@ export interface components {
              */
             amount_minor: number;
             notes?: string | null;
+        };
+        RefuseStagedRequest: {
+            review_note: string;
         };
         RegenerateRecoveryRequest: {
             code: string;
@@ -15947,6 +16491,9 @@ export interface components {
             /** Format: uuid */
             role_id: string;
         };
+        SetSkillEnabledRequest: {
+            enabled: boolean;
+        };
         SetTicketFieldValueRequest: {
             value: unknown;
         };
@@ -16050,6 +16597,41 @@ export interface components {
              *     the latest version of each slug.
              */
             slug?: string | null;
+        };
+        /**
+         * @description The declarative skill manifest (docs/10-agent-platform.md §4:
+         *     `AgentSkill` — version, capabilities, prompts/rules). Content is
+         *     UNTRUSTED RAG-class data: consumption-time layering quotes and scopes
+         *     it into rules layers; nothing here is ever executed as instructions.
+         */
+        SkillManifest: {
+            /**
+             * @description Agent capability scopes the skill REQUESTS (data for the consent
+             *     surface; enforcement stays in the agent platform's rule layers).
+             */
+            capabilities?: string[];
+            description?: string;
+            name?: string;
+            /** @description Prompt snippets — quoted verbatim at consumption time. */
+            prompts?: string[];
+            /** @description Rules snippets — quoted verbatim at consumption time, deny wins. */
+            rules?: string[];
+            version?: string;
+        };
+        SkillVersionView: {
+            artifact_digest: string;
+            /** Format: date-time */
+            created_at: string;
+            enabled: boolean;
+            fetched_ref?: string | null;
+            /** Format: uuid */
+            id: string;
+            manifest: unknown;
+            slug: string;
+            source_kind: string;
+            source_url: string;
+            /** Format: int32 */
+            version: number;
         };
         /** @description One skill on one technician. */
         SkillView: {
@@ -16155,6 +16737,17 @@ export interface components {
              */
             staged_chunks: number;
         };
+        StageFromGithubRequest: {
+            /** @description Pinned 40-hex commit the tag resolves to. */
+            commit: string;
+            owner: string;
+            repo: string;
+            /** @description Pinned git tag — HEAD is refused, never accepted. */
+            tag: string;
+        };
+        StageFromRegistryRequest: {
+            url: string;
+        };
         StageListQuery: {
             /** @description `None` = active stages only (default); `true` includes inactive. */
             include_inactive?: boolean | null;
@@ -16163,12 +16756,48 @@ export interface components {
         StageMutationResponse: components["schemas"]["PipelineStage"] & {
             mutation: components["schemas"]["MutationMeta"];
         };
+        StageSkillRequest: {
+            /**
+             * @description The claimed sha256 for community pulls — reverified against the
+             *     re-fetched bytes before the row exists.
+             */
+            artifact_digest?: string | null;
+            /** @description The pinned reference (a version tag / commit for community pulls). */
+            fetched_ref?: string | null;
+            /**
+             * @description The inline manifest for `manual_upload` (community origins are
+             *     re-fetched server-side instead).
+             */
+            manifest?: unknown;
+            /** @description `skill_community` | `manual_upload`. */
+            source_kind: string;
+            source_url: string;
+        };
         /**
          * @description The kind of a pipeline stage. `won` / `lost` are terminal outcomes;
          *     deals on such a stage are closed.
          * @enum {string}
          */
         StageType: "open" | "won" | "lost";
+        StagedItemView: {
+            /** Format: uuid */
+            adopted_install_id?: string | null;
+            /** Format: uuid */
+            adopted_skill_id?: string | null;
+            artifact_digest: string;
+            artifact_kind: string;
+            declared_capabilities: string[];
+            fetched_ref?: string | null;
+            /** Format: uuid */
+            id: string;
+            manifest: unknown;
+            review_note?: string | null;
+            source_kind: string;
+            source_url: string;
+            status: string;
+            /** Format: uuid */
+            uploaded_by: string;
+        };
         StartTimerRequest: components["schemas"]["MutationParams"] & {
             /** Format: uuid */
             ticket_id: string;
@@ -17322,6 +17951,17 @@ export interface components {
             quiet_until?: string | null;
             /** @description IANA timezone for the window; defaults to UTC. */
             timezone?: string | null;
+        };
+        UpdateProposalView: {
+            consent_diff: components["schemas"]["ConsentDiffView"];
+            current_granted_capabilities: string[];
+            /** @description Still running — the OLD version is pinned until consented. */
+            current_version: string;
+            /** Format: uuid */
+            install_id: string;
+            pending_digest?: string | null;
+            pending_version?: string | null;
+            slug: string;
         };
         UpdateProviderRequest: components["schemas"]["MutationParams"] & {
             enabled?: boolean | null;
@@ -26608,6 +27248,320 @@ export interface operations {
             };
         };
     };
+    plugin_distribution_skills_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillVersionView"][];
+                };
+            };
+        };
+    };
+    plugin_distribution_skill_enabled: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RefuseStagedRequest"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_distribution_staged_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StagedItemView"][];
+                };
+            };
+        };
+    };
+    plugin_distribution_stage_github: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StageFromGithubRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StagedItemView"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_distribution_stage_registry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StageFromRegistryRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StagedItemView"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_distribution_stage_skill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StageSkillRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StagedItemView"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_distribution_stage_zip: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/zip": number[];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StagedItemView"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_distribution_staged_approve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApproveStagedRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StagedItemView"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_distribution_staged_consent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsentView"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_distribution_staged_refuse: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RefuseStagedRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StagedItemView"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     plugin_install_list: {
         parameters: {
             query?: never;
@@ -26708,6 +27662,225 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InstallView"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_install_update_consent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateProposalView"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_install_update_discard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_distribution_provenance_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProvenanceView"][];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_install_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstallSettingsView"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_install_settings_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutInstallSettingsRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstallSettingsView"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_install_update_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateProposalView"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_install_update_propose: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProposeUpdateRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateProposalView"];
                 };
             };
             404: {

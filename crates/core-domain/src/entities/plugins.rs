@@ -173,6 +173,13 @@ pub struct PluginManifestV2 {
     /// time are a subset of this list — a grant outside the manifest's
     /// declared set is rejected.
     pub capabilities: Vec<String>,
+    /// ADR 0009 §4 — the optional JSON-Schema the manifest declares for
+    /// its per-install settings. The Plugins surface renders config FROM
+    /// this schema (typed-registry doctrine: no hand-authored
+    /// per-plugin pages); a manifest with no schema gets
+    /// consent/enable/disable only. Additive to the v2 shape.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settings_schema: Option<serde_json::Value>,
 }
 
 impl PluginManifestV2 {
@@ -202,6 +209,9 @@ impl PluginManifestV2 {
                     "unknown capability {key:?} — the capability vocabulary is closed"
                 )));
             }
+        }
+        if let Some(schema) = &self.settings_schema {
+            SettingsSchema::new(schema.clone())?;
         }
         Ok(())
     }
@@ -284,6 +294,470 @@ impl PluginInstallStatus {
     }
 }
 
+// --- ADR 0009 distribution: sources, staged imports, provenance, settings ----
+
+/// The closed source vocabulary — every distribution adapter records the
+/// same provenance chain, typed by the kind of source it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum PluginSourceKind {
+    /// The public marketplace registry: static JSON catalog + git tag,
+    /// code-signed/digest-pinned artifacts.
+    MarketplaceRegistry,
+    /// A GitHub repo pull at a PINNED tag/release + commit sha — never
+    /// HEAD; unpinned pulls are refused.
+    GithubRepo,
+    /// A local zip import through sandboxed validation.
+    LocalZip,
+    /// A free/open community skill marketplace or repo API (skills).
+    SkillCommunity,
+    /// A manual member upload (skills or, where allowed, zips).
+    ManualUpload,
+}
+
+impl PluginSourceKind {
+    pub const ALL: [PluginSourceKind; 5] = [
+        PluginSourceKind::MarketplaceRegistry,
+        PluginSourceKind::GithubRepo,
+        PluginSourceKind::LocalZip,
+        PluginSourceKind::SkillCommunity,
+        PluginSourceKind::ManualUpload,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PluginSourceKind::MarketplaceRegistry => "marketplace_registry",
+            PluginSourceKind::GithubRepo => "github_repo",
+            PluginSourceKind::LocalZip => "local_zip",
+            PluginSourceKind::SkillCommunity => "skill_community",
+            PluginSourceKind::ManualUpload => "manual_upload",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        Self::ALL.iter().copied().find(|k| k.as_str() == value)
+    }
+}
+
+/// What kind of artifact a staged row carries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum PluginArtifactKind {
+    Plugin,
+    Skill,
+}
+
+impl PluginArtifactKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PluginArtifactKind::Plugin => "plugin",
+            PluginArtifactKind::Skill => "skill",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "plugin" => Some(Self::Plugin),
+            "skill" => Some(Self::Skill),
+            _ => None,
+        }
+    }
+}
+
+/// The staged state machine: `pending` → `approved` | `refused`
+/// (approval mints the adoption; both terminal states are auditable).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum PluginStagedStatus {
+    Pending,
+    Approved,
+    Refused,
+}
+
+impl PluginStagedStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PluginStagedStatus::Pending => "pending",
+            PluginStagedStatus::Approved => "approved",
+            PluginStagedStatus::Refused => "refused",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "pending" => Some(Self::Pending),
+            "approved" => Some(Self::Approved),
+            "refused" => Some(Self::Refused),
+            _ => None,
+        }
+    }
+}
+
+/// A staged member import (ADR 0009 §3): the row BEFORE install.
+/// Validated on arrival, never executed, visible only to the uploader
+/// and admins; the owner/admin consent diff on approval is the path
+/// that mints the catalog adoption (plugins) or the skill row (skills).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PluginStagedItem {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub id: Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub org_id: Uuid,
+    pub artifact_kind: PluginArtifactKind,
+    pub source_kind: PluginSourceKind,
+    pub source_url: String,
+    /// Registry git tag / GitHub `tag@sha`; NULL for local uploads.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>))]
+    pub fetched_ref: Option<String>,
+    /// sha256 of the verified artifact (hex).
+    pub artifact_digest: String,
+    /// The full declarative manifest (plugin v2 shape incl.
+    /// settings_schema, or the skill manifest).
+    pub manifest: serde_json::Value,
+    pub declared_capabilities: Vec<String>,
+    pub status: PluginStagedStatus,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub uploaded_by: Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub uploaded_at: DateTime<Utc>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>))]
+    pub review_note: Option<String>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub reviewed_by: Option<Uuid>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>, format = "date-time"))]
+    pub reviewed_at: Option<DateTime<Utc>>,
+    /// The adoption (or skill) minted on approval, for trace.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub adopted_install_id: Option<Uuid>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub adopted_skill_id: Option<Uuid>,
+}
+
+/// One link of the append-only provenance chain
+/// `{source_kind, source_url, fetched_ref, artifact_digest, updater}`
+/// shown on the install record. Appended by the route layer on every
+/// lifecycle touch; uninstall never deletes it (ADR 0009 §5).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PluginProvenanceEntry {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub id: Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub org_id: Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub install_id: Uuid,
+    pub source_kind: PluginSourceKind,
+    pub source_url: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>))]
+    pub fetched_ref: Option<String>,
+    pub artifact_digest: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub uploader: Option<Uuid>,
+    /// `installed` | `updated` | `re_consented` | `enabled` | `disabled`.
+    pub action: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<serde_json::Value>))]
+    pub detail: Option<serde_json::Value>,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub recorded_at: DateTime<Utc>,
+}
+
+impl PluginProvenanceEntry {
+    fn valid_action(action: &str) -> bool {
+        matches!(
+            action,
+            "staged" | "installed" | "updated" | "re_consented" | "enabled" | "disabled"
+        )
+    }
+
+    pub fn validate(&self) -> Result<(), crate::error::DomainError> {
+        if !Self::valid_action(&self.action) {
+            return Err(crate::error::DomainError::Validation(format!(
+                "unknown provenance action {:?}",
+                self.action
+            )));
+        }
+        if !self.artifact_digest.is_empty() && !is_sha256_hex(&self.artifact_digest) {
+            return Err(crate::error::DomainError::Validation(
+                "artifact_digest must be a sha256 hex digest".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// True iff `value` is a 64-char lowercase sha256 hex string.
+pub fn is_sha256_hex(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+}
+
+/// The declared SETTINGS schema a manifest may carry (ADR 0009 §4):
+/// the typed-registry doctrine per install — the Plugins surface
+/// renders config FROM this schema at the UI close-out; this type owns
+/// the write-boundary VALIDATION of a config value against it, so every
+/// stored config is schema-checked with the same deterministic rules.
+#[derive(Debug, Clone)]
+pub struct SettingsSchema {
+    pub raw: serde_json::Value,
+}
+
+impl SettingsSchema {
+    /// Builds a schema handle, validating the declaration itself is a
+    /// supported subset: a top-level object whose `properties` map holds
+    /// `{"type": "string"|"number"|"integer"|"boolean"}` leaf nodes
+    /// (plus optional `enum`/`minimum`/`maximum`/`default` and string
+    /// `minLength`/`maxLength`). Unsupported constructs REJECT the
+    /// manifest rather than guessing.
+    pub fn new(raw: serde_json::Value) -> Result<Self, crate::error::DomainError> {
+        let err = |m: String| Err(crate::error::DomainError::Validation(m));
+        let Some(obj) = raw.as_object() else {
+            return err("settings_schema must be a JSON object".into());
+        };
+        if obj.get("type").and_then(|t| t.as_str()) != Some("object") {
+            return err("settings_schema must declare \"type\": \"object\"".into());
+        }
+        let props = match obj.get("properties") {
+            None | Some(serde_json::Value::Null) => serde_json::Map::new(),
+            Some(p) => match p.as_object() {
+                Some(p) => p.clone(),
+                None => {
+                    return err("settings_schema.properties must be an object".into());
+                }
+            },
+        };
+        for (key, prop) in props {
+            let Some(p) = prop.as_object() else {
+                return err(format!(
+                    "settings schema property {key:?} must be an object"
+                ));
+            };
+            let Some(ptype) = p.get("type").and_then(|t| t.as_str()) else {
+                return err(format!(
+                    "settings schema property {key:?} must declare \"type\""
+                ));
+            };
+            if !matches!(ptype, "string" | "number" | "integer" | "boolean") {
+                return err(format!(
+                    "settings schema property {key:?} declares unsupported type {ptype:?}"
+                ));
+            }
+            let (min_len, max_len) = (
+                p.get("minLength").and_then(|v| v.as_u64()),
+                p.get("maxLength").and_then(|v| v.as_u64()),
+            );
+            if let (Some(m), Some(ma)) = (min_len, max_len) {
+                if ma < m {
+                    return err(format!(
+                        "settings schema property {key:?} has maxLength < minLength"
+                    ));
+                }
+            }
+            if let (Some(min), Some(max)) = (
+                p.get("minimum").and_then(|v| v.as_f64()),
+                p.get("maximum").and_then(|v| v.as_f64()),
+            ) {
+                if max < min {
+                    return err(format!(
+                        "settings schema property {key:?} has maximum < minimum"
+                    ));
+                }
+            }
+        }
+        Ok(Self { raw })
+    }
+
+    fn property_type(spec: &serde_json::Map<String, serde_json::Value>) -> Option<&str> {
+        spec.get("type").and_then(|t| t.as_str())
+    }
+
+    /// Validates one config VALUE against the schema (the write
+    /// boundary before `plugin_install_settings.config` exists).
+    /// Unknown config keys are rejected (the schema is the contract —
+    /// deny-by-default); each supported key is checked for type and the
+    /// optional bounds above.
+    pub fn validate_config(
+        &self,
+        config: &serde_json::Value,
+    ) -> Result<(), crate::error::DomainError> {
+        let err = |m: String| Err(crate::error::DomainError::Validation(m));
+        let Some(map) = config.as_object() else {
+            return err("plugin settings config must be a JSON object".into());
+        };
+        let empty_map = serde_json::Map::new();
+        let props = self
+            .raw
+            .get("properties")
+            .and_then(|p| p.as_object())
+            .unwrap_or(&empty_map);
+        for key in map.keys() {
+            if !props.contains_key(key) {
+                return err(format!(
+                    "unknown settings key {key:?} — render from the manifest schema"
+                ));
+            }
+        }
+        let required: Vec<&str> = self
+            .raw
+            .get("required")
+            .and_then(|r| r.as_array())
+            .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
+            .unwrap_or_default();
+        for req in required {
+            if !map.contains_key(req) {
+                return err(format!("settings config is missing required key {req:?}"));
+            }
+        }
+        for (key, value) in map {
+            let Some(spec) = props.get(key) else {
+                return err(format!("unknown settings key {key:?}"));
+            };
+            let Some(spec_obj) = spec.as_object() else {
+                return err(format!("settings schema key {key:?} is malformed"));
+            };
+            if let Some(enum_vals) = spec_obj.get("enum").and_then(|e| e.as_array()) {
+                if !enum_vals.contains(value) {
+                    return err(format!(
+                        "settings key {key:?} is not one of the declared enum values"
+                    ));
+                }
+                continue;
+            }
+            match Self::property_type(spec_obj).unwrap_or_default() {
+                "string" => {
+                    let Some(s) = value.as_str() else {
+                        return err(format!("settings key {key:?} must be a string"));
+                    };
+                    let len = s.chars().count() as u64;
+                    if let Some(min) = spec_obj.get("minLength").and_then(|v| v.as_u64()) {
+                        if len < min {
+                            return err(format!(
+                                "settings key {key:?} is shorter than its declared minLength"
+                            ));
+                        }
+                    }
+                    if let Some(max) = spec_obj.get("maxLength").and_then(|v| v.as_u64()) {
+                        if len > max {
+                            return err(format!(
+                                "settings key {key:?} is longer than its declared maxLength"
+                            ));
+                        }
+                    }
+                }
+                "number" => {
+                    let Some(n) = value.as_f64() else {
+                        return err(format!("settings key {key:?} must be a number"));
+                    };
+                    if let Some(min) = spec_obj.get("minimum").and_then(|v| v.as_f64()) {
+                        if n < min {
+                            return err(format!(
+                                "settings key {key:?} is below its declared minimum"
+                            ));
+                        }
+                    }
+                    if let Some(max) = spec_obj.get("maximum").and_then(|v| v.as_f64()) {
+                        if n > max {
+                            return err(format!(
+                                "settings key {key:?} is above its declared maximum"
+                            ));
+                        }
+                    }
+                }
+                "integer" => {
+                    let n = match value.as_i64() {
+                        Some(n) => n,
+                        None => {
+                            return err(format!("settings key {key:?} must be an integer"));
+                        }
+                    };
+                    if let Some(min) = spec_obj.get("minimum").and_then(|v| v.as_i64()) {
+                        if n < min {
+                            return err(format!(
+                                "settings key {key:?} is below its declared minimum"
+                            ));
+                        }
+                    }
+                    if let Some(max) = spec_obj.get("maximum").and_then(|v| v.as_i64()) {
+                        if n > max {
+                            return err(format!(
+                                "settings key {key:?} is above its declared maximum"
+                            ));
+                        }
+                    }
+                }
+                "boolean" => {
+                    if !value.is_boolean() {
+                        return err(format!("settings key {key:?} must be a boolean"));
+                    }
+                }
+                other => {
+                    return err(format!(
+                        "settings schema key {key:?} declares unsupported type {other:?}"
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The UI-rendering shape: ordered property specs for the Plugins
+    /// close-out lane to render FROM (never hand-authored).
+    pub fn properties(&self) -> Vec<(String, serde_json::Value)> {
+        self.raw
+            .get("properties")
+            .and_then(|p| p.as_object())
+            .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+            .unwrap_or_default()
+    }
+}
+
+/// The version-consent diff for an UPDATE proposal (ADR 0009 §5):
+/// declared capability keys old-declared vs new-declared, so the same
+/// consent screen shows what re-consenting would enable.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ConsentDiff {
+    pub added: Vec<String>,
+    pub removed: Vec<String>,
+    pub unchanged: Vec<String>,
+    pub settings_schema: Option<serde_json::Value>,
+}
+
+impl ConsentDiff {
+    pub fn compute(
+        old_caps: &[String],
+        new_caps: &[String],
+        new_settings_schema: Option<serde_json::Value>,
+    ) -> Self {
+        let mut added = Vec::new();
+        let mut removed = Vec::new();
+        let mut unchanged = Vec::new();
+        for old in old_caps {
+            if new_caps.contains(old) {
+                unchanged.push(old.clone());
+            } else {
+                removed.push(old.clone());
+            }
+        }
+        for new in new_caps {
+            if !old_caps.contains(new) {
+                added.push(new.clone());
+            }
+        }
+        Self {
+            added,
+            removed,
+            unchanged,
+            settings_schema: new_settings_schema,
+        }
+    }
+}
+
 /// An org's adoption of one catalog entry at one pinned version.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -330,6 +804,106 @@ impl PluginInstall {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+
+    fn schema_sample() -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "greeting": {"type": "string", "minLength": 1, "maxLength": 128},
+                "verbosity": {"type": "integer", "minimum": 0, "maximum": 10},
+                "ratio": {"type": "number", "minimum": 0.0},
+                "verbose": {"type": "boolean"},
+                "style": {"type": "string", "enum": ["concise", "detailed"]}
+            },
+            "required": ["greeting"]
+        })
+    }
+
+    #[test]
+    fn settings_schema_should_validate_supported_subsets() {
+        assert!(SettingsSchema::new(schema_sample()).is_ok());
+        assert!(SettingsSchema::new(json!({"type": "array"})).is_err());
+        assert!(SettingsSchema::new(json!({"properties": {"x": {"type": "object"}}})).is_err());
+        assert!(SettingsSchema::new(json!({"properties": {"x": {"default": 1}}})).is_err());
+        assert!(SettingsSchema::new(
+            json!({"properties": {"x": {"type": "string", "minLength": 5, "maxLength": 2}}})
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn settings_config_should_be_validated_deny_by_default() {
+        let schema = SettingsSchema::new(schema_sample()).unwrap();
+        let ok = json!({"greeting": "hi", "verbosity": 3, "ratio": 0.5, "verbose": true, "style": "concise"});
+        assert!(schema.validate_config(&ok).is_ok());
+        for bad in [
+            json!({"greeting": "hi", "mystery": 1}),
+            json!({}),
+            json!({"greeting": "hi", "verbosity": 1.5}),
+            json!({"greeting": "hi", "verbosity": 99}),
+            json!({"greeting": "hi", "ratio": "not-a-number"}),
+            json!({"greeting": "hi", "verbose": "yes"}),
+            json!({"greeting": "hi", "style": "rambling"}),
+            json!({"greeting": 7}),
+            json!({"greeting": ""}),
+            json!("not-an-object"),
+        ] {
+            assert!(
+                schema.validate_config(&bad).is_err(),
+                "config {bad} must reject"
+            );
+        }
+    }
+
+    #[test]
+    fn consent_diff_should_show_added_removed_unchanged() {
+        let old = vec!["tickets.read".to_string(), "kb.read".to_string()];
+        let new = vec!["tickets.read".to_string(), "financial.read".to_string()];
+        let diff = ConsentDiff::compute(&old, &new, Some(schema_sample()));
+        assert_eq!(diff.added, vec!["financial.read"]);
+        assert_eq!(diff.removed, vec!["kb.read"]);
+        assert_eq!(diff.unchanged, vec!["tickets.read"]);
+        assert_eq!(
+            diff.settings_schema.as_ref().unwrap()["properties"]["greeting"]["type"],
+            "string"
+        );
+    }
+
+    #[test]
+    fn source_kinds_should_round_trip() {
+        for k in PluginSourceKind::ALL {
+            assert_eq!(PluginSourceKind::parse(k.as_str()).expect("round trip"), k);
+        }
+    }
+
+    #[test]
+    fn provenance_entries_should_reject_bogus_actions_and_digests() {
+        let base = PluginProvenanceEntry {
+            id: Uuid::now_v7(),
+            org_id: Uuid::now_v7(),
+            install_id: Uuid::now_v7(),
+            source_kind: PluginSourceKind::MarketplaceRegistry,
+            source_url: "https://registry.example/catalog.json".into(),
+            fetched_ref: Some("v1.2.3".into()),
+            artifact_digest: "0".repeat(64).replace('0', "a"),
+            uploader: Some(Uuid::now_v7()),
+            action: "installed".into(),
+            detail: None,
+            recorded_at: chrono::Utc::now(),
+        };
+        assert!(base.validate().is_ok());
+        let bogus_action = PluginProvenanceEntry {
+            action: "deleted".into(),
+            ..base.clone()
+        };
+        assert!(bogus_action.validate().is_err());
+        let bogus_digest = PluginProvenanceEntry {
+            artifact_digest: "abc".into(),
+            ..base.clone()
+        };
+        assert!(bogus_digest.validate().is_err());
+    }
 
     fn manifest(capabilities: &[&str]) -> PluginManifestV2 {
         PluginManifestV2 {
@@ -338,6 +912,7 @@ mod tests {
             interface_version: PLUGIN_RUNTIME_INTERFACE_VERSION,
             description: "Summarizes tickets".into(),
             capabilities: capabilities.iter().map(|s| s.to_string()).collect(),
+            settings_schema: None,
         }
     }
 

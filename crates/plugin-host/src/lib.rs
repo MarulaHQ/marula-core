@@ -30,6 +30,8 @@
 //!   revoked) — emitted by the route layer through the existing
 //!   append-only `audit_events` table.
 
+pub mod distribution;
+
 use core_domain::entities::{
     PluginCapability, PluginInstall, PluginInstallStatus, PLUGIN_RUNTIME_INTERFACE_VERSION,
 };

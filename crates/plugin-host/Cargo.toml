@@ -8,3 +8,7 @@ license.workspace = true
 core-domain = { path = "../core-domain" }
 uuid = { workspace = true }
 chrono = { workspace = true }
+sha2 = { workspace = true }
+zip = { workspace = true }
+hex = { workspace = true }
+serde_json = { workspace = true }

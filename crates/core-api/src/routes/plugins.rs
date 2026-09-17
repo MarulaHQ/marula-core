@@ -80,6 +80,9 @@ pub struct PluginManifestBody {
     #[serde(default)]
     pub description: String,
     pub capabilities: Vec<String>,
+    /// ADR 0009 §4 — optional JSON-Schema for manifest-rendered settings.
+    #[serde(default)]
+    pub settings_schema: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -230,6 +233,7 @@ fn build_manifest(
         interface_version: PLUGIN_RUNTIME_INTERFACE_VERSION,
         description: body.description.clone(),
         capabilities: body.capabilities.clone(),
+        settings_schema: body.settings_schema.clone(),
     };
     manifest.validate().map_err(ApiError::from)?;
     Ok(manifest)
@@ -295,14 +299,7 @@ pub async fn publish_catalog_entry(
             "slug must be lowercase letters, digits, '-' or '_'".into(),
         ));
     }
-    let manifest = PluginManifestV2 {
-        name: req.name.trim().to_string(),
-        version: req.version.trim().to_string(),
-        interface_version: PLUGIN_RUNTIME_INTERFACE_VERSION,
-        description: req.manifest.description.clone(),
-        capabilities: req.manifest.capabilities.clone(),
-    };
-    manifest.validate().map_err(ApiError::from)?;
+    let manifest = build_manifest(&req.name, &req.version, &req.manifest)?;
     parse_capability_keys(&manifest.capabilities)?;
     let now = chrono::Utc::now();
     let entry = PluginCatalogEntry {

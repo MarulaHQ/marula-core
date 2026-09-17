@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO plugin_install_provenance\n             (id, org_id, install_id, source_kind, source_url, fetched_ref,\n              artifact_digest, uploader, action, detail, recorded_at)\n           VALUES ($1, $2, $3, $4::text::plugin_source_kind, $5, $6, $7, $8,\n                   $9, $10::jsonb, $11)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Uuid",
+        "Text",
+        "Jsonb",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8b58b1fe83649921fb4b3bcb3cff6930263cc55332e8c857541f78c6c5f33fb5"
+}
