@@ -87,7 +87,7 @@ export default function DispatchPlanningPage() {
   if (auth.status !== "authed") return null;
 
   return (
-    <div className="grid gap-6">
+    <div className="grid gap-6 p-4 md:p-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-semibold">Resource planning</h1>
@@ -140,6 +140,7 @@ export default function DispatchPlanningPage() {
                       {t.days.map((d) => {
                         const over = d.utilization_percent > 100;
                         const tight = d.utilization_percent > 85 && !over;
+                        const tone = over ? "danger" : tight ? "warning" : "neutral";
                         return (
                           <Td
                             key={d.date}
@@ -147,12 +148,11 @@ export default function DispatchPlanningPage() {
                             title={`${d.free_minutes} free of ${d.available_minutes} min`}
                           >
                             <span
+                              data-testid={`capacity-cell-${t.user_id}-${d.date}`}
+                              className="inline-block rounded-full px-2 py-0.5 text-[11px] font-medium"
                               style={{
-                                color: over
-                                  ? "var(--m-status-danger-fg)"
-                                  : tight
-                                    ? "var(--m-status-warning-fg)"
-                                    : "var(--m-text-secondary)",
+                                color: `var(--m-status-${tone}-fg)`,
+                                background: `var(--m-status-${tone}-bg)`,
                               }}
                             >
                               {d.utilization_percent}%

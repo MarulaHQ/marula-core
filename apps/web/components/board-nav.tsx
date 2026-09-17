@@ -69,7 +69,7 @@ export function BoardNav() {
 
   if (entries === null) {
     return (
-      <nav aria-label="Boards" className="w-56 shrink-0 overflow-auto p-3 text-xs">
+      <nav aria-label="Boards" className="hidden w-56 shrink-0 overflow-auto p-3 text-xs md:block">
         {error !== null && (
           <p role="alert" style={{ color: "var(--m-status-danger-fg)" }}>
             {error}
@@ -136,7 +136,7 @@ export function BoardNav() {
   return (
     <nav
       aria-label="Boards"
-      className="w-56 shrink-0 overflow-auto p-3"
+      className="hidden w-56 shrink-0 overflow-auto p-3 md:block"
       style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
     >
       {starred.length > 0 && (

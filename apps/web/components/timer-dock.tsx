@@ -306,7 +306,7 @@ export function TimerDock() {
           data-testid="workbar-wrap-up"
           onClick={() => void wrapUp()}
           disabled={stopping}
-          className="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-3 text-[12.5px] font-semibold"
+          className="m-workbar-wrapup flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-3 text-[12.5px] font-semibold"
           style={{ background: "var(--m-accent)", color: "var(--m-on-accent)" }}
         >
           <svg aria-hidden="true" width="11" height="11" viewBox="0 0 12 12" fill="none">

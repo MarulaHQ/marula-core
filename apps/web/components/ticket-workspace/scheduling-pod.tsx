@@ -8,8 +8,11 @@
 // a copy-once dialog. Lifecycle (created → viewed → scheduled / expired /
 // revoked) renders from the link rows; expiry is DERIVED from expires_at
 // per the lane-4 contract. Completed bookings land back on this ticket
-// (ticket_id is passed at create).
-// Non-purpose: no template/group admin here (settings owns those).
+// (ticket_id is passed at create) and each scheduled link expands to the
+// booking trail (who booked, when). Scheduled links also carry the
+// appointment time; the bookings endpoint mirrors it for audit.
+// Non-purpose: no template/group admin here (/dispatch/scheduling owns
+// meeting types and scheduling groups).
 
 "use client";
 
@@ -21,6 +24,7 @@ import { api } from "../../lib/api";
 
 type MeetingType = components["schemas"]["MeetingType"];
 type SchedulingLink = components["schemas"]["SchedulingLink"];
+type SchedulingLinkBooking = components["schemas"]["SchedulingLinkBooking"];
 
 export interface SchedulingPodProps {
   ticketId: string;
@@ -53,6 +57,20 @@ export function SchedulingPod({ ticketId, ticketTitle }: SchedulingPodProps): Re
   const [busy, setBusy] = useState(false);
   const [freshToken, setFreshToken] = useState<{ url: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [expandedBookings, setExpandedBookings] = useState<Record<string, SchedulingLinkBooking[] | "loading" | "error">>({});
+  const [confirmingRevoke, setConfirmingRevoke] = useState<string | null>(null);
+
+  async function loadBookings(linkId: string): Promise<void> {
+    setExpandedBookings((prev) => ({ ...prev, [linkId]: "loading" }));
+    const { data, error: err } = await api.api.GET("/api/v1/scheduling-links/{id}/bookings", {
+      params: { path: { id: linkId } },
+    });
+    if (err !== undefined) {
+      setExpandedBookings((prev) => ({ ...prev, [linkId]: "error" }));
+      return;
+    }
+    setExpandedBookings((prev) => ({ ...prev, [linkId]: data ?? [] }));
+  }
 
   async function reloadLinks(): Promise<void> {
     const { data, error: err } = await api.api.GET("/api/v1/scheduling-links", {
@@ -127,14 +145,25 @@ export function SchedulingPod({ ticketId, ticketTitle }: SchedulingPodProps): Re
 
   return (
     <section
-      className="grid content-start gap-2 rounded-[2px] border p-3"
+      className="grid content-start gap-2 rounded-[var(--m-radius-container)] border p-3"
       style={{ borderColor: "var(--m-border)" }}
       data-testid="pod-scheduling"
       aria-label="Scheduling"
     >
-      <h2 className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
-        Scheduling
-      </h2>
+      <div className="flex items-center gap-2">
+        <h2 className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
+          Scheduling
+        </h2>
+        <span className="ml-auto" />
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => window.open("/dispatch/scheduling", "_blank")}
+          data-testid="scheduling-manage-templates"
+        >
+          Manage templates
+        </Button>
+      </div>
       {error !== null && (
         <p className="text-xs" style={{ color: "var(--m-status-danger-fg)" }} role="alert">{error}</p>
       )}
@@ -147,7 +176,7 @@ export function SchedulingPod({ ticketId, ticketTitle }: SchedulingPodProps): Re
             <div className="flex gap-2">
               <select
                 id="scheduling-type"
-                className="min-w-0 flex-1 rounded-[2px] border px-2 py-1 text-xs"
+                className="min-w-0 flex-1 rounded-[var(--m-radius-control)] border px-2 py-1 text-xs"
                 style={{ borderColor: "var(--m-border)", background: "var(--m-surface)", color: "var(--m-text)" }}
                 value={typeId ?? ""}
                 onChange={(e) => setTypeId(e.target.value || null)}
@@ -180,10 +209,11 @@ export function SchedulingPod({ ticketId, ticketTitle }: SchedulingPodProps): Re
           <ul className="grid gap-1" data-testid="scheduling-links">
             {links.map((link) => {
               const state = derivedState(link);
+              const bookings = expandedBookings[link.id];
               return (
                 <li
                   key={link.id}
-                  className="grid gap-0.5 rounded-[2px] border p-2 text-xs"
+                  className="grid gap-1 rounded-[var(--m-radius-control)] border p-2 text-xs"
                   style={{ borderColor: "var(--m-border)" }}
                   data-testid={`scheduling-link-${link.id}`}
                 >
@@ -200,12 +230,76 @@ export function SchedulingPod({ ticketId, ticketTitle }: SchedulingPodProps): Re
                     <span className="ml-auto" style={{ color: "var(--m-text-muted)" }}>
                       created {new Date(link.created_at).toLocaleDateString()}
                     </span>
-                    {state === "active" || state === "viewed" ? (
-                      <Button size="sm" variant="ghost" disabled={busy} onClick={() => void revoke(link.id)}>
+                    {state === "scheduled" && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label={`Show bookings for link ${link.id.slice(0, 8)}`}
+                        data-testid={`scheduling-bookings-toggle-${link.id.slice(0, 8)}`}
+                        onClick={() => void loadBookings(link.id)}
+                      >
+                        Bookings
+                      </Button>
+                    )}
+                    {(state === "active" || state === "viewed") && confirmingRevoke !== link.id && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        data-testid={`scheduling-revoke-${link.id.slice(0, 8)}`}
+                        onClick={() => setConfirmingRevoke(link.id)}
+                      >
                         Revoke
                       </Button>
-                    ) : null}
+                    )}
+                    {confirmingRevoke === link.id && (
+                      <span className="flex items-center gap-1">
+                        <Button
+                          size="sm"
+                          disabled={busy}
+                          data-testid={`scheduling-revoke-confirm-${link.id.slice(0, 8)}`}
+                          onClick={() => {
+                            setConfirmingRevoke(null);
+                            void revoke(link.id);
+                          }}
+                        >
+                          Confirm revoke
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setConfirmingRevoke(null)}>
+                          Keep
+                        </Button>
+                      </span>
+                    )}
                   </div>
+                  {bookings === "loading" && <span style={{ color: "var(--m-text-muted)" }}>Loading bookings…</span>}
+                  {bookings === "error" && (
+                    <span style={{ color: "var(--m-status-danger-fg)" }} role="alert">
+                      Bookings could not be loaded.
+                    </span>
+                  )}
+                  {Array.isArray(bookings) && (
+                    <ul className="grid gap-1 border-t pt-1" style={{ borderColor: "var(--m-border)" }} aria-label="Booking trail">
+                      {bookings.map((b) => (
+                        <li key={b.appointment_id} className="flex flex-wrap items-center gap-2" data-testid={`scheduling-booking-${b.appointment_id.slice(0, 8)}`}>
+                          <span style={{ color: "var(--m-status-success-fg)" }}>●</span>
+                          <span className="font-medium">{b.booker_name ?? "Client"}</span>
+                          {b.booker_email !== null && (
+                            <span style={{ color: "var(--m-text-secondary)" }}>{b.booker_email}</span>
+                          )}
+                          <span style={{ color: "var(--m-text-muted)" }}>
+                            {new Date(b.created_at).toLocaleString()}
+                          </span>
+                          {b.booker_notes !== null && b.booker_notes !== "" && (
+                            <span className="w-full" style={{ color: "var(--m-text-secondary)" }}>
+                              “{b.booker_notes}”
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                      {bookings.length === 0 && (
+                        <li style={{ color: "var(--m-text-muted)" }}>No booking rows yet.</li>
+                      )}
+                    </ul>
+                  )}
                 </li>
               );
             })}
@@ -228,7 +322,7 @@ export function SchedulingPod({ ticketId, ticketTitle }: SchedulingPodProps): Re
           data-testid="scheduling-copy-once"
         >
           <div
-            className="grid w-full max-w-md gap-3 rounded-[2px] border p-4"
+            className="grid w-full max-w-md gap-3 rounded-[var(--m-radius-container)] border p-4"
             style={{ background: "var(--m-overlay-surface)", borderColor: "var(--m-border)" }}
           >
             <h3 className="text-sm font-semibold">Share this booking link</h3>
