@@ -1,16 +1,26 @@
-// /projects/[id] — the project record (Workspace-core UI, T3).
-//
-// Purpose: one engagement's delivery surface: identity header, phases
-// (create / complete, milestone amounts), tasks grouped with phase and
-// milestone flags, finish-to-start dependency display + editing (PUT full
-// set), and the gated completion endpoints whose envelope reconciles the
-// optimistic status. Completing a milestone emits the billing seam event.
-// Non-purpose: no Gantt/Budget views (List-first; view switchers land with
-// those views); no ticket conversion (ticket-compatible fields are shown,
-// the link-up is a later lane).
+// /projects/[id] — one engagement's delivery surface (Wave 17 lane 4 UX
+// pass). Identity header, glanceable roll-up strip (phases / tasks /
+// milestones + schedule-risk counts), a sequence rail over the phases
+// (gantt-lite: phases are ordered stages, not dated bars — the schema has
+// sort_order + status, no dates), phase/task groups with per-phase
+// progress, a needs-attention triage filter (overdue / due-soon /
+// blocked), and the finish-to-start dependency editor (PUT full set).
+// Mutations keep the IF1–IF3 envelope with optimistic status reconcile.
+// Non-purpose: no dated Gantt (phases carry no dates), no budget burn
+// view, no ticket conversion.
 "use client";
 
 import { rejectionText } from "../../../lib/error-copy";
+import {
+  blockedTasks,
+  dueSoonTasks,
+  overdueTasks,
+  phaseProgress,
+  projectRisk,
+  projectStatusTone,
+  taskOpenness,
+  taskProgress,
+} from "../../../lib/projects-metrics";
 import {
   Button,
   Card,
@@ -18,7 +28,6 @@ import {
   Dialog,
   DialogActions,
   DialogContent,
-  DialogTrigger,
   EmptyState,
   FieldHint,
   Input,
@@ -29,18 +38,14 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
-  Table,
   Tag,
-  Td,
-  Th,
-  Tr,
 } from "@meridian/ui";
 import type { components } from "@meridian/sdk";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
-import { money } from "../../../lib/format";
+import { dueLabel, money } from "../../../lib/format";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 
 type Project = components["schemas"]["Project"];
@@ -51,6 +56,15 @@ type ProjectMutationResponse = components["schemas"]["ProjectMutationResponse"];
 type PhaseMutationResponse = components["schemas"]["PhaseMutationResponse"];
 type TaskMutationResponse = components["schemas"]["TaskMutationResponse"];
 type DependencyListResponse = components["schemas"]["DependencyListResponse"];
+
+const STATUS_LABEL: Record<string, string> = {
+  planning: "Planning",
+  active: "Active",
+  on_hold: "On hold",
+  completed: "Completed",
+  cancelled: "Cancelled",
+  pending: "Pending",
+};
 
 export default function ProjectDetailPage() {
   const auth = useRequireAuth();
@@ -66,6 +80,7 @@ export default function ProjectDetailPage() {
 
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [attentionOnly, setAttentionOnly] = useState(false);
 
   const [phaseOpen, setPhaseOpen] = useState(false);
   const [phaseName, setPhaseName] = useState("");
@@ -122,6 +137,43 @@ export default function ProjectDetailPage() {
     if (auth.status === "authed") void refresh();
   }, [auth.status, refresh]);
 
+  const sortedPhases = useMemo(
+    () => [...phases].sort((a, b) => a.sort_order - b.sort_order),
+    [phases],
+  );
+  const phaseById = useMemo(() => new Map(phases.map((p) => [p.id, p])), [phases]);
+  const taskById = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
+
+  const blocked = useMemo(() => blockedTasks(tasks, deps), [tasks, deps]);
+  const overdue = useMemo(() => overdueTasks(tasks), [tasks]);
+  const dueSoon = useMemo(() => dueSoonTasks(tasks, 3), [tasks]);
+  const blockedIds = useMemo(() => new Set(blocked.map((t) => t.id)), [blocked]);
+  const overdueIds = useMemo(() => new Set(overdue.map((t) => t.id)), [overdue]);
+  const dueSoonIds = useMemo(() => new Set(dueSoon.map((t) => t.id)), [dueSoon]);
+
+  const inAttention = useCallback(
+    (task: ProjectTask) =>
+      blockedIds.has(task.id) || overdueIds.has(task.id) || dueSoonIds.has(task.id),
+    [blockedIds, overdueIds, dueSoonIds],
+  );
+
+  const groupedTasks = useMemo(() => {
+    const groups: { key: string; label: string; phase: ProjectPhase | null; tasks: ProjectTask[] }[] =
+      sortedPhases.map((phase) => ({
+        key: phase.id,
+        label: phase.name,
+        phase,
+        tasks: tasks
+          .filter((t) => t.phase_id === phase.id)
+          .sort((a, b) => a.sort_order - b.sort_order),
+      }));
+    const unphased = tasks
+      .filter((t) => t.phase_id === null || t.phase_id === undefined || !phaseById.has(t.phase_id))
+      .sort((a, b) => a.sort_order - b.sort_order);
+    if (unphased.length > 0) groups.push({ key: "none", label: "No phase", phase: null, tasks: unphased });
+    return groups;
+  }, [sortedPhases, tasks, phaseById]);
+
   const phaseNameOf = useCallback(
     (phaseId: string | null | undefined) =>
       phaseId === null || phaseId === undefined
@@ -129,20 +181,6 @@ export default function ProjectDetailPage() {
         : (phases.find((p) => p.id === phaseId)?.name ?? "—"),
     [phases],
   );
-
-  const blockersLabel = useCallback(
-    (task: ProjectTask) => {
-      const blockers = deps[task.id] ?? [];
-      if (blockers.length === 0) return null;
-      const open = blockers.filter((b) => b.status !== "completed" && b.status !== "cancelled");
-      return open.length === 0
-        ? `after ${blockers.length} done`
-        : `blocked by ${open.map((b) => b.title).join(", ")}`;
-    },
-    [deps],
-  );
-
-  const taskById = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
 
   const completeTask = async (task: ProjectTask) => {
     setActionError(null);
@@ -387,15 +425,28 @@ export default function ProjectDetailPage() {
     );
   }
 
+  const pProgress = phaseProgress(phases);
+  const tProgress = taskProgress(tasks);
+  const risk = projectRisk(project);
+
   return (
-    <div className="grid gap-6 p-6">
-      <div>
-        <Link href="/projects" className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2" style={{ color: "var(--m-text-secondary)" }}>
+    <div className="mx-auto grid w-full max-w-[1200px] gap-5 p-4 md:p-6">
+      <div className="m-rise">
+        <Link
+          href="/projects"
+          className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2"
+          style={{ color: "var(--m-text-secondary)" }}
+        >
           ← Projects
         </Link>
-        <div className="mt-2 flex items-center gap-3">
+        <div className="mt-2 flex flex-wrap items-center gap-2.5">
           <h1 className="text-lg font-semibold">{project.name}</h1>
-          <Tag>{project.status.replaceAll("_", " ")}</Tag>
+          <Tag tone={projectStatusTone(project.status)}>
+            {STATUS_LABEL[project.status] ?? project.status.replaceAll("_", " ")}
+          </Tag>
+          {risk !== null ? (
+            <Tag tone={risk.tone === "danger" ? "danger" : "warning"}>{risk.label}</Tag>
+          ) : null}
         </div>
         <p className="mt-1 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
           {client !== null ? (
@@ -416,11 +467,43 @@ export default function ProjectDetailPage() {
           {project.due_date !== null ? ` · due ${project.due_date}` : ""}
         </p>
         {project.description !== null && project.description !== undefined ? (
-          <p className="mt-1 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+          <p className="mt-1 max-w-[80ch] text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
             {project.description}
           </p>
         ) : null}
       </div>
+
+      <div className="m-rise flex flex-wrap items-center gap-x-5 gap-y-2" style={{ animationDelay: "40ms" }}>
+        <RollUp label="phases" done={pProgress.done} total={pProgress.total} pct={pProgress.pct} />
+        <RollUp label="tasks" done={tProgress.done} total={tProgress.total} pct={tProgress.pct} />
+        {pProgress.milestonesTotal > 0 ? (
+          <RollUp
+            label="milestones"
+            done={pProgress.milestonesDone}
+            total={pProgress.milestonesTotal}
+            pct={pProgress.milestonesTotal === 0 ? 0 : Math.round((pProgress.milestonesDone / pProgress.milestonesTotal) * 100)}
+          />
+        ) : null}
+        {overdue.length > 0 ? (
+          <Tag tone="danger" data-testid="risk-overdue">
+            {overdue.length} overdue task{overdue.length === 1 ? "" : "s"}
+          </Tag>
+        ) : null}
+        {blocked.length > 0 ? (
+          <Tag tone="warning" data-testid="risk-blocked">
+            {blocked.length} blocked
+          </Tag>
+        ) : null}
+        {dueSoon.length > 0 ? (
+          <Tag tone="warning" data-testid="risk-due-soon">
+            {dueSoon.length} due in 3d
+          </Tag>
+        ) : null}
+      </div>
+
+      {sortedPhases.length > 0 ? (
+        <PhaseRail phases={sortedPhases} />
+      ) : null}
 
       {actionError !== null ? (
         <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
@@ -428,266 +511,443 @@ export default function ProjectDetailPage() {
         </p>
       ) : null}
 
-      <Card>
-        <div className="flex items-center justify-between p-4 pb-0">
-          <h2 className="text-sm font-semibold">Phases</h2>
+      <Card className="m-rise p-0" style={{ animationDelay: "80ms" }}>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b p-4" style={{ borderColor: "var(--m-border)" }}>
+          <div className="flex items-center gap-3">
+            <h2 className="text-sm font-semibold">Delivery</h2>
+            <span className="text-[12px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
+              {pProgress.done}/{pProgress.total} phases · {tProgress.done}/{tProgress.total} tasks
+            </span>
+          </div>
           <div className="flex items-center gap-2">
-            <Link href="/billing" className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2" style={{ color: "var(--m-text-secondary)" }}>
+            <Link
+              href="/billing"
+              className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2"
+              style={{ color: "var(--m-text-secondary)" }}
+            >
               Billing →
             </Link>
-            <Dialog open={phaseOpen} onOpenChange={setPhaseOpen}>
-              <DialogTrigger asChild>
-                <Button size="sm">Add phase</Button>
-              </DialogTrigger>
-              <DialogContent title="Add phase">
-                <div className="grid gap-3 p-4">
-                  <div>
-                    <Label htmlFor="phase-name">Name</Label>
-                    <Input id="phase-name" value={phaseName} onChange={(e) => setPhaseName(e.target.value)} placeholder="Discovery" />
-                  </div>
-                  <label className="flex items-center gap-2 text-[13px]">
-                    <Checkbox checked={phaseMilestone} onCheckedChange={(v) => setPhaseMilestone(v === true)} />
-                    Billing milestone
-                  </label>
-                  {phaseMilestone ? (
-                    <div>
-                      <Label htmlFor="phase-amount">Milestone amount (USD)</Label>
-                      <Input id="phase-amount" type="number" min={0} step="0.01" value={phaseAmount} onChange={(e) => setPhaseAmount(e.target.value)} />
-                      <FieldHint>Released to billing when the phase completes.</FieldHint>
-                    </div>
-                  ) : null}
-                  <DialogActions>
-                    <Button variant="ghost" onClick={() => setPhaseOpen(false)}>
-                      Cancel
-                    </Button>
-                    <Button onClick={() => void createPhase()} disabled={busy || phaseName.trim() === ""}>
-                      {busy ? <Spinner /> : null} Add phase
-                    </Button>
-                  </DialogActions>
-                </div>
-              </DialogContent>
-            </Dialog>
+            <Button size="sm" variant="secondary" onClick={() => setPhaseOpen(true)} data-testid="add-phase">
+              Add phase
+            </Button>
+            <AddPhaseDialog
+              open={phaseOpen}
+              onOpenChange={setPhaseOpen}
+              name={phaseName}
+              setName={setPhaseName}
+              milestone={phaseMilestone}
+              setMilestone={setPhaseMilestone}
+              amount={phaseAmount}
+              setAmount={setPhaseAmount}
+              busy={busy}
+              onCreate={() => void createPhase()}
+            />
           </div>
         </div>
+
         {phases.length === 0 ? (
           <div className="p-4">
             <EmptyState message="No phases yet. Phases group tasks into delivery stages; a milestone phase releases its amount to billing on completion." />
           </div>
         ) : (
-          <Table>
-            <thead>
-              <tr>
-                <Th>Name</Th>
-                <Th>Status</Th>
-                <Th>Milestone</Th>
-                <Th className="text-right">Actions</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...phases]
-                .sort((a, b) => a.sort_order - b.sort_order)
-                .map((phase) => (
-                  <Tr key={phase.id}>
-                    <Td>{phase.name}</Td>
-                    <Td>
-                      <Tag>{phase.status}</Tag>
-                    </Td>
-                    <Td>
-                      {phase.is_milestone ? (
-                        phase.milestone_amount_minor !== null && phase.milestone_amount_minor !== undefined ? (
-                          <span className="tabular-nums">
-                            {money(phase.milestone_amount_minor, phase.milestone_currency ?? "USD")}
-                          </span>
-                        ) : (
-                          <Tag>milestone</Tag>
-                        )
-                      ) : (
-                        <span style={{ color: "var(--m-text-muted)" }}>—</span>
-                      )}
-                    </Td>
-                    <Td className="text-right">
-                      {phase.status === "pending" || phase.status === "active" ? (
-                        <Button variant="ghost" size="sm" onClick={() => void completePhase(phase)}>
-                          Complete
-                        </Button>
-                      ) : null}
-                    </Td>
-                  </Tr>
-                ))}
-            </tbody>
-          </Table>
-        )}
-      </Card>
-
-      <Card>
-        <div className="flex items-center justify-between p-4 pb-0">
-          <h2 className="text-sm font-semibold">Tasks</h2>
-          <Dialog open={taskOpen} onOpenChange={setTaskOpen}>
-            <DialogTrigger asChild>
-              <Button size="sm">Add task</Button>
-            </DialogTrigger>
-            <DialogContent title="Add task">
-              <div className="grid gap-3 p-4">
-                <div>
-                  <Label htmlFor="task-title">Title</Label>
-                  <Input id="task-title" value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} />
-                </div>
-                <div>
-                  <Label htmlFor="task-phase">Phase</Label>
-                  <Select value={taskPhase} onValueChange={setTaskPhase}>
-                    <SelectTrigger id="task-phase" className="w-56">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">No phase</SelectItem>
-                      {phases.map((p) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <label className="flex items-center gap-2 text-[13px]">
-                  <Checkbox checked={taskMilestone} onCheckedChange={(v) => setTaskMilestone(v === true)} />
-                  Billing milestone
-                </label>
-                {taskMilestone ? (
-                  <div>
-                    <Label htmlFor="task-amount">Milestone amount (USD)</Label>
-                    <Input id="task-amount" type="number" min={0} step="0.01" value={taskAmount} onChange={(e) => setTaskAmount(e.target.value)} />
-                  </div>
-                ) : null}
-                <div>
-                  <Label>Depends on (finish-to-start)</Label>
-                  <div className="grid max-h-40 gap-1 overflow-auto rounded-[2px] border p-2" style={{ borderColor: "var(--m-border)" }}>
-                    {tasks.length === 0 ? (
-                      <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
-                        No existing tasks to depend on.
-                      </span>
-                    ) : (
-                      tasks.map((t) => (
-                        <label key={t.id} className="flex items-center gap-2 text-[13px]">
-                          <Checkbox
-                            checked={taskDependsOn.has(t.id)}
-                            onCheckedChange={(v) =>
-                              setTaskDependsOn((prev) => {
-                                const next = new Set(prev);
-                                if (v === true) next.add(t.id);
-                                else next.delete(t.id);
-                                return next;
-                              })
-                            }
-                          />
-                          {t.title}
-                        </label>
-                      ))
-                    )}
-                  </div>
-                  <FieldHint>The new task cannot complete until these do.</FieldHint>
-                </div>
-                <DialogActions>
-                  <Button variant="ghost" onClick={() => setTaskOpen(false)}>
-                    Cancel
-                  </Button>
-                  <Button onClick={() => void createTask()} disabled={busy || taskTitle.trim() === ""}>
-                    {busy ? <Spinner /> : null} Add task
-                  </Button>
-                </DialogActions>
+          <div className="grid grid-cols-1">
+            <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2.5" style={{ borderColor: "var(--m-border)" }}>
+              <div className="flex items-center gap-2 text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+                <button
+                  type="button"
+                  onClick={() => setAttentionOnly(false)}
+                  className="rounded-full px-2.5 py-1 font-semibold transition-colors"
+                  style={
+                    !attentionOnly
+                      ? { background: "var(--m-accent-soft)", color: "var(--m-accent)" }
+                      : { color: "var(--m-text-muted)" }
+                  }
+                >
+                  All tasks
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAttentionOnly(true)}
+                  className="rounded-full px-2.5 py-1 font-semibold transition-colors"
+                  style={
+                    attentionOnly
+                      ? { background: "var(--m-accent-soft)", color: "var(--m-accent)" }
+                      : { color: "var(--m-text-muted)" }
+                  }
+                  data-testid="attention-filter"
+                >
+                  Needs attention
+                  {overdue.length + blocked.length + dueSoon.length > 0
+                    ? ` (${overdue.length + blocked.length + dueSoon.length})`
+                    : ""}
+                </button>
               </div>
-            </DialogContent>
-          </Dialog>
-        </div>
-        {tasks.length === 0 ? (
-          <div className="p-4">
-            <EmptyState message="No tasks yet. Project tasks carry phase, assignee, and finish-to-start dependencies; milestone tasks release their amount to billing on completion." />
+              <span className="ml-auto text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+                finish-to-start dependencies gate completion
+              </span>
+            </div>
+            {groupedTasks.map((group, groupIndex) => {
+              const visible = attentionOnly ? group.tasks.filter(inAttention) : group.tasks;
+              const gProgress = taskProgress(group.tasks);
+              const phaseMilestoneTotal = group.tasks
+                .filter((t) => t.is_milestone && t.milestone_amount_minor !== null && t.milestone_amount_minor !== undefined)
+                .reduce((sum, t) => sum + (t.milestone_amount_minor ?? 0), 0);
+              if (visible.length === 0) return null;
+              return (
+                <section
+                  key={group.key}
+                  className="m-rise"
+                  style={{ animationDelay: `${Math.min(groupIndex * 40, 160)}ms` }}
+                  data-testid={`task-group-${group.key}`}
+                >
+                  <div
+                    className="flex flex-wrap items-center gap-2 px-4 py-2"
+                    style={{ background: "var(--m-bg-subtle)" }}
+                  >
+                    <span className="text-[12px] font-semibold">{group.label}</span>
+                    {group.phase !== null ? (
+                      <Tag tone={group.phase.status === "completed" ? "success" : "neutral"}>
+                        {STATUS_LABEL[group.phase.status] ?? group.phase.status}
+                      </Tag>
+                    ) : null}
+                    {group.phase?.is_milestone && group.phase.milestone_amount_minor !== null && group.phase.milestone_amount_minor !== undefined ? (
+                      <span className="text-[11px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
+                        milestone {money(group.phase.milestone_amount_minor, group.phase.milestone_currency ?? "USD")}
+                      </span>
+                    ) : null}
+                    {phaseMilestoneTotal > 0 ? (
+                      <span className="text-[11px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
+                        +{money(phaseMilestoneTotal, "USD")} task milestones
+                      </span>
+                    ) : null}
+                    <span className="ml-auto text-[11px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
+                      {gProgress.done}/{gProgress.total} done
+                    </span>
+                    {group.phase !== null && (group.phase.status === "pending" || group.phase.status === "active") ? (
+                      <Button variant="ghost" size="sm" onClick={() => void completePhase(group.phase!)}>
+                        Complete phase
+                      </Button>
+                    ) : null}
+                  </div>
+                  {visible.map((task) => (
+                    <TaskRow
+                      key={task.id}
+                      task={task}
+                      deps={deps[task.id] ?? []}
+                      overdue={overdueIds.has(task.id)}
+                      dueSoon={dueSoonIds.has(task.id)}
+                      blocked={blockedIds.has(task.id)}
+                      phaseLabel={phaseNameOf(task.phase_id)}
+                      onDependencies={() => {
+                        setDepTaskId(task);
+                        setDepSelection(new Set((deps[task.id] ?? []).map((b) => b.id)));
+                      }}
+                      onComplete={() => void completeTask(task)}
+                    />
+                  ))}
+                </section>
+              );
+            })}
+            {attentionOnly &&
+              overdue.length + blocked.length + dueSoon.length === 0 ? (
+              <div className="p-4">
+                <EmptyState message="Nothing needs attention — no overdue, blocked, or due-soon tasks." />
+              </div>
+            ) : null}
+            <div className="flex items-center justify-between border-t px-4 py-2.5" style={{ borderColor: "var(--m-border)" }}>
+              <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+                {tasks.length} task{tasks.length === 1 ? "" : "s"} total
+              </span>
+              <Button size="sm" variant="secondary" onClick={() => setTaskOpen(true)} data-testid="add-task">
+                Add task
+              </Button>
+              <AddTaskDialog
+                open={taskOpen}
+                onOpenChange={setTaskOpen}
+                title={taskTitle}
+                setTitle={setTaskTitle}
+                phase={taskPhase}
+                setPhase={setTaskPhase}
+                phases={sortedPhases}
+                milestone={taskMilestone}
+                setMilestone={setTaskMilestone}
+                amount={taskAmount}
+                setAmount={setTaskAmount}
+                dependsOn={taskDependsOn}
+                setDependsOn={setTaskDependsOn}
+                tasks={tasks}
+                busy={busy}
+                onCreate={() => void createTask()}
+              />
+            </div>
           </div>
-        ) : (
-          <Table>
-            <thead>
-              <tr>
-                <Th>Title</Th>
-                <Th>Phase</Th>
-                <Th>Status</Th>
-                <Th>Milestone</Th>
-                <Th>Blocked by</Th>
-                <Th className="text-right">Actions</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {tasks.map((task) => {
-                const blockers = deps[task.id] ?? [];
-                const openBlockers = blockers.filter(
-                  (b) => b.status !== "completed" && b.status !== "cancelled",
-                );
-                return (
-                  <Tr key={task.id}>
-                    <Td>
-                      {task.title}
-                      {task.is_milestone ? (
-                        <span className="ml-2">
-                          {task.milestone_amount_minor !== null && task.milestone_amount_minor !== undefined ? (
-                            <span className="tabular-nums">
-                              {money(task.milestone_amount_minor, task.milestone_currency ?? "USD")}
-                            </span>
-                          ) : (
-                            <Tag>milestone</Tag>
-                          )}
-                        </span>
-                      ) : null}
-                    </Td>
-                    <Td>{phaseNameOf(task.phase_id)}</Td>
-                    <Td>
-                      <Tag>{task.status.replaceAll("_", " ")}</Tag>
-                    </Td>
-                    <Td>{blockersLabel(task) ?? <span style={{ color: "var(--m-text-muted)" }}>—</span>}</Td>
-                    <Td className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            setDepTaskId(task);
-                            setDepSelection(new Set(blockers.map((b) => b.id)));
-                          }}
-                        >
-                          Dependencies ({openBlockers.length > 0 ? `${openBlockers.length} open` : "clear"})
-                        </Button>
-                        {task.status !== "completed" && task.status !== "cancelled" ? (
-                          <Button variant="ghost" size="sm" onClick={() => void completeTask(task)}>
-                            Complete
-                          </Button>
-                        ) : null}
-                      </div>
-                    </Td>
-                  </Tr>
-                );
-              })}
-            </tbody>
-          </Table>
         )}
       </Card>
 
-      <Dialog
-        open={depTaskId !== null}
-        onOpenChange={(open) => {
-          if (!open) setDepTaskId(null);
-        }}
-      >
-        <DialogContent
-          title={depTaskId !== null ? `Dependencies — ${depTaskId.title}` : "Dependencies"}
-          description="Pick the full set of tasks this one depends on (finish-to-start). Saving replaces the whole set."
-        >
-          <div className="grid gap-3 p-4">
-            <div className="grid max-h-60 gap-1 overflow-auto rounded-[2px] border p-2" style={{ borderColor: "var(--m-border)" }}>
-              {tasks
-                .filter((t) => depTaskId === null || t.id !== depTaskId.id)
-                .map((t) => (
+      <DependencyDialog
+        depTaskId={depTaskId}
+        onClose={() => setDepTaskId(null)}
+        selection={depSelection}
+        setSelection={setDepSelection}
+        tasks={tasks}
+        busy={busy}
+        onSave={() => void saveDependencies()}
+      />
+    </div>
+  );
+}
+
+function RollUp({ label, done, total, pct }: { label: string; done: number; total: number; pct: number }) {
+  return (
+    <div className="min-w-32" data-testid={`rollup-${label}`}>
+      <div className="flex items-baseline gap-1.5">
+        <span className="text-[13px] font-semibold tabular-nums">{done}</span>
+        <span className="text-[12px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
+          / {total} {label}
+        </span>
+      </div>
+      <div className="mt-1 h-1 w-28 overflow-hidden rounded-full" style={{ background: "var(--m-bg-subtle)" }}>
+        <div
+          className="h-full rounded-full"
+          style={{
+            width: `${pct}%`,
+            background: pct === 100 && total > 0 ? "var(--m-status-success-fg)" : "var(--m-accent)",
+            transition: "width 120ms cubic-bezier(0.2, 0, 0, 1)",
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function PhaseRail({ phases }: { phases: ProjectPhase[] }) {
+  return (
+    <div className="m-rise" data-testid="phase-rail" style={{ animationDelay: "60ms" }} role="list" aria-label="Phase sequence">
+      <div className="flex gap-1">
+        {phases.map((phase) => {
+          const fill =
+            phase.status === "completed"
+              ? "var(--m-status-success-fg)"
+              : phase.status === "active"
+                ? "var(--m-accent)"
+                : "var(--m-bg-subtle)";
+          return (
+            <div
+              key={phase.id}
+              role="listitem"
+              className="group relative min-w-0 flex-1"
+              title={`${phase.name} — ${STATUS_LABEL[phase.status] ?? phase.status}${phase.is_milestone ? " (milestone)" : ""}`}
+            >
+              <div
+                className="h-2 rounded-full"
+                style={{
+                  background: fill,
+                  border: phase.status === "pending" ? "1px solid var(--m-border)" : undefined,
+                }}
+              />
+              <div className="mt-1 flex items-center gap-1 truncate text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+                {phase.is_milestone ? <span aria-label="milestone">◆</span> : null}
+                <span className="truncate">{phase.name}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function TaskRow({
+  task,
+  deps,
+  overdue,
+  dueSoon,
+  blocked,
+  phaseLabel,
+  onDependencies,
+  onComplete,
+}: {
+  task: ProjectTask;
+  deps: ProjectTask[];
+  overdue: boolean;
+  dueSoon: boolean;
+  blocked: boolean;
+  phaseLabel: string;
+  onDependencies: () => void;
+  onComplete: () => void;
+}) {
+  const openBlockers = deps.filter((b) => taskOpenness(b) === "open");
+  const due = task.due_at !== null && task.due_at !== undefined ? dueLabel(task.due_at) : null;
+  const done = taskOpenness(task) !== "open";
+  return (
+    <div
+      className="m-rise row-hover grid grid-cols-1 items-center gap-x-4 gap-y-1.5 border-b px-4 py-2.5 last:border-b-0 lg:grid-cols-[minmax(0,2.4fr)_auto_minmax(0,1.4fr)_auto]"
+      style={{ borderColor: "var(--m-border)" }}
+      data-testid={`task-row-${task.id}`}
+    >
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <span
+            className="truncate text-[13px]"
+            style={{
+              color: done ? "var(--m-text-muted)" : "var(--m-text)",
+              textDecoration: done ? "line-through" : undefined,
+            }}
+          >
+            {task.title}
+          </span>
+          {task.is_milestone ? <span aria-label="milestone task" style={{ color: "var(--m-accent)" }}>◆</span> : null}
+        </div>
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+          <span>{phaseLabel}</span>
+          {task.milestone_amount_minor !== null && task.milestone_amount_minor !== undefined ? (
+            <span className="tabular-nums">{money(task.milestone_amount_minor, task.milestone_currency ?? "USD")}</span>
+          ) : null}
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Tag tone={done ? "success" : task.status === "cancelled" ? "danger" : "neutral"}>
+          {task.status.replaceAll("_", " ")}
+        </Tag>
+        {blocked ? <Tag tone="warning">blocked</Tag> : null}
+        {overdue ? <Tag tone="danger">{due?.text ?? "overdue"}</Tag> : dueSoon && due !== null ? <Tag tone="warning">{due.text}</Tag> : null}
+      </div>
+      <div className="min-w-0 text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+        {deps.length === 0 ? (
+          "no dependencies"
+        ) : openBlockers.length === 0 ? (
+          <span>after {deps.length} done</span>
+        ) : (
+          <span data-testid={`blocked-by-${task.id}`} style={{ color: "var(--m-status-warning-fg)" }}>
+            blocked by {openBlockers.map((b) => b.title).join(", ")}
+          </span>
+        )}
+      </div>
+      <div className="flex items-center justify-end gap-1">
+        <Button variant="ghost" size="sm" onClick={onDependencies}>
+          Dependencies{deps.length > 0 ? ` (${deps.length})` : ""}
+        </Button>
+        {!done ? (
+          <Button variant="ghost" size="sm" onClick={onComplete}>
+            Complete
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function AddPhaseDialog(props: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  name: string;
+  setName: (v: string) => void;
+  milestone: boolean;
+  setMilestone: (v: boolean) => void;
+  amount: string;
+  setAmount: (v: string) => void;
+  busy: boolean;
+  onCreate: () => void;
+}) {
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent title="Add phase" description="Ordered delivery stage; milestone phases release their amount to billing on completion.">
+        <div className="grid gap-3 p-4">
+          <div>
+            <Label htmlFor="phase-name">Name</Label>
+            <Input id="phase-name" value={props.name} onChange={(e) => props.setName(e.target.value)} placeholder="Discovery" />
+          </div>
+          <label className="flex items-center gap-2 text-[13px]">
+            <Checkbox checked={props.milestone} onCheckedChange={(v) => props.setMilestone(v === true)} />
+            Billing milestone
+          </label>
+          {props.milestone ? (
+            <div>
+              <Label htmlFor="phase-amount">Milestone amount (USD)</Label>
+              <Input id="phase-amount" type="number" min={0} step="0.01" value={props.amount} onChange={(e) => props.setAmount(e.target.value)} />
+              <FieldHint>Released to billing when the phase completes.</FieldHint>
+            </div>
+          ) : null}
+          <DialogActions>
+            <Button variant="ghost" onClick={() => props.onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button onClick={props.onCreate} disabled={props.busy || props.name.trim() === ""}>
+              {props.busy ? <Spinner /> : null} Add phase
+            </Button>
+          </DialogActions>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AddTaskDialog(props: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  title: string;
+  setTitle: (v: string) => void;
+  phase: string;
+  setPhase: (v: string) => void;
+  phases: ProjectPhase[];
+  milestone: boolean;
+  setMilestone: (v: boolean) => void;
+  amount: string;
+  setAmount: (v: string) => void;
+  dependsOn: Set<string>;
+  setDependsOn: (update: (prev: Set<string>) => Set<string>) => void;
+  tasks: ProjectTask[];
+  busy: boolean;
+  onCreate: () => void;
+}) {
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent title="Add task" description="Tasks carry phase, milestone, and finish-to-start dependencies.">
+        <div className="grid gap-3 p-4">
+          <div>
+            <Label htmlFor="task-title">Title</Label>
+            <Input id="task-title" value={props.title} onChange={(e) => props.setTitle(e.target.value)} />
+          </div>
+          <div>
+            <Label htmlFor="task-phase">Phase</Label>
+            <Select value={props.phase} onValueChange={props.setPhase}>
+              <SelectTrigger id="task-phase" className="w-56">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No phase</SelectItem>
+                {props.phases.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <label className="flex items-center gap-2 text-[13px]">
+            <Checkbox checked={props.milestone} onCheckedChange={(v) => props.setMilestone(v === true)} />
+            Billing milestone
+          </label>
+          {props.milestone ? (
+            <div>
+              <Label htmlFor="task-amount">Milestone amount (USD)</Label>
+              <Input id="task-amount" type="number" min={0} step="0.01" value={props.amount} onChange={(e) => props.setAmount(e.target.value)} />
+            </div>
+          ) : null}
+          <div>
+            <Label>Depends on (finish-to-start)</Label>
+            <div className="grid max-h-40 gap-1 overflow-auto rounded-[2px] border p-2" style={{ borderColor: "var(--m-border)" }}>
+              {props.tasks.length === 0 ? (
+                <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+                  No existing tasks to depend on.
+                </span>
+              ) : (
+                props.tasks.map((t) => (
                   <label key={t.id} className="flex items-center gap-2 text-[13px]">
                     <Checkbox
-                      checked={depSelection.has(t.id)}
+                      checked={props.dependsOn.has(t.id)}
                       onCheckedChange={(v) =>
-                        setDepSelection((prev) => {
+                        props.setDependsOn((prev) => {
                           const next = new Set(prev);
                           if (v === true) next.add(t.id);
                           else next.delete(t.id);
@@ -696,21 +956,84 @@ export default function ProjectDetailPage() {
                       }
                     />
                     {t.title}
-                    <span style={{ color: "var(--m-text-muted)" }}>{t.status.replaceAll("_", " ")}</span>
                   </label>
-                ))}
+                ))
+              )}
             </div>
-            <DialogActions>
-              <Button variant="ghost" onClick={() => setDepTaskId(null)}>
-                Cancel
-              </Button>
-              <Button onClick={() => void saveDependencies()} disabled={busy || depTaskId === null}>
-                {busy ? <Spinner /> : null} Save dependencies
-              </Button>
-            </DialogActions>
+            <FieldHint>The new task cannot complete until these do.</FieldHint>
           </div>
-        </DialogContent>
-      </Dialog>
-    </div>
+          <DialogActions>
+            <Button variant="ghost" onClick={() => props.onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button onClick={props.onCreate} disabled={props.busy || props.title.trim() === ""}>
+              {props.busy ? <Spinner /> : null} Add task
+            </Button>
+          </DialogActions>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DependencyDialog(props: {
+  depTaskId: ProjectTask | null;
+  onClose: () => void;
+  selection: Set<string>;
+  setSelection: (update: (prev: Set<string>) => Set<string>) => void;
+  tasks: ProjectTask[];
+  busy: boolean;
+  onSave: () => void;
+}) {
+  const { depTaskId } = props;
+  return (
+    <Dialog
+      open={depTaskId !== null}
+      onOpenChange={(open) => {
+        if (!open) props.onClose();
+      }}
+    >
+      <DialogContent
+        title={depTaskId !== null ? `Dependencies — ${depTaskId.title}` : "Dependencies"}
+        description="Pick the full set of tasks this one depends on (finish-to-start). Saving replaces the whole set."
+      >
+        <div className="grid gap-3 p-4">
+          <div className="grid max-h-60 gap-1 overflow-auto rounded-[2px] border p-2" style={{ borderColor: "var(--m-border)" }}>
+            {props.tasks
+              .filter((t) => depTaskId === null || t.id !== depTaskId.id)
+              .map((t) => {
+                const open = taskOpenness(t) === "open";
+                return (
+                  <label key={t.id} className="flex items-center gap-2 text-[13px]">
+                    <Checkbox
+                      checked={props.selection.has(t.id)}
+                      onCheckedChange={(v) =>
+                        props.setSelection((prev) => {
+                          const next = new Set(prev);
+                          if (v === true) next.add(t.id);
+                          else next.delete(t.id);
+                          return next;
+                        })
+                      }
+                    />
+                    {t.title}
+                    <span style={{ color: open ? "var(--m-status-warning-fg)" : "var(--m-text-muted)" }}>
+                      {t.status.replaceAll("_", " ")}
+                    </span>
+                  </label>
+                );
+              })}
+          </div>
+          <DialogActions>
+            <Button variant="ghost" onClick={props.onClose}>
+              Cancel
+            </Button>
+            <Button onClick={props.onSave} disabled={props.busy || depTaskId === null}>
+              {props.busy ? <Spinner /> : null} Save dependencies
+            </Button>
+          </DialogActions>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

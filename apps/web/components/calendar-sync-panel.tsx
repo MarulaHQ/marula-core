@@ -1,22 +1,25 @@
 // CalendarSyncPanel — calendar-sync status/conflict surfaces (Wave 14
-// lane 7 close-out, wiring the merged lane-2 contract through the typed
-// SDK).
+// lane 7 close-out; polished by Wave 17 lane 4).
 //
 // Purpose: the caller's external-calendar connections with live health —
-// provider, direction, status (active / error / disabled), last successful
-// sync, the provider's fixed failure copy, and the last poll's apply
-// counters. Inbound overlaps are the conflict signal: external busy time
-// that landed on top of existing appointments is REPORTED
-// (`calendar.sync_completed.overlaps`), never silently dropped.
-// Actions ride the typed client: connect (POST /calendar-sync), sync now
-// (POST {id}/sync — outcome counters rendered), rotate the outbound feed
-// token (POST {id}/rotate-token — the raw URL is shown EXACTLY ONCE,
-// copy-out-of-band per the invite-token doctrine), pause/resume
-// (PATCH {id}), delete (DELETE {id}, two-step confirm).
+// provider, direction, status dot (active / error / paused), relative
+// last-successful-sync, the provider's fixed failure copy, and the last
+// poll's apply counters. Inbound overlaps are the conflict signal:
+// external busy time that landed on top of existing appointments is
+// REPORTED, never silently dropped — the sync-now outcome flags overlaps,
+// and (when the page hands us the rendered entries) each inbound
+// connection offers an expandable mirror list whose events mark
+// "overlaps your <appointment>" inline. Actions ride the typed client:
+// connect (POST /calendar-sync), sync now (POST {id}/sync — counters
+// rendered), rotate the outbound feed token (POST {id}/rotate-token —
+// the raw URL is shown EXACTLY ONCE, copy-out-of-band per the
+// invite-token doctrine), pause/resume (PATCH {id}), delete (DELETE {id},
+// two-step confirm).
 //
 // Non-purpose: no worker scheduling UI (the worker polls on its own
 // cadence), no OAuth provider flows (the ical provider is the only one),
-// no per-event mirror browser (GET {id}/events stays an API surface).
+// no conflict resolution writes — external busy time is kept, never
+// dropped, so there is nothing to resolve server-side.
 "use client";
 
 import { Button, Card, EmptyState, FieldHint, Input, Label, Spinner, Tag } from "@meridian/ui";
@@ -24,9 +27,11 @@ import type { components } from "@meridian/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { API_BASE, api } from "../lib/api";
 import { friendlyMutationText, resultErrorText } from "../lib/error-copy";
+import { overlapsInterval, type CalendarEntry } from "../lib/calendar-view";
 
 type Connection = components["schemas"]["CalendarSyncConnection"];
 type Direction = components["schemas"]["CalendarSyncDirection"];
+type SyncEvent = components["schemas"]["CalendarSyncEvent"];
 
 const DIRECTION_COPY: Readonly<Record<Direction, string>> = {
   outbound: "Outbound — publishes your bookings to an external calendar feed",
@@ -46,8 +51,20 @@ function statusLabel(status: string): string {
   return "Paused";
 }
 
+function statusDotColor(status: string): string {
+  if (status === "active") return "var(--m-status-success-fg)";
+  if (status === "error") return "var(--m-status-danger-fg)";
+  return "var(--m-text-muted)";
+}
+
 function fmtWhen(iso: string | null | undefined): string {
   if (!iso) return "never";
+  const then = new Date(iso).getTime();
+  const mins = Math.max(0, Math.round((Date.now() - then) / 60_000));
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
   return new Date(iso).toLocaleString(undefined, {
     month: "short",
     day: "numeric",
@@ -56,7 +73,7 @@ function fmtWhen(iso: string | null | undefined): string {
   });
 }
 
-export default function CalendarSyncPanel() {
+export default function CalendarSyncPanel({ entries }: { entries?: CalendarEntry[] } = {}) {
   const [connections, setConnections] = useState<Connection[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -247,7 +264,7 @@ export default function CalendarSyncPanel() {
       )}
 
       {connectOpen && (
-        <div className="mb-3 grid gap-2 p-3" style={{ border: "1px solid var(--m-border)" }} data-testid="connect-form">
+        <div className="mb-3 grid gap-2 rounded-[var(--m-radius-control)] border p-3" style={{ borderColor: "var(--m-border)" }} data-testid="connect-form">
           <Label>Name</Label>
           <Input
             value={form.name}
@@ -290,7 +307,7 @@ export default function CalendarSyncPanel() {
 
       {oneTime && (
         <div
-          className="mb-3 p-3 text-[12px]"
+          className="mb-3 rounded-[var(--m-radius-control)] p-3 text-[12px]"
           style={{ border: "1px solid var(--m-status-warning-fg)", color: "var(--m-text)" }}
           role="alert"
           data-testid="one-time-feed-url"
@@ -325,6 +342,7 @@ export default function CalendarSyncPanel() {
               busy={busyId === conn.id}
               outcome={outcome?.id === conn.id ? outcome : null}
               confirmDelete={confirmDeleteId === conn.id}
+              entries={entries}
               onSync={() => void run(conn)}
               onRotate={() => void rotate(conn)}
               onToggle={(status) => void setStatus(conn, status)}
@@ -343,6 +361,7 @@ function ConnectionRow({
   busy,
   outcome,
   confirmDelete,
+  entries,
   onSync,
   onRotate,
   onToggle,
@@ -353,6 +372,7 @@ function ConnectionRow({
   busy: boolean;
   outcome: { text: string; overlaps: number } | null;
   confirmDelete: boolean;
+  entries?: CalendarEntry[];
   onSync: () => void;
   onRotate: () => void;
   onToggle: (status: "active" | "disabled") => void;
@@ -360,11 +380,21 @@ function ConnectionRow({
   onConfirmDelete: () => void;
 }) {
   const hasFeed = conn.feed_path !== null && (conn.direction === "outbound" || conn.direction === "two_way");
+  const [mirrorOpen, setMirrorOpen] = useState(false);
   return (
-    <div className="p-3" style={{ border: "1px solid var(--m-border)" }} data-testid={`sync-connection-${conn.id}`}>
+    <div
+      className="rounded-[var(--m-radius-control)] border p-3 transition-colors"
+      style={{ borderColor: conn.status === "error" ? "var(--m-status-danger-fg)" : "var(--m-border)" }}
+      data-testid={`sync-connection-${conn.id}`}
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
+            <span
+              aria-hidden="true"
+              className="inline-block h-2 w-2 shrink-0 rounded-full"
+              style={{ background: statusDotColor(conn.status) }}
+            />
             <span className="text-[13px] font-medium truncate" style={{ color: "var(--m-text)" }}>
               {conn.name}
             </span>
@@ -380,7 +410,7 @@ function ConnectionRow({
             </p>
           )}
         </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <Button variant="secondary" disabled={busy} onClick={onSync} data-testid={`sync-now-${conn.id}`}>
             {busy ? "Syncing…" : "Sync now"}
           </Button>
@@ -427,6 +457,109 @@ function ConnectionRow({
             : ""}
         </p>
       )}
+      {conn.direction !== "outbound" ? (
+        <div className="mt-2">
+          <button
+            type="button"
+            onClick={() => setMirrorOpen((v) => !v)}
+            aria-expanded={mirrorOpen}
+            className="text-[12px] font-medium underline decoration-[var(--m-border)] underline-offset-2"
+            style={{ color: "var(--m-text-secondary)" }}
+            data-testid={`mirror-toggle-${conn.id}`}
+          >
+            {mirrorOpen ? "Hide" : "Show"} imported busy time
+          </button>
+          {mirrorOpen ? (
+            <InboundMirror connId={conn.id} entries={entries} />
+          ) : null}
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+function InboundMirror({ connId, entries }: { connId: string; entries?: CalendarEntry[] }) {
+  const [events, setEvents] = useState<SyncEvent[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api.api
+      .GET("/api/v1/calendar-sync/{id}/events", { params: { path: { id: connId } } })
+      .then((res) => {
+        if (cancelled) return;
+        if (res.data === undefined) {
+          setError("Couldn't load the imported events.");
+          return;
+        }
+        setEvents(res.data.events);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Couldn't load the imported events.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [connId]);
+
+  if (error !== null) {
+    return (
+      <p role="alert" className="mt-1 text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
+        {error}
+      </p>
+    );
+  }
+  if (events === null) {
+    return (
+      <div className="mt-1 flex justify-center">
+        <Spinner />
+      </div>
+    );
+  }
+  if (events.length === 0) {
+    return (
+      <p className="mt-1 text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+        Nothing imported yet from this feed.
+      </p>
+    );
+  }
+  const sorted = [...events].sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+  return (
+    <ul className="mt-1 grid gap-1" data-testid={`mirror-list-${connId}`}>
+      {sorted.map((event) => {
+        const hit = entries?.find(
+          (entry) =>
+            entry.kind === "appointment" &&
+            overlapsInterval(
+              new Date(event.starts_at),
+              new Date(event.ends_at),
+              new Date(entry.startsAt),
+              new Date(entry.endsAt),
+            ),
+        );
+        return (
+          <li
+            key={event.id}
+            className="flex flex-wrap items-center gap-x-2 rounded px-2 py-1 text-[12px]"
+            style={{ background: "var(--m-bg-subtle)" }}
+          >
+            <span className="truncate font-medium">{event.title ?? "External event"}</span>
+            <span className="tabular-nums" style={{ color: "var(--m-text-muted)" }}>
+              {new Date(event.starts_at).toLocaleString(undefined, {
+                month: "short",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </span>
+            {hit !== undefined ? (
+              <span className="font-semibold" style={{ color: "var(--m-status-warning-fg)" }}>
+                overlaps your {hit.title}
+              </span>
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
