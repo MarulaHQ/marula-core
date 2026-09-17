@@ -3,9 +3,13 @@
 # com.meridian.dev-clean.plist; safe to run by hand).
 #
 #   free space >= SOFT (60Gi): no-op
-#   free space <  SOFT:        scripts/dev-clean.sh --go   (caches, incremental, docker junk)
-#   free space <  HARD (40Gi): additionally --deep         (shared cargo deps; waits for
-#                                                           a cargo build gap)
+#   free space <  SOFT:        scripts/dev-clean.sh --go --stale 3 (fine-grained GC
+#                              of shared-cache artifacts older than 3 days; keeps
+#                              the warm cache — DX6c, 2026-09-17)
+#   free space <  MEDIUM (50Gi): additionally --stale 1
+#   free space <  HARD (40Gi): additionally --deep           (shared cargo deps
+#                                                            wholesale; waits for
+#                                                            a cargo build gap)
 #
 # This is deliberately gated on free space, not a fixed schedule of deletion:
 # dev-clean.sh must not starve active lanes by looping (2026-09-10 incident),
@@ -15,6 +19,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LOG="$HOME/.cache/meridian-auto-clean.log"
 SOFT=60
+MEDIUM=50
 HARD=40
 
 mkdir -p "$(dirname "$LOG")"
@@ -38,11 +43,14 @@ if (( free >= SOFT )); then
 fi
 
 if (( free < HARD )); then
-  echo "[$stamp] ${free}Gi free (< ${HARD}Gi hard) — deep clean" >>"$LOG"
-  "$ROOT/scripts/dev-clean.sh" --go --deep >>"$LOG" 2>&1
+  echo "[$stamp] ${free}Gi free (< ${HARD}Gi hard) — stale GC + deep clean" >>"$LOG"
+  "$ROOT/scripts/dev-clean.sh" --go --stale 1 --deep >>"$LOG" 2>&1
+elif (( free < MEDIUM )); then
+  echo "[$stamp] ${free}Gi free (< ${MEDIUM}Gi medium) — stale GC 1d" >>"$LOG"
+  "$ROOT/scripts/dev-clean.sh" --go --stale 1 >>"$LOG" 2>&1
 else
-  echo "[$stamp] ${free}Gi free (< ${SOFT}Gi soft) — light clean" >>"$LOG"
-  "$ROOT/scripts/dev-clean.sh" --go >>"$LOG" 2>&1
+  echo "[$stamp] ${free}Gi free (< ${SOFT}Gi soft) — stale GC 3d" >>"$LOG"
+  "$ROOT/scripts/dev-clean.sh" --go --stale 3 >>"$LOG" 2>&1
 fi
 
 after=$(df -g /System/Volumes/Data | tail -1 | awk '{print $4}')

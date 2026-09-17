@@ -7,21 +7,33 @@
 #                                     full build artifacts + drifted worktree
 #                                     target dirs (waits for a cargo build gap
 #                                     first; cold-cache rebuild follows)
+#   scripts/dev-clean.sh --go --stale N
+#                                     ALSO delete shared-cache artifacts not
+#                                     touched in N days (fine-grained GC for
+#                                     stale deps/ generations; keeps what the
+#                                     current tree still links against —
+#                                     unlike --deep it never forces a full
+#                                     cold rebuild of live artifacts)
 #
-# Safe-by-construction: never touches running dev servers' source trees,
-# gitignored-but-live node_modules of active lanes, or the shared cargo
-# cache's real build artifacts (only its incremental state) unless --deep.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 GO=0
 DEEP=0
+STALE=0
 for arg in "$@"; do
   case "$arg" in
     --go) GO=1 ;;
     --deep) DEEP=1 ;;
+    --stale) STALE=-1 ;; # marker; next arg is the day count
+    --stale=*) STALE_DAYS="${arg#--stale=}" ;;
+    *) if [[ $STALE -eq -1 ]]; then STALE_DAYS="$arg"; STALE=1; fi ;;
   esac
 done
+if [[ $STALE -eq 1 && ! "$STALE_DAYS" =~ '^[0-9]+$' ]]; then
+  echo "dev-clean: --stale requires a day count, e.g. --stale 7" >&2
+  exit 1
+fi
 
 before=$(df -g /System/Volumes/Data | tail -1 | awk '{print $4}')
 
@@ -113,6 +125,48 @@ if [[ $DEEP -eq 1 ]]; then
     for dir in $deep_dirs; do
       [[ -d "$dir" ]] && rm -rf "$dir"
     done
+  fi
+fi
+
+# stale-artifact sweep: fine-grained GC of the shared cache (DX6c, 2026-09-17).
+# Cargo keeps EVERY old artifact generation forever (11 libcore_api rlib
+# generations and 132 incremental sessions were found at once) and rewrites
+# ~8GB of test binaries + incremental state per full core-api cycle. Deleting
+# only artifacts whose mtime is older than N days reclaims the generations the
+# current tree no longer references while preserving today's warm cache.
+if [[ $STALE -eq 1 ]]; then
+  echo "== stale sweep (older than ${STALE_DAYS}d) =="
+  stale_before=$(du -sh "$ROOT/.kilo/target-shared" 2>/dev/null | cut -f1)
+  # deletion under an active build just fails — wait for a gap (15 min)
+  if [[ $GO -eq 1 ]]; then
+    i=0
+    while pgrep -f "rustc|cargo-clippy|cargo (check|test|build|run)" >/dev/null 2>&1; do
+      if [[ $i -ge 45 ]]; then
+        echo "  no cargo build gap found in 15min — stale sweep aborted, re-run later"
+        exit 1
+      fi
+      sleep 20; i=$((i+1))
+    done
+  fi
+  # macOS find -mtime only takes whole days (+0 = 24h); -newermt gives an
+  # exact cutoff (BSD find rejects the ISO "T" form — space-separated only).
+  # Incremental is excluded — it has its own unconditional target above and
+  # dies anyway with incremental disabled (DX6b).
+  cutoff=$(date -v -"${STALE_DAYS}"d '+%Y-%m-%d %H:%M:%S' 2>/dev/null \
+    || date -d "$STALE_DAYS days ago" '+%Y-%m-%d %H:%M:%S')
+  found=$(find "$ROOT/.kilo/target-shared" ! -newermt "$cutoff" \
+    ! -path '*/debug/incremental/*' ! -path '*/.rustc_info.json' \
+    ! -path '*/debug/.fingerprint*' 2>/dev/null || true)
+  total=0
+  if [[ -n "$found" ]]; then
+    while IFS= read -r f; do
+      size=$(stat -f %z "$f" 2>/dev/null) || size=0
+      total=$((total + size))
+      [[ $GO -eq 1 ]] && rm -rf "$f"
+    done <<< "$found"
+    echo "  $(( $(wc -l <<< "$found") )) stale files, $(( total / 1024 / 1024 ))MB (cache was ${stale_before})"
+  else
+    echo "  nothing older than ${STALE_DAYS}d"
   fi
 fi
 

@@ -2,3 +2,10 @@
 # Machine-local; gitignored. See TASKLIST DX6 and .kilo/setup-script.
 [build]
 target-dir = "/Users/iordn/Documents/GitHub/meridian-open-psa-core/.kilo/target-shared"
+
+# DX6b disk guardrail (2026-09-17): cargo has no GC for incremental sessions —
+# every re-run of a test cycle left another full session behind (132 sessions,
+# 12GB, mostly rewritten each run). Incremental buys nothing for one-shot test
+# binary builds, so it is disabled workspace-wide; ordinary `cargo check`
+# turnarounds are unaffected (they were already hitting .rmeta reuse).
+cargo-incremental = false

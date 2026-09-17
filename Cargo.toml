@@ -67,8 +67,14 @@ debug = "line-tables-only"
 [profile.dev.package."*"]
 debug = false
 
+# DX6d (2026-09-17): test binaries don't need any debuginfo by default —
+# each of the ~97 integration test binaries carries the full core-api link
+# (~126MB each before this). Panic backtraces still resolve frames by
+# address (--release-style); to debug a test in lldb/rust-gdb temporarily
+# override with `RUSTFLAGS="-C debuginfo=1" cargo test` or flip this to
+# "line-tables-only". Runtime is unaffected; only symbolication fidelity.
 [profile.test]
-debug = "line-tables-only"
+debug = false
 
 [profile.test.package."*"]
 debug = false
