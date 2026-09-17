@@ -10,7 +10,10 @@
 // never raw errors. Stamps the tech-visible link lifecycle (first view).
 // Non-purpose: no staff surfaces, no auth, no branding beyond Workbench
 // tokens.
-
+//
+// Wave 17 lane 8 UX pass: the raw <select> booking picker becomes the
+// date-grouped slot-pill pattern (date rows, one tap per slot, explicit
+// selection summary before confirm); brand lockup; entrance motion.
 "use client";
 
 import type { components } from "@meridian/sdk";
@@ -40,6 +43,26 @@ function friendlyLinkError(error: unknown): string {
   }
   if (code === 429) return "Too many attempts — please wait a minute and try again.";
   return "This scheduling link is not available.";
+}
+
+function fmtTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+function fmtDay(iso: string): string {
+  const d = new Date(iso);
+  const today = new Date();
+  const local = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const delta = Math.round(
+    (new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() - local.getTime()) / 86_400_000,
+  );
+  if (delta === 0) return "Today";
+  if (delta === 1) return "Tomorrow";
+  return d.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
 }
 
 export default function PublicBookingPage(): ReactNode {
@@ -86,15 +109,16 @@ export default function PublicBookingPage(): ReactNode {
     };
   }, [token]);
 
-  /** Slices each free interval into bookable 30-minute choices. */
+  /** Slices each free interval into bookable 30-minute choices, grouped
+   * by day. */
   const choices = useMemo(() => {
     if (view === null) return [];
-    const out: { start: string; label: string }[] = [];
+    const all: { start: string; label: string }[] = [];
     for (const slot of view.slots ?? []) {
       const startMs = new Date(slot.starts_at).getTime();
       const endMs = new Date(slot.ends_at).getTime();
       for (let t = startMs; t + SLOT_CHUNK_MINUTES * 60_000 <= endMs; t += SLOT_CHUNK_MINUTES * 60_000) {
-        out.push({
+        all.push({
           start: new Date(t).toISOString(),
           label: new Date(t).toLocaleString(undefined, {
             weekday: "short",
@@ -106,8 +130,18 @@ export default function PublicBookingPage(): ReactNode {
         });
       }
     }
-    return out.slice(0, 60);
+    all.sort((a, b) => (a.start < b.start ? -1 : 1));
+    return all.slice(0, 60);
   }, [view]);
+
+  const byDay = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const c of choices) {
+      const key = fmtDay(c.start);
+      map.set(key, [...(map.get(key) ?? []), c.start]);
+    }
+    return [...map.entries()];
+  }, [choices]);
 
   async function book(): Promise<void> {
     if (selected === null) return;
@@ -132,7 +166,7 @@ export default function PublicBookingPage(): ReactNode {
   if (state === "loading") {
     return (
       <main className="flex min-h-full items-center justify-center">
-        <Spinner />
+        <Spinner aria-label="Loading booking page" />
       </main>
     );
   }
@@ -168,40 +202,59 @@ export default function PublicBookingPage(): ReactNode {
   return (
     <PublicShell>
       <div className="grid gap-1">
-        <h1 className="text-base font-semibold">{view?.meeting_type_name}</h1>
-        <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>
+        <h1 className="font-heading text-lg font-semibold tracking-tight">{view?.meeting_type_name}</h1>
+        <p className="text-xs tabular-nums" style={{ color: "var(--m-text-muted)" }}>
           {view?.duration_minutes} minutes
           {view?.label !== null && view?.label !== undefined ? ` · ${view.label}` : null}
         </p>
         {view?.meeting_type_description !== null && view?.meeting_type_description !== undefined && (
-          <p className="text-xs" style={{ color: "var(--m-text-secondary)" }}>
+          <p className="text-xs leading-5" style={{ color: "var(--m-text-secondary)" }}>
             {view.meeting_type_description}
           </p>
         )}
       </div>
-      <div className="grid gap-1">
-        <Label htmlFor="book-slot">Pick a time</Label>
+
+      <div className="grid gap-3 max-h-72 overflow-y-auto pr-1" data-testid="public-slot-grid">
         {choices.length === 0 ? (
           <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>
             No open times in the booking window yet — check back soon.
           </p>
         ) : (
-          <select
-            id="book-slot"
-            className="rounded-[2px] border px-2 py-1.5 text-sm"
-            style={{ borderColor: "var(--m-border)", background: "var(--m-surface)", color: "var(--m-text)" }}
-            value={selected ?? ""}
-            onChange={(e) => setSelected(e.target.value || null)}
-          >
-            <option value="">Choose a slot…</option>
-            {choices.map((c) => (
-              <option key={c.start} value={c.start}>
-                {c.label}
-              </option>
-            ))}
-          </select>
+          byDay.map(([day, times]) => (
+            <div key={day}>
+              <h3
+                className="mb-1.5 text-xs font-semibold uppercase tracking-wide"
+                style={{ color: "var(--m-text-muted)" }}
+              >
+                {day}
+              </h3>
+              <ul className="flex flex-wrap gap-2">
+                {times.map((start) => {
+                  const active = selected === start;
+                  return (
+                    <li key={start}>
+                      <button
+                        type="button"
+                        onClick={() => setSelected(start)}
+                        aria-pressed={active}
+                        className="rounded-[0.75rem] border px-2.5 py-1.5 text-xs tabular-nums transition-colors duration-100 hover:bg-[var(--m-surface-hover)]"
+                        style={{
+                          borderColor: active ? "var(--m-accent)" : "var(--m-border)",
+                          color: active ? "var(--m-accent)" : "var(--m-text-secondary)",
+                          background: "var(--m-surface)",
+                        }}
+                      >
+                        {fmtTime(start)}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))
         )}
       </div>
+
       <div className="grid gap-2 sm:grid-cols-2">
         <div className="grid gap-1">
           <Label htmlFor="book-name">Your name (optional)</Label>
@@ -212,18 +265,27 @@ export default function PublicBookingPage(): ReactNode {
           <Input id="book-email" type="email" value={bookerEmail} onChange={(e) => setBookerEmail(e.target.value)} />
         </div>
       </div>
+
       {errorText !== null && (
         <p className="text-xs" style={{ color: "var(--m-status-danger-fg)" }} role="alert">
           {errorText}
         </p>
       )}
+
+      {selected !== null && (
+        <p className="m-rise text-sm" data-testid="public-slot-summary" role="status">
+          <span className="font-medium">Selected:</span>{" "}
+          {fmtDay(selected)}, {fmtTime(selected)}
+        </p>
+      )}
+
       <div className="flex justify-end">
         <Button
           variant="primary"
           disabled={busy || selected === null}
           onClick={() => void book()}
         >
-          {busy ? "Booking…" : "Book this time"}
+          {busy ? "Booking…" : selected !== null ? `Book ${fmtTime(selected)}` : "Pick a time to book"}
         </Button>
       </div>
     </PublicShell>
@@ -232,12 +294,20 @@ export default function PublicBookingPage(): ReactNode {
 
 function PublicShell({ children }: { children: ReactNode }): ReactNode {
   return (
-    <main className="flex min-h-full items-center justify-center p-6" data-testid="public-booking">
-      <div
-        className="grid w-full max-w-md gap-4 rounded-[2px] border p-5"
-        style={{ background: "var(--m-surface)", borderColor: "var(--m-border)" }}
-      >
-        {children}
+    <main
+      className="flex min-h-full items-center justify-center p-6"
+      data-testid="public-booking"
+    >
+      <div className="m-rise w-full max-w-md">
+        <div className="mb-3 text-center">
+          <span className="font-heading text-lg font-semibold tracking-tight">Meridian</span>
+        </div>
+        <div
+          className="grid gap-4 rounded-[0.75rem] border p-5"
+          style={{ background: "var(--m-surface)", borderColor: "var(--m-border)" }}
+        >
+          {children}
+        </div>
       </div>
     </main>
   );

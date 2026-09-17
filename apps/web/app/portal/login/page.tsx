@@ -5,6 +5,10 @@
 // versa). No MFA in portal v1 (documented deferral).
 // Non-purpose: no staff login, no registration, no SSO — the portal is an
 // invite-only surface provisioned by the MSP.
+//
+// Wave 17 lane 8 UX pass: brand lockup (§7 wordmark + tangerine meridian
+// stroke), display serif h1 (mockup v2), generous card rhythm, entrance
+// motion riding the shared m-rise keyframe.
 "use client";
 
 import { friendlyMutationText } from "../../../lib/error-copy";
@@ -12,6 +16,23 @@ import { Button, Card, FieldHint, Input, Label } from "@meridian/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { portalApi, usePortalAuth } from "../../../lib/portal-api";
+
+function BrandMark() {
+  return (
+    <svg width={40} height={40} viewBox="0 0 40 40" fill="none" aria-hidden>
+      {/* globe wireframe */}
+      <circle cx="20" cy="20" r="15" stroke="var(--m-text)" strokeWidth="1.5" />
+      <ellipse cx="20" cy="20" rx="7" ry="15" stroke="var(--m-text)" strokeWidth="1" />
+      {/* the meridian stroke carries tangerine */}
+      <path
+        d="M20 5v30M5 20h30"
+        stroke="var(--m-accent)"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
 
 export default function PortalLoginPage() {
   const router = useRouter();
@@ -40,13 +61,21 @@ export default function PortalLoginPage() {
   }
 
   return (
-    <div className="flex min-h-[60vh] items-center justify-center">
-      <Card className="w-full max-w-sm p-6">
-        <h1 className="text-base font-semibold">Client Portal sign-in</h1>
-        <p className="mt-1 text-xs" style={{ color: "var(--m-text-muted)" }}>
-          Support access provided by your IT service desk.
-        </p>
-        <form className="mt-5 space-y-4" onSubmit={submit}>
+    <div className="m-rise flex min-h-[64vh] items-center justify-center">
+      <div className="w-full max-w-sm" data-testid="portal-login-card">
+        <div className="mb-6 flex flex-col items-center gap-3 text-center">
+          <BrandMark />
+          <div>
+            <h1 className="font-heading text-xl font-semibold tracking-tight">
+              Client portal sign-in
+            </h1>
+            <p className="mt-1 text-sm" style={{ color: "var(--m-text-muted)" }}>
+              Support access provided by your service desk.
+            </p>
+          </div>
+        </div>
+        <Card className="p-6">
+          <form className="space-y-4" onSubmit={submit}>
           <div className="space-y-1.5">
             <Label htmlFor="portal-email">Work email</Label>
             <Input
@@ -83,7 +112,8 @@ export default function PortalLoginPage() {
             {busy ? "Signing in…" : "Sign in"}
           </Button>
         </form>
-      </Card>
+        </Card>
+      </div>
     </div>
   );
 }

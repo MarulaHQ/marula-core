@@ -2,7 +2,7 @@
 // overdue/due-today grouping, the attention strip, the approver-only
 // approvals count, and the instant-first timer start (idempotency-keyed
 // envelope POST) against SDK-typed mock routes.
-import { describe, expect, it, beforeEach, afterAll, vi } from "vitest";
+import { describe, expect, it, beforeEach, afterEach, afterAll, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AuthProvider } from "../../lib/api";
 import TodayPage from "../../app/today/page";
@@ -15,6 +15,8 @@ vi.mock("next/navigation", () => ({
 
 const ME_ID = ME_FIXTURE.user_id;
 
+// The "due today" fixture sits NOW + 2h; freezing the clock to module-load
+
 /** jsdom has no usable WebSocket; the timer hook must degrade quietly. */
 class FakeWebSocket {
   close(): void {}
@@ -25,9 +27,26 @@ afterAll(() => {
   vi.unstubAllGlobals();
 });
 
+// The "due today" fixture sits NOW + 2h; freezing the clock to module-load
+// time keeps +2h inside the same local day no matter when the suite runs.
 const NOW = Date.now();
 const DAY = 86_400_000;
 const iso = (offsetMs: number) => new Date(NOW + offsetMs).toISOString();
+// A due time that stays inside the running suite's local day no matter
+// what weekday/time the suite is executed at (half the way to midnight).
+const END_OF_DAY = (() => {
+  const e = new Date(NOW);
+  e.setHours(23, 59, 59, 999);
+  return e.getTime();
+})();
+const MIDDAY_EOD = new Date(NOW + Math.floor((END_OF_DAY - NOW) / 2)).toISOString();
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW);
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 const OVERDUE = {
   id: "00000000-0000-4000-8000-0000000000a1",
@@ -52,7 +71,7 @@ const DUE_TODAY = {
   category: "open",
   status_name: "New",
   client_name: null,
-  due_at: iso(2 * 3600_000),
+  due_at: new Date(MIDDAY_EOD).toISOString(),
   sla_resolution_due: null,
 };
 const LATER = {
