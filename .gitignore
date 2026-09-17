@@ -48,3 +48,6 @@ packages/sdk/package-lock.json
 # Desktop shell (ADR 0005): placeholder frontendDist + bundled resources
 desktop/resources/
 apps/web/out/
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
