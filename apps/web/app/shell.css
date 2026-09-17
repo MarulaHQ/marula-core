@@ -413,3 +413,26 @@ button[style*="var(--m-accent)"]:focus-visible {
     opacity: 0;
   }
 }
+
+/* ---- Entity surfaces (Wave 17 lane 2: clients / assets / documents / vault)
+   Page-card entrance + list-row stagger. Motion law: transform/opacity
+   only, ≤120ms, stagger ≤40ms (docs/theme.md §5). */
+
+.m-entity-rise {
+  opacity: 0;
+  animation: m-rail-in 120ms calc(var(--stagger-i, 0) * 40ms) forwards;
+}
+
+.m-entity-row {
+  transition: background-color 100ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .m-entity-rise {
+    animation: none !important;
+    opacity: 1;
+  }
+  .m-entity-row {
+    transition: none !important;
+  }
+}

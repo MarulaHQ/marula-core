@@ -1,13 +1,17 @@
-// /documents — staff document browser (docs-platform v1, Wave 11 lane 7).
+// /documents — staff document library (docs-platform v1; UX-excellence
+// pass, Wave 17 lane 2).
 //
-// Purpose: the org's documentation library across ALL scopes — org-global
-// documents and per-client documents — with typed layouts (the standard
-// MSP set plus org-custom ones), scope and layout filters, and instant-
-// first document creation that validates custom fields against the chosen
-// layout. Layout management (create/edit the custom schemas) lives here.
+// Purpose: the org's documentation library across ALL scopes —
+// org-global and per-client documents — laid out like a real library:
+// a stat strip (total / org-global / client-scoped / typed), a toolbar
+// (title search + scope + type filters), and a dense table with type
+// chips, scope links, versions, and hover micro-feedback. Typed
+// layout management (create/edit the custom schemas) stays here. Motion
+// rides transform/opacity ≤120ms with staggered entrances and
+// prefers-reduced-motion collapse.
 //
-// Non-purpose: version history, diff, restore, and relationship links
-// live on /documents/[id].
+// Non-purpose: version history, diff, restore, attachments, and
+// relationship links live on /documents/[id].
 "use client";
 
 import { rejectionText } from "../../lib/error-copy";
@@ -104,11 +108,19 @@ export default function DocumentsPage() {
     });
   }, [docs, scope, q, layoutFilter]);
 
+  const stats = useMemo(() => {
+    if (docs === null) return null;
+    const layoutIds = new Set((layouts ?? []).map((l) => l.id));
+    const global = docs.filter((d) => d.client_id == null).length;
+    const typed = docs.filter((d) => d.layout_id != null && layoutIds.has(d.layout_id)).length;
+    return { total: docs.length, global, scoped: docs.length - global, typed };
+  }, [docs, layouts]);
+
   if (auth.status !== "authed") return null;
 
   return (
-    <div className="mx-auto grid w-full max-w-[1400px] gap-8 p-4 md:p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="mx-auto grid w-full grid-cols-1 max-w-[1400px] gap-6 p-4 md:p-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold">Documents</h1>
           <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
@@ -141,7 +153,32 @@ export default function DocumentsPage() {
         </div>
       </div>
 
-      <Card>
+      {stats !== null ? (
+        <div className="grid gap-3 grid-cols-2 lg:grid-cols-4" data-testid="documents-stats">
+          {(
+            [
+              { label: "Total documents", value: stats.total, key: "documents-stat-total" },
+              { label: "Org-global", value: stats.global, key: "documents-stat-global" },
+              { label: "Client-scoped", value: stats.scoped, key: "documents-stat-scoped" },
+              { label: "Typed with layouts", value: stats.typed, key: "documents-stat-typed" },
+            ] as const
+          ).map((s, i) => (
+            <div
+              key={s.key}
+              className="m-entity-rise rounded-[0.75rem] border p-4"
+              style={{ borderColor: "var(--m-border)", "--stagger-i": i } as React.CSSProperties}
+              data-testid={s.key}
+            >
+              <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
+                {s.label}
+              </p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">{s.value}</p>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      <Card className="m-entity-rise" style={{ "--stagger-i": 4 } as React.CSSProperties}>
         <div className="flex flex-wrap items-center justify-between gap-3 p-4 pb-0">
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
             <Input
@@ -207,7 +244,8 @@ export default function DocumentsPage() {
             <EmptyState message="No documents match. Documents can be org-global or client-scoped; pick a type to give them structured fields." />
           </div>
         ) : (
-          <Table>
+          <div className="overflow-x-auto">
+            <Table>
             <thead>
               <tr>
                 <Th>Title</Th>
@@ -218,19 +256,19 @@ export default function DocumentsPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((d) => (
-                <Tr key={d.id}>
+              {filtered.map((d, i) => (
+                <Tr key={d.id} className="m-entity-row" style={{ "--stagger-i": Math.min(i, 12) } as React.CSSProperties}>
                   <Td>
                     <Link
                       href={`/documents/${d.id}`}
-                      className="underline decoration-[var(--m-border)] underline-offset-2"
+                      className="font-medium underline decoration-transparent underline-offset-2 transition-colors duration-[100ms] hover:decoration-[var(--m-border-strong)]"
                     >
                       {d.title}
                     </Link>
                   </Td>
                   <Td>
                     {d.layout_id != null && layoutById.get(d.layout_id) ? (
-                      <Tag>{layoutById.get(d.layout_id)!.name}</Tag>
+                      <Tag tone="outline">{layoutById.get(d.layout_id)!.name}</Tag>
                     ) : (
                       <span style={{ color: "var(--m-text-muted)" }}>—</span>
                     )}
@@ -253,6 +291,7 @@ export default function DocumentsPage() {
               ))}
             </tbody>
           </Table>
+          </div>
         )}
       </Card>
 
@@ -397,7 +436,6 @@ function CreateDocumentForm({
   );
 }
 
-
 function LayoutManager({ layouts, onDone }: { layouts: DocumentLayout[]; onDone: () => void }) {
   const [editing, setEditing] = useState<DocumentLayout | null>(null);
   const [creating, setCreating] = useState(false);
@@ -424,7 +462,7 @@ function LayoutManager({ layouts, onDone }: { layouts: DocumentLayout[]; onDone:
       {layouts.map((l) => (
         <div
           key={l.id}
-          className="flex items-center justify-between gap-3 rounded-[2px] border p-3"
+          className="m-entity-row flex items-center justify-between gap-3 rounded-[0.5rem] border p-3"
           style={{ borderColor: "var(--m-border)" }}
         >
           <div className="min-w-0">

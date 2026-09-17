@@ -1,18 +1,28 @@
-// /passwords — the staff password vault (docs-platform v1).
+// /passwords — the staff vault (ADR 0006 browsing surface; UX-excellence
+// pass, Wave 17 lane 2).
 //
-// Purpose: org- and client-scoped credential entries. Secrets are
-// encrypted at rest; the ONLY plaintext path is the audited reveal
-// endpoint (POST /passwords/{id}/reveal) — every reveal is recorded as
-// provenance ("who looked, when") and the UI shows that inline so nobody
-// copies a credential without a trail. Rotation archives the previous
-// ciphertext to an append-only history.
+// Purpose: the sanctum has two legs. (1) THE VAULT BROWSER — KB-class
+// secret category trees per client (fork-the-seed + user folders),
+// org/client scope toggle, category-ACL hidden branches (strict backend
+// rendering: what your roles cannot see is NEVER rendered as a dead
+// entry), metadata-only record views with role-gated audited reveal
+// (secrets:edit + category grants, never bypassed client-side),
+// secret-to-record links through the shared cross-entity picker,
+// field-clear PATCH wiring (`value: null` clears, audited via the
+// record-updated event), and document-kind records showing the
+// pointer+hash object (object_key + file_sha256 + file_bytes) with the
+// audited reveal-file download/upload riding the core-store seam. (2)
+// THE LEGACY ENTRIES — the shipped PasswordEntry surface stays
+// byte-compatible (never a destructive cutover): flat entries with the
+// same audited reveal, change history, and envelope-backed writes.
 //
-// Non-purpose: no sharing links or rotation automation yet (TASKLIST
-// follow-ups); no plaintext ever persists in local state beyond the
-// open reveal dialog.
+// Non-purpose: no sharing links / one-time shares / rotation automation
+// (Wave 19 `p19-secrets-product`); no plaintext ever persists beyond
+// the open reveal dialog; no composer changes.
 "use client";
 
 import { rejectionText } from "../../lib/error-copy";
+import { friendlyMutationError } from "../../lib/error-copy";
 import {
   Button,
   Card,
@@ -38,31 +48,133 @@ import {
 import type { components } from "@meridian/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, useRequireAuth } from "../../lib/api";
-import { runEnvelopeMutation } from "../../lib/envelope-write";
+import type { ReactNode } from "react";
+import { api, useAuth, useRequireAuth } from "../../lib/api";
+import { runEnvelopeMutation, newIdempotencyKey } from "../../lib/envelope-write";
+import { EntityPicker } from "../../components/entities/entity-picker";
+import type { LinkTarget } from "../../lib/entity-links";
 
-type PasswordEntry = components["schemas"]["PasswordEntry"];
+type SecretFolder = components["schemas"]["SecretFolder"];
+type SecretRecord = components["schemas"]["SecretRecord"];
+type SecretReveal = components["schemas"]["SecretReveal"];
+type ResolvedLink = components["schemas"]["ResolvedLink"];
+type SecretGrant = components["schemas"]["SecretCategoryGrant"];
 type Client = components["schemas"]["Client"];
+type PasswordEntry = components["schemas"]["PasswordEntry"];
 type PasswordHistoryEntry = components["schemas"]["PasswordHistoryEntry"];
 type PasswordReveal = components["schemas"]["PasswordReveal"];
 
-type Scope = { kind: "all" } | { kind: "global" } | { kind: "client"; id: string };
+const FOLDER_KIND_OPTIONS = [
+  { value: "passwords", label: "Passwords" },
+  { value: "api_keys", label: "API keys" },
+  { value: "certificates", label: "Certificates" },
+  { value: "recovery_codes", label: "Recovery codes" },
+  { value: "documents", label: "Documents" },
+] as const;
 
-export default function PasswordsPage() {
+const KIND_LABELS: Record<string, string> = {
+  password: "password",
+  api_key: "API key",
+  certificate: "certificate",
+  recovery_code: "recovery code",
+  document: "document",
+  passwords: "passwords",
+  api_keys: "API keys",
+  certificates: "certificates",
+  recovery_codes: "recovery codes",
+  documents: "documents",
+};
+
+const FIELD_LABELS: Record<string, string> = {
+  secret: "Secret",
+  notes: "Notes",
+  username: "Username",
+  url: "URL",
+};
+
+const LINK_KINDS: components["schemas"]["LinkKind"][] = [
+  "asset",
+  "kb_article",
+  "ticket",
+  "password",
+  "document",
+  "client",
+];
+
+type VaultScope = { kind: "org" } | { kind: "client"; id: string };
+
+interface TreeNode {
+  folder: SecretFolder;
+  children: TreeNode[];
+}
+
+function buildTree(folders: SecretFolder[]): TreeNode[] {
+  const byId = new Map<string, TreeNode>();
+  for (const f of folders) byId.set(f.id, { folder: f, children: [] });
+  const roots: TreeNode[] = [];
+  for (const node of byId.values()) {
+    const parent =
+      node.folder.parent_id != null ? byId.get(node.folder.parent_id) : undefined;
+    if (parent !== undefined && parent.folder.id !== node.folder.id) {
+      parent.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+  const sort = (nodes: TreeNode[]) => {
+    nodes.sort((a, b) =>
+      a.folder.label.localeCompare(b.folder.label, undefined, { sensitivity: "base" }),
+    );
+    for (const n of nodes) sort(n.children);
+  };
+  sort(roots);
+  return roots;
+}
+
+function slugify(label: string): string {
+  return label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function parseUuid(s: string): string | null {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s) ? s : null;
+}
+
+function scopeOf(scope: VaultScope) {
+  return scope.kind === "org" ? {} : { client_id: scope.id };
+}
+
+export default function VaultPage() {
   const auth = useRequireAuth();
-  const [entries, setEntries] = useState<PasswordEntry[] | null>(null);
+  const { me } = useAuth();
+  const canReveal = me?.permissions.includes("secrets:edit") ?? false;
+  const canManage = me?.permissions.includes("special:manage_users") ?? false;
+
+  // ---- vault-tree state (ADR 0006 browsing leg) ----
   const [clients, setClients] = useState<Client[] | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [scope, setScope] = useState<Scope>({ kind: "all" });
-  const [q, setQ] = useState("");
+  const [scope, setScope] = useState<VaultScope>({ kind: "org" });
+  const [folders, setFolders] = useState<SecretFolder[] | null>(null);
+  const [foldersError, setFoldersError] = useState<string | null>(null);
+  const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
+  const [records, setRecords] = useState<SecretRecord[] | null>(null);
+  const [openRecord, setOpenRecord] = useState<SecretRecord | null>(null);
+  const [folderDialog, setFolderDialog] = useState<"new" | "edit" | "fork" | null>(null);
+  const [folderForDialog, setFolderForDialog] = useState<SecretFolder | null>(null);
+  const [grantsOpen, setGrantsOpen] = useState(false);
 
-  const [editOpen, setEditOpen] = useState(false);
-  const [editing, setEditing] = useState<PasswordEntry | null>(null);
+  // ---- legacy-entries state (byte-compatible PasswordEntry leg) ----
+  const [entries, setEntries] = useState<PasswordEntry[] | null>(null);
 
-  const [reveal, setReveal] = useState<(PasswordEntry & { secret: string; notes?: string | null }) | null>(null);
-  const [revealing, setRevealing] = useState<string | null>(null);
+  const [legacyEditOpen, setLegacyEditOpen] = useState(false);
+  const [legacyEditing, setLegacyEditing] = useState<PasswordEntry | null>(null);
+  const [legacyReveal, setLegacyReveal] = useState<(PasswordEntry & { secret: string; notes?: string | null }) | null>(null);
+  const [legacyRevealing, setLegacyRevealing] = useState<string | null>(null);
   const [historyFor, setHistoryFor] = useState<PasswordEntry | null>(null);
   const [history, setHistory] = useState<PasswordHistoryEntry[] | null>(null);
+
+  const [vaultQuery, setVaultQuery] = useState("");
 
   const clientById = useMemo(() => new Map((clients ?? []).map((c) => [c.id, c])), [clients]);
 
@@ -72,46 +184,80 @@ export default function PasswordsPage() {
       api.api.GET("/api/v1/clients"),
     ]);
     if (p.error !== undefined || c.error !== undefined) {
-      setLoadError("Failed to load the vault.");
+      setFoldersError("Failed to load the vault.");
+      setEntries([]);
+      setClients([]);
       return;
     }
     setEntries(p.data ?? []);
     setClients(c.data ?? []);
-    setLoadError(null);
+    setFoldersError(null);
   }, []);
 
   useEffect(() => {
     if (auth.status === "authed") void refresh();
   }, [auth.status, refresh]);
 
-  const filtered = useMemo(() => {
-    if (entries === null) return null;
-    const needle = q.trim().toLowerCase();
-    return entries.filter((e) => {
-      if (scope.kind === "global" && e.client_id !== null) return false;
-      if (scope.kind === "client" && e.client_id !== scope.id) return false;
-      if (needle === "") return true;
-      return (
-        e.title.toLowerCase().includes(needle) ||
-        (e.username ?? "").toLowerCase().includes(needle) ||
-        (e.url ?? "").toLowerCase().includes(needle)
-      );
-    });
-  }, [entries, scope, q]);
+  useEffect(() => {
+    if (auth.status !== "authed") return;
+    setFoldersError(null);
+    api.api
+      .GET("/api/v1/secrets/folders", { params: { query: scopeOf(scope) } })
+      .then(({ data, error }) => {
+        if (error !== undefined || data === undefined) {
+          setFoldersError("Failed to load the secret category trees — retry.");
+          setFolders([]);
+          return;
+        }
+        setFolders([...data]);
+      });
+  }, [auth.status, scope]);
 
-  const expired = (e: PasswordEntry) => e.expires_at != null && new Date(e.expires_at) < new Date();
+  useEffect(() => {
+    if (auth.status !== "authed" || selectedFolder === null) return;
+    setRecords(null);
+    api.api
+      .GET("/api/v1/secrets/records", {
+        params: { query: { folder_id: selectedFolder, ...scopeOf(scope) } },
+      })
+      .then(({ data, error }) => {
+        setRecords(error === undefined && data !== undefined ? [...data] : []);
+      });
+  }, [auth.status, selectedFolder, scope]);
 
-  const doReveal = async (entry: PasswordEntry) => {
-    setRevealing(entry.id);
+  const refreshFolders = useCallback(() => {
+    api.api
+      .GET("/api/v1/secrets/folders", { params: { query: scopeOf(scope) } })
+      .then(({ data }) => {
+        if (data !== undefined) setFolders([...data]);
+      });
+  }, [scope]);
+
+  const reloadRecords = useCallback(() => {
+    if (selectedFolder === null) return;
+    api.api
+      .GET("/api/v1/secrets/records", {
+        params: { query: { folder_id: selectedFolder, ...scopeOf(scope) } },
+      })
+      .then(({ data }) => {
+        if (data !== undefined) setRecords([...data]);
+      });
+  }, [selectedFolder, scope]);
+
+  // ---- legacy handlers (unchanged behavior) ----
+  const legacyExpired = (e: PasswordEntry) => e.expires_at != null && new Date(e.expires_at) < new Date();
+
+  const legacyRevealEntry = async (entry: PasswordEntry) => {
+    setLegacyRevealing(entry.id);
     const { data, error } = await api.api.POST("/api/v1/passwords/{id}/reveal", {
       params: { path: { id: entry.id } },
     });
-    setRevealing(null);
+    setLegacyRevealing(null);
     if (error !== undefined || data === undefined) {
-      setLoadError("Reveal was rejected — you need vault edit rights.");
+      setFoldersError("Reveal was rejected — you need vault edit rights.");
       return;
     }
-    setReveal({ ...entry, secret: data.secret, notes: data.notes ?? null });
+    setLegacyReveal({ ...entry, secret: (data as PasswordReveal).secret, notes: (data as PasswordReveal).notes ?? null });
   };
 
   const openHistory = async (entry: PasswordEntry) => {
@@ -123,7 +269,7 @@ export default function PasswordsPage() {
     if (data !== undefined) setHistory(data);
   };
 
-  const remove = async (entry: PasswordEntry) => {
+  const removeLegacy = async (entry: PasswordEntry) => {
     if (!window.confirm(`Delete “${entry.title}” from the vault? Its change history goes with it.`)) {
       return;
     }
@@ -133,54 +279,46 @@ export default function PasswordsPage() {
     if (error === undefined) await refresh();
   };
 
+  const legacyFiltered = useMemo(() => {
+    if (entries === null) return null;
+    const needle = vaultQuery.trim().toLowerCase();
+    if (needle === "") return entries;
+    return entries.filter(
+      (e) =>
+        e.title.toLowerCase().includes(needle) ||
+        (e.username ?? "").toLowerCase().includes(needle) ||
+        (e.url ?? "").toLowerCase().includes(needle),
+    );
+  }, [entries, vaultQuery]);
+
   if (auth.status !== "authed") return null;
 
+  const scopeLabel =
+    scope.kind === "org" ? "Org-level vault" : `Vault — ${clientById.get(scope.id)?.name ?? "client"}`;
+
   return (
-    <div className="mx-auto grid w-full max-w-[1400px] gap-8 p-4 md:p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="mx-auto grid w-full grid-cols-1 max-w-[1400px] gap-6 p-4 md:p-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold">Password vault</h1>
+          <h1 className="text-lg font-semibold">Vault</h1>
           <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Org and client credentials, encrypted at rest. Every reveal is audited.
+            Secret categories are KB-class: org-level or per client, with restricted chains
+            grant-gated behind the scenes. Every reveal is audited.
           </p>
         </div>
-        <Button
-          onClick={() => {
-            setEditing(null);
-            setEditOpen(true);
-          }}
-        >
-          New credential
-        </Button>
-      </div>
-
-      <Card>
-        <div className="flex flex-wrap items-center gap-2 p-4 pb-0">
-          <Input
-            aria-label="Search vault"
-            placeholder="Search title, user, URL…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            className="w-64"
-          />
+        <div className="flex flex-wrap items-center gap-2">
           <Select
-            value={scope.kind === "client" ? scope.id : scope.kind}
-            onValueChange={(v) =>
-              setScope(
-                v === "all"
-                  ? { kind: "all" }
-                  : v === "global"
-                    ? { kind: "global" }
-                    : { kind: "client", id: v },
-              )
-            }
+            value={scope.kind === "org" ? "org" : scope.id}
+            onValueChange={(v) => {
+              setScope(v === "org" ? { kind: "org" } : { kind: "client", id: v });
+              setSelectedFolder(null);
+            }}
           >
-            <SelectTrigger aria-label="Filter by scope" className="w-52 whitespace-nowrap">
+            <SelectTrigger aria-label="Vault scope" className="w-60 whitespace-nowrap">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All scopes</SelectItem>
-              <SelectItem value="global">Org-level</SelectItem>
+              <SelectItem value="org">Org-level</SelectItem>
               {(clients ?? []).map((c) => (
                 <SelectItem key={c.id} value={c.id}>
                   {c.name}
@@ -188,23 +326,219 @@ export default function PasswordsPage() {
               ))}
             </SelectContent>
           </Select>
+          {canManage ? (
+            <Button variant="ghost" onClick={() => setGrantsOpen(true)}>
+              Category grants
+            </Button>
+          ) : null}
+          <Button
+            onClick={() => {
+              setFolderForDialog(null);
+              setFolderDialog("new");
+            }}
+          >
+            New category
+          </Button>
         </div>
-        {filtered === null ? (
+      </div>
+
+      <div className="grid gap-6 grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)]">
+        <Card className="self-start m-entity-rise" data-testid="vault-tree" style={{ "--stagger-i": 0 } as React.CSSProperties}>
+          <h2 className="p-4 pb-2 text-sm font-semibold">{scopeLabel}</h2>
+          {folders === null ? (
+            <div className="px-4 pb-4">
+              <Spinner />
+            </div>
+          ) : foldersError !== null ? (
+            <p role="alert" className="px-4 pb-4 text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
+              {foldersError}
+            </p>
+          ) : (
+            <VaultTree
+              folders={folders}
+              selected={selectedFolder}
+              onSelect={setSelectedFolder}
+              onFork={(f) => {
+                setFolderForDialog(f);
+                setFolderDialog("fork");
+              }}
+              onEdit={(f) => {
+                setFolderForDialog(f);
+                setFolderDialog("edit");
+              }}
+            />
+          )}
+        </Card>
+
+        <Card className="m-entity-rise min-h-64" style={{ "--stagger-i": 1 } as React.CSSProperties}>
+          <div className="flex flex-wrap items-center justify-between gap-2 p-4 pb-2">
+            <h2 className="text-sm font-semibold">
+              {selectedFolder
+                ? (folders ?? []).find((f) => f.id === selectedFolder)?.label ?? "Secret records"
+                : "Secret records"}
+            </h2>
+            {selectedFolder !== null ? (
+              <Button
+                size="sm"
+                onClick={() => {
+                  const folder = (folders ?? []).find((f) => f.id === selectedFolder);
+                  const kind =
+                    folder?.kind === "api_keys"
+                      ? "api_key"
+                      : folder?.kind === "certificates"
+                        ? "certificate"
+                        : folder?.kind === "recovery_codes"
+                          ? "recovery_code"
+                          : folder?.kind === "documents"
+                            ? "document"
+                            : "password";
+                  setOpenRecord({
+                    id: "",
+                    org_id: scope.kind === "org" ? "" : (scope.id),
+                    folder_id: selectedFolder,
+                    title: "",
+                    kind,
+                    fields: [],
+                    client_id: scope.kind === "client" ? scope.id : null,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                  } satisfies SecretRecord);
+                }}
+              >
+                New record
+              </Button>
+            ) : null}
+          </div>
+          {selectedFolder !== null ? (
+            <p className="px-4 pb-2 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+              {(() => {
+                const f = (folders ?? []).find((x) => x.id === selectedFolder);
+                if (f === undefined) return null;
+                return (
+                  <>
+                    {KIND_LABELS[f.kind] ?? f.kind}
+                    {f.restricted ? " · restricted category — read is grant-gated, reveal needs an edit grant" : ""}
+                    {f.forked_from !== null ? " · forked seed" : ""}
+                    {f.is_default_seed ? " · shipped seed (fork to customize)" : ""}
+                  </>
+                );
+              })()}
+            </p>
+          ) : null}
+          {selectedFolder === null ? (
+            <div className="px-4 pb-4">
+              <EmptyState message="Select a category in the tree to browse its secret records. Restricted categories you cannot access are hidden entirely — never dead entries." />
+            </div>
+          ) : records === null ? (
+            <div className="px-4 pb-4">
+              <Spinner />
+            </div>
+          ) : records.length === 0 ? (
+            <div className="px-4 pb-4">
+              <EmptyState message="No secret records in this category yet." />
+            </div>
+          ) : (
+            <ul className="grid gap-2 px-4 pb-4">
+              {records
+                .slice()
+                .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }))
+                .map((r, i) => (
+                  <li
+                    key={r.id}
+                    className="m-entity-row m-entity-rise flex flex-wrap items-center justify-between gap-2 rounded-[0.5rem] border px-3 py-2"
+                    style={{ borderColor: "var(--m-border)", "--stagger-i": Math.min(i, 10) } as React.CSSProperties}
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-[13px] font-medium">{r.title}</p>
+                      <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+                        {KIND_LABELS[r.kind] ?? r.kind}
+                        {r.fields?.some((f) => f.field_key === "username" && f.has_value)
+                          ? " · username"
+                          : ""}
+                        {r.fields?.some((f) => f.field_key === "url" && f.has_value) ? " · url" : ""}
+                        {r.object_key != null ? " · stored ciphertext file" : ""}
+                        · updated {new Date(r.updated_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {r.expires_at != null && new Date(r.expires_at) < new Date() ? (
+                        <Tag tone="danger">expired</Tag>
+                      ) : null}
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={r.id === ""}
+                        onClick={() => setOpenRecord(r)}
+                      >
+                        Open
+                      </Button>
+                    </div>
+                  </li>
+                ))}
+            </ul>
+          )}
+        </Card>
+      </div>
+
+      <RecordDialog
+        record={openRecord}
+        folders={folders ?? []}
+        scope={scope}
+        clientById={clientById}
+        canReveal={canReveal}
+        isNew={openRecord?.id === ""}
+        onClose={() => {
+          setOpenRecord(null);
+          if (openRecord?.id === "") setOpenRecord(null);
+        }}
+        onChanged={() => {
+          reloadRecords();
+          void refresh();
+        }}
+      />
+
+      {/* ---- legacy entries (byte-compatible PasswordEntry surface) ---- */}
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3 p-4 pb-0">
+          <div>
+            <h2 className="text-sm font-semibold">Legacy password entries</h2>
+            <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+              The original org/client flat vault. It stays beside the category trees — no cutover.
+            </p>
+          </div>
+          <Button
+            onClick={() => {
+              setLegacyEditing(null);
+              setLegacyEditOpen(true);
+            }}
+          >
+            New credential
+          </Button>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 p-4 pb-0">
+          <Input
+            aria-label="Search vault"
+            placeholder="Search title, user, URL…"
+            value={vaultQuery}
+            onChange={(e) => setVaultQuery(e.target.value)}
+            className="w-64"
+          />
+        </div>
+        {legacyFiltered === null ? (
           <div className="p-4">
-            {loadError !== null ? (
-              <p role="alert" className="text-[13px]">
-                {loadError}
-              </p>
+            {foldersError !== null ? (
+              <p role="alert" className="text-[13px]">{foldersError}</p>
             ) : (
               <Spinner />
             )}
           </div>
-        ) : filtered.length === 0 ? (
+        ) : legacyFiltered.length === 0 ? (
           <div className="p-4">
             <EmptyState message="No credentials match. Vault entries can be org-level or scoped to a client; secrets are encrypted at rest and revealed only through the audited path." />
           </div>
         ) : (
-          <Table>
+          <div className="overflow-x-auto">
+            <Table>
             <thead>
               <tr>
                 <Th>Title</Th>
@@ -215,8 +549,8 @@ export default function PasswordsPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((e) => (
-                <Tr key={e.id}>
+              {legacyFiltered.map((e) => (
+                <Tr key={e.id} className="m-entity-row">
                   <Td>
                     <span className="font-medium">{e.title}</span>
                     {(e.url ?? "") !== "" ? (
@@ -247,7 +581,7 @@ export default function PasswordsPage() {
                   <Td>
                     {e.expires_at == null ? (
                       <span style={{ color: "var(--m-text-muted)" }}>—</span>
-                    ) : expired(e) ? (
+                    ) : legacyExpired(e) ? (
                       <Tag tone="danger">expired</Tag>
                     ) : (
                       new Date(e.expires_at).toLocaleDateString()
@@ -255,22 +589,23 @@ export default function PasswordsPage() {
                   </Td>
                   <Td className="text-right">
                     <div className="flex justify-end gap-1">
-                      <Button variant="secondary" onClick={() => void doReveal(e)} disabled={revealing === e.id}>
-                        {revealing === e.id ? <Spinner /> : null} Reveal
+                      <Button variant="secondary" size="sm" onClick={() => void legacyRevealEntry(e)} disabled={legacyRevealing === e.id}>
+                        {legacyRevealing === e.id ? <Spinner /> : null} Reveal
                       </Button>
                       <Button
                         variant="ghost"
+                        size="sm"
                         onClick={() => {
-                          setEditing(e);
-                          setEditOpen(true);
+                          setLegacyEditing(e);
+                          setLegacyEditOpen(true);
                         }}
                       >
                         Edit
                       </Button>
-                      <Button variant="ghost" onClick={() => void openHistory(e)}>
+                      <Button variant="ghost" size="sm" onClick={() => void openHistory(e)}>
                         History
                       </Button>
-                      <Button variant="ghost" onClick={() => void remove(e)}>
+                      <Button variant="ghost" size="sm" onClick={() => void removeLegacy(e)}>
                         Delete
                       </Button>
                     </div>
@@ -278,72 +613,73 @@ export default function PasswordsPage() {
                 </Tr>
               ))}
             </tbody>
-          </Table>
+            </Table>
+          </div>
         )}
       </Card>
 
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+      <Dialog open={legacyEditOpen} onOpenChange={setLegacyEditOpen}>
         <DialogContent
-          title={editing === null ? "New credential" : "Edit credential"}
+          title={legacyEditing === null ? "New credential" : "Edit credential"}
           description={
-            editing === null
+            legacyEditing === null
               ? "Secrets are encrypted at rest and only ever returned through the audited reveal action."
               : "Leave the secret blank to keep the current one. Any change archives the previous secret to history."
           }
         >
-          <VaultForm
-            editing={editing}
+          <LegacyVaultForm
+            editing={legacyEditing}
             clients={clients ?? []}
             onDone={() => {
-              setEditOpen(false);
+              setLegacyEditOpen(false);
               void refresh();
             }}
           />
         </DialogContent>
       </Dialog>
 
-      <Dialog open={reveal !== null} onOpenChange={(o) => !o && setReveal(null)}>
+      <Dialog open={legacyReveal !== null} onOpenChange={(o) => !o && setLegacyReveal(null)}>
         <DialogContent
           title="Credential revealed"
           description="This reveal was recorded in the audit trail. Close the dialog when you've copied what you need — the plaintext is not stored anywhere else."
         >
-          {reveal !== null ? (
+          {legacyReveal !== null ? (
             <div className="grid gap-3 p-4">
               <div>
                 <Label htmlFor="reveal-secret">Secret</Label>
                 <div className="flex gap-2">
-                  <Input id="reveal-secret" readOnly value={reveal.secret} className="font-mono" />
+                  <Input id="reveal-secret" readOnly value={legacyReveal.secret} className="font-mono" />
                   <Button
                     variant="secondary"
-                    onClick={() => void navigator.clipboard.writeText(reveal.secret)}
+                    onClick={() => void navigator.clipboard.writeText(legacyReveal.secret)}
                   >
                     Copy
                   </Button>
                 </div>
               </div>
-              {(reveal.username ?? "") !== "" ? (
+              {(legacyReveal.username ?? "") !== "" ? (
                 <div className="text-[13px]">
                   <span style={{ color: "var(--m-text-secondary)" }}>Username: </span>
-                  {reveal.username}
+                  {legacyReveal.username}
                   <Button
                     variant="ghost"
                     className="ml-2"
-                    onClick={() => void navigator.clipboard.writeText(reveal.username ?? "")}
+                    onClick={() => void navigator.clipboard.writeText(legacyReveal.username ?? "")}
                   >
                     Copy
                   </Button>
                 </div>
               ) : null}
-              {reveal.notes != null && reveal.notes !== "" ? (
+              {legacyReveal.notes != null && legacyReveal.notes !== "" ? (
                 <div>
                   <Label htmlFor="reveal-notes">Notes</Label>
                   <p id="reveal-notes" className="whitespace-pre-wrap text-[13px]">
-                    {reveal.notes}
+                    {legacyReveal.notes}
                   </p>
                 </div>
               ) : null}
               <DialogActions>
-                <Button onClick={() => setReveal(null)}>Done</Button>
+                <Button onClick={() => setLegacyReveal(null)}>Done</Button>
               </DialogActions>
             </div>
           ) : null}
@@ -363,7 +699,7 @@ export default function PasswordsPage() {
             ) : (
               <ul className="grid gap-1 text-[13px]">
                 {history.map((h) => (
-                  <li key={h.id} className="rounded-[2px] border px-3 py-2" style={{ borderColor: "var(--m-border)" }}>
+                  <li key={h.id} className="rounded-[0.5rem] border px-3 py-2" style={{ borderColor: "var(--m-border)" }}>
                     Secret changed · {new Date(h.created_at).toLocaleString()}
                   </li>
                 ))}
@@ -372,11 +708,1237 @@ export default function PasswordsPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <FolderDialog
+        mode={folderDialog}
+        folder={folderForDialog}
+        scope={scope}
+        folders={folders ?? []}
+        clients={clients ?? []}
+        onSuccess={() => {
+          setFolderDialog(null);
+          refreshFolders();
+        }}
+        onClose={() => setFolderDialog(null)}
+      />
+
+      <GrantsDialog open={grantsOpen} onClose={() => setGrantsOpen(false)} folders={folders ?? []} />
     </div>
   );
 }
 
-function VaultForm({
+/* ------------------------------------------------------------------ */
+/* Vault tree (extends the /kb/secrets pattern for the /passwords leg). */
+/* ------------------------------------------------------------------ */
+
+function VaultTree({
+  folders,
+  selected,
+  onSelect,
+  onFork,
+  onEdit,
+}: {
+  folders: SecretFolder[];
+  selected: string | null;
+  onSelect: (id: string) => void;
+  onFork: (f: SecretFolder) => void;
+  onEdit: (f: SecretFolder) => void;
+}) {
+  const rows: ReactNode[] = [];
+  const push = (nodes: TreeNode[], depth: number) => {
+    for (const node of nodes) {
+      const f = node.folder;
+      rows.push(
+        <li
+          key={f.id}
+          className="flex items-center justify-between gap-1"
+          style={{ paddingLeft: depth * 14 }}
+        >
+          <button
+            type="button"
+            className={`m-entity-row min-w-0 flex-1 truncate rounded-[0.5rem] px-2 py-1 text-left text-[13px] ${selected === f.id ? "font-medium" : ""}`}
+            style={{
+              background: selected === f.id ? "var(--m-accent-soft)" : undefined,
+              color: "var(--m-text)",
+            }}
+            aria-current={selected === f.id ? "true" : undefined}
+            onClick={() => onSelect(f.id)}
+          >
+            {f.label}
+            {f.is_default_seed ? (
+              <span className="ml-2 text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+                seed
+              </span>
+            ) : null}
+            {f.restricted ? (
+              <Tag tone="warning" className="ml-2">
+                restricted
+              </Tag>
+            ) : null}
+          </button>
+          {f.is_default_seed ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={`Fork ${f.label} into a client scope`}
+              onClick={() => onFork(f)}
+            >
+              Fork
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={`Edit ${f.label}`}
+              onClick={() => onEdit(f)}
+            >
+              Edit
+            </Button>
+          )}
+        </li>,
+      );
+      push(node.children, depth + 1);
+    }
+  };
+  push(buildTree(folders), 0);
+  return (
+    <ul className="grid gap-1 px-2 pb-4">
+      {rows.length === 0 ? (
+        <li className="px-2 py-2 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+          No categories visible — restricted chains you cannot access are hidden entirely, never
+          rendered as dead entries.
+        </li>
+      ) : (
+        rows
+      )}
+    </ul>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Record dialog — metadata-first + audited reveal + file surface.     */
+/* ------------------------------------------------------------------ */
+
+function RecordDialog({
+  record,
+  folders,
+  scope,
+  clientById,
+  canReveal,
+  isNew,
+  onClose,
+  onChanged,
+}: {
+  record: SecretRecord | null;
+  folders: SecretFolder[];
+  scope: VaultScope;
+  clientById: Map<string, Client>;
+  canReveal: boolean;
+  isNew: boolean;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const [current, setCurrent] = useState<SecretRecord | null>(record && record.id !== "" ? record : null);
+  const [reveal, setReveal] = useState<SecretReveal | null>(null);
+  const [revealError, setRevealError] = useState<string | null>(null);
+  const [revealing, setRevealing] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [notAvailable, setNotAvailable] = useState(false);
+  const [links, setLinks] = useState<ResolvedLink[] | null>(null);
+  const [linksError, setLinksError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setCurrent(record && record.id !== "" ? record : null);
+    setReveal(null);
+    setRevealError(null);
+    setEditing(isNew);
+    setNotAvailable(false);
+    setLinks(null);
+    setLinksError(null);
+    if (record === null || record.id === "") return;
+    void (async () => {
+      const { data, error, response } = await api.api.GET("/api/v1/secrets/records/{id}", {
+        params: { path: { id: record.id } },
+      });
+      if (error !== undefined) {
+        if (response?.status === 403) setNotAvailable(true);
+        return;
+      }
+      if (data !== undefined) setCurrent(data);
+    })();
+    void (async () => {
+      const { data, error, response } = await api.api.GET("/api/v1/secrets/records/{id}/links", {
+        params: { path: { id: record.id } },
+      });
+      const linksStatus = response.status;
+      if (error !== undefined || data === undefined) {
+        setLinks([]);
+        setLinksError(
+          linksStatus === 403
+            ? "This record's links are not available with your role — category read access is required."
+            : "Failed to load links.",
+        );
+        return;
+      }
+      setLinks([...data]);
+    })();
+  }, [record, isNew]);
+
+  const doReveal = async () => {
+    if (current === null) return;
+    setRevealing(true);
+    const { data, error } = await api.api.POST("/api/v1/secrets/records/{id}/reveal", {
+      params: { path: { id: current.id } },
+    });
+    setRevealing(false);
+    if (error !== undefined || data === undefined) {
+      setRevealError(
+        "Reveal was rejected. Reveal needs secrets:edit — and, on restricted chains, a category edit grant. The attempt is audited.",
+      );
+      return;
+    }
+    setRevealError(null);
+    setReveal(data);
+  };
+
+  if (record === null || record.id === "") return null;
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent
+        title={
+          isNew ? "New secret record" : current?.title ?? record.title
+        }
+        description={
+          isNew
+            ? "Materials fields are sealed server-side; plaintext never returns outside the audited reveal."
+            : "Metadata-only view — plaintext exists only in the audited reveal below."
+        }
+      >
+        {isNew ? (
+          <RecordCreator
+            record={record}
+            scope={scope}
+            canReveal={canReveal}
+            onDone={() => {
+              onClose();
+              onChanged();
+            }}
+            onCancel={onClose}
+          />
+        ) : current === null ? (
+          <div className="p-4">
+            {notAvailable ? (
+              <EmptyState message="This secret record is not available for your role — restricted categories deny by default until an owner or admin grants your role read access." />
+            ) : (
+              <Spinner />
+            )}
+          </div>
+        ) : (
+          <div className="grid max-h-[70vh] gap-4 overflow-auto p-4">
+            <dl className="grid gap-1 text-[13px]">
+              <MetaRow label="Category">
+                {folders.find((f) => f.id === current.folder_id)?.label ?? "—"}
+              </MetaRow>
+              <MetaRow label="Kind">{KIND_LABELS[current.kind] ?? current.kind}</MetaRow>
+              <MetaRow label="Scope">
+                {current.client_id != null
+                  ? clientById.get(current.client_id)?.name ?? "client"
+                  : "org-level"}
+              </MetaRow>
+              <MetaRow label="Material fields">
+                {current.fields?.filter((f) => f.has_value).map((f) => f.field_key.replaceAll("_", " ")).join(", ") ||
+                  "none"}
+              </MetaRow>
+              <MetaRow label="Expires">
+                {current.expires_at == null
+                  ? "—"
+                  : new Date(current.expires_at) < new Date()
+                    ? "expired"
+                    : new Date(current.expires_at).toLocaleDateString()}
+              </MetaRow>
+            </dl>
+
+            {canReveal ? null : (
+              <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+                Reveal is not available with your role — it requires secrets:edit (plus a
+                category edit grant on restricted chains).
+              </p>
+            )}
+            {revealError !== null ? (
+              <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
+                {revealError}
+              </p>
+            ) : null}
+            {canReveal ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button variant="secondary" onClick={() => void doReveal()} disabled={revealing}>
+                  {revealing ? <Spinner /> : null} Reveal (audited)
+                </Button>
+                <Button variant="ghost" onClick={() => setEditing((v) => !v)}>
+                  Edit / rotate fields
+                </Button>
+              </div>
+            ) : null}
+
+            {reveal !== null ? <RevealPanel reveal={reveal} /> : null}
+
+            {editing ? (
+              <RecordMetaEditor
+                record={current}
+                onDone={() => setEditing(false)}
+                onChanged={onChanged}
+                onUpdated={(next) => setCurrent(next)}
+              />
+            ) : null}
+
+            {current.kind === "document" ? (
+              <DocumentFilePanel record={current} canReveal={canReveal} onChanged={onChanged} />
+            ) : null}
+
+            {links !== null && linksError === null ? (
+              <RecordLinksPanel recordId={current.id} links={links} onChanged={onChanged} />
+            ) : linksError !== null ? (
+              <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
+                {linksError}
+              </p>
+            ) : (
+              <div className="px-1">
+                <Spinner />
+              </div>
+            )}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function MetaRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <dt className="shrink-0" style={{ color: "var(--m-text-secondary)" }}>
+        {label}
+      </dt>
+      <dd className="text-right">{children}</dd>
+    </div>
+  );
+}
+
+function RevealPanel({ reveal }: { reveal: SecretReveal }) {
+  return (
+    <Card className="border-dashed">
+      <h3 className="p-4 pb-1 text-sm font-semibold">Revealed — audited</h3>
+      <p className="px-4 pb-2 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+        Recorded in the audit trail. Close the dialog once you've copied what you need — this
+        plaintext is not stored anywhere else.
+      </p>
+      {reveal.fields.map((f) => (
+        <div key={f.field_key} className="px-4 pb-2">
+          <Label htmlFor={`reveal-${f.field_key}`}>
+            {FIELD_LABELS[f.field_key] ?? f.field_key}
+          </Label>
+          <div className="flex gap-2">
+            <Input
+              id={`reveal-${f.field_key}`}
+              readOnly
+              value={f.value}
+              type={f.field_key === "secret" ? "password" : "text"}
+              className={f.field_key === "secret" ? "font-mono" : undefined}
+            />
+            <Button
+              variant="secondary"
+              onClick={() => void navigator.clipboard.writeText(f.value)}
+            >
+              Copy
+            </Button>
+          </div>
+        </div>
+      ))}
+    </Card>
+  );
+}
+
+/* Record metadata + sealed-field rotation/clear (`value: null` clears,
+   audited via the record-updated event — Wave 16 lane 9 semantics). */
+function RecordMetaEditor({
+  record,
+  onDone,
+  onChanged,
+  onUpdated,
+}: {
+  record: SecretRecord;
+  onDone: () => void;
+  onChanged: () => void;
+  onUpdated: (next: SecretRecord) => void;
+}) {
+  const [title, setTitle] = useState(record.title);
+  const [expiresAt, setExpiresAt] = useState(
+    record.expires_at != null ? record.expires_at.slice(0, 10) : "",
+  );
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [clearKeys, setClearKeys] = useState<Record<string, boolean>>({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const sealedKeys = record.fields?.filter((f) => f.field_key !== "notes") ?? [];
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    const fields = [
+      ...Object.entries(values)
+        .filter(([k, v]) => v !== "" && !clearKeys[k] && FIELD_LABELS[k] !== undefined)
+        .map(([field_key, value]) => ({ field_key, value })),
+      ...Object.keys(clearKeys)
+        .filter((k) => clearKeys[k])
+        .map((field_key) => ({ field_key, value: null })),
+    ];
+    const { data, error: e } = await api.api.PATCH("/api/v1/secrets/records/{id}", {
+      params: { path: { id: record.id } },
+      body: {
+        title,
+        expires_at: expiresAt === "" ? null : new Date(expiresAt).toISOString(),
+        ...(fields.length > 0 ? { fields } : {}),
+      } as components["schemas"]["UpdateSecretRecordRequest"],
+    });
+    setBusy(false);
+    if (e !== undefined || data === undefined) {
+      const friendly = friendlyMutationError(e);
+      setError(friendly.text);
+      return;
+    }
+    setValues({});
+    setClearKeys({});
+    onUpdated(data);
+    onChanged();
+    onDone();
+  };
+
+  return (
+    <Card className="border-dashed">
+      <h3 className="p-4 pb-2 text-sm font-semibold">Edit metadata</h3>
+      <div className="grid gap-3 px-4 pb-4">
+        <div>
+          <Label htmlFor="rec-title">Title</Label>
+          <Input id="rec-title" value={title} onChange={(e) => setTitle(e.target.value)} />
+        </div>
+        <div>
+          <Label htmlFor="rec-expires">Expires (optional)</Label>
+          <Input
+            id="rec-expires"
+            type="date"
+            value={expiresAt}
+            onChange={(e) => setExpiresAt(e.target.value)}
+          />
+        </div>
+        {sealedKeys.map((f) => (
+          <div key={f.field_key}>
+            <Label htmlFor={`rec-${f.field_key}`}>
+              {FIELD_LABELS[f.field_key] ?? f.field_key}{" "}
+              {f.has_value ? "(rotates the sealed value)" : "(sets a sealed value)"}
+            </Label>
+            <Input
+              id={`rec-${f.field_key}`}
+              type={f.field_key === "secret" ? "password" : "text"}
+              value={clearKeys[f.field_key] ? "" : (values[f.field_key] ?? "")}
+              disabled={clearKeys[f.field_key]}
+              autoComplete="new-password"
+              onChange={(e) =>
+                setValues((prev) => ({ ...prev, [f.field_key]: e.target.value }))
+              }
+            />
+            {f.has_value ? (
+              <label className="mt-1 flex items-center gap-2 text-[12px]">
+                <input
+                  type="checkbox"
+                  checked={clearKeys[f.field_key] ?? false}
+                  onChange={(e) =>
+                    setClearKeys((prev) => ({ ...prev, [f.field_key]: e.target.checked }))
+                  }
+                />
+                Clear this sealed value (<code>value: null</code> — audited)
+              </label>
+            ) : null}
+            <FieldHint>Sealed server-side before persistence; never returned except by reveal.</FieldHint>
+          </div>
+        ))}
+        {error !== null ? (
+          <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
+            {error}
+          </p>
+        ) : null}
+        <DialogActions>
+          <Button variant="ghost" onClick={onDone}>
+            Cancel
+          </Button>
+          <Button onClick={() => void submit()} disabled={busy || title.trim() === ""}>
+            {busy ? <Spinner /> : null} Save
+          </Button>
+        </DialogActions>
+      </div>
+    </Card>
+  );
+}
+
+/* Document-kind records: the pointer+hash object surface. The GET is the
+   audited reveal-file path (secrets:edit + category gate; emits
+   secret.revealed in-commit). The PUT seals and stores the ciphertext,
+   pinning object_key + file_sha256 + file_bytes in the same tx. */
+function DocumentFilePanel({
+  record,
+  canReveal,
+  onChanged,
+}: {
+  record: SecretRecord;
+  canReveal: boolean;
+  onChanged: () => void;
+}) {
+  const [downloading, setDownloading] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadNote, setUploadNote] = useState<string | null>(null);
+
+  const download = async () => {
+    setDownloading(true);
+    setFileError(null);
+    try {
+      const { data, response } = await api.api.GET("/api/v1/secrets/records/{id}/file", {
+        params: { path: { id: record.id } },
+        parseAs: "blob",
+      });
+      if (response.status !== 200 || data === undefined) {
+        setFileError(
+          response.status === 403
+            ? "The stored file is not available with your role — document files ride the same audited gate as reveals."
+            : "Failed to download the stored file.",
+        );
+        return;
+      }
+      const blob = data as Blob;
+      const url = URL.createObjectURL(blob);
+      const a = window.document.createElement("a");
+      a.href = url;
+      a.download = record.title;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const upload = async (file: globalThis.File) => {
+    setUploading(true);
+    setFileError(null);
+    setUploadNote(null);
+    try {
+      const bytes = await file.arrayBuffer();
+      const { data, response } = await api.api.PUT("/api/v1/secrets/records/{id}/file", {
+        params: { path: { id: record.id } },
+        body: bytes as unknown as string,
+        headers: { "content-type": "application/octet-stream" },
+      });
+      if (response.status !== 200 || data === undefined) {
+        setFileError(
+          response.status === 403
+            ? "Uploading the stored file requires secrets:edit (and a category edit grant on restricted chains)."
+            : "The file upload was rejected.",
+        );
+        return;
+      }
+      setUploadNote(
+        `Sealed + stored${data.file_sha256 != null ? ` · sha256 ${data.file_sha256.slice(0, 12)}…` : ""}${data.file_bytes != null ? ` · ${data.file_bytes} bytes` : ""}`,
+      );
+      onChanged();
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <Card>
+      <h3 className="p-4 pb-1 text-sm font-semibold">Stored file — document kind</h3>
+      <p className="px-4 pb-2 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+        Documents ride object storage as ciphertext with pointer + hash columns — never material
+        blobs. Reads and writes ride the same audited gate as field reveal.
+      </p>
+      <dl className="grid gap-1 px-4 pb-2 text-[13px]">
+        <MetaRow label="Object key">
+          <span className="font-mono">{record.object_key ?? "—"}</span>
+        </MetaRow>
+        <MetaRow label="SHA-256">
+          <span className="break-all font-mono text-[11px]">{record.file_sha256 ?? "—"}</span>
+        </MetaRow>
+        <MetaRow label="Bytes">
+          <span className="tabular-nums">{record.file_bytes != null ? record.file_bytes.toLocaleString() : "—"}</span>
+        </MetaRow>
+      </dl>
+      {canReveal ? (
+        <div className="flex flex-wrap items-center gap-2 px-4 pb-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => void download()}
+            disabled={downloading || record.object_key === null}
+          >
+            {downloading ? <Spinner /> : null} Download (audited)
+          </Button>
+          <label className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+            Upload / rotate
+            <input
+              type="file"
+              className="sr-only"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f !== undefined) void upload(f);
+              }}
+            />
+          </label>
+        </div>
+      ) : (
+        <p className="px-4 pb-3 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+          Download and upload need secrets:edit (audited), like every reveal-path read.
+        </p>
+      )}
+      {uploadNote !== null ? (
+        <p role="status" className="px-4 pb-2 text-[12px]" style={{ color: "var(--m-status-success-fg)" }}>
+          {uploadNote}
+        </p>
+      ) : null}
+      {fileError !== null ? (
+        <p role="alert" className="px-4 pb-3 text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
+          {fileError}
+        </p>
+      ) : null}
+    </Card>
+  );
+}
+
+/* Record creator: first material fields for a NEW record (client-side
+   validation only where the wire demands it; the server seals). */
+function RecordCreator({
+  record,
+  scope,
+  canReveal,
+  onDone,
+  onCancel,
+}: {
+  record: SecretRecord;
+  scope: VaultScope;
+  canReveal: boolean;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [expiresAt, setExpiresAt] = useState("");
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const materialKeys = record.kind === "document" ? ["notes"] : ["secret", "username", "url", "notes"];
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    const fields = Object.entries(values)
+      .filter(([k, v]) => v !== "")
+      .map(([field_key, value]) => ({ field_key, value }));
+    const { data, error: e } = await api.api.POST("/api/v1/secrets/records", {
+      body: {
+        idempotency_key: newIdempotencyKey(),
+        title,
+        folder_id: record.folder_id,
+        kind: record.kind,
+        client_id: scope.kind === "client" ? scope.id : null,
+        expires_at: expiresAt === "" ? null : new Date(expiresAt).toISOString(),
+        fields,
+      } as components["schemas"]["CreateSecretRecordRequest"],
+    });
+    setBusy(false);
+    if (e !== undefined || data === undefined) {
+      const friendly = friendlyMutationError(e);
+      setError(friendly.text);
+      return;
+    }
+    onDone();
+  };
+
+  return (
+    <div className="grid gap-3 p-4">
+      <div>
+        <Label htmlFor="cr-title">Title</Label>
+        <Input id="cr-title" value={title} onChange={(e) => setTitle(e.target.value)} />
+      </div>
+      {record.kind === "document" && canReveal ? <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>Open the record after saving to upload the sealed file.</p> : null}
+      {materialKeys.map((k) => (
+        <div key={k}>
+          <Label htmlFor={`cr-${k}`}>{FIELD_LABELS[k] ?? k}</Label>
+          <Input
+            id={`cr-${k}`}
+            type={k === "secret" ? "password" : "text"}
+            value={values[k] ?? ""}
+            autoComplete="new-password"
+            onChange={(e) => setValues((prev) => ({ ...prev, [k]: e.target.value }))}
+          />
+        </div>
+      ))}
+      <div>
+        <Label htmlFor="cr-expires">Expires (optional)</Label>
+        <Input id="cr-expires" type="date" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} />
+      </div>
+      {error !== null ? (
+        <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
+          {error}
+        </p>
+      ) : null}
+      <DialogActions>
+        <Button variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button onClick={() => void submit()} disabled={busy || title.trim() === ""}>
+          {busy ? <Spinner /> : null} Create record
+        </Button>
+      </DialogActions>
+    </div>
+  );
+}
+
+/* Record links via the RecordLink seam with the shared cross-entity
+   picker. Broken targets render the "deleted target" semantic. */
+function RecordLinksPanel({
+  recordId,
+  links,
+  onChanged,
+}: {
+  recordId: string;
+  links: ResolvedLink[];
+  onChanged: () => void;
+}) {
+  const [kind, setKind] = useState<components["schemas"]["LinkKind"]>("asset");
+  const [target, setTarget] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const add = async (t: LinkTarget) => {
+    setLinkError(null);
+    setBusy(true);
+    const { error } = await api.api.POST("/api/v1/secrets/records/{id}/links", {
+      params: { path: { id: recordId } },
+      body: { to_kind: t.kind, to_id: t.id },
+    });
+    setBusy(false);
+    if (error !== undefined) {
+      setLinkError("The server rejected this link. The target must exist and be visible in your scope.");
+      return;
+    }
+    onChanged();
+  };
+
+  const addTyped = async () => {
+    const uuid = parseUuid(target.trim());
+    if (uuid === null) {
+      setLinkError("Paste a target id (UUID) — or use the picker.");
+      return;
+    }
+    void add({ kind, id: uuid, title: uuid, meta: "pasted id" });
+    setTarget("");
+  };
+
+  const removeLink = async (linkId: string) => {
+    const { error } = await api.api.DELETE("/api/v1/documents/links/{id}", {
+      params: { path: { id: linkId } },
+    });
+    if (error === undefined) onChanged();
+  };
+
+  return (
+    <Card>
+      <h3 className="p-4 pb-2 text-sm font-semibold">Links</h3>
+      {links.length === 0 ? (
+        <p className="px-4 pb-2 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+          Link config items, tickets, KB articles, or documents to this secret.
+        </p>
+      ) : (
+        <ul className="grid gap-1 px-4 pb-4">
+          {links.map((l) => (
+            <li
+              key={l.id}
+              className="m-entity-row flex items-center justify-between gap-2 rounded-[0.5rem] border px-3 py-2 text-[13px]"
+              style={{ borderColor: "var(--m-border)" }}
+            >
+              <span className="min-w-0">
+                <Tag tone="outline">{l.to_kind.replaceAll("_", " ")}</Tag>{" "}
+                {l.target_deleted ? (
+                  <span style={{ color: "var(--m-status-danger-fg)" }}>deleted target</span>
+                ) : (
+                  <span className="truncate">{l.target_label ?? "target"}</span>
+                )}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label="Remove link"
+                onClick={() => void removeLink(l.id)}
+              >
+                ✕
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="grid gap-2 px-4 pb-4">
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => setPickerOpen(true)}
+          disabled={busy}
+        >
+          Add link — pick a target
+        </Button>
+        <div className="flex gap-2">
+          <Select value={kind} onValueChange={(v) => setKind(v as components["schemas"]["LinkKind"])}>
+            <SelectTrigger aria-label="Link target kind" className="w-44 whitespace-nowrap">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {LINK_KINDS.map((k) => (
+                <SelectItem key={k} value={k}>
+                  {k.replaceAll("_", " ")}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input
+            aria-label="Link target id"
+            placeholder="or paste a target id…"
+            value={target}
+            onChange={(e) => setTarget(e.target.value)}
+          />
+          <Button variant="ghost" size="sm" onClick={() => void addTyped()} disabled={target.trim() === "" || busy}>
+            Paste
+          </Button>
+        </div>
+        {linkError !== null ? (
+          <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
+            {linkError}
+          </p>
+        ) : null}
+      </div>
+      <EntityPicker
+        open={pickerOpen}
+        defaultKind={kind}
+        onPick={(t) => void add(t)}
+        onClose={() => setPickerOpen(false)}
+      />
+    </Card>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Folder management: create / edit / fork-the-seed + grants admin.    */
+/* ------------------------------------------------------------------ */
+
+function FolderDialog({
+  mode,
+  folder,
+  scope,
+  folders,
+  clients,
+  onSuccess,
+  onClose,
+}: {
+  mode: "new" | "edit" | "fork" | null;
+  folder: SecretFolder | null;
+  scope: VaultScope;
+  folders: SecretFolder[];
+  clients: Client[];
+  onSuccess: () => void;
+  onClose: () => void;
+}) {
+  const [label, setLabel] = useState("");
+  const [slug, setSlug] = useState("");
+  const [kind, setKind] = useState<string>("passwords");
+  const [parentId, setParentId] = useState<string>("");
+  const [restricted, setRestricted] = useState<boolean>(false);
+  const [targetClient, setTargetClient] = useState<string>("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (mode !== null) {
+      setLabel(folder?.label ?? "");
+      setSlug(folder?.slug ?? "");
+      setKind(folder?.kind ?? "passwords");
+      setParentId(folder?.parent_id ?? "");
+      setRestricted(folder?.restricted ?? false);
+      setTargetClient(scope.kind === "client" ? scope.id : "");
+      setError(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, folder]);
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    if (mode === "new") {
+      const client_id = scope.kind === "client" ? scope.id : null;
+      const { error: e } = await api.api.POST("/api/v1/secrets/folders", {
+        body: {
+          slug: (slug || slugify(label)) as string,
+          label,
+          kind: kind as components["schemas"]["SecretFolderKind"],
+          parent_id: parentId === "" ? null : parentId,
+          restricted,
+          client_id,
+        },
+      });
+      if (e !== undefined) {
+        setError("The server rejected this category — the slug must be unique among siblings of this scope, and the scope cannot mix with an org parent.");
+        setBusy(false);
+        return;
+      }
+      setBusy(false);
+      onSuccess();
+      return;
+    }
+    if (mode === "edit" && folder !== null) {
+      const { error: e } = await api.api.PATCH("/api/v1/secrets/folders/{id}", {
+        params: { path: { id: folder.id } },
+        body: {
+          label,
+          kind: kind as components["schemas"]["SecretFolderKind"],
+          parent_id: parentId === "" ? null : parentId,
+          restricted,
+        },
+      });
+      setBusy(false);
+      if (e !== undefined) {
+        setError("The category was rejected — seeds are immutable (fork instead) and the scope cannot mix.");
+        return;
+      }
+      onSuccess();
+      return;
+    }
+    if (mode === "fork" && folder !== null) {
+      if (targetClient === "") {
+        setError("Choose the client this fork should land in.");
+        setBusy(false);
+        return;
+      }
+      const { error: e } = await api.api.POST("/api/v1/secrets/folders/{id}/fork", {
+        params: { path: { id: folder.id } },
+        body: { client_id: targetClient },
+      });
+      setBusy(false);
+      if (e !== undefined) {
+        setError("The fork was rejected — a same-slug fork may already exist for this client.");
+        return;
+      }
+      onSuccess();
+      return;
+    }
+    setBusy(false);
+  };
+
+  if (mode === null) return null;
+
+  const isSeed = folder !== null && folder.is_default_seed;
+  const parents = folders.filter(
+    (f) => f.id !== folder?.id && f.id !== folder?.parent_id,
+  );
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent
+        title={
+          mode === "new" ? "New category" : mode === "fork" ? `Fork “${folder?.label ?? ""}”` : "Edit category"
+        }
+        description={
+          mode === "fork"
+            ? "Shipped seeds are immutable (ADR-0004): forking copies the subtree into a client's scope with customization provenance. Re-using the same slug for this client is a typed conflict."
+            : "Categories order the tree; siblings share a slug namespace per scope. Restricted categories deny by default until a grant row allows a role."
+        }
+      >
+        <div className="grid gap-3 p-4">
+          {mode === "fork" ? (
+            <>
+              <div>
+                <Label htmlFor="fork-client">Target client</Label>
+                <Select value={targetClient} onValueChange={setTargetClient}>
+                  <SelectTrigger id="fork-client">
+                    <SelectValue placeholder="Choose a client…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {clients.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <Label htmlFor="fold-label">Label</Label>
+                <Input id="fold-label" value={label} onChange={(e) => setLabel(e.target.value)} />
+              </div>
+              {mode === "new" ? (
+                <div>
+                  <Label htmlFor="fold-slug">Slug</Label>
+                  <Input
+                    id="fold-slug"
+                    value={slug}
+                    placeholder="auto from label"
+                    onChange={(e) => setSlug(e.target.value)}
+                  />
+                  <FieldHint>Sibling-unique within (scope, parent); lowercase spellings.</FieldHint>
+                </div>
+              ) : null}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="fold-kind">Kind</Label>
+                  <Select value={kind} onValueChange={setKind}>
+                    <SelectTrigger id="fold-kind">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {FOLDER_KIND_OPTIONS.map((k) => (
+                        <SelectItem key={k.value} value={k.value}>
+                          {k.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="fold-parent">Parent</Label>
+                  <Select value={parentId} onValueChange={setParentId}>
+                    <SelectTrigger id="fold-parent">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">Root of this scope</SelectItem>
+                      {parents.map((f) => (
+                        <SelectItem key={f.id} value={f.id}>
+                          {f.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FieldHint>A parent must share the new folder's scope (org ↔ client mix is refused).</FieldHint>
+                </div>
+              </div>
+              {mode === "new" ? (
+                <label className="flex items-center gap-2 text-[13px]">
+                  <input type="checkbox" checked={restricted} onChange={(e) => setRestricted(e.target.checked)} />
+                  Restricted (deny-by-default category)
+                </label>
+              ) : null}
+            </>
+          )}
+          {error !== null ? (
+            <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
+              {error}
+            </p>
+          ) : null}
+          <DialogActions>
+            <Button variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => void submit()}
+              disabled={busy || (mode !== "fork" && label.trim() === "")}
+            >
+              {busy ? <Spinner /> : null}
+              {mode === "fork" ? "Fork into client" : mode === "new" ? "Create category" : "Save"}
+            </Button>
+          </DialogActions>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* Owner/admin-only grant matrix (backend gates the route; a 403 here
+   renders the typed not-available line — never a dead button). */
+function GrantsDialog({
+  open,
+  onClose,
+  folders,
+}: {
+  open: boolean;
+  onClose: () => void;
+  folders: SecretFolder[];
+}) {
+  const [roles, setRoles] = useState<components["schemas"]["RoleView"][] | null>(null);
+  const [grants, setGrants] = useState<SecretGrant[] | null>(null);
+  const [blocked, setBlocked] = useState(false);
+  const [roleId, setRoleId] = useState<string>("");
+  const [folderId, setFolderId] = useState<string>("");
+  const [canRead, setCanRead] = useState(true);
+  const [canEdit, setCanEdit] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    void (async () => {
+      const [g, r] = await Promise.all([
+        api.api.GET("/api/v1/secrets/grants"),
+        api.api.GET("/api/v1/roles"),
+      ]);
+      if (g.error !== undefined) {
+        setBlocked(g.response?.status === 403);
+        setGrants(null);
+      } else {
+        setBlocked(false);
+        setGrants([...(g.data ?? [])]);
+      }
+      if (r.data !== undefined) setRoles([...r.data.roles]);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  useEffect(() => {
+    if (open) load();
+  }, [open, load]);
+
+  const setGrant = async () => {
+    if (roleId === "" || folderId === "") return;
+    setBusy(true);
+    setError(null);
+    if (!canRead && !canEdit) {
+      setError("A grant needs can_read or can_edit (edit implies read) — to deny, delete the grant row.");
+      setBusy(false);
+      return;
+    }
+    const { error: e } = await api.api.PUT("/api/v1/secrets/grants", {
+      body: { role_id: roleId, folder_id: folderId, can_read: canRead, can_edit: canEdit },
+    });
+    setBusy(false);
+    if (e !== undefined) {
+      setError("The grant was rejected — owner/admin only, and the folder must exist.");
+      return;
+    }
+    setNotice("Grant saved");
+    load();
+  };
+
+  const revoke = async (grant: SecretGrant) => {
+    const { error: e } = await api.api.DELETE("/api/v1/secrets/grants", {
+      params: { query: { role_id: grant.role_id, folder_id: grant.folder_id } },
+    });
+    if (e === undefined) load();
+  };
+
+  if (!open) return null;
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent
+        title="Category grants"
+        description="Per (role × folder) grants open restricted category chains. Unrestricted categories ride the permission matrix; grants are extra keys, never a veto."
+      >
+        <div className="grid gap-4 p-4">
+          {blocked ? (
+            <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
+              The grant matrix is not available with your role — grants are owner/admin policy
+              data.
+            </p>
+          ) : (
+            <>
+              {grants === null ? (
+                <Spinner />
+              ) : (
+                <ul className="grid gap-1">
+                  {grants.map((g) => (
+                    <li
+                      key={g.id}
+                      className="flex items-center justify-between gap-2 rounded-[0.5rem] border px-3 py-2 text-[13px]"
+                      style={{ borderColor: "var(--m-border)" }}
+                    >
+                      <span className="min-w-0 truncate">
+                        <code>{g.role_id.slice(0, 8)}</code> ·{" "}
+                        {(folders).find((f) => f.id === g.folder_id)?.label ?? "folder"} ·{" "}
+                        {g.can_edit ? "read+edit" : "read"}
+                      </span>
+                      <Button variant="ghost" size="sm" onClick={() => void revoke(g)} aria-label="Revoke grant">
+                        ✕
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="grid grid-cols-2 gap-2">
+                <Select value={roleId} onValueChange={setRoleId}>
+                  <SelectTrigger aria-label="Role">
+                    <SelectValue placeholder="Role…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(roles ?? []).map((r) => (
+                      <SelectItem key={r.id} value={r.id}>
+                        {r.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={folderId} onValueChange={setFolderId}>
+                  <SelectTrigger aria-label="Category">
+                    <SelectValue placeholder="Category…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(folders).map((f: SecretFolder) => (
+                      <SelectItem key={f.id} value={f.id}>
+                        {f.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <label className="flex items-center gap-2 text-[13px]">
+                <input type="checkbox" checked={canRead} onChange={(e) => setCanRead(e.target.checked)} />
+                Read
+              </label>
+              <label className="flex items-center gap-2 text-[13px]">
+                <input type="checkbox" checked={canEdit} onChange={(e) => setCanEdit(e.target.checked)} />
+                Edit (implies read; enables reveal on restricted chains)
+              </label>
+              {error !== null ? (
+                <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
+                  {error}
+                </p>
+              ) : null}
+              {notice !== null ? (
+                <p className="text-[12px]" style={{ color: "var(--m-status-success-fg)" }}>
+                  {notice}
+                </p>
+              ) : null}
+              <DialogActions>
+                <Button variant="ghost" onClick={onClose}>
+                  Close
+                </Button>
+                <Button variant="secondary" onClick={() => void setGrant()} disabled={busy || roleId === "" || folderId === ""}>
+                  {busy ? <Spinner /> : null} Save grant
+                </Button>
+              </DialogActions>
+            </>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Legacy PasswordEntry create/edit (byte-compatible). Legacy ids ride │
+/* fresh idempotency keys; edits PATCH without the secret.              */
+/* ------------------------------------------------------------------ */
+
+function LegacyVaultForm({
   editing,
   clients,
   onDone,
@@ -394,57 +1956,61 @@ function VaultForm({
   const [expiresAt, setExpiresAt] = useState(
     editing?.expires_at != null ? editing.expires_at.slice(0, 10) : "",
   );
-  const [clientId, setClientId] = useState(editing?.client_id ?? "global");
+  const [clientId, setClientId] = useState<string>(editing?.client_id ?? "global");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const submit = async () => {
     setBusy(true);
     setError(null);
-    if (editing === null) {
-      const result = await runEnvelopeMutation<
-        components["schemas"]["CreatePasswordRequest"],
-        components["schemas"]["PasswordMutationResponse"]
-      >({
-        describe: "Create vault credential",
-        buildBody: (base) => ({
-          idempotency_key: base.idempotency_key,
-          title,
-          username,
-          url,
-          secret,
-          notes: notes === "" ? null : notes,
-          client_id: clientId === "global" ? null : clientId,
-          expires_at: expiresAt === "" ? null : new Date(expiresAt).toISOString(),
-        }),
-        optimistic: () => {},
-        revert: () => {},
-        request: (client, body) => client.POST("/api/v1/passwords", { body }),
-        versions: (response) => [[response.id, response.mutation.version]],
-      });
-      setBusy(false);
-      if (!result.ok) {
-        setError(rejectionText(result, "The credential was rejected."));
-        return;
+    try {
+      if (editing === null) {
+        const result = await runEnvelopeMutation<
+          components["schemas"]["CreatePasswordRequest"],
+          components["schemas"]["PasswordMutationResponse"]
+        >({
+          describe: "Create vault credential",
+          buildBody: (base) => ({
+            idempotency_key: base.idempotency_key,
+            title,
+            username,
+            url,
+            secret,
+            notes: notes === "" ? null : notes,
+            client_id: clientId === "global" ? null : clientId,
+            expires_at: expiresAt === "" ? null : new Date(expiresAt).toISOString(),
+          }),
+          optimistic: () => {},
+          revert: () => {},
+          request: (client, body) => client.POST("/api/v1/passwords", { body }),
+          versions: (response) => [[response.id, response.mutation.version]],
+        });
+        if (!result.ok) {
+          setError(rejectionText(result, "The credential was rejected."));
+          setBusy(false);
+          return;
+        }
+      } else {
+        const { error: e } = await api.api.PATCH("/api/v1/passwords/{id}", {
+          params: { path: { id: editing.id } },
+          body: {
+            idempotency_key: crypto.randomUUID(),
+            title,
+            username,
+            url,
+            ...(secret === "" ? {} : { secret }),
+            ...(notesTouched ? { notes: notes === "" ? null : notes } : {}),
+            expires_at: expiresAt === "" ? null : new Date(expiresAt).toISOString(),
+          },
+        });
+        if (e !== undefined) {
+          setError("The update was rejected — retry.");
+          setBusy(false);
+          return;
+        }
       }
-    } else {
-      const { error: e } = await api.api.PATCH("/api/v1/passwords/{id}", {
-        params: { path: { id: editing.id } },
-        body: {
-          idempotency_key: crypto.randomUUID(),
-          title,
-          username,
-          url,
-          ...(secret === "" ? {} : { secret }),
-          ...(notesTouched ? { notes: notes === "" ? null : notes } : {}),
-          expires_at: expiresAt === "" ? null : new Date(expiresAt).toISOString(),
-        },
-      });
+    } finally {
       setBusy(false);
-      if (e !== undefined) {
-        setError("The update was rejected — retry.");
-        return;
-      }
     }
     onDone();
   };
@@ -485,7 +2051,7 @@ function VaultForm({
             setNotesTouched(true);
           }}
           rows={2}
-          className="w-full rounded-[2px] border bg-transparent p-2 text-[13px]"
+          className="w-full rounded-[0.5rem] border bg-transparent p-2 text-[13px]"
           style={{ borderColor: "var(--m-border)" }}
         />
         <FieldHint>Replaced wholesale when edited; cleared with an empty value.</FieldHint>
