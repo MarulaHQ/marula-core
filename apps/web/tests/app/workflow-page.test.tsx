@@ -136,8 +136,13 @@ describe("/settings/workflow integration", () => {
       </AuthProvider>,
     );
 
+    // Await the data settle too: the Save button renders before the
+    // transitions fetch resolves and its dirty gate flips enabled→disabled
+    // one render later in full-suite runs (same class of race as the
+    // read-only test above).
+    await screen.findByLabelText(/Status 1 name/i);
     const saveButton = await screen.findByRole("button", { name: "Save transitions" });
-    expect(saveButton).toBeDisabled();
+    await waitFor(() => expect(saveButton).toBeDisabled());
 
     // Floor default allowed New→Done; toggle it off → dirty.
     const cell = screen.getByLabelText("Allow New → Done");
