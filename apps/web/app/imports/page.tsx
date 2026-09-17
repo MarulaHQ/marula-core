@@ -139,6 +139,17 @@ export default function ImportsPage() {
     setLoadError(null);
   }, []);
 
+  // A refresh cadence so queued runs' counters fill in live.
+  useEffect(() => {
+    if (auth.status !== "authed") return;
+    const timer = setInterval(() => {
+      void api.api.GET("/api/v1/imports/batches").then(({ data }) => {
+        if (data !== undefined) setBatches(data);
+      });
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [auth.status]);
+
   useEffect(() => {
     if (auth.status === "authed") void refresh();
   }, [auth.status, refresh]);
@@ -348,9 +359,23 @@ export default function ImportsPage() {
               </span>
             ) : null}
           </div>
+          <div
+            role="region"
+            aria-label="CSV drop zone"
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              const f = e.dataTransfer.files?.[0];
+              if (f !== undefined) void loadFile(f);
+            }}
+            className="rounded-md border border-dashed text-center text-[12px]"
+            style={{ borderColor: "var(--m-border)", padding: "12px 8px", color: "var(--m-text-secondary)" }}
+          >
+            …or drop a CSV file here — or paste its text below (header row required)
+          </div>
           <textarea
             aria-label="Paste CSV"
-            placeholder="…or paste CSV text (header row required)"
+            placeholder="source,site,owner… (or drop a file above)"
             value={csvText}
             onChange={(e) => {
               setCsvText(e.target.value);
@@ -363,7 +388,7 @@ export default function ImportsPage() {
               }
             }}
             rows={5}
-            className="w-full rounded-[2px] border bg-transparent p-2 font-mono text-[12px]"
+            className="w-full rounded-md border bg-transparent p-2 font-mono text-[12px]"
             style={{ borderColor: "var(--m-border)" }}
           />
           <div>
@@ -486,28 +511,65 @@ export default function ImportsPage() {
                 </tr>
               </thead>
               <tbody>
-                {batches.map((b) => (
-                  <Tr key={b.id}>
-                    <Td>
-                      {b.label}
-                      {b.dry_run ? (
-                        <Tag className="ml-2">probe</Tag>
-                      ) : b.queued_at != null && b.finished_at == null ? (
-                        <Tag className="ml-2">queued</Tag>
-                      ) : null}
-                    </Td>
-                    <Td>{b.entity_kind}</Td>
-                    <Td>{b.conflict_policy}</Td>
-                    <Td className="text-right tabular-nums">{b.rows_total}</Td>
-                    <Td className="text-right tabular-nums">{b.rows_created}</Td>
-                    <Td className="text-right tabular-nums">{b.rows_updated}</Td>
-                    <Td className="text-right tabular-nums">{b.rows_skipped}</Td>
-                    <Td className="text-right tabular-nums">{b.rows_failed}</Td>
-                    <Td>
-                      {b.finished_at != null ? new Date(b.finished_at).toLocaleString() : "—"}
-                    </Td>
-                  </Tr>
-                ))}
+                {batches.map((b) => {
+                  const committed =
+                    b.rows_created + b.rows_updated + b.rows_skipped + b.rows_failed;
+                  const pct =
+                    b.dry_run || b.rows_total <= 0
+                      ? null
+                      : Math.min(100, Math.round((committed / b.rows_total) * 100));
+                  return (
+                    <Tr key={b.id}>
+                      <Td>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{b.label}</span>
+                          {b.dry_run ? (
+                            <Tag tone="neutral">probe</Tag>
+                          ) : b.queued_at != null && b.finished_at == null ? (
+                            <Tag tone="warning">queued</Tag>
+                          ) : (
+                            <Tag tone={b.rows_failed > 0 ? "danger" : "success"}>
+                              {b.rows_failed > 0 ? `${b.rows_failed} failed` : "done"}
+                            </Tag>
+                          )}
+                        </div>
+                        {pct !== null ? (
+                          <div
+                            className="mt-1 h-1.5 w-40 overflow-hidden rounded-full"
+                            style={{ background: "var(--m-border)" }}
+                            role="progressbar"
+                            aria-valuenow={pct}
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-label={`Import progress ${pct}%`}
+                          >
+                            <div
+                              className="h-full transition-opacity duration-100"
+                              style={{
+                                width: `${pct}%`,
+                                minWidth: 4,
+                                background:
+                                  b.rows_failed > 0 && committed >= b.rows_total
+                                    ? "var(--m-status-danger-fg)"
+                                    : "var(--m-accent)",
+                              }}
+                            />
+                          </div>
+                        ) : null}
+                      </Td>
+                      <Td>{b.entity_kind}</Td>
+                      <Td>{b.conflict_policy}</Td>
+                      <Td className="text-right tabular-nums">{b.rows_total}</Td>
+                      <Td className="text-right tabular-nums">{b.rows_created}</Td>
+                      <Td className="text-right tabular-nums">{b.rows_updated}</Td>
+                      <Td className="text-right tabular-nums">{b.rows_skipped}</Td>
+                      <Td className="text-right tabular-nums">{b.rows_failed}</Td>
+                      <Td>
+                        {b.finished_at != null ? new Date(b.finished_at).toLocaleString() : "—"}
+                      </Td>
+                    </Tr>
+                  );
+                })}
               </tbody>
             </Table>
           </div>
