@@ -384,3 +384,48 @@ pub async fn seed_default_taxonomy(conn: &mut PgConnection, org_id: Uuid) -> DbR
     }
     Ok(())
 }
+
+/// Wave 19 lane 5: the two auth policy switches (migration 0088). Both are
+/// deny-by-default columns; an admin's explicit PATCH is the only path to
+/// `true`. Returns the persisted row shapes via plain runners (no `query!`
+/// offline-cache churn).
+pub async fn set_auth_policy(
+    executor: impl sqlx::Executor<'_, Database = Postgres>,
+    org_id: Uuid,
+    magic_link_sign_in: Option<bool>,
+    require_email_verification: Option<bool>,
+) -> DbResult<()> {
+    let (ml, ev) = (magic_link_sign_in, require_email_verification);
+    if ml.is_none() && ev.is_none() {
+        return Ok(());
+    }
+    sqlx::query(
+        "UPDATE orgs SET \
+             magic_link_sign_in = COALESCE($2, magic_link_sign_in), \
+             require_email_verification = COALESCE($3, require_email_verification) \
+           WHERE id = $1",
+    )
+    .bind(org_id)
+    .bind(ml)
+    .bind(ev)
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+/// Wave 19 lane 5: reads `require_email_verification` (deny-by-default
+/// column from 0088) for the login gate.
+pub async fn require_email_verification<'e, E>(
+    executor: E,
+    org_id: Uuid,
+) -> DbResult<bool>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let flag: Option<bool> =
+        sqlx::query_scalar("SELECT require_email_verification FROM orgs WHERE id = $1")
+            .bind(org_id)
+            .fetch_optional(executor)
+            .await?
+            .flatten();
+    Ok(flag.unwrap_or(false))
+}

@@ -1,7 +1,8 @@
 // Portal API wiring for the client portal (portal v1).
 //
-// Purpose: token persistence under a SEPARATE localStorage family
-// ("meridian-portal-tokens" — never the staff key), typed fetch helpers for
+// Purpose: token persistence is MEMORY-ONLY under a separate module jar
+// (Wave 19 lane 5 — the portal refresh secret rides the httpOnly
+// meridian_portal cookie the API sets), typed fetch helpers for
 // the /api/v1/portal/* surface, and a React context owning portal auth state.
 // Deliberately independent of lib/api.tsx so staff and portal sessions can
 // never bleed into each other in one browser profile.
@@ -65,28 +66,35 @@ export interface PortalTicketDetail {
   can_view_in_house_updates: boolean;
 }
 
+let memoryTokens: PortalTokens | null = null;
+let memoryTokensExpAtMs = 0;
+
 function loadTokens(): PortalTokens | null {
   if (typeof window === "undefined") return null;
-  const raw = window.localStorage.getItem(TOKENS_KEY);
-  if (raw === null) return null;
-  try {
-    return JSON.parse(raw) as PortalTokens;
-  } catch {
-    return null;
-  }
+  return memoryTokens;
 }
 
 function saveTokens(tokens: PortalTokens): void {
-  window.localStorage.setItem(TOKENS_KEY, JSON.stringify(tokens));
-  window.localStorage.setItem(
-    `${TOKENS_KEY}-exp`,
-    String(Date.now() + tokens.expires_in * 1000 - 30_000),
-  );
+  memoryTokens = tokens;
+  memoryTokensExpAtMs = Date.now() + tokens.expires_in * 1000 - 30_000;
+  // One-time legacy-storage hygiene (the cookie owns the secret now).
+  window.localStorage.removeItem(TOKENS_KEY);
+  window.localStorage.removeItem(`${TOKENS_KEY}-exp`);
+}
+
+/** The ambient double-submit csrf value (`meridian_csrf=...`). */
+function csrfHeader(): string | null {
+  if (typeof document === "undefined") return null;
+  const pair = document.cookie
+    .split(";")
+    .map((c) => c.trim())
+    .find((c) => c.startsWith("meridian_csrf="));
+  return pair ? pair.slice("meridian_csrf=".length) : null;
 }
 
 export function clearPortalTokens(): void {
-  window.localStorage.removeItem(TOKENS_KEY);
-  window.localStorage.removeItem(`${TOKENS_KEY}-exp`);
+  memoryTokens = null;
+  memoryTokensExpAtMs = 0;
 }
 
 const API_BASE = resolveApiBaseUrl();
@@ -101,34 +109,59 @@ async function portalFetch<T>(
 ): Promise<T> {
   const { tokens, ...rest } = init;
   const stored = tokens ?? loadTokens();
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    ...(stored?.access_token ? { authorization: `Bearer ${stored.access_token}` } : {}),
+  };
+  // Cookie-session CSRF double-submit with the ambient jar.
+  if (typeof document !== "undefined") {
+    const csrf = document.cookie
+      .split(";")
+      .map((c) => c.trim())
+      .find((c) => c.startsWith("meridian_csrf="));
+    if (csrf) headers["x-meridian-csrf"] = csrf.slice("meridian_csrf=".length);
+  }
   const response = await fetch(`${API_BASE}${path}`, {
     ...rest,
+    credentials: "include",
     headers: {
-      "content-type": "application/json",
-      ...(stored ? { authorization: `Bearer ${stored.access_token}` } : {}),
-      ...rest.headers,
+      ...headers,
+      ...(rest.headers as Record<string, string> | undefined),
     },
   });
-  if (response.status === 401 && stored) {
-    // Single rotation attempt; a second 401 means truly logged out.
+  if (response.status === 401 && (stored?.access_token || document.cookie.includes("meridian_portal="))) {
+    // Single rotation attempt; a second 401 means truly logged out. The
+    // body credential is used when held; otherwise the httpOnly cookie
+    // pair drives the rotation (empty body).
     const rotated = await fetch(`${API_BASE}/api/v1/portal/refresh`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        refresh_token: stored.refresh_token,
-        session_id: stored.session_id,
-      }),
+      credentials: "include",
+      headers: {
+        "content-type": "application/json",
+        ...(csrfHeader() ? { "x-meridian-csrf": csrfHeader() as string } : {}),
+      },
+      body: JSON.stringify(
+        stored?.refresh_token
+          ? {
+              refresh_token: stored.refresh_token,
+              session_id: stored.session_id,
+            }
+          : {},
+      ),
     });
     if (rotated.ok) {
       const next = (await rotated.json()) as PortalTokens & { portal_user: PortalProfile };
       saveTokens(next);
+      const retryHeaders: Record<string, string> = {
+        "content-type": "application/json",
+        authorization: `Bearer ${next.access_token}`,
+        ...(rest.headers as Record<string, string> | undefined),
+      };
+      if (csrfHeader()) retryHeaders["x-meridian-csrf"] = csrfHeader() as string;
       const retry = await fetch(`${API_BASE}${path}`, {
         ...rest,
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${next.access_token}`,
-          ...rest.headers,
-        },
+        credentials: "include",
+        headers: retryHeaders,
       });
       if (retry.ok) return (await retry.json()) as T;
     }
@@ -389,7 +422,7 @@ export function PortalAuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     async function restore() {
-      if (loadTokens() === null) {
+      if (loadTokens() === null && !document.cookie.includes("meridian_portal=")) {
         setStatus("anonymous");
         return;
       }

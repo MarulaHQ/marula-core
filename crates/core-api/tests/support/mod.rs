@@ -259,7 +259,7 @@ impl MailHarness {
         let recording = Arc::new(RecordingTransport::new());
         let flaky = Arc::new(FlakyTransport::new(Arc::clone(&recording), 1));
 
-        let mut config = core_api::config::Config::from_env();
+        let mut config = core_api::config::Config::from_env_allow_dev_fallback().expect("test config");
         config.email_from_address = "support@acme.test".into();
         config.email_from_name = Some("Acme Support".into());
 

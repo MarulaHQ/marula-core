@@ -41,14 +41,14 @@ async fn test_state() -> AppState {
     // Production parity: deploy/docker-compose.yml runs core-api against the
     // table-owner role (RLS-exempt); the constrained meridian_app role is
     // exercised per-transaction by the core-db suites.
-    let mut config = Config::from_env();
+    let mut config = Config::from_env_allow_dev_fallback().expect("test config");
     config.database_url = admin_url.clone();
     let reporting_url = admin_url;
     AppState {
         pool,
-        config: Arc::new(config),
+        config: Arc::new(config.clone()),
         oidc: OidcHttpClient::new(),
-        mail: std::sync::Arc::new(core_api::email::MailStack::from_config(&Config::from_env())),
+        mail: std::sync::Arc::new(core_api::email::MailStack::from_config(&config)),
         store: Arc::new(core_store::memory::MemoryStore::new()),
         reporting: core_api::state::AppState::reporting_pool_lazy(&reporting_url)
             .expect("lazy reporting pool"),

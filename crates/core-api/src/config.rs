@@ -138,7 +138,7 @@ impl Config {
     /// and the API binds loopback only. Callers inject the embedded
     /// Postgres URL, API port, and object-store directory.
     pub fn from_local(database_url: String, api_port: u16, object_dir: std::path::PathBuf) -> Self {
-        let jwt_secret = Self::DEV_JWT_SECRET.to_string();
+        let jwt_secret = Config::DEV_JWT_SECRET.to_string();
         Self {
             database_url,
             // core-api never connects to Redis in-process (the realtime
@@ -150,7 +150,7 @@ impl Config {
             access_ttl_secs: 900,
             refresh_ttl_secs: 60 * 60 * 24 * 30,
             cors_origin: None,
-            secret_key: derive_dev_key(Self::DEV_JWT_SECRET),
+            secret_key: derive_dev_key(Config::DEV_JWT_SECRET),
             mfa_pending_ttl_secs: 300,
             webauthn_rp_id: "localhost".into(),
             webauthn_rp_origin: "tauri://localhost".into(),
@@ -183,32 +183,92 @@ impl Config {
         }
     }
 
-    pub fn from_env() -> Self {
-        let jwt_secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| {
-            // Dev default; compose sets a real one. Never do this in prod.
-            "dev-only-insecure-secret-change-me".into()
-        });
+    /// Returns the error that closes the confirmed 2026-09-16
+    /// secrets-audit finding 'fallback-secrets': production boot refuses
+    /// weak/absent secrets INSTEAD of silently falling back.
+    ///
+    /// Fail-closed rules (threat model §A3):
+    /// * `JWT_SECRET` MUST exist and be exactly 64 hex chars.
+    /// * `MERIDIAN_SECRET_KEY` (64 hex chars) is required in production -
+    ///   the at-rest seal key NEVER silently derives from JWT_SECRET.
+    ///
+    /// Production detection: absence of the explicit dev markers. The dev
+    /// fallback REMAINS available behind `MERIDIAN_DEV_TOOLS=1` (explicit
+    /// dev profile, TASKLIST DX2 posture) and `from_local` — where the
+    /// same DEV_JWT_SECRET context applies (ADR 0005). Failures return
+    /// Err with operator-copy that names the missing variable.
+    pub fn from_env() -> Result<Self, String> {
+        Self::from_env_inner(false)
+    }
+
+    /// EXPLICIT non-boot alias for integration tests (and the desktop
+    /// shell, which pins its own dev secret): same parsing as
+    /// [`Config::from_env`] but the dev fallback is the DECLARED posture
+    /// — a test env without JWT_SECRET still boots with the loud dev
+    /// secret, while production boot (from_env) hard-fails (§A3).
+    pub fn from_env_allow_dev_fallback() -> Result<Self, String> {
+        Self::from_env_inner(true)
+    }
+
+    fn from_env_inner(dev_fallback: bool) -> Result<Self, String> {
+        let dev_tools = std::env::var("MERIDIAN_DEV_TOOLS").as_deref() == Ok("1")
+            || dev_fallback;
+        let jwt_secret = match std::env::var("JWT_SECRET") {
+            Ok(secret) if is_64_hex(&secret) => secret,
+            Ok(_) => {
+                return Err(
+                    "JWT_SECRET must be exactly 64 hex characters                      (generate: openssl rand -hex 32)"
+                        .into(),
+                )
+            }
+            Err(_) if dev_fallback => {
+                // Explicit dev/test profile keeps the compose/dev default;
+                // production boot (from_env) never reaches this arm.
+                Config::DEV_JWT_SECRET.to_string()
+            }
+            Err(_) if dev_tools => {
+                Config::DEV_JWT_SECRET.to_string()
+            }
+            Err(_) => {
+                return Err(
+                    "JWT_SECRET is not set — refusing to boot                      (MERIDIAN_DEV_TOOLS=1 enables the dev fallback)"
+                        .into(),
+                )
+            }
+        };
         let secret_key = match std::env::var("MERIDIAN_SECRET_KEY") {
-            Ok(hex_key) if hex_key.len() == 64 => {
+            Ok(hex_key) if is_64_hex(&hex_key) => {
                 let mut bytes = [0u8; 32];
                 if hex::decode_to_slice(&hex_key, &mut bytes).is_err() {
-                    tracing::warn!(
-                        "MERIDIAN_SECRET_KEY is not valid hex; deriving from jwt_secret"
+                    return Err(
+                        "MERIDIAN_SECRET_KEY is not valid hex (64 hex chars expected)"
+                        .into(),
                     );
-                    derive_dev_key(&jwt_secret)
-                } else {
-                    SecretKey(bytes)
                 }
+                SecretKey(bytes)
             }
-            _ => {
+            Ok(_) => {
+                return Err(
+                    "MERIDIAN_SECRET_KEY must be exactly 64 hex characters"
+                        .into(),
+                )
+            }
+            // Dev fallback explicitly behind the dev profile: the derive
+            // exists ONLY so the demo seed's at-rest seal key matches.
+            Err(_) if dev_tools => {
                 tracing::warn!(
-                    "MERIDIAN_SECRET_KEY unset — at-rest secret encryption derives its key \
-                     from JWT_SECRET. Set MERIDIAN_SECRET_KEY (64 hex chars) for production."
+                    "MERIDIAN_DEV_TOOLS=1: at-rest secret encryption derives from JWT_SECRET (dev fallback — never ship)"
                 );
                 derive_dev_key(&jwt_secret)
             }
+            _ => {
+                return Err(
+                    "MERIDIAN_SECRET_KEY is not set — at-rest secret encryption needs an explicit key (64 hex chars). MERIDIAN_DEV_TOOLS=1 enables the dev fallback."
+                        .into(),
+                )
+            }
         };
-        Self {
+        Ok(Self {
             database_url: std::env::var("DATABASE_URL").unwrap_or_else(|_| {
                 "postgres://meridian_app:meridian_app@localhost:15432/meridian".into()
             }),
@@ -285,9 +345,14 @@ impl Config {
             plugin_signing_key: std::env::var("MERIDIAN_PLUGIN_SIGNING_KEY")
                 .ok()
                 .filter(|v| !v.trim().is_empty()),
-            dev_tools: std::env::var("MERIDIAN_DEV_TOOLS").as_deref() == Ok("1"),
-        }
+            dev_tools,
+        })
     }
+}
+
+/// The audit's hex discipline: exactly 64 hex chars = 32 bytes.
+fn is_64_hex(v: &str) -> bool {
+    v.len() == 64 && v.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 /// Single source of truth for the dev fallback derivation lives in
@@ -369,4 +434,105 @@ fn postmark_from_env() -> Option<(String, String)> {
         token,
         std::env::var("POSTMARK_BASE_URL").unwrap_or_else(|_| "https://api.postmarkapp.com".into()),
     ))
+}
+#[cfg(test)]
+mod hardening_tests {
+    use super::*;
+
+    /// The from_env probes mutate the process env: serialized + restored
+    /// here so parallel tests stay deterministic.
+    static ENV_MUTEX: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+
+    struct CleanEnv {
+        state: Vec<(String, Option<String>)>,
+        _held: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl CleanEnv {
+        /// Holds the env-mutation lock for the WHOLE test body, then
+        /// restores every snapped variable on drop (parallel safety).
+        fn snapshot() -> Self {
+            let mutex = ENV_MUTEX.get_or_init(|| std::sync::Mutex::new(()));
+            let _held = mutex.lock().unwrap();
+            let mut state = Vec::new();
+            for key in ["JWT_SECRET", "MERIDIAN_SECRET_KEY", "MERIDIAN_DEV_TOOLS"] {
+                state.push((key.to_string(), std::env::var(key).ok()));
+            }
+            CleanEnv { state, _held }
+        }
+    }
+
+    impl Drop for CleanEnv {
+        fn drop(&mut self) {
+            for (key, value) in &self.state {
+                match value {
+                    Some(v) => std::env::set_var(key, v),
+                    None => std::env::remove_var(key),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn is_64_hex_is_what_the_hard_gate_uses() {
+        assert!(!is_64_hex("a".repeat(32).as_str()));
+        assert!(is_64_hex("f".repeat(64).as_str()));
+        assert!(!is_64_hex("0".repeat(63).as_str()));
+        assert!(!is_64_hex("z".repeat(64).as_str()));
+    }
+
+    #[test]
+    fn production_boot_fails_closed_without_jwt_secret() {
+        let _guard = CleanEnv::snapshot();
+        std::env::remove_var("JWT_SECRET");
+        std::env::remove_var("MERIDIAN_DEV_TOOLS");
+        std::env::remove_var("MERIDIAN_SECRET_KEY");
+        let err = Config::from_env().expect_err("production boot must hard-fail");
+        assert!(err.contains("JWT_SECRET"), "operator copy names the variable: {err}");
+    }
+
+    #[test]
+    fn production_boot_fails_closed_on_short_jwt_secret() {
+        let _guard = CleanEnv::snapshot();
+        std::env::set_var("JWT_SECRET", "short");
+        std::env::remove_var("MERIDIAN_DEV_TOOLS");
+        let err = Config::from_env().expect_err("short secret must fail");
+        assert!(
+            err.contains("64 hex"),
+            "operator copy names the discipline: {err}"
+        );
+    }
+
+    #[test]
+    fn production_boot_requires_explicit_secret_key() {
+        let _guard = CleanEnv::snapshot();
+        std::env::set_var("JWT_SECRET", "f".repeat(64));
+        std::env::remove_var("MERIDIAN_SECRET_KEY");
+        std::env::remove_var("MERIDIAN_DEV_TOOLS");
+        let err = Config::from_env().expect_err("missing secret key must fail");
+        assert!(
+            err.contains("MERIDIAN_SECRET_KEY"),
+            "operator copy names the variable: {err}"
+        );
+    }
+
+    #[test]
+    fn dev_profile_keeps_the_explicit_fallback() {
+        let _guard = CleanEnv::snapshot();
+        std::env::remove_var("JWT_SECRET");
+        std::env::remove_var("MERIDIAN_SECRET_KEY");
+        std::env::set_var("MERIDIAN_DEV_TOOLS", "1");
+        let cfg = Config::from_env().expect("dev profile boots");
+        assert_eq!(cfg.jwt_secret, Config::DEV_JWT_SECRET);
+    }
+
+    #[test]
+    fn test_alias_keeps_the_explicit_dev_fallback_even_without_dev_tools() {
+        let _guard = CleanEnv::snapshot();
+        std::env::remove_var("JWT_SECRET");
+        std::env::remove_var("MERIDIAN_SECRET_KEY");
+        std::env::remove_var("MERIDIAN_DEV_TOOLS");
+        let cfg = Config::from_env_allow_dev_fallback().expect("test alias boots");
+        assert_eq!(cfg.jwt_secret, Config::DEV_JWT_SECRET);
+    }
 }

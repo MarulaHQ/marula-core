@@ -116,6 +116,7 @@ pub mod webhooks;
 pub mod workflow_overrides;
 
 use crate::auth::handlers as auth_handlers;
+use crate::auth::recovery as recovery;
 use crate::auth::mfa_handlers as mfa;
 use crate::auth::middleware::require_auth;
 use crate::state::AppState;
@@ -235,6 +236,14 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(&rp("/auth/login"), post(auth_handlers::login))
         .route(&rp("/auth/refresh"), post(auth_handlers::refresh))
         .route(&rp("/auth/logout"), post(auth_handlers::logout))
+        // Wave 19 lane 5 recovery flows (Scope B): public, uniform-shaped
+        // request answers + single-use hashed confirm tokens.
+        .route(&rp("/auth/password-reset/request"), post(recovery::password_reset_request))
+        .route(&rp("/auth/password-reset/confirm"), post(recovery::password_reset_confirm))
+        .route(&rp("/auth/email-verification/request"), post(recovery::email_verification_request))
+        .route(&rp("/auth/email-verification/confirm"), post(recovery::email_verification_confirm))
+        .route(&rp("/auth/magic-link/request"), post(recovery::magic_link_request))
+        .route(&rp("/auth/magic-link/confirm"), post(recovery::magic_link_confirm))
         // MFA completion of a password login.
         .route(&rp("/auth/mfa/verify"), post(mfa::mfa_verify))
         .route(
@@ -449,6 +458,11 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/org/users/{id}/role"),
             axum::routing::patch(org_users::set_role),
+        )
+        // Admin email-verification override (Wave 19 lane 5, 0088).
+        .route(
+            &rp("/org/users/{id}/email-verified"),
+            post(org_users::set_email_verified),
         )
         // role directory + preset lifecycle (Wave 13 lane 6, RB1): the
         // shipped presets are data rows; fork/restore ride the envelope.

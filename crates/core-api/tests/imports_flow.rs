@@ -57,15 +57,15 @@ async fn test_state() -> (AppState, Router) {
         .or_else(|_| std::env::var("DATABASE_URL"))
         .expect("imports e2e needs MERIDIAN_TEST_DATABASE_URL or DATABASE_URL");
     let pool = connect_admin(&admin_url).await.expect("admin pool");
-    let mut config = Config::from_env();
+    let mut config = Config::from_env_allow_dev_fallback().expect("test config");
     config.database_url = admin_url;
     let state = AppState {
         pool,
         reporting: core_api::state::AppState::reporting_pool_lazy(&config.database_url)
             .expect("reporting pool"),
-        config: Arc::new(config),
+        config: Arc::new(config.clone()),
         oidc: OidcHttpClient::new(),
-        mail: Arc::new(core_api::email::MailStack::from_config(&Config::from_env())),
+        mail: Arc::new(core_api::email::MailStack::from_config(&config)),
         store: Arc::new(core_store::memory::MemoryStore::new()),
     };
     let app = core_api::routes::build_router(state.clone());

@@ -1,8 +1,10 @@
 // API client wiring for the web app.
 //
-// Purpose: one MeridianClient bound to NEXT_PUBLIC_API_URL with browser
-// token persistence (localStorage, Stage-1 scope), a React context that
-// owns auth state, and helpers for guarded pages + 401 refresh rotation.
+// Purpose: one MeridianClient bound to NEXT_PUBLIC_API_URL with MEMORY-ONLY
+// token persistence (Wave 19 lane 5 — the refresh secret rides the httpOnly
+// session cookie the API sets; the access token lives in this module's
+// memory and never touches document storage), a React context that owns
+// auth state, and helpers for guarded pages + 401 refresh rotation.
 // Non-purpose: no server-side data fetching and no token refresh scheduling
 // beyond on-401 rotation.
 "use client";
@@ -28,23 +30,31 @@ interface StoredTokens {
   expires_in: number;
 }
 
+/**
+ * Memory-only jar (same public surface the localStorage versions had, so
+ * every page keeps its calls verbatim — the mechanics changed, not the
+ * shapes). Hygiene: the first save ALSO clears the legacy localStorage
+ * family this module used to own.
+ */
+let memoryTokens: StoredTokens | null = null;
+let memoryTokensExpAtMs = 0;
+
 export function loadTokens(): StoredTokens | null {
   if (typeof window === "undefined") return null;
-  const raw = window.localStorage.getItem(TOKENS_KEY);
-  if (raw === null) return null;
-  try {
-    return JSON.parse(raw) as StoredTokens;
-  } catch {
-    return null;
-  }
+  return memoryTokens;
 }
 
 export function saveTokens(tokens: StoredTokens): void {
-  window.localStorage.setItem(TOKENS_KEY, JSON.stringify(tokens));
+  memoryTokens = tokens;
+  memoryTokensExpAtMs = Date.now() + tokens.expires_in * 1000 - 30_000;
+  // One-time legacy-storage hygiene (httpOnly cookie owns the secret now).
+  window.localStorage.removeItem(TOKENS_KEY);
+  window.localStorage.removeItem(`${TOKENS_KEY}-exp`);
 }
 
 export function clearTokens(): void {
-  window.localStorage.removeItem(TOKENS_KEY);
+  memoryTokens = null;
+  memoryTokensExpAtMs = 0;
 }
 
 /** Desktop shell (ADR 0005) injects the embedded API base before page scripts run. */
@@ -97,22 +107,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async function restore() {
       const stored = loadTokens();
       if (stored === null) {
-        setStatus("anonymous");
-        return;
-      }
-      api.setTokens(stored);
-      // Proactive rotation when the access token is at/past expiry keeps
-      // long-open tabs working without waiting for a failed request.
-      const expiresAtMs = Number(window.localStorage.getItem(`${TOKENS_KEY}-exp`) ?? 0);
-      if (Date.now() >= expiresAtMs) {
+        // No in-memory tokens (fresh page load): the httpOnly session
+        // cookie is the credential — one cookie-driven rotation bootstraps
+        // the access token (the server answers the same TokenPair shape).
         try {
-          const rotated = await api.refresh();
-          saveTokens(rotated);
-          window.localStorage.setItem(
-            `${TOKENS_KEY}-exp`,
-            String(Date.now() + rotated.expires_in * 1000 - 30_000),
-          );
+          saveTokens(await api.refresh());
         } catch {
+          if (cancelled) return;
+          setStatus("anonymous");
+          return;
+        }
+      } else if (Date.now() >= memoryTokensExpAtMs) {
+        // Proactive rotation keeps long-open tabs working without
+        // waiting for a failed request.
+        try {
+          saveTokens(await api.refresh());
+        } catch {
+          if (cancelled) return;
           clearTokens();
           setStatus("anonymous");
           return;

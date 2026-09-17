@@ -12,7 +12,7 @@ async fn main() -> anyhow::Result<()> {
     // OTEL_EXPORTER_OTLP_ENDPOINT is set; guard lives for `main`.
     let _telemetry = core_otel::init("core-api");
 
-    let config = std::sync::Arc::new(core_api::config::Config::from_env());
+    let config = std::sync::Arc::new(core_api::config::Config::from_env().expect("configuration fail-closed (from_env): see the operator copy above"));
     tracing::info!(addr = %config.bind_addr, "starting core-api");
 
     let pool = core_db::connect(&config.database_url).await.context(
@@ -81,7 +81,16 @@ async fn main() -> anyhow::Result<()> {
                     Method::DELETE,
                     Method::OPTIONS,
                 ])
-                .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION]),
+                .allow_headers([
+                    header::CONTENT_TYPE,
+                    header::AUTHORIZATION,
+                    // Cookie-session CSRF double-submit header (Wave 19
+                    // lane 5); bearer-mode callers are unaffected.
+                    header::HeaderName::from_static("x-meridian-csrf"),
+                ])
+                // httpOnly refresh cookies ride cross-origin app→API
+                // calls (same-site), so responses must be credentialed.
+                .allow_credentials(true),
         );
         tracing::info!(origin = %origin, "CORS enabled");
     }

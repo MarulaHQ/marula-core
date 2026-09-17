@@ -2,13 +2,16 @@
 //! bridge), refresh (with chain reuse detection), logout, sessions, me.
 //! All auth events are audited (§6).
 
+use crate::auth::cookies;
+use crate::auth::hardening::{enforce_gate, record_failure, record_success, GateSubject};
 use crate::auth::{jwt, password, AccessClaims, AuthedUser};
 use crate::error::{ApiError, ApiResult};
 use crate::routes::openapi::TokenPair;
 use crate::state::AppState;
 use axum::{
     extract::{Path, State},
-    http::Extensions,
+    http::{header, Extensions, HeaderMap, HeaderName, HeaderValue},
+    response::IntoResponse,
     Json,
 };
 use core_domain::entities::{Actor, AuditEvent};
@@ -39,9 +42,13 @@ pub struct LoginRequest {
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct RefreshRequest {
-    pub refresh_token: String,
-    /// Session id returned alongside the refresh token.
-    pub session_id: Uuid,
+    /// Optional: when omitted, the refresh pair rides the httpOnly
+    /// session cookie (browser clients); bearer-mode clients keep
+    /// sending both fields exactly as before.
+    #[serde(default)]
+    pub refresh_token: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<Uuid>,
 }
 
 /// Login outcome: tokens directly, or a short-lived MFA bridge token when
@@ -244,6 +251,21 @@ pub async fn register(
         .await
         .map_err(|e| ApiError::Internal(e.into()))?;
 
+    // Wave 19 lane 5: verification mail on register (the fresh owner is
+    // born UNVERIFIED — deny-by-default even for org creators; mail rides
+    // core-mail, best-effort so registration never blocks on the queue).
+    {
+        let outcome = super::recovery::email_verification_request(
+            State(state.clone()),
+            axum::http::HeaderMap::new(),
+            Json(super::recovery::EmailVerifyRequest { email: req.email }),
+        )
+        .await;
+        if let Err(e) = outcome {
+            tracing::warn!(error = %e, "post-register verification mail enqueue failed");
+        }
+    }
+
     let tokens = issue_tokens(&state, user_id, org_id, None).await?;
     Ok(Json(tokens))
 }
@@ -259,8 +281,20 @@ pub async fn register(
 ))]
 pub async fn login(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<LoginRequest>,
-) -> ApiResult<Json<LoginResponse>> {
+) -> ApiResult<axum::response::Response> {
+    // Durable per-IP + per-actor deny-by-default gate BEFORE any
+    // resolution (Wave 19 lane 5): an engaged lock answers with the SAME
+    // envelope shape as a wrong password — no lock-state enumeration.
+    enforce_gate(
+        &state,
+        crate::auth::hardening::kinds::PASSWORD_LOGIN,
+        &headers,
+        GateSubject::Email(&req.email),
+        true,
+    )
+    .await?;
     // Narrow RLS bridge: (user_id, org_id) only — no hashes cross this line.
     let resolved: Option<(Uuid, Uuid)> =
         sqlx::query_as("SELECT user_id, org_id FROM app_resolve_login($1)")
@@ -292,7 +326,26 @@ pub async fn login(
 
     if !password::verify(&req.password, &creds.password_hash) {
         audit_failed_login(&state, org_id);
+        let _ = record_failure(
+            &state,
+            crate::auth::hardening::kinds::PASSWORD_LOGIN,
+            &headers,
+            GateSubject::Email(&req.email),
+        )
+        .await;
         return Err(ApiError::Unauthorized("invalid credentials".into()));
+    }
+
+    // Org policy: email verification required (Wave 19 lane 5; deny-by-
+    // default — off until an admin opts in, and then UNVERIFIED accounts
+    // are denied with a typed reason that never mixes with bad-creds).
+    if core_db::orgs::require_email_verification(&mut *tx, org_id).await?
+        && !core_db::hardening::user_email_verified(&mut *tx, user_id).await?
+    {
+        return Err(ApiError::AuthDenied {
+            reason: "email_unverified",
+            message: "this workspace requires email verification; check your inbox",
+        });
     }
 
     let caps = core_db::mfa::mfa_capabilities(&mut *tx, user_id).await?;
@@ -313,14 +366,27 @@ pub async fn login(
             serde_json::json!({ "methods": caps.methods() }),
         )
         .await;
-        return Ok(Json(LoginResponse::MfaRequired {
-            mfa_required: true,
-            mfa_token,
-            methods: caps.methods().into_iter().map(String::from).collect(),
-        }));
+        return Ok(auth_json_response(
+
+            LoginResponse::MfaRequired {
+                mfa_required: true,
+                mfa_token,
+                methods: caps.methods().into_iter().map(String::from).collect(),
+            },
+            Vec::new(),
+        ));
     }
 
     let tokens = issue_tokens(&state, user_id, org_id, None).await?;
+
+    // Durable throttle counters cleared after a clean password check.
+    let _ = record_success(
+        &state,
+        crate::auth::hardening::kinds::PASSWORD_LOGIN,
+        &headers,
+        GateSubject::Email(&req.email),
+    )
+    .await;
 
     // Audit the successful password-only login (best-effort).
     audit_best_effort(
@@ -330,11 +396,12 @@ pub async fn login(
         "auth.login",
         Some("user"),
         Some(user_id.to_string()),
-        serde_json::json!({ "method": "password" }),
+        serde_json::json!({ "method": "password", "amr": "pw" }),
     )
     .await;
 
-    Ok(Json(LoginResponse::Tokens(tokens)))
+    let cookies_head = auth_cookie_headers(&state, tokens.session_id, &tokens.refresh_token);
+    Ok(auth_json_response(LoginResponse::Tokens(tokens), cookies_head))
 }
 
 fn audit_failed_login(state: &AppState, org_id: Uuid) {
@@ -359,6 +426,71 @@ fn audit_failed_login(state: &AppState, org_id: Uuid) {
     });
 }
 
+/// Shared shapers: JSON body + arbitrary Set-Cookie heads on one response.
+pub(crate) fn auth_json_response<B: serde::Serialize>(
+    body: B,
+    cookie_headers: Vec<(HeaderName, String)>,
+) -> axum::response::Response {
+    let mut response = Json(body).into_response();
+    for (name, value) in cookie_headers {
+        add_header(&mut response, (name, value));
+    }
+    response
+}
+
+fn add_header(response: &mut axum::response::Response, header: (HeaderName, String)) {
+    let (name, value) = header;
+    if let Ok(value) = HeaderValue::from_str(&value) {
+        response.headers_mut().append(name, value);
+    }
+}
+
+/// The session-cookie trio set on every token-issuing auth response:
+/// the (session id, refresh secret) pair in one httpOnly cookie + the
+/// double-submit csrf value. Secure is derived from the API base URL.
+pub(crate) fn auth_cookie_headers(
+    state: &AppState,
+    session_id: Uuid,
+    refresh: &str,
+) -> Vec<(HeaderName, String)> {
+    let secure = state.config.public_base_url.starts_with("https");
+    let csrf = cookies::new_csrf_token();
+    vec![
+        (
+            header::SET_COOKIE,
+            cookies::session_cookie(
+                secure,
+                &format!("{session_id}.{refresh}"),
+                state.config.refresh_ttl_secs,
+            ),
+        ),
+        (header::SET_COOKIE, cookies::csrf_cookie(secure, &csrf)),
+    ]
+}
+
+/// Issues tokens AND the cookie trio in one call (magic-link confirm
+/// rides the same shape as password login).
+pub(crate) async fn issue_tokens_with_cookies(
+    state: &AppState,
+    user_id: Uuid,
+    org_id: Uuid,
+    user_agent: Option<&str>,
+) -> ApiResult<(TokenPair, Vec<(HeaderName, String)>)> {
+    let tokens = issue_tokens(state, user_id, org_id, user_agent).await?;
+    let head = auth_cookie_headers(state, tokens.session_id, &tokens.refresh_token);
+    Ok((tokens, head))
+}
+
+/// Token-pair responses issued after any second-factor finish share the
+/// same session-cookie trio + shaper as the password login (§A2 parity).
+pub(crate) fn mfa_cookie_response(
+    state: &AppState,
+    tokens: TokenPair,
+) -> axum::response::Response {
+    let head = auth_cookie_headers(state, tokens.session_id, &tokens.refresh_token);
+    auth_json_response(tokens, head)
+}
+
 /// POST /api/auth/refresh — rotates the refresh secret as a NEW chain node.
 /// Presenting an already-consumed (rotated/revoked/expired) token proves
 /// replay: the WHOLE chain is revoked and the event is audited.
@@ -366,19 +498,58 @@ fn audit_failed_login(state: &AppState, org_id: Uuid) {
     request_body = RefreshRequest, responses((status = 200, body = TokenPair)))]
 pub async fn refresh(
     State(state): State<AppState>,
-    Json(req): Json<RefreshRequest>,
-) -> ApiResult<Json<TokenPair>> {
-    let presented_hash = jwt::hash_refresh_token(&req.refresh_token);
+    headers: HeaderMap,
+    req: Option<Json<RefreshRequest>>,
+) -> ApiResult<axum::response::Response> {
+    // CSRF double-submit for the cookie-only path (bearer callers carry
+    // no ambient credential and pass by construction).
+    if !cookies::double_submit_ok(&headers) {
+        return Err(ApiError::Forbidden("csrf check failed".into()));
+    }
+    // Durable per-IP throttle pre-check, typed 429 — proves nothing about
+    // any account (no user identity exists yet), so the code cannot
+    // fingerprint lockout state.
+    enforce_gate(
+        &state,
+        crate::auth::hardening::kinds::REFRESH,
+        &headers,
+        GateSubject::IpOnly,
+        false,
+    )
+    .await?;
+
+    // Cookie fallback: browser clients may POST with no (or empty) body.
+    let refresh_token: Option<(Uuid, String)> = match req {
+        Some(Json(RefreshRequest { refresh_token: Some(t), session_id: Some(sid) })) => {
+            Some((sid, t))
+        }
+        _ => cookies::session_refresh_pair_from(&headers),
+    };
+    let Some((sid, secret)) = refresh_token else {
+        // Consistent pre-throttle answer: need a body or a cookie.
+        return Err(ApiError::Unauthorized("invalid refresh token".into()));
+    };
+
+    let presented_hash = jwt::hash_refresh_token(&secret);
 
     // SECURITY DEFINER bridge resolves even rotated rows — seeing one is
     // exactly how reuse is detected before org scope exists.
-    let resolution = core_db::users::resolve_refresh(&state.pool, req.session_id, &presented_hash)
+    let resolution = core_db::users::resolve_refresh(&state.pool, sid, &presented_hash)
         .await
         .map_err(ApiError::from)?;
 
     let resolution = match resolution {
         Some(r) => r,
-        None => return Err(ApiError::Unauthorized("invalid refresh token".into())),
+        None => {
+            let _ = record_failure(
+                &state,
+                crate::auth::hardening::kinds::REFRESH,
+                &headers,
+                GateSubject::IpOnly,
+            )
+            .await;
+            return Err(ApiError::Unauthorized("invalid refresh token".into()));
+        }
     };
 
     if !resolution.active {
@@ -410,6 +581,13 @@ pub async fn refresh(
         tx.commit()
             .await
             .map_err(|e| ApiError::Internal(e.into()))?;
+        let _ = record_failure(
+            &state,
+            crate::auth::hardening::kinds::REFRESH,
+            &headers,
+            GateSubject::IpOnly,
+        )
+        .await;
         return Err(ApiError::Unauthorized("invalid refresh token".into()));
     }
 
@@ -419,7 +597,7 @@ pub async fn refresh(
         .await
         .map_err(|e| ApiError::Internal(e.into()))?;
     core_db::set_org(&mut tx, resolution.org_id).await?;
-    let parent = core_db::users::find_session_any(&mut *tx, req.session_id, &presented_hash)
+    let parent = core_db::users::find_session_any(&mut *tx, sid, &presented_hash)
         .await
         .map_err(|_| ApiError::Unauthorized("invalid refresh token".into()))?;
     if parent.revoked_at.is_some() || parent.expires_at <= chrono::Utc::now() {
@@ -448,12 +626,17 @@ pub async fn refresh(
         new_session,
     )
     .map_err(|e| ApiError::Internal(e.into()))?;
-    Ok(Json(TokenPair {
-        access_token: access,
-        refresh_token: new_refresh,
-        session_id: new_session,
-        expires_in: state.config.access_ttl_secs,
-    }))
+    let cookies_head =
+        auth_cookie_headers(&state, new_session, &new_refresh);
+    Ok(auth_json_response(
+        TokenPair {
+            access_token: access,
+            refresh_token: new_refresh,
+            session_id: new_session,
+            expires_in: state.config.access_ttl_secs,
+        },
+        cookies_head,
+    ))
 }
 
 /// POST /api/auth/logout — revokes the refresh session and audits the event.
@@ -461,27 +644,52 @@ pub async fn refresh(
     request_body = RefreshRequest, responses((status = 200)))]
 pub async fn logout(
     State(state): State<AppState>,
-    Json(req): Json<RefreshRequest>,
-) -> ApiResult<axum::http::StatusCode> {
-    let presented_hash = jwt::hash_refresh_token(&req.refresh_token);
-    if let Ok(Some(resolution)) =
-        core_db::users::resolve_refresh(&state.pool, req.session_id, &presented_hash).await
-    {
-        let _ = core_db::users::revoke_session(&state.pool, req.session_id).await;
-        audit_best_effort(
-            &state,
-            resolution.org_id,
-            Actor::Human(resolution.user_id),
-            "auth.logout",
-            Some("auth_session"),
-            Some(req.session_id.to_string()),
-            serde_json::json!({}),
-        )
-        .await;
-    } else {
-        let _ = core_db::users::revoke_session(&state.pool, req.session_id).await;
+    headers: HeaderMap,
+    req: Option<Json<RefreshRequest>>,
+) -> ApiResult<axum::response::Response> {
+    // Cookie fallback: browser clients may POST with no (or empty) body
+    // — the httpOnly session cookie carries (session, secret).
+    let refresh_token = match req {
+        Some(Json(RefreshRequest { refresh_token: Some(t), session_id: Some(sid) })) => {
+            Some((sid, t))
+        }
+        _ => cookies::session_refresh_pair_from(&headers),
+    };
+    if !cookies::double_submit_ok(&headers) {
+        return Err(ApiError::Forbidden("csrf check failed".into()));
     }
-    Ok(axum::http::StatusCode::NO_CONTENT)
+    if let Some((sid, secret)) = refresh_token {
+        let presented_hash = jwt::hash_refresh_token(&secret);
+        if let Ok(Some(resolution)) =
+            core_db::users::resolve_refresh(&state.pool, sid, &presented_hash).await
+        {
+            let _ = core_db::users::revoke_session(&state.pool, sid).await;
+            audit_best_effort(
+                &state,
+                resolution.org_id,
+                Actor::Human(resolution.user_id),
+                "auth.logout",
+                Some("auth_session"),
+                Some(sid.to_string()),
+                serde_json::json!({}),
+            )
+            .await;
+        } else {
+            let _ = core_db::users::revoke_session(&state.pool, sid).await;
+        }
+    }
+    let secure = state.config.public_base_url.starts_with("https");
+    let clearing = vec![
+        (header::SET_COOKIE, cookies::clear_session_cookie(secure)),
+        (header::SET_COOKIE, cookies::clear_csrf_cookie(secure)),
+    ];
+    Ok(clearing.into_iter().fold(
+        axum::http::StatusCode::NO_CONTENT.into_response(),
+        |mut response, hdr| {
+            add_header(&mut response, hdr);
+            response
+        },
+    ))
 }
 
 /// GET /api/auth/sessions — the caller's live refresh sessions (security

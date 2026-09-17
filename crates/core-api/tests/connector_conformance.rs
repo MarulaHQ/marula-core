@@ -79,16 +79,16 @@ async fn test_state(rate_limit_per_min: u32) -> (AppState, Router) {
         .or_else(|_| std::env::var("DATABASE_URL"))
         .expect("connector e2e needs MERIDIAN_TEST_DATABASE_URL or DATABASE_URL");
     let pool = connect_admin(&admin_url).await;
-    let mut config = Config::from_env();
+    let mut config = Config::from_env_allow_dev_fallback().expect("test config");
     config.database_url = admin_url;
     config.migration_rate_limit_per_min = rate_limit_per_min;
     let state = AppState {
         pool,
         reporting: core_api::state::AppState::reporting_pool_lazy(&config.database_url)
             .expect("reporting pool"),
-        config: std::sync::Arc::new(config),
+        config: std::sync::Arc::new(config.clone()),
         oidc: OidcHttpClient::new(),
-        mail: std::sync::Arc::new(core_api::email::MailStack::from_config(&Config::from_env())),
+        mail: std::sync::Arc::new(core_api::email::MailStack::from_config(&config)),
         store: Arc::new(core_store::memory::MemoryStore::new()),
     };
     let app = core_api::routes::build_router(state.clone());
