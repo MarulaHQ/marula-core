@@ -106,6 +106,217 @@ pub fn enforce_pre_close(
     }
 }
 
+/// Why a close attempt hit the Tasks-gate (docs/notes-tasks-workbar.md §4.1):
+/// every item still UNASSIGNED — neither checked nor N-A. The texts ride
+/// the typed 409 so any closing surface (raw API callers included) renders
+/// the exact outstanding rows without a second round-trip.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TasksUnassigned {
+    pub items: Vec<(crate::ids::ChecklistItemId, String, bool)>,
+}
+
+/// The close-gate verdict: a ticket may move to a CLOSED category only when
+/// every checklist item has a terminal decision (`checked` or `na`).
+/// Deliberately independent of the board's `require_checklist_close`
+/// posture — that toggle governs the REQUIRED-item gate; this one is the
+/// "no unassigned status at close" rule for ALL items (ad-hoc included).
+/// An empty checklist passes vacuously, exactly like `enforce_pre_close`.
+pub fn enforce_tasks_assigned(items: &[ChecklistItem]) -> Result<(), TasksUnassigned> {
+    let open: Vec<_> = items
+        .iter()
+        .filter(|i| !i.checked && !i.na)
+        .map(|i| {
+            (
+                i.id,
+                i.text.clone(),
+                i.template_item_id.is_some(),
+            )
+        })
+        .collect();
+    if open.is_empty() {
+        Ok(())
+    } else {
+        Err(TasksUnassigned { items: open })
+    }
+}
+
+/// The standardized note fragments the server composes for task state
+/// transitions (§3.3/§3.4). The lead, the classification suffix, and the
+/// idempotency-key tag travel together; `workflow_meta.kind` mirrors
+/// `task_note_kind`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskNoteKind {
+    Completed,
+    Na,
+    Reopen,
+    CloseAll,
+}
+
+impl TaskNoteKind {
+    /// `workflow_meta.kind` value.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            TaskNoteKind::Completed => "task_complete",
+            TaskNoteKind::Na => "task_na",
+            TaskNoteKind::Reopen => "task_reopen",
+            TaskNoteKind::CloseAll => "task_closeall",
+        }
+    }
+
+    /// The idempotency-key tag for the append claim
+    /// (`task-{tag}:{ticket}:{item[:transition]}`-shaped, §3.3).
+    pub const fn key_tag(self) -> &'static str {
+        match self {
+            TaskNoteKind::Completed => "task-complete",
+            TaskNoteKind::Na => "task-na",
+            TaskNoteKind::Reopen => "task-reopen",
+            TaskNoteKind::CloseAll => "task-closeall",
+        }
+    }
+}
+
+/// Composes the auto-append body THROUGH the standard formatter, so a
+/// workflow line reads exactly like a tech-typed ledger line (§3.3):
+/// bullet + capitalized, bold lead. E.g.
+/// `- **Completed:** Fix DNS forwarding`.
+pub fn compose_task_note(kind: TaskNoteKind, detail: &str) -> String {
+    let lead = match kind {
+        TaskNoteKind::Completed => "Completed",
+        TaskNoteKind::Na => "N/A",
+        TaskNoteKind::Reopen => "Reopened",
+        TaskNoteKind::CloseAll => "Completed",
+    };
+    // B4 for the detail part: the bold lead makes the composed line a
+    // markdown-lead line, which the formatter's capitalization pass skips
+    // verbatim — so compose_task_note capitalizes the detail's first letter
+    // itself (same first-letter rule; acronyms never downcased).
+    let detail = match detail.find(|c: char| c.is_alphabetic()) {
+        Some(idx) => {
+            let mut cs = detail[idx..].chars();
+            let first = cs.next().expect("idx found");
+            format!(
+                "{}{}{}",
+                &detail[..idx],
+                first.to_uppercase(),
+                cs.as_str()
+            )
+        }
+        None => detail.to_string(),
+    };
+    format_note_body(&format!("**{lead}:** {detail}"))
+}
+
+/// The shared note-body formatter (docs/notes-tasks-workbar.md §2.4) —
+/// ONE implementation mirrored by the web client (`formatNoteBody`). Pure
+/// function over the draft; idempotent by construction. Rules in order:
+///
+/// - B1 — trim leading/trailing whitespace lines; collapse 3+ consecutive
+///   blank lines to 1;
+/// - B2 — every non-empty line becomes a canonical `- ` bullet; user-typed
+///   `- * • –` markers are normalized into it; ordered numerals (`1.`, `1)`)
+///   are PRESERVED as typed;
+/// - B3 — up to 3 spaces of intentional indentation survive under the bullet
+///   (sub-bullets);
+/// - B4 — sentence capitalization: the line's first CHARACTER is uppercased,
+///   nothing else touched (acronyms/proper nouns stay safe);
+/// - L — links stay raw verbatim (L1/L2 pass through; L3: a bare
+///   protocol-less URL line gets `https://` prepended, deterministic);
+/// - B6 — `format(format(x)) == format(x)`.
+///
+/// The server composes auto-appends through this fn and stores plain
+/// markdown; the client applies it to drafts at submit. No terminal
+/// punctuation is ever added (B5).
+pub fn format_note_body(draft: &str) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    for raw in draft.lines() {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            continue; // B1: blank lines never survive as bullets
+        }
+        // B3: up to 3 leading spaces of intentional indentation survive;
+        // 4+ is flow text — indent resets to zero, whitespace goes.
+        let leading = raw.len() - raw.trim_start_matches(' ').len();
+        let (indent, stripped) = if leading > 3 {
+            (0, raw.trim_start().to_string())
+        } else {
+            (leading, raw.to_string())
+        };
+        let stripped = stripped.as_str();
+        // B2/B3: relative to the CONTENT position (after the preserved
+        // indent) — the marker walk and trim operate on the trimmed line
+        // so a restore-pass can never double-print a bullet.
+        let content = stripped.trim_start().trim_start();
+        let marker_stripped = content
+            .strip_prefix("- ")
+            .or_else(|| content.strip_prefix("* "))
+            .or_else(|| content.strip_prefix("• "))
+            .or_else(|| content.strip_prefix("– "))
+            .unwrap_or(content);
+        // B2 exception: ordered numerals are PRESERVED as typed (the tech
+        // chose a numbered list; do not re-bullet it). "1." / "12)" forms.
+        let numerable = ordered_numeral_start(marker_stripped);
+        // L3: a line consisting SOLELY of a bare host URL gets https://.
+        let text = if !numerable && !marker_stripped.contains(' ') && looks_like_bare_host(marker_stripped)
+        {
+            format!("https://{marker_stripped}")
+        } else {
+            marker_stripped.to_string()
+        };
+        // B4: sentence capitalization — the first ALPHABETIC character is
+        // uppercased, everything else untouched (digits/acronyms safe).
+        // Verbatim exceptions: raw URLs (L1), markdown links (L2), and
+        // markdown bold leads — capitalizing those would corrupt the
+        // token or mis-case a URL scheme.
+        let skip_cap = text.starts_with("http://")
+            || text.starts_with("https://")
+            || text.starts_with('[')
+            || text.starts_with("**");
+        let text = if skip_cap {
+            text
+        } else {
+            match text.find(|c: char| c.is_alphabetic()) {
+                Some(idx) => {
+                    let (head, tail) = text.split_at(idx);
+                    let mut cs = tail.chars();
+                    let first = cs.next().expect("idx found");
+                    format!("{head}{}{}", first.to_uppercase(), cs.as_str())
+                }
+                None => text,
+            }
+        };
+        if numerable {
+            lines.push(format!("{}{}", " ".repeat(indent), text));
+        } else {
+            lines.push(format!("{}- {}", " ".repeat(indent), text));
+        }
+    }
+    lines.join("\n")
+}
+
+fn ordered_numeral_start(line: &str) -> bool {
+    let digits: String = line.chars().take_while(|c| c.is_ascii_digit()).collect();
+    if digits.is_empty() {
+        return false;
+    }
+    let rest = &line[digits.len()..];
+    rest.starts_with(". ") || rest.starts_with(") ")
+}
+
+fn looks_like_bare_host(line: &str) -> bool {
+    // Deliberately narrow: a dot in the first whitespace-free token,
+    // bracketless (markdown link syntax never qualifies), no leading/
+    // trailing dot, and no explicit scheme (those pass through verbatim).
+    if line.starts_with('[') {
+        return false;
+    }
+    let head = line.split([' ', '/']).next().unwrap_or("");
+    head.contains('.')
+        && !head.starts_with('.')
+        && !head.ends_with('.')
+        && !line.starts_with("http://")
+        && !line.starts_with("https://")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -261,9 +472,159 @@ mod tests {
         assert_eq!(blocked.missing, vec!["b".to_string(), "a".to_string()]);
     }
 
-    // --- property tests ---------------------------------------------------------
+    // --- format_note_body (docs/notes-tasks-workbar.md §2.4) ----------------
+
+    fn fmt(s: &str) -> String {
+        format_note_body(s)
+    }
+
+    #[test]
+    fn bullets_every_line_canonically() {
+        assert_eq!(fmt("fixed printer\ndiagnosed cable"), "- Fixed printer\n- Diagnosed cable");
+    }
+
+    #[test]
+    fn normalizes_typed_markers() {
+        assert_eq!(fmt("- a\n* b\n• c\n– d"), "- A\n- B\n- C\n- D");
+    }
+
+    #[test]
+    fn preserves_ordered_numerals() {
+        assert_eq!(fmt("1. boot scan\n2) run diags"), "1. Boot scan\n2) Run diags");
+    }
+
+    #[test]
+    fn keeps_up_to_three_indent_spaces() {
+        assert_eq!(fmt("  - sub item"), "  - Sub item");
+        assert_eq!(fmt("    four spaces"), "- Four spaces");
+    }
+
+    #[test]
+    fn capitalizes_first_char_only() {
+        assert_eq!(fmt("dns forwarded after TTL refresh"), "- Dns forwarded after TTL refresh");
+        assert_eq!(fmt("IBM drive replaced"), "- IBM drive replaced");
+    }
+
+    #[test]
+    fn no_terminal_punctuation_added() {
+        assert_eq!(fmt("works"), "- Works");
+    }
+
+    #[test]
+    fn blank_lines_collapse_and_trim() {
+        assert_eq!(fmt("\n\n\na\n\n\n\n\nb\n\n"), "- A\n- B");
+    }
+
+    #[test]
+    fn empty_draft_formats_to_empty() {
+        assert_eq!(fmt(""), "");
+        assert_eq!(fmt("  \n \t "), "");
+    }
+
+    #[test]
+    fn links_pass_verbatim_l1_l2() {
+        // L1: full URLs with a scheme stay untouched by L3 handling.
+        assert_eq!(fmt("https://example.com/x?y=1 &z"), "- https://example.com/x?y=1 &z");
+        // L2: markdown link syntax passes through untouched.
+        assert_eq!(fmt("[docs](https://example.com/docs)"), "- [docs](https://example.com/docs)");
+    }
+
+    #[test]
+    fn bare_host_line_gets_https_prefix_l3() {
+        assert_eq!(fmt("www.example.com/status"), "- https://www.example.com/status");
+        assert_eq!(fmt("example.com/docs"), "- https://example.com/docs");
+        // Not a URL line: has spaces or is markdown -> untouched.
+        assert_eq!(fmt("example.com hosted here"), "- Example.com hosted here");
+    }
+
+    #[test]
+    fn compose_task_note_bulleted_bold_lead() {
+        assert_eq!(
+            compose_task_note(TaskNoteKind::Completed, "Fix DNS forwarding"),
+            "- **Completed:** Fix DNS forwarding"
+        );
+        assert_eq!(
+            compose_task_note(TaskNoteKind::Na, "Customer already resolved via vendor"),
+            "- **N/A:** Customer already resolved via vendor"
+        );
+        assert_eq!(TaskNoteKind::Completed.key_tag(), "task-complete");
+        assert_eq!(TaskNoteKind::CloseAll.as_str(), "task_closeall");
+    }
+
+    #[test]
+    fn format_is_idempotent() {
+        let samples = [
+            "- a\n* b\n1. c\nhttps://example.com\n\n\n\nd",
+            "**Completed:** Fix DNS forwarding",
+            "•  mixed   bullets\n  - sub\n2) second",
+            "",
+            "\n\n\nsingle",
+        ];
+        for s in samples {
+            let once = fmt(s);
+            assert_eq!(fmt(&once), once, "not idempotent for {s:?}");
+        }
+    }
 
     use proptest::prelude::*;
+
+    proptest! {
+        /// Idempotence property for every generated draft.
+        #[test]
+        fn format_idempotent_for_all_drafts(parts in proptest::collection::vec("[A-Za-z0-9 .,/\\-*•–:]{0,24}", 0..8usize)) {
+            let draft = parts.join("\n");
+            let once = format_note_body(&draft);
+            prop_assert_eq!(format_note_body(&once), once, "not idempotent for {:?}", draft);
+        }
+    }
+
+    proptest! {
+        /// L1/L2 invariants: explicit-scheme URLs and markdown links survive
+        /// verbatim inside a bulleted line (capitalization of the URL's first
+        /// letter is deterministic and idempotent-consistent for 'H').
+        #[test]
+        fn urls_survive(scheme in proptest::sample::select(vec!["http", "https"]), host in "[a-z]{3,10}", path in "[a-z0-9/]{0,12}") {
+            let draft = format!("{0}://{1}.example.com/{2}", scheme, host, path);
+            let expected = format!("{0}://{1}.example.com/{2}", scheme, host, path);
+            let once = format_note_body(&draft);
+            prop_assert!(once.contains(&expected));
+            prop_assert_eq!(format_note_body(&once), once);
+        }
+    }
+
+    // --- close gate ---------------------------------------------------------
+
+    use uuid::Uuid as Id;
+
+    fn task(text: &str, checked: bool, na: bool) -> ChecklistItem {
+        ChecklistItem {
+            id: Id::now_v7(),
+            org_id: Id::nil(),
+            ticket_id: Id::nil(),
+            text: text.to_string(),
+            checked,
+            na,
+            sort_order: 0,
+            checked_by: None,
+            checked_at: None,
+            template_item_id: None,
+        }
+    }
+
+    #[test]
+    fn tasks_gate_blocks_only_unassigned() {
+        let items = vec![task("done one", true, false), task("n-a one", false, true), task("still open", false, false)];
+        let blocked = enforce_tasks_assigned(&items).expect_err("one open");
+        assert_eq!(blocked.items.len(), 1);
+        assert_eq!(blocked.items[0].1, "still open");
+    }
+
+    #[test]
+    fn tasks_gate_vacuous_pass_on_empty_or_all_decided() {
+        assert_eq!(enforce_tasks_assigned(&[]), Ok(()));
+        let items = vec![task("a", true, false), task("b", false, true)];
+        assert_eq!(enforce_tasks_assigned(&items), Ok(()));
+    }
 
     proptest! {
         /// For every completion state vector: when enforcement is active the

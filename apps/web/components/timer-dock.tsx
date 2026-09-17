@@ -28,6 +28,10 @@ import {
   sessionElapsedSecs,
   useTimer,
 } from "../lib/use-timer";
+import {
+  WorkbarNotesPanel,
+} from "./notes/workbar-notes-panel";
+import { registerWorkbarTarget } from "./notes/workbar-bridge";
 import { requestWrapUp } from "./workbench-v2/wrap-up-bridge";
 
 type Ticket = components["schemas"]["Ticket"];
@@ -56,10 +60,25 @@ function SwitchIcon() {
   );
 }
 
+/** Up-arrow trigger icon (the notepad opener), house stroke weight. */
+function PanelIcon() {
+  return (
+    <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none">
+      <path d="M6 9.5V2.5M6 2.5 3.2 5.2M6 2.5l2.7 2.7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export function TimerDock() {
   const auth = useAuth();
   const router = useRouter();
   const { active, sessions, nowMs, refresh } = useTimer();
+  // Notes & Tasks panel (Wave 17 lane 11): view state only — the panel
+  // never unmounts while the bar has a tracked session (display swap), so
+  // composer text and tasks scroll persist across open/close.
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [panelFocusItem, setPanelFocusItem] = useState<string | null>(null);
+  const panelTriggerRef = useRef<HTMLButtonElement | null>(null);
   // The bar shows the current focus: the running session, or — when
   // everything is paused — the most recently touched open session.
   const current =
@@ -102,6 +121,18 @@ export function TimerDock() {
     },
     [],
   );
+
+  // Option-B bridge registration: any closing surface (gate dialog,
+  // wrap-up sheet) can ask the shell to open the panel pre-scrolled to a
+  // given unassigned checklist row. One slot, replaced on session change.
+  useEffect(() => {
+    registerWorkbarTarget((req) => {
+      if (req.ticketId !== current?.ticket_id) return;
+      setPanelFocusItem(req.focusItemId ?? null);
+      setPanelOpen(true);
+    });
+    return () => registerWorkbarTarget(null);
+  }, [current?.ticket_id]);
 
   if (auth.status !== "authed" || current === null) return null;
 
@@ -241,6 +272,21 @@ export function TimerDock() {
         />
         <button
           type="button"
+          ref={panelTriggerRef}
+          data-testid="workbar-panel-trigger"
+          aria-expanded={panelOpen}
+          aria-controls="notes-task-panel"
+          title="Notes & tasks (⌘⇧N)"
+          className="m-workbar-ghost m-workbar-panel-trigger flex h-8 w-8 shrink-0 items-center justify-center"
+          onClick={() => {
+            setPanelFocusItem(null);
+            setPanelOpen(true);
+          }}
+        >
+          <PanelIcon />
+        </button>
+        <button
+          type="button"
           onClick={() => void pauseOrResume()}
           aria-label={live ? "Pause timer" : "Resume timer"}
           className="m-workbar-ghost flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border-0"
@@ -269,6 +315,16 @@ export function TimerDock() {
           Wrap up
         </button>
       </div>
+
+      {/* The Notes & Tasks notepad: an anchored layer above page content,
+          below the wrap-up sheet and native dialogs (§1.2 stacking). */}
+      <WorkbarNotesPanel
+        open={panelOpen}
+        session={current}
+        triggerRef={panelTriggerRef}
+        focusItemId={panelFocusItem}
+        onClose={() => setPanelOpen(false)}
+      />
     </div>
   );
 }

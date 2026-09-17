@@ -544,6 +544,7 @@ pub async fn reply(
             None,
             NoteKind::ClientVisible,
             req.body.trim(),
+            None,
         )
         .await?;
 

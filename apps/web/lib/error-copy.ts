@@ -59,6 +59,8 @@ const REASON_COPY: Readonly<Record<string, string>> = {
     "This change was already submitted. Refresh — if it's missing, try once more.",
   pre_close_checklist_blocked:
     "This ticket can't close yet — required checklist items are still open.",
+  tasks_unassigned:
+    "Every task needs a completed / N-A status before this ticket can close.",
   dispatch_move_conflict: "That slot overlaps an existing booking — pick another slot.",
   board_move_status_conflict:
     "The target board has no matching status — choose one to continue the move.",

@@ -341,6 +341,7 @@ pub async fn process_inbound(
                     None,
                     NoteKind::ClientVisible,
                     body_text.as_deref().unwrap_or("(empty body)"),
+                    None,
                 )
                 .await?;
                 emit_event(

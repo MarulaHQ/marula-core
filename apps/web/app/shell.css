@@ -227,3 +227,189 @@ button[style*="var(--m-accent)"]:focus-visible {
     opacity: 1;
   }
 }
+
+/* ---- Workbar Notes & Tasks panel (Wave 17 lane 11) ------------------------
+   Motion law: transform/opacity only, ≤120ms, single decel curve;
+   prefers-reduced-motion collapses to opacity-only 1ms. */
+
+.workbar-panel-root {
+  pointer-events: none;
+}
+
+.workbar-panel {
+  transform: translateY(24px);
+  opacity: 0;
+  animation: workbar-rise 120ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+@keyframes workbar-rise {
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* The paper layer: a tiny rotate for the hand-placed feel (wrapper only —
+   rotation never touches the scroll container, so hit-testing is safe). */
+.workbar-panel > .workbar-paper {
+  transform: rotate(-0.35deg);
+}
+
+/* Push-down moment when dismissing: 100ms fall-back. */
+.workbar-panel-hiding {
+  animation: workbar-fall 100ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+@keyframes workbar-fall {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+}
+
+.workbar-panel-header .workbar-panel-margin {
+  width: 3px;
+  align-self: stretch;
+  background: color-mix(in srgb, var(--primary) 60%, transparent);
+  border-radius: 2px;
+}
+
+/* Ledger: faint ruled lines repeated at the 28px row unit, ONLY behind the
+   note list; the divider tokens share the same color family (§2.1/§2.2). */
+.workbar-ledger {
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 27px,
+    color-mix(in srgb, var(--m-border) 8%, transparent) 27px,
+    color-mix(in srgb, var(--m-border) 8%, transparent) 28px
+  );
+}
+
+.workbar-panel-tasks {
+  opacity: 1;
+  animation: workbar-tasks-slide 120ms 30ms cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+}
+
+@keyframes workbar-tasks-slide {
+  from {
+    transform: translateY(-6px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Entrance cascade on first open: stagger ≤40ms per item via the row's
+   --nc-stagger index (parallel, inside the 120ms budget). */
+.workbar-note-row {
+  opacity: 0;
+  animation: workbar-note-in 120ms var(--nc-stagger, 0ms) cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+@keyframes workbar-note-in {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Session ring on the tracked-session avatar (§2.2). */
+.workbar-session-ring {
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  border: 2px solid var(--primary);
+}
+
+/* Client-visible rows are visibly out-of-band (§2.1): 3px info-tone left
+   border on the ledger line. */
+.workbar-note-row[data-client-visible] {
+  border-left: 3px solid var(--info, var(--m-accent));
+  padding-left: 10px;
+}
+
+/* Tasks strip action cluster: hover-revealed on desktop, always visible on
+   touch (pointer coarse) — passive rows never nag. */
+@media (hover: hover) {
+  .workbar-task-hover {
+    opacity: 0;
+  }
+  .workbar-task-row:hover .workbar-task-hover,
+  .workbar-task-row:focus-within .workbar-task-hover {
+    opacity: 1;
+    transition: opacity 120ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+}
+
+.workbar-task-target {
+  outline: 2px solid var(--primary);
+  outline-offset: -1px;
+}
+
+.workbar-machine-pill {
+  font-weight: 600;
+}
+
+.workbar-count-chip {
+  border-radius: 9999px;
+  padding: 1px 6px;
+}
+
+/* Up-arrow trigger beside the quick-note input. */
+.m-workbar-panel-trigger {
+  border: none;
+  border-radius: 0.75rem;
+  background: transparent;
+  cursor: pointer;
+}
+
+.m-workbar-panel-trigger[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workbar-panel,
+  .workbar-panel-hiding {
+    animation: workbar-instant 1ms linear forwards !important;
+  }
+  .workbar-panel-hiding {
+    animation-name: workbar-instant-out !important;
+  }
+  .workbar-note-row,
+  .workbar-panel-tasks {
+    animation: none !important;
+    opacity: 1 !important;
+  }
+  .workbar-panel > .workbar-paper {
+    transform: none;
+  }
+  .workbar-task-hover {
+    opacity: 1 !important;
+    transition: none !important;
+  }
+}
+
+@keyframes workbar-instant {
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes workbar-instant-out {
+  to {
+    opacity: 0;
+  }
+}

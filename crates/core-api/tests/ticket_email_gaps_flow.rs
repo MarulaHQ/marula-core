@@ -405,7 +405,11 @@ async fn checklist_na_is_shared_server_truth_with_checked_compat() {
             axum::http::Method::POST,
             &format!("/api/tickets/{ticket_id}/checklist/{item_id}"),
             Some(&org.token),
-            Some(json!({ "checked": false, "na": true })),
+            Some(json!({
+                "checked": false,
+                "na": true,
+                "note_reason": "N/A'd pending platform upgrade (Wave 17 close gate)",
+            })),
         )
         .await,
     )
@@ -413,6 +417,16 @@ async fn checklist_na_is_shared_server_truth_with_checked_compat() {
     assert_eq!(
         toggled["mutation"]["after"]["na"], true,
         "N-A rides the envelope"
+    );
+    // Wave 17 lane 11 (§3.4): the N-A flip composes its ledger line in the
+    // SAME transaction — the note comes back on the response with
+    // row-level machine provenance (never a body-text sentinel).
+    assert_eq!(
+        toggled["appended_note"]["workflow_meta"]["kind"], "task_na",
+    );
+    assert_eq!(
+        toggled["appended_note"]["body"],
+        "- **N/A:** N/A'd pending platform upgrade (Wave 17 close gate)"
     );
     assert_eq!(toggled["mutation"]["after"]["checked"], false);
     assert_eq!(
@@ -434,12 +448,17 @@ async fn checklist_na_is_shared_server_truth_with_checked_compat() {
             axum::http::Method::POST,
             &format!("/api/tickets/{ticket_id}/checklist/{item_id}"),
             Some(&org.token),
-            Some(json!({ "checked": false, "na": false })),
+            Some(serde_json::json!({
+                "checked": false,
+                "na": false,
+                "note_reason": "N/A overturned — scope landed again",
+            })),
         )
         .await,
     )
     .await;
     assert_eq!(untoggled["items"][0]["na"], false);
+    assert_eq!(untoggled["appended_note"]["workflow_meta"]["kind"], "task_reopen");
     assert_eq!(untoggled["progress"]["required_open"], 1);
 
     // Asking for BOTH states is a client bug: typed 422.

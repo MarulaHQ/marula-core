@@ -696,6 +696,7 @@ async fn comments_support_kind_filtered_listing() {
         Some(u),
         NoteKind::Internal,
         "internal diagnosis",
+        None,
     )
     .await
     .expect("comment 1");
@@ -707,6 +708,7 @@ async fn comments_support_kind_filtered_listing() {
         None,
         NoteKind::ClientVisible,
         "client update",
+        None,
     )
     .await
     .expect("comment 2");
@@ -718,6 +720,7 @@ async fn comments_support_kind_filtered_listing() {
         None,
         NoteKind::InHouseUpdate,
         "handover",
+        None,
     )
     .await
     .expect("comment 3");
@@ -1887,7 +1890,7 @@ async fn note_kind_backfill_is_idempotent_and_preserves_taxonomy() {
         (5003, NoteKind::ClientVisible),
         (5004, NoteKind::InHouseUpdate),
     ] {
-        tickets::insert_comment(&mut *tx, fixed_uuid(n), s.org, t.id, Some(u), kind, "body")
+        tickets::insert_comment(&mut *tx, fixed_uuid(n), s.org, t.id, Some(u), kind, "body", None)
             .await
             .expect("comment");
     }
@@ -1947,6 +1950,7 @@ async fn client_visible_read_path_returns_only_client_visible() {
         Some(u),
         NoteKind::ClientVisible,
         "client-safe update",
+        None,
     )
     .await
     .expect("visible");
@@ -1958,6 +1962,7 @@ async fn client_visible_read_path_returns_only_client_visible() {
         None,
         NoteKind::Internal,
         "password reset root cause",
+        None,
     )
     .await
     .expect("internal");
@@ -1969,6 +1974,7 @@ async fn client_visible_read_path_returns_only_client_visible() {
         None,
         NoteKind::InHouseUpdate,
         "shift handover",
+        None,
     )
     .await
     .expect("in-house");
@@ -3176,6 +3182,7 @@ async fn day_activity_detects_comments_and_overlapping_timer_sessions() {
             Some(u),
             NoteKind::Internal,
             "worked on this",
+            None,
         )
         .await
         .expect("comment");
@@ -5614,6 +5621,7 @@ async fn attachments_dedup_link_and_refcounted_delete() {
         Some(ua),
         NoteKind::Internal,
         "with file",
+        None,
     )
     .await
     .expect("comment");

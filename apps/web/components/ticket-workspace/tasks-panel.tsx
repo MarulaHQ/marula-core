@@ -17,6 +17,7 @@ import { rejectionText } from "../../lib/error-copy";
 import type { components } from "@meridian/sdk";
 import { Button, Input } from "@meridian/ui";
 import { useState, type ReactNode } from "react";
+import { NoteComposer } from "../notes/note-composer";
 
 type ChecklistItem = components["schemas"]["ChecklistItem"];
 
@@ -34,6 +35,9 @@ export interface TasksPanelProps {
   onSetState(
     itemId: string,
     state: { checked: boolean; na: boolean },
+    /** Mandatory ledger reason (Wave 17 lane 11 §3.4): server composes
+     * the N-A / reopen note in the same tx; typed 422 without it. */
+    noteReason?: string,
   ): Promise<TaskToggleOutcome>;
   onAdd(text: string): Promise<void>;
 }
@@ -49,12 +53,20 @@ export function TasksPanel({
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [rowError, setRowError] = useState<string | null>(null);
+  // The mandatory reason prompt (§3.4): N-A and reopen-open flips expand
+  // an inline reason field under the row — the SHARED note composer, not
+  // a divergent text box. Escape collapses; ⌘↵ via the composer submits.
+  const [reasonAsk, setReasonAsk] = useState<{ itemId: string; kind: "na" | "reopen"; text: string } | null>(null);
 
   async function markNa(item: ChecklistItem, na: boolean): Promise<void> {
     setRowError(null);
-    // Mutual exclusion client-side: N-A clears the checkmark; clearing N-A
+    // Reason first when flipping TO N-A (mandatory, §3.4); clearing N-A
     // keeps the item unchecked so it re-enters the open set.
-    const result = await onSetState(item.id, { checked: false, na });
+    if (na) {
+      setReasonAsk({ itemId: item.id, kind: "na", text: "" });
+      return;
+    }
+    const result = await onSetState(item.id, { checked: false, na: false }, undefined);
     if (!result.ok) {
       setRowError(rejectionText(result, "Could not update that item"));
     }
@@ -63,9 +75,15 @@ export function TasksPanel({
   async function toggleChecked(item: ChecklistItem, checked: boolean): Promise<void> {
     setRowError(null);
     // Mutual exclusion client-side: checking clears a prior N-A; unchecking
-    // only clears the checkmark and leaves N-A untouched.
+    // an OPEN item is a plain state (no reason needed). Unchecking a DONE
+    // or reopening... a reopen (done -> open) needs its mandatory reason.
     const na = checked ? false : (item.na ?? false);
-    const result = await onSetState(item.id, { checked, na });
+    const reopen = (!checked && !(item.na ?? false) && item.checked);
+    if (reopen) {
+      setReasonAsk({ itemId: item.id, kind: "reopen", text: "" });
+      return;
+    }
+    const result = await onSetState(item.id, { checked, na }, undefined);
     if (!result.ok) {
       setRowError(rejectionText(result, "Could not update that item"));
     }
@@ -158,6 +176,79 @@ export function TasksPanel({
           <li className="text-xs" style={{ color: "var(--m-text-muted)" }}>No tasks yet.</li>
         )}
       </ul>
+      {reasonAsk !== null && (() => {
+        const ask = reasonAsk;
+        return (
+          <div
+            className="rounded-lg border px-2 py-2"
+            style={{ borderColor: "var(--m-border)", background: "var(--m-bg-subtle)" }}
+            data-testid={`${testPrefix}reason-prompt-${ask.itemId}`}
+          >
+            <label className="text-[10px]" style={{ color: "var(--m-text-muted)" }}>
+              Reason (required) — e.g. "Customer already resolved via vendor"
+            </label>
+            <NoteComposer
+              value={ask.text}
+              onChange={(text) => setReasonAsk({ ...ask, text })}
+              onSubmit={(body) => {
+                void (async () => {
+                  const item = items.find((i) => i.id === ask.itemId);
+                  if (item === undefined) return;
+                  const result = await onSetState(
+                    ask.itemId,
+                    ask.kind === "na"
+                      ? { checked: false, na: true }
+                      : { checked: false, na: false },
+                    body,
+                  );
+                  setReasonAsk(null);
+                  if (!result.ok) {
+                    setRowError(rejectionText(result, "Could not update that item"));
+                  }
+                })();
+              }}
+              compact
+              showHints={false}
+              ariaLabel="Reason for task state change"
+              placeholder="Type the reason, then ⌘↵ to save"
+              testPrefix={`${testPrefix}reason`}
+            />
+            <div className="flex gap-2 pt-1">
+              <Button
+                size="sm"
+                disabled={ask.text.trim() === ""}
+                data-testid={`${testPrefix}reason-save-${ask.itemId}`}
+                onClick={() => {
+                  const item = items.find((i) => i.id === ask.itemId);
+                  if (item === undefined) return;
+                  void (async () => {
+                    const result = await onSetState(
+                      ask.itemId,
+                      ask.kind === "na"
+                        ? { checked: false, na: true }
+                        : { checked: false, na: false },
+                      ask.text.trim(),
+                    );
+                    setReasonAsk(null);
+                    if (!result.ok) {
+                      setRowError(rejectionText(result, "Could not update that item"));
+                    }
+                  })();
+                }}
+              >
+                Save &amp; mark {ask.kind === "na" ? "N/A" : "incomplete"}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setReasonAsk(null)}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        );
+      })()}
       {rowError !== null && (
         <p className="text-xs" style={{ color: "var(--m-status-danger-fg)" }} role="alert" data-testid={`${testPrefix}task-row-error`}>
           {rowError}

@@ -292,6 +292,7 @@ async fn flush_dedupes_repeats_groups_orgs_and_indexes_comment_parentage() {
             None,
             core_domain::status::NoteKind::Internal,
             "customer confirmed router rebooted cleanly overnight",
+            None,
         )
         .await
         .expect("comment insert");

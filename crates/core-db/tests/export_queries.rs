@@ -181,6 +181,7 @@ async fn seed_full_org(db: &common::TestDb, n: u64) -> (Uuid, Uuid, Uuid, Vec<Uu
         Some(user),
         NoteKind::Internal,
         "first comment",
+        None,
     )
     .await
     .expect("comment");
@@ -192,6 +193,7 @@ async fn seed_full_org(db: &common::TestDb, n: u64) -> (Uuid, Uuid, Uuid, Vec<Uu
         None,
         NoteKind::ClientVisible,
         "second comment",
+        None,
     )
     .await
     .expect("comment 2");

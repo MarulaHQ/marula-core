@@ -581,6 +581,7 @@ export function TicketWorkspaceClassic(): ReactNode {
   async function setChecklistItemState(
     itemId: string,
     state: { checked: boolean; na: boolean },
+    noteReason?: string,
   ): Promise<{ ok: boolean; message?: string }> {
     if (itemId.startsWith("pending-")) return { ok: false };
     let prior: { checked: boolean; na: boolean } | null = null;
@@ -589,7 +590,12 @@ export function TicketWorkspaceClassic(): ReactNode {
       entityId: itemId,
       method: "POST",
       path: `/api/v1/tickets/${ticketId}/checklist/${itemId}`,
-      buildBody: (base) => ({ checked: state.checked, na: state.na, ...base }),
+      buildBody: (base) => ({
+        checked: state.checked,
+        na: state.na,
+        note_reason: noteReason ?? null,
+        ...base,
+      }),
       optimistic: () => {
         patchDetail((m) => ({
           ...m,

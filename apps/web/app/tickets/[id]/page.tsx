@@ -61,6 +61,7 @@ import { WbContextPanel } from "../../../components/workbench-v2/context-panel";
 import { WbAgentPanel } from "../../../components/workbench-v2/agent-panel";
 import { WbComposer } from "../../../components/workbench-v2/composer";
 import { WrapUpSheet } from "../../../components/workbench-v2/wrap-up-sheet";
+import { TasksGateDialog, type GateBlocks } from "../../../components/notes/close-gate-dialog";
 import { registerWrapUpTarget } from "../../../components/workbench-v2/wrap-up-bridge";
 import "../../../components/workbench-v2/workbench.css";
 
@@ -260,6 +261,9 @@ export default function TicketWorkbenchPage() {
   const [activeTab, setActiveTab] = useState<WbTab>("activity");
   const [commentBusy, setCommentBusy] = useState(false);
   const [wrapUpOpen, setWrapUpOpen] = useState(false);
+  // Wave 17 close gate (typed 409 tasks_unassigned): the centered decision
+  // dialog state — Option A batch + re-issue, Option B panel handoff.
+  const [gateBlock, setGateBlock] = useState<GateBlocks | null>(null);
   const [moveBoardOpen, setMoveBoardOpen] = useState(false);
   const draftRef = useRef<string | null>(null);
 
@@ -295,7 +299,27 @@ export default function TicketWorkbenchPage() {
     patchModel(updater);
   }
 
-  async function changeStatus(statusId: string): Promise<void> {
+  
+/** Unpack the typed 409 `tasks_unassigned` details: the exact unassigned
+ * rows in checklist order (the dialog is a real list). */
+function gateOf(details: unknown): GateBlocks["items"] {
+  if (details !== null && typeof details === "object" && Array.isArray((details as { items?: unknown[] }).items)) {
+    return (details as { items: GateBlocks["items"] }).items;
+  }
+  return [];
+}
+
+/** REQUIRED-item texts blocked by the pre-close gate on the same close
+ * attempt — both surfaces stack in the dialog (§4.1). */
+function requiredBlockedOf(details: unknown): string[] {
+  if (details !== null && typeof details === "object") {
+    const also = (details as { also_required?: unknown }).also_required;
+    if (Array.isArray(also)) return also.map(String);
+  }
+  return [];
+}
+
+async function changeStatus(statusId: string): Promise<void> {
     if (ticket === null) return;
     const before = ticket;
     const target = statuses.find((s) => s.id === statusId) ?? null;
@@ -318,6 +342,22 @@ export default function TicketWorkbenchPage() {
       },
     });
     if (result.status === "rejected") {
+      if (result.reason === "tasks_unassigned" && ticket !== null) {
+        // The workbar close gate: render the centered decision dialog —
+        // never a bare prose error (§4.2). `details.items` carries the
+        // exact unassigned rows; also stack any REQUIRED-item blockers
+        // that rode the same close attempt.
+        setGateBlock({
+          ticketId: ticket.id,
+          ticketNumber: String(ticket.number),
+          items: gateOf(result.details),
+          alsoRequired: requiredBlockedOf(result.details),
+          statusId,
+          onRetryClose: (sid) => changeStatus(sid),
+          onDismiss: () => setGateBlock(null),
+        });
+        return;
+      }
       setError(rejectionText(result, "That status change is not allowed by this board's workflow"));
       return;
     }
@@ -409,7 +449,12 @@ export default function TicketWorkbenchPage() {
     }
   }
 
-  async function postComment(body: string, kind: TicketComment["kind"], attachmentIds: string[]): Promise<void> {
+  async function postComment(
+    body: string,
+    kind: TicketComment["kind"],
+    attachmentIds: string[],
+    draftKey?: string | null,
+  ): Promise<void> {
     if (ticket === null) return;
     const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const optimistic: TicketComment = {
@@ -428,7 +473,13 @@ export default function TicketWorkbenchPage() {
         entityId: tempId,
         method: "POST",
         path: `/api/v1/tickets/${ticketId}/comments`,
-        buildBody: (base) => ({ body, kind, attachment_ids: attachmentIds, ...base }),
+        buildBody: (base) => ({
+          body,
+          kind,
+          attachment_ids: attachmentIds,
+          draft_key: draftKey ?? null,
+          ...base,
+        }),
         optimistic: () => {
           patchDetail((m) => ({ ...m, comments: [...m.comments, optimistic] }));
         },
@@ -1153,6 +1204,10 @@ export default function TicketWorkbenchPage() {
             />
           </div>
         </div>
+      )}
+
+      {gateBlock !== null && (
+        <TasksGateDialog {...gateBlock} />
       )}
 
       {ticket !== null && (
