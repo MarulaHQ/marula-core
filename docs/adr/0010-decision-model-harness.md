@@ -81,6 +81,13 @@ Two binding user directives shape the decision:
   the snapshot, mirroring the documented Jev state pattern.
 - Templates are validated against a size guard (~32k state budget): refusal
   with a typed error, never silent truncation.
+- **Starter question-set schemas ship per surface as versioned seed data.**
+  Each surface keys a curated default question map — the Choice options, Score
+  rubric levels, Noul criteria, instructions, and default thresholds Meridian
+  sends when an org hasn't customized. Versions improve over time (curated
+  rubric updates ride migrations/settings bumps) while org-customized sets
+  stay pinned to the version their admin accepted; lanes 2–3 build their
+  fan-outs ON these schemas, never ad-hoc.
 
 ### 3. Nine decision surfaces ship in wave 1 of the harness (priority-ordered)
 
