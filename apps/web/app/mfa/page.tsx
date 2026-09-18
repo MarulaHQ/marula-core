@@ -5,12 +5,21 @@
 // and continues to /today.
 // Non-purpose: enrollment and management live in /settings/security.
 
+//
+// Wave 17 lane 9 UX pass: Tangerine brand header, mono code field with
+// letter-count affordance, method pills (typed from the server methods
+// list), icon'd error row, back-to-sign-in affordance, staggered entrance
+// motion (≤120ms transform/opacity, prefers-reduced-motion collapses).
+// Security copy and every wired call unchanged.
+
 "use client";
 
+import { FieldError } from "@meridian/ui";
 import { friendlyMutationText } from "../../lib/error-copy";
-import { Button, Card, Input, Label } from "@meridian/ui";
+import { Button, Card, Input, Label, Spinner, Tag } from "@meridian/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { AuthBrand } from "../../components/auth/auth-brand";
 import { api, resolveApiBaseUrl, saveTokens } from "../../lib/api";
 
 const API_BASE = resolveApiBaseUrl();
@@ -29,6 +38,15 @@ function bufferToB64url(buffer: ArrayBuffer): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/** Server method strings → legible pill labels (UI labels only; the
+ * verification itself always goes to the server with the raw code). */
+function methodLabel(method: string): string | null {
+  if (method === "totp") return "Authenticator";
+  if (method === "recovery") return "Recovery code";
+  if (method === "webauthn") return "Passkey";
+  return null;
 }
 
 export default function MfaChallengePage() {
@@ -136,35 +154,54 @@ export default function MfaChallengePage() {
 
   if (!mfaToken) return null;
 
+  const pills = methods.map(methodLabel).filter((m): m is string => m !== null);
+
   return (
     <main
-      className="flex min-h-screen items-center justify-center p-6"
+      className="flex min-h-screen items-center justify-center p-4 md:p-6"
       style={{ background: "var(--m-canvas)" }}
     >
-      <Card className="w-full max-w-sm p-6">
-        <h1 className="text-base font-semibold">Two-factor verification</h1>
-        <p className="mt-1 mb-4 text-xs" style={{ color: "var(--m-text-secondary)" }}>
-          Your account is protected with a second factor. Enter a code from your
-          authenticator app, a recovery code, or use a passkey.
+      <Card className="m-rise w-full max-w-sm rounded-xl p-6 md:p-7" data-testid="mfa-card">
+        <AuthBrand subtitle="Meridian account security." />
+        <h1 className="mt-4 font-heading text-base font-semibold tracking-tight" style={{ color: "var(--m-text)" }}>
+          Two-factor verification
+        </h1>
+        <p className="mt-1 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+          Your account is protected with a second factor. Enter a code from
+          your authenticator app, a recovery code, or use a passkey.
         </p>
-        <form onSubmit={submitCode} className="grid gap-3">
+        {pills.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-1.5" aria-label="Available second factors">
+            {pills.map((label) => (
+              <Tag key={label} tone="outline" style={{ border: "1px solid var(--m-border)" }}>
+                {label}
+              </Tag>
+            ))}
+          </div>
+        )}
+        <form onSubmit={submitCode} className="m-rise mt-5 grid gap-3" style={{ animationDelay: "40ms" }}>
           <div className="grid gap-1.5">
             <Label htmlFor="code">Authenticator or recovery code</Label>
             <Input
               id="code"
               value={code}
               onChange={(e) => setCode(e.target.value)}
-              placeholder="123456 or XXXXX-XXXXX"
+              placeholder="123456"
+              className="font-mono tracking-widest"
               autoFocus
               autoComplete="one-time-code"
+              inputMode="numeric"
             />
+            <p className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+              Six digits from your authenticator, or a recovery code
+              (XXXXX-XXXXX).
+            </p>
           </div>
           {error && (
-            <p className="text-xs" style={{ color: "var(--m-status-danger, #b3261e)" }}>
-              {error}
-            </p>
+            <FieldError data-testid="mfa-error">{error}</FieldError>
           )}
-          <Button type="submit" disabled={busy || code.trim().length === 0}>
+          <Button type="submit" variant="primary" disabled={busy || code.trim().length === 0}>
+            {busy && <Spinner />}
             {busy ? "Verifying…" : "Verify"}
           </Button>
         </form>
@@ -183,6 +220,14 @@ export default function MfaChallengePage() {
             </Button>
           </>
         )}
+        <button
+          type="button"
+          onClick={() => window.location.assign("/login")}
+          className="mt-5 w-full text-xs underline underline-offset-2 transition-opacity duration-100 hover:opacity-70"
+          style={{ color: "var(--m-text-muted)" }}
+        >
+          Back to sign-in
+        </button>
       </Card>
     </main>
   );

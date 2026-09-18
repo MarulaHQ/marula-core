@@ -25,13 +25,14 @@ Label.displayName = "Label";
 export function FieldError({
   children,
   id,
+  ...rest
 }: {
   children: ReactNode;
   /** Pass as `aria-describedby` target on the control. */
   id?: string;
-}): ReactNode {
+} & Omit<ComponentProps<"p">, "children">): ReactNode {
   return (
-    <p id={id} className="m-field-error" role="alert">
+    <p id={id} {...rest} className="m-field-error" role="alert">
       <svg
         aria-hidden="true"
         width="12"

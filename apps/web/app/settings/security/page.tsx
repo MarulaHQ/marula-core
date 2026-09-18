@@ -10,7 +10,7 @@
 "use client";
 
 import { friendlyMutationText } from "../../../lib/error-copy";
-import { Button, Card, FieldHint, Input, Label } from "@meridian/ui";
+import { Button, Card, FieldHint, Input, Label, Tag } from "@meridian/ui";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { resolveApiBaseUrl, useAuth, useRequireAuth } from "../../../lib/api";
@@ -104,6 +104,7 @@ export default function SecuritySettingsPage() {
 
   // disable / regenerate forms
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [disableCode, setDisableCode] = useState("");
 
   // passkey registration
@@ -290,30 +291,38 @@ export default function SecuritySettingsPage() {
             <div className="grid gap-1">
               <Label>Secret (enter manually in your app)</Label>
               <code
-                className="rounded-[2px] px-2 py-1 text-xs"
+                className="m-rise rounded-lg px-2.5 py-1.5 text-xs"
                 style={{
                   background: "var(--m-surface-raised)",
+                  border: "1px solid var(--m-border)",
+                  fontFamily: "var(--font-mono)",
+                  letterSpacing: "0.08em",
                   wordBreak: "break-all",
                 }}
               >
                 {setupSecret}
               </code>
+              <FieldHint>Shown once. Confirm below with the first generated code.</FieldHint>
             </div>
-            <div className="grid gap-1">
-              <Label>otpauth URI</Label>
+            <details className="grid gap-1">
+              <summary
+                className="cursor-pointer text-xs transition-opacity duration-100 hover:opacity-70"
+                style={{ color: "var(--m-text-muted)" }}
+              >
+                Advanced — otpauth URI (paste into your app)
+              </summary>
               <code
-                className="rounded-[2px] px-2 py-1 text-xs"
+                className="rounded-lg px-2.5 py-1.5 text-xs"
                 style={{
                   background: "var(--m-surface-raised)",
+                  border: "1px solid var(--m-border)",
+                  fontFamily: "var(--font-mono)",
                   wordBreak: "break-all",
                 }}
               >
                 {setupUrl}
               </code>
-              <FieldHint>
-                Shown once. Confirm below with the first generated code.
-              </FieldHint>
-            </div>
+            </details>
             <label className="grid gap-1">
               <Label>Confirmation code</Label>
               <Input
@@ -344,9 +353,18 @@ export default function SecuritySettingsPage() {
             Shown once — store them somewhere safe. Each code works exactly
             once.
           </p>
-          <ul className="grid grid-cols-2 gap-1 font-mono text-xs">
+          <ul className="gap-1.5 grid sm:grid-cols-2 font-mono text-xs">
             {recoveryCodes.map((c) => (
-              <li key={c}>{c}</li>
+              <li
+                key={c}
+                className="rounded-lg px-2.5 py-1.5"
+                style={{
+                  background: "var(--m-surface-raised)",
+                  border: "1px solid var(--m-border)",
+                }}
+              >
+                {c}
+              </li>
             ))}
           </ul>
           <Button
@@ -371,11 +389,37 @@ export default function SecuritySettingsPage() {
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="grid gap-1">
             <Label>Password</Label>
-            <Input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
+            <div className="relative">
+              <Input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="pr-12"
+              />
+              <button
+                type="button"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-pressed={showPassword}
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute inset-y-0 right-0 flex w-9 items-center justify-center transition-opacity duration-100 hover:opacity-70"
+                style={{ color: "var(--m-text-muted)" }}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  {showPassword ? (
+                    <>
+                      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" strokeLinejoin="round" />
+                      <circle cx="12" cy="12" r="2.5" />
+                      <path d="M4 4l16 16" strokeLinecap="round" />
+                    </>
+                  ) : (
+                    <>
+                      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" strokeLinejoin="round" />
+                      <circle cx="12" cy="12" r="2.5" />
+                    </>
+                  )}
+                </svg>
+              </button>
+            </div>
           </label>
           <label className="grid gap-1">
             <Label>Current code</Label>
@@ -412,6 +456,10 @@ export default function SecuritySettingsPage() {
           style={{ color: "var(--m-text-secondary)" }}
         >
           Platform authenticators (Touch ID, Windows Hello, security keys).
+        </p>
+        <p className="m-field-hint mb-3">
+          Removing a passkey also requires your password from the Sensitive
+          changes card plus a current second factor.
         </p>
         {credentials.length > 0 && (
           <ul className="mb-3 grid gap-1 text-xs">
@@ -510,21 +558,22 @@ export default function SecuritySettingsPage() {
                 key={p.id}
                 className="flex items-center justify-between gap-2"
               >
-                <span>
+                <span className="truncate">
                   {p.display_name}{" "}
-                  <span style={{ color: "var(--m-text-muted)" }}>
+                  <span className="font-mono" style={{ color: "var(--m-text-muted)" }}>
                     ({p.issuer})
                   </span>
                 </span>
                 <span
                   aria-label={`${p.display_name} ${p.enabled ? "enabled" : "disabled"}`}
-                  style={{
-                    color: p.enabled
-                      ? "var(--m-status-success-fg)"
-                      : "var(--m-text-muted)",
-                  }}
+                  className="ml-auto shrink-0"
                 >
-                  {p.enabled ? "enabled" : "disabled"}
+                  <Tag
+                    tone={p.enabled ? "success" : "outline"}
+                    style={p.enabled ? undefined : { border: "1px solid var(--m-border)" }}
+                  >
+                    {p.enabled ? "enabled" : "disabled"}
+                  </Tag>
                 </span>
               </li>
             ))}
