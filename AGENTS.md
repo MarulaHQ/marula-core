@@ -39,6 +39,18 @@ designed for ultimate UX and looks, not invented from scratch:
   `lazyweb_agentic_search_finalize` and citing them in the lane's evidence dir
   (`design/qa-*/`) alongside the REVIEW — the chosen references become part of
   the lane's verification record.
+
+### Vision-review image batching (binding — provider hard limit)
+
+Every browser vision review that evaluates screenshot evidence MUST batch the
+captures: **NEVER send more than 30 images to the model provider in a single
+request/context** — larger batches (e.g. 32) are rejected by the provider, the
+review session dies mid-verdict, and recovery costs a minified-context re-run.
+Proven pattern (Wave 17 lanes 8/12): evaluate captures in **≤8-image batches**,
+record a per-batch verdict line in `REVIEW.md` as you go, then summarize the
+overall verdict — a review tool call that would attach more than 30 images is a
+bug, not a shortcut. This applies to review sessions, review subagents, and any
+peer-agent request that carries captures.
 - `/lazyweb-growth-report` only when the user explicitly asks for one; never
   auto-start reports.
 
