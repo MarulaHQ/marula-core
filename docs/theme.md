@@ -105,7 +105,7 @@ The Workbench Ember hexes (`#D64B0A` / `#FF8A4C`) are retired and CI-blacklisted
 | Role | Family | Weight | Notes |
 |---|---|---|---|
 | **UI / body / headings (default)** | **Inter**, system-ui fallback | 400 / 500 / 600 / 700 | 13px default. **Everything defaults to Inter** — including h1–h6 and `font-semibold` labels. next/font serves the webfont (`--font-sans`). |
-| Display headings (opt-in) | **Source Serif 4** | 600–700 | Only via the `font-heading` utility on genuinely large display titles. The app's h1–h6 are mostly small section labels (`text-sm font-semibold`) and stay Inter. Tailwind's `font-serif` maps to the same webfont. |
+| Display headings (opt-in) | **Source Serif 4** | 600–700 | Only via the `font-heading` utility on genuinely large display titles. The app's h1–h6 are mostly small section labels (`text-sm font-semibold`) and stay Inter. Tailwind's `font-serif` maps to the same webfont. **OWNER DIKTAT 2026-09-18: mockup-v2 wins — `--font-serif` is defined but never rendered there, so Inter-only display type is the canonical bar. De-serif surface card display titles (commit titles/labels) back to Inter (`font-semibold`); Source Serif now appears ONLY where explicitly themed above (the AuthBrand wordmark, docs headers). Lanes must not treat serif display titles as the default.** |
 | Code / data / logs | **JetBrains Mono** | 400 | next/font (`--font-mono`); tabular numerals mandatory |
 
 The Workbench "no serif" rule is **superseded** (see override banner), but the practical
