@@ -138,6 +138,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ai/chat/sessions/{session_id}/turns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /ai/chat/sessions/{session_id}/turns — run ONE bounded model turn
+         *     on a granted surface, streaming loop frames over `text/event-stream`.
+         *     Refusals (surface/model/cap/credential/agent capability), the hard cap
+         *     and the rate limit answer typed BEFORE any stream begins — clients
+         *     branch on codes without parsing frames.
+         */
+        post: operations["chat_runner_turn_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ai/me/authorize": {
         parameters: {
             query?: never;
@@ -149,7 +172,7 @@ export interface paths {
         put?: never;
         /**
          * POST /ai/me/authorize — the completion-edge resolution (typed refusals;
-         *     degrade-never-5xx). Lane 2's ChatRunner consumes this same edge.
+         *     degrade-never-5xx), delegating to the shared pipeline.
          */
         post: operations["ai_my_authorize_post"];
         delete?: never;
@@ -10718,6 +10741,30 @@ export interface components {
             /** Format: uuid */
             status_id: string;
         };
+        ChatTurnRequest: {
+            /**
+             * @description The conversation so far (system prompt first). The client owns the
+             *     transcript; the runner persists none of it.
+             */
+            messages: components["schemas"]["LoopMessage"][];
+            model?: string | null;
+            /**
+             * @description Optional explicit (provider, model) ask — must sit inside the
+             *     admin allowlist, exactly like the authorize edge.
+             */
+            provider?: string | null;
+            /**
+             * @description True only on a session's first turn — the
+             *     `ai.chat_session_started` event rides that turn alone.
+             */
+            session_opener?: boolean;
+            surface_key: string;
+            /**
+             * @description `ticket_note_assist` only: the ticket the assist drafts against
+             *     (the IF8 proposal target).
+             */
+            ticket_id?: string | null;
+        };
         /**
          * @description One line of a ticket's pre-close checklist. Items instantiated from the
          *     board's template carry `template_item_id`; those are REQUIRED when the
@@ -14228,6 +14275,18 @@ export interface components {
             methods: string[];
             mfa_required: boolean;
             mfa_token: string;
+        };
+        /** @description One conversation message (`system` | `user` | `assistant` | `tool`). */
+        LoopMessage: {
+            content: string;
+            role: string;
+            /** @description For `tool` messages: the tool call id being answered. */
+            tool_call_id?: string | null;
+            /**
+             * @description For `assistant` messages that requested tools: the provider-wire
+             *     tool_calls round-trip.
+             */
+            tool_calls?: Record<string, never> | null;
         };
         MagicLinkConfirm: {
             token: string;
@@ -20138,6 +20197,51 @@ export interface operations {
                 };
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    chat_runner_turn_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatTurnRequest"];
+            };
+        };
+        responses: {
+            /** @description SSE stream of loop frames (text/event-stream) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description typed refusal: ai_surface_not_granted | ai_surface_disabled | ai_surface_internal | ai_model_not_allowed | ai_no_models_configured | ai_hard_cap_reached | ai_no_credential | ai_agent_capability_not_granted */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description chat turn rate limit */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -66,7 +66,7 @@ fn require_ai_admin(principal: &Principal, action: Action) -> ApiResult<()> {
     Ok(())
 }
 
-fn month_start(now: chrono::DateTime<chrono::Utc>) -> chrono::DateTime<chrono::Utc> {
+pub(super) fn month_start(now: chrono::DateTime<chrono::Utc>) -> chrono::DateTime<chrono::Utc> {
     use chrono::Datelike;
     chrono::NaiveDate::from_ymd_opt(now.year(), now.month(), 1)
         .unwrap_or_else(|| chrono::NaiveDate::from_ymd_opt(1970, 1, 1).unwrap())
@@ -2457,37 +2457,24 @@ pub async fn get_org_usage(
 
 // --- completion edge -----------------------------------------------------------------
 
-/// POST /ai/me/authorize — the completion-edge resolution (typed refusals;
-/// degrade-never-5xx). Lane 2's ChatRunner consumes this same edge.
-#[utoipa::path(
-    operation_id = "ai_my_authorize_post",
-    post,
-    path = "/api/ai/me/authorize",
-    tag = "ai",
-    security(("bearer" = [])),
-    request_body = AiAuthorizeRequest,
-    responses(
-        (status = 200, body = AiAuthorizeResponse),
-        (status = 403, description = "typed refusal: ai_surface_not_granted | ai_surface_disabled | ai_surface_internal | ai_model_not_allowed | ai_no_models_configured | ai_hard_cap_reached | ai_no_credential"),
-        (status = 404, description = "rls_sparse")
-    )
-)]
-pub async fn authorize(
-    State(state): State<AppState>,
-    extensions: Extensions,
-    Json(req): Json<AiAuthorizeRequest>,
-) -> ApiResult<Json<AiAuthorizeResponse>> {
-    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    let org_id = authed.principal.user.org_id;
-    let user_id = authed.principal.user.id;
-    let surface_key = req.surface_key.trim().to_string();
-    if surface_key.is_empty() {
-        return Err(ApiError::Validation("surface_key is required".into()));
-    }
-
-    let mut tx = org_bound_tx(&state, org_id, user_id).await?;
-
-    let surface = core_db::ai_policy::get_surface_by_key(&mut *tx, org_id, &surface_key)
+/// The shared authorization pipeline (ADR 0008 §1). Surface checks →
+/// model resolution → caps (hard bound BEFORE dispatch) → sealed
+/// credential slot (+ tamper check) → soft-cap warn. The HTTP handler and
+/// the ChatRunner (Wave 18 lane 2) consume the SAME pipeline — one
+/// deny-by-default edge, no shadow re-wiring.
+///
+/// Caller owns the tx lifecycle: the soft-cap warn path writes a
+/// notification into `tx` — commit AFTER consuming the result.
+pub(super) async fn authorize_surface_call(
+    state: &AppState,
+    tx: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    user_id: Uuid,
+    surface_key: &str,
+    provider_ask: Option<&str>,
+    model_ask: Option<&str>,
+) -> ApiResult<AuthorizedAiCall> {
+    let surface = core_db::ai_policy::get_surface_by_key(&mut *tx, org_id, surface_key)
         .await
         .map_err(ApiError::from)?
         .ok_or(ApiError::RlsSparse)?;
@@ -2497,14 +2484,14 @@ pub async fn authorize(
             message: format!(
                 "internal surfaces such as '{surface_key}' are never directly callable"
             ),
-            surface: surface_key.clone(),
+            surface: surface_key.to_string(),
         });
     }
     if !surface.enabled {
         return Err(ApiError::AiCallRefused {
             reason: "ai_surface_disabled",
             message: format!("the '{surface_key}' surface is disabled for this org"),
-            surface: surface_key.clone(),
+            surface: surface_key.to_string(),
         });
     }
     if !core_db::ai_policy::user_has_surface_grant(&mut *tx, org_id, user_id, surface.id)
@@ -2516,7 +2503,7 @@ pub async fn authorize(
             message: format!(
                 "no admin grant covers you on the '{surface_key}' surface (deny-by-default)"
             ),
-            surface: surface_key.clone(),
+            surface: surface_key.to_string(),
         });
     }
 
@@ -2530,7 +2517,7 @@ pub async fn authorize(
         .map(|c| (c.provider.clone(), c.model.clone()))
         .collect();
 
-    let (provider, model, resolution) = match (req.provider.as_deref(), req.model.as_deref()) {
+    let (provider, model, resolution) = match (provider_ask, model_ask) {
         (Some(provider), Some(model))
             if !provider.trim().is_empty() && !model.trim().is_empty() =>
         {
@@ -2542,7 +2529,7 @@ pub async fn authorize(
                         provider.trim(),
                         model.trim()
                     ),
-                    surface: surface_key.clone(),
+                    surface: surface_key.to_string(),
                 });
             }
             (
@@ -2551,23 +2538,13 @@ pub async fn authorize(
                 "requested",
             )
         }
-        _ => {
-            resolve_pick(
-                &mut tx,
-                org_id,
-                user_id,
-                surface.id,
-                &surface_key,
-                &allowlist,
-            )
-            .await?
-        }
+        _ => resolve_pick(tx, org_id, user_id, surface.id, surface_key, &allowlist).await?,
     };
 
     // Caps: per-user cap when present, else org-wide; hard bound BEFORE
     // dispatch (typed refusal; degrade-never-5xx).
     let (soft_limit, hard_limit) =
-        core_db::ai_policy::effective_cap(&mut tx, org_id, user_id, PERIOD)
+        core_db::ai_policy::effective_cap(&mut *tx, org_id, user_id, PERIOD)
             .await
             .map_err(ApiError::from)?
             .unwrap_or((None, None));
@@ -2582,7 +2559,7 @@ pub async fn authorize(
                 message: format!(
                     "your '{surface_key}' usage hit the hard cap for this period ({used}/{hard} tokens)"
                 ),
-                surface: surface_key.clone(),
+                surface: surface_key.to_string(),
             });
         }
     }
@@ -2591,7 +2568,7 @@ pub async fn authorize(
     // else org. Missing sealed material is a typed refusal.
     let personal_allowed = personal_credentials_enabled(&mut *tx, org_id).await?;
     let credential = core_db::ai_policy::resolve_credential_secret(
-        &mut tx,
+        &mut *tx,
         org_id,
         user_id,
         &provider,
@@ -2605,7 +2582,7 @@ pub async fn authorize(
             message: format!(
                 "no active '{provider}' credential is available for this call (org or personal)"
             ),
-            surface: surface_key.clone(),
+            surface: surface_key.to_string(),
         });
     };
 
@@ -2638,23 +2615,22 @@ pub async fn authorize(
     .unwrap_or_else(|| "api_key".to_string());
 
     // Tamper check: an unopenable sealed credential degrades typed.
-    let plaintext_check = crate::crypto::open(&state.config.secret_key, &sealed_bytes);
-    if plaintext_check.is_err() {
-        return Err(ApiError::AiCallRefused {
+    let plaintext = crate::crypto::open(&state.config.secret_key, &sealed_bytes).map_err(|_| {
+        ApiError::AiCallRefused {
             reason: "ai_no_credential",
             message: "the sealed credential for this call failed to decrypt (tampered or rotated)"
                 .into(),
-            surface: surface_key.clone(),
-        });
-    }
+            surface: surface_key.to_string(),
+        }
+    })?;
 
-    // Soft cap: warn + notify, call proceeds.
+    // Soft cap: warn + notify IN THE CALLER'S TX (the call proceeds).
     let mut warnings = Vec::new();
     if let Some(soft) = soft_limit {
         if used >= soft {
             warnings.push("ai_soft_cap_reached".to_string());
             core_db::notifications::insert(
-                &mut *tx,
+                tx,
                 Uuid::now_v7(),
                 org_id,
                 user_id,
@@ -2673,24 +2649,103 @@ pub async fn authorize(
         }
     }
 
-    tx.commit().await.map_err(ApiError::from)?;
-    Ok(Json(AiAuthorizeResponse {
-        surface_key,
+    Ok(AuthorizedAiCall {
+        surface_key: surface_key.to_string(),
         provider,
         model,
-        resolution: resolution.to_string(),
+        resolution,
+        credential_id,
+        credential_kind: kind,
+        credential_personal: personal_selected,
+        plaintext_secret: plaintext,
+        used_tokens: used,
+        soft_limit,
+        hard_limit,
+        warnings,
+    })
+}
+
+/// The completion edge's shared admission result. `plaintext_secret` holds
+/// the OPENED bytes of the winning sealed credential — the caller must
+/// NEVER log, emit, or persist them. Honest gap (unwrapping this outside a
+/// forward call is a review red flag).
+#[derive(Debug)]
+pub struct AuthorizedAiCall {
+    pub surface_key: String,
+    pub provider: String,
+    pub model: String,
+    /// `requested` | `user_pick` | `org_pick` | `legacy_org_default` |
+    /// `catalog_first`.
+    pub resolution: &'static str,
+    pub credential_id: Uuid,
+    pub credential_kind: String,
+    pub credential_personal: bool,
+    pub plaintext_secret: Vec<u8>,
+    pub used_tokens: i64,
+    pub soft_limit: Option<i64>,
+    pub hard_limit: Option<i64>,
+    /// Soft-cap warnings (also ride `ai_cap_warn` notifications).
+    pub warnings: Vec<String>,
+}
+
+/// POST /ai/me/authorize — the completion-edge resolution (typed refusals;
+/// degrade-never-5xx), delegating to the shared pipeline.
+#[utoipa::path(
+    operation_id = "ai_my_authorize_post",
+    post,
+    path = "/api/ai/me/authorize",
+    tag = "ai",
+    security(("bearer" = [])),
+    request_body = AiAuthorizeRequest,
+    responses(
+        (status = 200, body = AiAuthorizeResponse),
+        (status = 403, description = "typed refusal: ai_surface_not_granted | ai_surface_disabled | ai_surface_internal | ai_model_not_allowed | ai_no_models_configured | ai_hard_cap_reached | ai_no_credential"),
+        (status = 404, description = "rls_sparse")
+    )
+)]
+pub async fn authorize(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Json(req): Json<AiAuthorizeRequest>,
+) -> ApiResult<Json<AiAuthorizeResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+    let surface_key = req.surface_key.trim().to_string();
+    if surface_key.is_empty() {
+        return Err(ApiError::Validation("surface_key is required".into()));
+    }
+
+    let mut tx = org_bound_tx(&state, org_id, user_id).await?;
+    let call = authorize_surface_call(
+        &state,
+        &mut tx,
+        org_id,
+        user_id,
+        &surface_key,
+        req.provider.as_deref(),
+        req.model.as_deref(),
+    )
+    .await?;
+    tx.commit().await.map_err(ApiError::from)?;
+
+    Ok(Json(AiAuthorizeResponse {
+        surface_key: call.surface_key,
+        provider: call.provider,
+        model: call.model,
+        resolution: call.resolution.to_string(),
         credential: AiAuthorizedCredential {
-            id: credential_id,
-            kind,
-            personal: personal_selected,
+            id: call.credential_id,
+            kind: call.credential_kind,
+            personal: call.credential_personal,
         },
         caps: AiCapState {
-            used_tokens: used,
-            soft_token_limit: soft_limit,
-            hard_token_limit: hard_limit,
-            pct_hard: pct_of(used, hard_limit),
+            used_tokens: call.used_tokens,
+            soft_token_limit: call.soft_limit,
+            hard_token_limit: call.hard_limit,
+            pct_hard: pct_of(call.used_tokens, call.hard_limit),
         },
-        warnings,
+        warnings: call.warnings,
     }))
 }
 

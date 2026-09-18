@@ -1,0 +1,12 @@
+{
+  "event_type": "ai.chat_session_started",
+  "entity": "ai_chat_session",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "session_id": "01914f6a-4d1f-7f22-8d1a-1f18a1c6e9a1",
+    "surface_key": "general_chat",
+    "user_id": "6b6a0f2a-9a03-4a4a-9d4e-1f18a1c6e9a1"
+  }
+}
