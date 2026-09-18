@@ -84,7 +84,9 @@ export default function ProvenancePage() {
         setLoadError(rejectionText(error as never, "Failed to load provenance."));
         return;
       }
-      setEvents(data.events);
+      // Pre-guard (lane 10 sweep): a resolving read can carry a malformed
+      // payload — render an honest empty trail, never a crash.
+      setEvents(Array.isArray(data.events) ? data.events : []);
       setCursor(opts.cursor ?? null);
       setNextCursor(data.next_cursor ?? null);
     },

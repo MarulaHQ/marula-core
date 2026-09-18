@@ -48,6 +48,9 @@ export function makeBoardSpec(
     return data ?? null;
   }
   function upsert(model: BoardModel, ticket: BoardTicket): BoardModel {
+    // Same-family pre-guard: a read model can observe upsert before its
+    // tickets array resolves — appending is the honest fallback, not a crash.
+    if (!Array.isArray(model.tickets)) return { ...model, tickets: [ticket] };
     const idx = model.tickets.findIndex((t) => t.id === ticket.id);
     if (idx < 0) return { ...model, tickets: [...model.tickets, ticket] };
     if (model.tickets[idx] === ticket) return model;
@@ -98,7 +101,8 @@ export function makeBoardSpec(
       if (typeof ticket?.id !== "string") return model;
       return upsert(model, ticket);
     },
-    entityIds: (model) => model.tickets.map((t) => t.id),
+    entityIds: (model) =>
+      Array.isArray(model.tickets) ? model.tickets.map((t) => t.id) : [],
   };
 }
 
@@ -234,7 +238,8 @@ export function makeMyWorkSpec(client: ApiClient): ReadModelSpec<MyWorkItem[]> {
       const { data } = await client.GET("/api/v1/tickets/my-work");
       return data ?? items;
     },
-    entityIds: (items) => items.map((i) => i.id),
+    entityIds: (items) =>
+      Array.isArray(items) ? items.map((i) => i.id) : [],
   };
 }
 

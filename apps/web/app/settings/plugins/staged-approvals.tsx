@@ -102,7 +102,7 @@ function StagedRow({
 
   return (
     <div
-      className="rounded-[2px] border p-3"
+      className="rounded-[var(--m-radius-container)] border p-3"
       style={{ borderColor: "var(--m-border)" }}
       data-testid={`staged-row-${item.id}`}
     >

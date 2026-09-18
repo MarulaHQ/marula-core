@@ -102,7 +102,7 @@ function VerifyEmailInner(): ReactNode {
         {token === "" ? (
           // --- REQUEST (RESEND) MODE ---------------------------------
           <>
-            <h1 className="mt-4 font-heading text-base font-semibold tracking-tight" style={{ color: "var(--m-text)" }}>
+            <h1 className="mt-4 text-base font-semibold tracking-tight" style={{ color: "var(--m-text)" }}>
               Verify your email
             </h1>
             {sentOnce ? (
@@ -167,7 +167,7 @@ function VerifyEmailInner(): ReactNode {
                 <path d="M4 12.5 10 18 20 6" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </span>
-            <h1 className="text-center font-heading text-base font-semibold tracking-tight" style={{ color: "var(--m-text)" }}>
+            <h1 className="text-center text-base font-semibold tracking-tight" style={{ color: "var(--m-text)" }}>
               Email verified
             </h1>
             <p className="text-center text-[13px]" style={{ color: "var(--m-text-secondary)" }} role="status">
@@ -181,7 +181,7 @@ function VerifyEmailInner(): ReactNode {
         ) : done === false ? (
           // --- CONFIRM FAILED → resend --------------------------------
           <div className="m-rise mt-4 grid gap-2" style={{ animationDelay: "40ms" }}>
-            <h1 className="font-heading text-base font-semibold tracking-tight" style={{ color: "var(--m-text)" }}>
+            <h1 className="text-base font-semibold tracking-tight" style={{ color: "var(--m-text)" }}>
               Email verification
             </h1>
             {error !== null && (

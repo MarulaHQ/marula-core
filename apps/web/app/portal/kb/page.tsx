@@ -86,7 +86,7 @@ export default function PortalKbPage() {
   return (
     <section className="m-rise">
       <div className="mb-4">
-        <h1 className="font-heading text-xl font-semibold tracking-tight">Knowledge base</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Knowledge base</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--m-text-muted)" }}>
           Guides your provider published for clients. Search across
           everything you can see, or browse by topic.

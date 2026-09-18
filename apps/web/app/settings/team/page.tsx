@@ -45,7 +45,7 @@ import {
 import type { components } from "@meridian/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
-import { ConfirmDestructive, SettingsHeader } from "../../../components/settings/settings-shell";
+import { ConfirmDestructive, SaveBar, SettingsHeader } from "../../../components/settings/settings-shell";
 import { OFFLINE_RETRY_COPY, reasonCopy } from "../../../lib/error-copy";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 
@@ -118,8 +118,8 @@ export default function TeamSettingsPage() {
   const auth = useRequireAuth();
   const me = auth.me;
 
-  const canRead = me?.permissions.includes(MANAGE_USERS) || me?.permissions.includes(MANAGE_BOARDS);
-  const canManage = me?.permissions.includes(MANAGE_USERS) ?? false;
+  const canRead = (me?.permissions ?? []).includes(MANAGE_USERS) || (me?.permissions ?? []).includes(MANAGE_BOARDS);
+  const canManage = (me?.permissions ?? []).includes(MANAGE_USERS) ?? false;
 
   const [users, setUsers] = useState<OrgUser[] | null>(null);
   const [total, setTotal] = useState<number | null>(null);
@@ -175,7 +175,7 @@ export default function TeamSettingsPage() {
   }, [auth.status, canRead, fetchPage]);
 
   const MANAGE_ROLES = "special:manage_roles";
-  const canManageRoles = me?.permissions.includes(MANAGE_ROLES) ?? false;
+  const canManageRoles = (me?.permissions ?? []).includes(MANAGE_ROLES) ?? false;
 
   const fetchRoles = useCallback(async () => {
     setRolesError(null);
@@ -446,22 +446,18 @@ export default function TeamSettingsPage() {
                       </SelectContent>
                     </Select>
                   </div>
-                  {inviteError !== null ? (
-                    <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
-                      {inviteError}
-                    </p>
-                  ) : null}
                   <DialogActions>
                     <Button variant="ghost" onClick={() => setInviteOpen(false)}>
                       Cancel
                     </Button>
-                    <Button
-                      variant="primary"
-                      onClick={() => void inviteDirect()}
-                      disabled={inviteBusy || inviteName.trim() === "" || inviteEmail.trim() === ""}
-                    >
-                      {inviteBusy ? <Spinner /> : null} Create invite
-                    </Button>
+                    <SaveBar
+                      dirty={inviteName.trim() !== "" && inviteEmail.trim() !== ""}
+                      saving={inviteBusy}
+                      error={inviteError}
+                      onSave={() => void inviteDirect()}
+                      saveTestId="create-invite"
+                      saveLabel="Create invite"
+                    />
                   </DialogActions>
                 </div>
               )}

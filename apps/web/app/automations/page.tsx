@@ -228,7 +228,9 @@ export default function AutomationsPage() {
   const userName = useCallback(
     (id: string) => {
       const u = users.find((x) => x.id === id);
-      return u !== undefined ? u.display_name || u.email : id.slice(0, 8);
+      // Honest label when the membership roster hasn't resolved (or the user
+      // was deactivated) — never a raw UUID fragment.
+      return u !== undefined ? u.display_name || u.email : "unknown user";
     },
     [users],
   );

@@ -145,7 +145,7 @@ export default function AiSettingsPage() {
     return (
       <div
         key={provider}
-        className="flex flex-wrap items-center gap-3 rounded-[2px] border p-3"
+        className="flex flex-wrap items-center gap-3 rounded-[var(--m-radius-container)] border p-3"
         style={{ borderColor: "var(--m-border)" }}
       >
         <div className="min-w-40">

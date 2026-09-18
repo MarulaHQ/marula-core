@@ -289,7 +289,7 @@ export default function SlaSettingsPage() {
                 key={cal.id}
                 type="button"
                 onClick={() => startEdit(cal)}
-                className="flex items-center justify-between gap-3 text-left px-2 py-2 rounded-[2px]"
+                className="flex items-center justify-between gap-3 text-left px-2 py-2 rounded-[var(--m-radius-container)]"
                 style={{
                   borderBottom: "1px solid var(--m-border)",
                   background: editingId === cal.id ? "var(--m-surface)" : "transparent",
@@ -506,7 +506,7 @@ export default function SlaSettingsPage() {
                   </Button>
                 </div>
                 {openPolicyId === policy.id && (
-                  <div className="grid gap-2 p-3 rounded-[2px]" style={{ border: "1px solid var(--m-border)" }}>
+                  <div className="grid gap-2 p-3 rounded-[var(--m-radius-container)]" style={{ border: "1px solid var(--m-border)" }}>
                     <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
                       Steps fire when consumed budget reaches their offset percent. {FIRE_ONCE_NOTE}
                     </p>
@@ -546,7 +546,7 @@ export default function SlaSettingsPage() {
                             }
                             className="text-[12px] px-2 py-1.5"
                             style={{
-                              borderRadius: 2,
+                              borderRadius: "var(--m-radius-control)",
                               border: "1px solid var(--m-border)",
                               background: "var(--m-surface)",
                               color: "var(--m-text)",

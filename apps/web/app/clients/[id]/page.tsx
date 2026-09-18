@@ -121,7 +121,7 @@ export default function ClientDetailPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const isAdmin = me?.permissions.includes("special:manage_users") ?? false;
+  const isAdmin = (me?.permissions ?? []).includes("special:manage_users") ?? false;
 
   // Create-dialog state per tab.
   const [createOpen, setCreateOpen] = useState(false);

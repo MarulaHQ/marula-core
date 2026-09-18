@@ -112,7 +112,7 @@ export function EntityPicker({ open, defaultKind, clientId, onPick, onClose }: E
               autoFocus
             />
           </div>
-          <div className="max-h-[40vh] min-h-24 overflow-auto rounded-[2px] border" style={{ borderColor: "var(--m-border)" }}>
+          <div className="max-h-[40vh] min-h-24 overflow-auto rounded-[var(--m-radius-container)] border" style={{ borderColor: "var(--m-border)" }}>
             {results === null ? (
               <div className="p-4 text-center">
                 <Spinner />

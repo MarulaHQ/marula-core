@@ -280,7 +280,7 @@ export function AgentSkillsTab({
             (RAG-class). The upload lands PENDING — nothing executes without admin consent.
           </p>
           <textarea
-            className="min-h-40 rounded-[2px] border p-2 text-[12px] font-mono"
+            className="min-h-40 rounded-[var(--m-radius-container)] border p-2 text-[12px] font-mono"
             style={{ borderColor: "var(--m-border)", background: "var(--m-canvas)" }}
             aria-label="Skill manifest JSON"
             placeholder='{"name":"ticket-triage","version":"1.0.0","description":"…"}'

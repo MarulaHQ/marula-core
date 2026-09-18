@@ -27,7 +27,7 @@ import {
 import type { components } from "@meridian/sdk";
 import { useEffect, useMemo, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
-import { SettingsHeader } from "../../../components/settings/settings-shell";
+import { SaveBar, SettingsHeader } from "../../../components/settings/settings-shell";
 
 type ApiKeyView = components["schemas"]["ApiKeyView"];
 
@@ -186,15 +186,15 @@ export default function ApiKeysSettingsPage() {
               </div>
             ))}
           </fieldset>
-          {formError !== null && (
-            <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
-              {formError}
-            </p>
-          )}
           <div>
-            <Button type="submit" disabled={!canSubmit}>
-              Create key
-            </Button>
+            <SaveBar
+              dirty={canSubmit}
+              saving={busy}
+              error={formError}
+              onSave={() => void create()}
+              saveTestId="create-key"
+              saveLabel="Create key"
+            />
             {scopes.size === 0 && name.trim().length > 0 && (
               <FieldHint>Select at least one scope.</FieldHint>
             )}
@@ -207,7 +207,7 @@ export default function ApiKeysSettingsPage() {
           <div className="p-4 grid gap-2">
             <Label>Raw key for “{shownRawKey.name}”</Label>
             <code
-              className="text-[12px] break-all rounded-[2px] px-2 py-1.5"
+              className="text-[12px] break-all rounded-[var(--m-radius-container)] px-2 py-1.5"
               style={{
                 background: "var(--m-surface)",
                 color: "var(--m-text)",

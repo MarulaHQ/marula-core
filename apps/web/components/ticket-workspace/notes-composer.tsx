@@ -90,7 +90,7 @@ export function NotesComposer({ busy, onPost, onUpload }: NotesComposerProps): R
               role="radio"
               aria-checked={kind === k.value}
               title={k.hint}
-              className="rounded-[2px] border px-2 py-0.5 text-[11px] transition-opacity duration-100"
+              className="rounded-[var(--m-radius-container)] border px-2 py-0.5 text-[11px] transition-opacity duration-100"
               style={{
                 borderColor: kind === k.value ? "var(--m-accent)" : "var(--m-border)",
                 color: kind === k.value ? "var(--m-accent)" : "var(--m-text-muted)",
@@ -103,7 +103,7 @@ export function NotesComposer({ busy, onPost, onUpload }: NotesComposerProps): R
           ))}
         </div>
         <label
-          className="flex cursor-pointer items-center gap-1 rounded-[2px] border px-2 py-1 text-xs"
+          className="flex cursor-pointer items-center gap-1 rounded-[var(--m-radius-container)] border px-2 py-1 text-xs"
           style={{ borderColor: "var(--m-border)", color: "var(--m-text-muted)" }}
           title="Attach files"
         >
@@ -123,7 +123,7 @@ export function NotesComposer({ busy, onPost, onUpload }: NotesComposerProps): R
           <button
             key={`${f.name}-${i}`}
             type="button"
-            className="flex items-center gap-1 rounded-[2px] px-1 text-xs"
+            className="flex items-center gap-1 rounded-[var(--m-radius-container)] px-1 text-xs"
             style={{ color: "var(--m-text-muted)" }}
             title="Remove"
             onClick={() => setStaged((prev) => prev.filter((_, idx) => idx !== i))}

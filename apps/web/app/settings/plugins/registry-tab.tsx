@@ -105,7 +105,7 @@ export function RegistryTab({
             {catalog.map((entry) => (
               <div
                 key={entry.id}
-                className="flex flex-wrap items-center gap-2 rounded-[2px] border p-3"
+                className="flex flex-wrap items-center gap-2 rounded-[var(--m-radius-container)] border p-3"
                 style={{ borderColor: "var(--m-border)" }}
               >
                 <span className="font-mono text-[12px]">{entry.slug}</span>

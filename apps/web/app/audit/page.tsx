@@ -93,7 +93,9 @@ export default function AuditPage() {
         setErrorMsg(rejectionText(error as never, "Failed to load audit events."));
         return;
       }
-      setEvents(data.events);
+      // Pre-guard (lane 10 sweep): a resolving read can carry a malformed
+      // payload — render an honest empty ledger, never a crash.
+      setEvents(Array.isArray(data.events) ? data.events : []);
       setCursor(targetCursor);
       setNextCursor(data.next_cursor ?? null);
       setExpandedId(null);

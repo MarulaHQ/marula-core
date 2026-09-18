@@ -590,7 +590,7 @@ export default function AssetDetailPage() {
             <Label htmlFor="asset-ownership">Ownership</Label>
             <select
               id="asset-ownership"
-              className="rounded-[2px] border bg-transparent px-2 py-1 text-[13px]"
+              className="rounded-[var(--m-radius-container)] border bg-transparent px-2 py-1 text-[13px]"
               style={{ borderColor: "var(--m-border)", color: "var(--m-text)" }}
               value={lifecycleDraft.ownership}
               onChange={(e) => setLifecycleDraft({ ...lifecycleDraft, ownership: e.target.value })}
@@ -606,7 +606,7 @@ export default function AssetDetailPage() {
             <Label htmlFor="asset-dep-method">Depreciation method</Label>
             <select
               id="asset-dep-method"
-              className="rounded-[2px] border bg-transparent text-[13px]"
+              className="rounded-[var(--m-radius-container)] border bg-transparent text-[13px]"
               style={{ borderColor: "var(--m-border)", color: "var(--m-text)" }}
               value={lifecycleDraft.depreciation_method}
               onChange={(e) => setLifecycleDraft({ ...lifecycleDraft, depreciation_method: e.target.value })}
@@ -711,7 +711,7 @@ export default function AssetDetailPage() {
               <Label htmlFor="asset-rental-cycle">Rental cycle</Label>
               <select
                 id="asset-rental-cycle"
-                className="rounded-[2px] border bg-transparent text-[13px]"
+                className="rounded-[var(--m-radius-container)] border bg-transparent text-[13px]"
                 style={{ borderColor: "var(--m-border)", color: "var(--m-text)" }}
                 value={lifecycleDraft.rental_cycle}
                 onChange={(e) => setLifecycleDraft({ ...lifecycleDraft, rental_cycle: e.target.value })}

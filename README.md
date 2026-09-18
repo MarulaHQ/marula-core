@@ -1,5 +1,9 @@
 # Meridian
 
+<p>
+  <img src="meridian-ci/logo/lockup-navy@2x.png" height="34" alt="Meridian logo lockup" title="Meridian logo lockup">
+</p>
+
 **The open-source PSA that MSPs own.** Tickets, time, clients, dispatch, projects, invoicing, knowledge base — everything an IT service team runs on, self-hosted, in a database you control.
 
 > **Status:** Phase 3 (commercial engine) — alpha gate closed 2026-09-12; Wave 12 (quotes, catalog, pipeline, inventory + configuration identity, vector search, FX, per-client overrides, live collaboration) landed. See [Roadmap](#roadmap).

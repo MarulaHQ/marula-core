@@ -131,7 +131,7 @@ function MagicLinkInner(): ReactNode {
         <AuthBrand />
         {token === "" ? (
           <>
-            <h1 className="mt-4 font-heading text-base font-semibold tracking-tight" style={{ color: "var(--m-text)" }}>
+            <h1 className="mt-4 text-base font-semibold tracking-tight" style={{ color: "var(--m-text)" }}>
               Sign in with a link
             </h1>
             {sentOnce ? (

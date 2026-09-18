@@ -6,9 +6,10 @@
 // Non-purpose: no staff login, no registration, no SSO — the portal is an
 // invite-only surface provisioned by the MSP.
 //
-// Wave 17 lane 8 UX pass: brand lockup (§7 wordmark + tangerine meridian
-// stroke), display serif h1 (mockup v2), generous card rhythm, entrance
-// motion riding the shared m-rise keyframe.
+// Wave 17 lane 8 UX pass: brand mark + generous card rhythm, entrance
+// motion riding the shared m-rise keyframe. Lane 10: the meridian-ci logo
+// mark replaces the placeholder globe; white-label-lite substitution (org
+// name + accent as deployment config, honest Meridian defaults).
 "use client";
 
 import { friendlyMutationText } from "../../../lib/error-copy";
@@ -16,23 +17,10 @@ import { Button, Card, FieldHint, Input, Label } from "@meridian/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { portalApi, usePortalAuth } from "../../../lib/portal-api";
+import { BrandMark } from "../../../components/brand";
+import { portalAccentOverrides, portalOrgName } from "../../../lib/portal-branding";
 
-function BrandMark() {
-  return (
-    <svg width={40} height={40} viewBox="0 0 40 40" fill="none" aria-hidden>
-      {/* globe wireframe */}
-      <circle cx="20" cy="20" r="15" stroke="var(--m-text)" strokeWidth="1.5" />
-      <ellipse cx="20" cy="20" rx="7" ry="15" stroke="var(--m-text)" strokeWidth="1" />
-      {/* the meridian stroke carries tangerine */}
-      <path
-        d="M20 5v30M5 20h30"
-        stroke="var(--m-accent)"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
+const ORG_NAME = portalOrgName() ?? "Meridian";
 
 export default function PortalLoginPage() {
   const router = useRouter();
@@ -61,13 +49,16 @@ export default function PortalLoginPage() {
   }
 
   return (
-    <div className="m-rise flex min-h-[64vh] items-center justify-center">
+    <div
+      className="m-rise flex min-h-[64vh] items-center justify-center"
+      style={portalAccentOverrides()}
+    >
       <div className="w-full max-w-sm" data-testid="portal-login-card">
         <div className="mb-6 flex flex-col items-center gap-3 text-center">
-          <BrandMark />
+          <BrandMark size={32} />
           <div>
-            <h1 className="font-heading text-xl font-semibold tracking-tight">
-              Client portal sign-in
+            <h1 className="text-xl font-semibold tracking-tight">
+              {ORG_NAME} — client portal sign-in
             </h1>
             <p className="mt-1 text-sm" style={{ color: "var(--m-text-muted)" }}>
               Support access provided by your service desk.

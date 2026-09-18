@@ -168,7 +168,7 @@ export function TicketWorkspaceClassic(): ReactNode {
     };
   }, [mergedIntoId]);
   const isMerged = mergedIntoId !== null;
-  const canMoveBoard = !isMerged && (auth.me?.permissions.includes("tickets:edit") ?? false);
+  const canMoveBoard = !isMerged && ((auth.me?.permissions ?? []).includes("tickets:edit") ?? false);
 
   // --- org directory (author names for notes/timeline) -----------------------
   const [namesByUser, setNamesByUser] = useState<Map<string, string>>(new Map());
@@ -490,7 +490,7 @@ export function TicketWorkspaceClassic(): ReactNode {
       <button
         key={attachment.id}
         type="button"
-        className="flex items-center gap-1 rounded-[2px] px-1 py-0.5 text-left text-xs hover:underline"
+        className="flex items-center gap-1 rounded-[var(--m-radius-container)] px-1 py-0.5 text-left text-xs hover:underline"
         style={{ color: "var(--m-text-muted)" }}
         title={`${attachment.filename} · ${sizeKb} KB`}
         onClick={() => void downloadAttachment(attachment.id, attachment.filename)}
@@ -726,7 +726,7 @@ export function TicketWorkspaceClassic(): ReactNode {
           </li>
         )}
         {(model?.comments ?? []).map((c) => (
-          <article key={c.id} className="grid gap-1 rounded-[2px] border p-2 text-xs" style={{ borderColor: "var(--m-border)" }}>
+          <article key={c.id} className="grid gap-1 rounded-[var(--m-radius-container)] border p-2 text-xs" style={{ borderColor: "var(--m-border)" }}>
             <header className="flex flex-wrap items-center gap-2">
               <StatusTag tone={c.kind === "client_visible" ? "success" : c.kind === "in_house_update" ? "warning" : "neutral"}>
                 {c.kind === "client_visible" ? "Client-visible" : c.kind === "in_house_update" ? "In-house" : "Internal"}
@@ -844,7 +844,7 @@ export function TicketWorkspaceClassic(): ReactNode {
         <TicketLinksPanel
           ticketId={ticket.id}
           ticket={ticket}
-          canWork={!isMerged && (auth.me?.permissions.includes("tickets:edit") ?? false)}
+          canWork={!isMerged && ((auth.me?.permissions ?? []).includes("tickets:edit") ?? false)}
           namesByUser={namesByUser}
           onChanged={() => void refresh()}
         />
@@ -852,7 +852,7 @@ export function TicketWorkspaceClassic(): ReactNode {
     );
 
   const renderMoneyTab = (): ReactNode => {
-    const canViewFinancials = auth.me?.permissions.includes("financial:read") ?? false;
+    const canViewFinancials = (auth.me?.permissions ?? []).includes("financial:read") ?? false;
     if (!canViewFinancials) {
       return (
         <div className="p-3">
@@ -899,7 +899,7 @@ export function TicketWorkspaceClassic(): ReactNode {
             key="next-steps"
             boardId={ticket.board_id}
             values={ticket.custom_fields ?? []}
-            canManageBoards={auth.me?.permissions.includes("special:manage_boards") ?? false}
+            canManageBoards={(auth.me?.permissions ?? []).includes("special:manage_boards") ?? false}
             onSaveValue={saveCustomField}
             onDefinitionCreated={() => {
               void refresh();
@@ -910,7 +910,7 @@ export function TicketWorkspaceClassic(): ReactNode {
         return (
           <section
             key="task-lists"
-            className="rounded-[2px] border p-3"
+            className="rounded-[var(--m-radius-container)] border p-3"
             style={{ borderColor: "var(--m-border)" }}
             data-testid="pod-tasks-inline"
             aria-label="Tasks"
@@ -931,7 +931,7 @@ export function TicketWorkspaceClassic(): ReactNode {
         return (
           <section
             key="taxonomy"
-            className="grid content-start gap-2 rounded-[2px] border p-3"
+            className="grid content-start gap-2 rounded-[var(--m-radius-container)] border p-3"
             style={{ borderColor: "var(--m-border)" }}
             data-testid="pod-taxonomy"
             aria-label="Classification"
@@ -1026,7 +1026,7 @@ export function TicketWorkspaceClassic(): ReactNode {
                   <div className="flex flex-wrap items-center justify-between gap-2 px-3 pt-2">
                     <TicketTags
                       ticketId={ticket.id}
-                      canEdit={!isMerged && (auth.me?.permissions.includes("tickets:edit") ?? false)}
+                      canEdit={!isMerged && ((auth.me?.permissions ?? []).includes("tickets:edit") ?? false)}
                       onChanged={() => void refresh()}
                     />
                     <div className="flex justify-end gap-2">
@@ -1218,7 +1218,7 @@ function MyWorkList({ selectedId, onSelect }: { selectedId: string; onSelect(id:
                   key={tag.id}
                   type="button"
                   aria-pressed={picked}
-                  className="cursor-pointer rounded-[2px] border px-1.5 py-0.5 text-[10px] transition-opacity duration-100"
+                  className="cursor-pointer rounded-[var(--m-radius-container)] border px-1.5 py-0.5 text-[10px] transition-opacity duration-100"
                   style={{
                     borderColor: color,
                     color: picked ? "var(--m-surface)" : color,

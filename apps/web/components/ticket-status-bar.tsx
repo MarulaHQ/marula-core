@@ -184,7 +184,7 @@ export function TicketStatusBar({
           <div
             role="menu"
             aria-label="Move to status"
-            className="absolute right-0 top-full z-30 mt-1 grid max-h-80 min-w-56 content-start gap-2 overflow-y-auto rounded-[2px] border p-2 shadow-md"
+            className="absolute right-0 top-full z-30 mt-1 grid max-h-80 min-w-56 content-start gap-2 overflow-y-auto rounded-[var(--m-radius-container)] border p-2 shadow-md"
             style={{ borderColor: "var(--m-border)", background: "var(--m-surface)", transition: "opacity 100ms ease" }}
           >
             {CATEGORY_GROUPS.map(({ category, label, tone: groupTone }) => {

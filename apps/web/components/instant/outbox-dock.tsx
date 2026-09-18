@@ -58,7 +58,7 @@ export function OutboxDock() {
       </button>
       {expanded && (
         <ul
-          className="grid max-h-40 gap-1 overflow-auto rounded-[2px] border p-2 text-xs"
+          className="grid max-h-40 gap-1 overflow-auto rounded-[var(--m-radius-container)] border p-2 text-xs"
           style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
           aria-label="Offline change results"
         >

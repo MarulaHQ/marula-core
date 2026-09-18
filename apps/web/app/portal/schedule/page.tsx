@@ -171,7 +171,7 @@ export default function PortalSchedulePage() {
   return (
     <section className="m-rise">
       <div className="mb-5">
-        <h1 className="font-heading text-xl font-semibold tracking-tight">Schedule a visit</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Schedule a visit</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--m-text-muted)" }}>
           Free times below come from your provider&apos;s published
           availability. You ask; they confirm.

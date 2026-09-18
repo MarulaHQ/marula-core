@@ -20,6 +20,14 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
 import { PortalAuthProvider, usePortalAuth } from "../../lib/portal-api";
+import { BrandMark } from "../../components/brand";
+import {
+  portalAccentOverrides,
+  portalOrgName,
+} from "../../lib/portal-branding";
+
+/** The honest brand substitution: configured org name, else "Meridian". */
+const ORG_NAME = portalOrgName() ?? "Meridian";
 
 function NavLinkIcon({ name, size = 14 }: { name: string; size?: number }) {
   const common = {
@@ -112,10 +120,11 @@ function PortalHeader() {
         <div className="flex min-w-0 items-center gap-3">
           <Link
             href="/portal"
-            className="flex shrink-0 items-baseline gap-2"
-            aria-label="Meridian client portal"
+            className="flex shrink-0 items-center gap-2"
+            aria-label={`${ORG_NAME} client portal`}
           >
-            <span className="font-heading text-lg font-semibold tracking-tight">Meridian</span>
+            <BrandMark size={20} />
+            <span className="text-lg font-semibold tracking-tight">{ORG_NAME}</span>
             {me === null && (
               <span
                 className="text-[10px] font-semibold uppercase tracking-widest"
@@ -162,14 +171,17 @@ function PortalHeader() {
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
   return (
     <PortalAuthProvider>
-      <div className="m-rise flex min-h-screen flex-col" style={{ background: "var(--m-canvas)" }}>
+      <div
+        className="m-rise flex min-h-screen flex-col"
+        style={{ background: "var(--m-canvas)", ...portalAccentOverrides() }}
+      >
         <PortalHeader />
         <main className="mx-auto w-full max-w-3xl flex-1 px-4 pb-16 pt-8">{children}</main>
         <footer
           className="border-t px-4 py-4 text-center text-xs"
           style={{ borderColor: "var(--m-border)", color: "var(--m-text-muted)" }}
         >
-          Meridian — support access provided by your service desk.
+          {ORG_NAME} — support access provided by your service desk.
         </footer>
       </div>
     </PortalAuthProvider>

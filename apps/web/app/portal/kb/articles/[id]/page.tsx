@@ -73,7 +73,7 @@ export default function PortalKbArticlePage() {
       </button>
       <Card className="mt-3">
         <div className="border-b px-5 pb-3 pt-5" style={{ borderColor: "var(--m-border)" }}>
-          <h1 className="font-heading text-xl font-semibold tracking-tight">{article.title}</h1>
+          <h1 className="text-xl font-semibold tracking-tight">{article.title}</h1>
           <p className="mt-0.5 text-xs tabular-nums" style={{ color: "var(--m-text-muted)" }}>
             Updated {updated(article.updated_at)}
           </p>

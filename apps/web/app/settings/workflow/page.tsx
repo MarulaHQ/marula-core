@@ -36,7 +36,7 @@ import {
 import type { components } from "@meridian/sdk";
 import { useEffect, useMemo, useReducer, useState } from "react";
 import { api, useAuth, useRequireAuth } from "../../../lib/api";
-import { SettingsHeader } from "../../../components/settings/settings-shell";
+import { SaveBar, SettingsHeader } from "../../../components/settings/settings-shell";
 import {
   checklistIsDirty,
   checklistPayload,
@@ -492,24 +492,23 @@ export default function WorkflowSettingsPage() {
             )}
 
             {canEdit && (
-              <div className="flex items-center gap-3">
-                <Button
-                  disabled={!statusDirty || !canEdit || anyRowError || savingSection !== null}
-                  onClick={() => void saveStatuses()}
-                >
-                  {savingSection === "statuses" ? "Saving…" : "Save statuses"}
-                </Button>
-                {sectionError["statuses"] && (
-                  <span role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
-                    {sectionError["statuses"]}
-                  </span>
-                )}
-                {savedSection === "statuses" && !sectionError["statuses"] && (
-                  <span className="text-[12px]" style={{ color: "var(--m-status-success-fg)" }}>
-                    Saved.
-                  </span>
-                )}
-              </div>
+              <SaveBar
+                dirty={statusDirty && !anyRowError}
+                saving={savingSection === "statuses"}
+                saved={savedSection === "statuses" && !sectionError["statuses"]}
+                error={sectionError["statuses"] ?? null}
+                onSave={() => void saveStatuses()}
+                onRevert={
+                  statusDirty
+                    ? () =>
+                        dispatchStatus({
+                          type: "replace",
+                          rows: statusRowsFromServer(statuses),
+                        })
+                    : undefined
+                }
+                saveLabel="Save statuses"
+              />
             )}
             <FieldHint>
               Deleting fails politely while tickets reference a status; the last entry status of a
@@ -578,39 +577,25 @@ export default function WorkflowSettingsPage() {
               . Self-moves are never offered; Closed→Open stays blocked until you explicitly allow it.
             </p>
             {canEdit && (
-              <div className="flex items-center gap-3">
-                <Button
-                  disabled={!matrixDirty || savingSection !== null}
-                  onClick={() => void saveMatrix()}
-                >
-                  {savingSection === "matrix" ? "Saving…" : "Save transitions"}
-                </Button>
-                {!matrix.pristineFloor && (
-                  <Button
-                    variant="ghost"
-                    onClick={() =>
-                      dispatchMatrix({
-                        type: "init",
-                        mode: "floor",
-                        explicitEdges: [],
-                        statuses: statuses,
-                      })
-                    }
-                  >
-                    Use automatic
-                  </Button>
-                )}
-                {sectionError["matrix"] && (
-                  <span role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
-                    {sectionError["matrix"]}
-                  </span>
-                )}
-                {savedSection === "matrix" && !sectionError["matrix"] && (
-                  <span className="text-[12px]" style={{ color: "var(--m-status-success-fg)" }}>
-                    Saved.
-                  </span>
-                )}
-              </div>
+              <SaveBar
+                dirty={matrixDirty}
+                saving={savingSection === "matrix"}
+                saved={savedSection === "matrix" && !sectionError["matrix"]}
+                error={sectionError["matrix"] ?? null}
+                onSave={() => void saveMatrix()}
+                onRevert={
+                  !matrix.pristineFloor
+                    ? () =>
+                        dispatchMatrix({
+                          type: "init",
+                          mode: "floor",
+                          explicitEdges: [],
+                          statuses: statuses,
+                        })
+                    : undefined
+                }
+                saveLabel="Save transitions"
+              />
             )}
           </Card>
 
@@ -714,24 +699,25 @@ export default function WorkflowSettingsPage() {
               Block closing while steps are incomplete
             </label>
             {canEdit && (
-              <div className="flex items-center gap-3">
-                <Button
-                  disabled={!checklistDirty || savingSection !== null}
-                  onClick={() => void saveChecklist()}
-                >
-                  {savingSection === "checklist" ? "Saving…" : "Save checklist"}
-                </Button>
-                {sectionError["checklist"] && (
-                  <span role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
-                    {sectionError["checklist"]}
-                  </span>
-                )}
-                {savedSection === "checklist" && !sectionError["checklist"] && (
-                  <span className="text-[12px]" style={{ color: "var(--m-status-success-fg)" }}>
-                    Saved.
-                  </span>
-                )}
-              </div>
+              <SaveBar
+                dirty={checklistDirty}
+                saving={savingSection === "checklist"}
+                saved={savedSection === "checklist" && !sectionError["checklist"]}
+                error={sectionError["checklist"] ?? null}
+                onSave={() => void saveChecklist()}
+                onRevert={
+                  checklistDirty && checklistServer !== null
+                    ? () =>
+                        dispatchChecklist({
+                          type: "init",
+                          name: checklistServer.name,
+                          requireClose: checklistServer.requireClose,
+                          items: checklistServer.items,
+                        })
+                    : undefined
+                }
+                saveLabel="Save checklist"
+              />
             )}
           </Card>
         </>

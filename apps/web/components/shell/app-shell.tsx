@@ -102,10 +102,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-dvh min-h-0">
+      {/* WCAG 2.4.1 bypass block: keyboard users skip the rail + top bar chrome. */}
+      <a
+        href="#m-main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-[var(--m-radius-control)] focus:border focus:bg-[var(--m-surface)] focus:px-3 focus:py-2 focus:text-sm"
+      >
+        Skip to main content
+      </a>
       <NavRail openCount={openCount} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <AppHeader />
-        <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
+        <main id="m-main-content" className="min-h-0 flex-1 overflow-y-auto">{children}</main>
         <TimerDock />
       </div>
     </div>

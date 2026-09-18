@@ -33,7 +33,7 @@ import type { components } from "@meridian/sdk";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
-import { SettingsHeader } from "../../../components/settings/settings-shell";
+import { SaveBar, SettingsHeader } from "../../../components/settings/settings-shell";
 
 type TaxonomyNodeView = components["schemas"]["TaxonomyNodeView"];
 type TaxonomyMutationResponse = components["schemas"]["TaxonomyMutationResponse"];
@@ -71,7 +71,7 @@ const EMPTY_DRAFT: NodeDraft = { name: "", description: "", sortOrder: "0" };
 
 export default function TaxonomySettingsPage() {
   const auth = useRequireAuth();
-  const canManage = auth.me?.permissions.includes(MANAGE_BOARDS) ?? false;
+  const canManage = (auth.me?.permissions ?? []).includes(MANAGE_BOARDS) ?? false;
 
   const [types, setTypes] = useState<TaxonomyNodeView[] | null>(null);
   const [categories, setCategories] = useState<TaxonomyNodeView[] | null>(null);
@@ -356,7 +356,7 @@ export default function TaxonomySettingsPage() {
             <div
               role="status"
               data-testid="taxonomy-notice"
-              className="rounded-[2px] border px-3 py-2 text-[13px]"
+              className="rounded-[var(--m-radius-container)] border px-3 py-2 text-[13px]"
               style={{ borderColor: "var(--m-border)", background: "var(--m-surface)", color: "var(--m-text-secondary)" }}
             >
               {notice}
@@ -513,23 +513,18 @@ export default function TaxonomySettingsPage() {
               />
               <FieldHint>Lower numbers sort first within a level.</FieldHint>
             </div>
-            {formError !== null ? (
-              <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
-                {formError}
-              </p>
-            ) : null}
             <DialogActions>
               <Button variant="ghost" onClick={() => setFormOpen(false)}>
                 Cancel
               </Button>
-              <Button
-                variant="primary"
-                data-testid="save-taxonomy-node"
-                onClick={() => void save()}
-                disabled={formBusy || draft.name.trim() === ""}
-              >
-                {formBusy ? <Spinner /> : null} {editing === null ? "Create" : "Save"}
-              </Button>
+              <SaveBar
+                dirty={draft.name.trim() !== ""}
+                saving={formBusy}
+                error={formError}
+                onSave={() => void save()}
+                saveTestId="save-taxonomy-node"
+                saveLabel={editing === null ? "Create" : "Save"}
+              />
             </DialogActions>
           </div>
         </DialogContent>
@@ -560,7 +555,7 @@ export default function TaxonomySettingsPage() {
                 onChange={(e) => setReparentTo(e.target.value)}
                 className="w-full text-[13px] px-2 py-1.5"
                 style={{
-                  borderRadius: 2,
+                  borderRadius: "var(--m-radius-control)",
                   border: "1px solid var(--m-border)",
                   background: "var(--m-surface)",
                   color: "var(--m-text)",
@@ -579,23 +574,18 @@ export default function TaxonomySettingsPage() {
                   ))}
               </select>
             </div>
-            {reparentError !== null ? (
-              <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
-                {reparentError}
-              </p>
-            ) : null}
             <DialogActions>
               <Button variant="ghost" onClick={() => setReparenting(null)}>
                 Cancel
               </Button>
-              <Button
-                variant="primary"
-                data-testid="confirm-reparent"
-                onClick={() => void saveReparent()}
-                disabled={reparentBusy || reparentTo === ""}
-              >
-                {reparentBusy ? <Spinner /> : null} Move
-              </Button>
+              <SaveBar
+                dirty={reparentTo !== ""}
+                saving={reparentBusy}
+                error={reparentError}
+                onSave={() => void saveReparent()}
+                saveTestId="confirm-reparent"
+                saveLabel="Move"
+              />
             </DialogActions>
           </div>
         </DialogContent>

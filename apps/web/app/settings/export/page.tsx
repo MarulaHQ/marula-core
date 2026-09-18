@@ -41,7 +41,7 @@ function downloadHref(downloadUrl: string): string {
 export default function ExportSettingsPage() {
   const auth = useRequireAuth();
   const isOwnerOrAdmin =
-    auth.me?.permissions.includes("special:manage_users") ?? false;
+    (auth.me?.permissions ?? []).includes("special:manage_users") ?? false;
   const [building, setBuilding] = useState(false);
   const [exported, setExported] = useState<ExportCreated | null>(null);
   const [history, setHistory] = useState<ExportHistoryView[] | null>(null);

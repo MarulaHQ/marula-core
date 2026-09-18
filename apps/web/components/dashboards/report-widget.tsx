@@ -529,7 +529,7 @@ function UnansweredStatPanel({
             aria-expanded={expanded}
             data-testid="unanswered-drilldown"
             onClick={() => setExpanded((v) => !v)}
-            className="grid w-full gap-0.5 cursor-pointer rounded-[2px] border-0 bg-transparent p-0 text-left outline-offset-4"
+            className="grid w-full gap-0.5 cursor-pointer rounded-[var(--m-radius-container)] border-0 bg-transparent p-0 text-left outline-offset-4"
           >
             <span className="text-[10px] font-medium uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
               Unanswered

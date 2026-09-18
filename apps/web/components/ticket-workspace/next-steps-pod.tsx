@@ -121,7 +121,7 @@ export function NextStepsPod({
 
   return (
     <section
-      className="grid content-start gap-2 rounded-[2px] border p-3"
+      className="grid content-start gap-2 rounded-[var(--m-radius-container)] border p-3"
       style={{ borderColor: "var(--m-border)" }}
       data-testid="pod-next-steps"
       aria-label="Next steps"

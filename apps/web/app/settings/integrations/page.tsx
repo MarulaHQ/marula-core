@@ -230,7 +230,7 @@ export default function IntegrationsSettingsPage() {
           <div className="p-4 grid gap-2">
             <Label>Signing secret for {shownSecret.label}</Label>
             <code
-              className="text-[12px] break-all rounded-[2px] px-2 py-1.5"
+              className="text-[12px] break-all rounded-[var(--m-radius-container)] px-2 py-1.5"
               style={{
                 background: "var(--m-surface)",
                 color: "var(--m-text)",
@@ -333,7 +333,7 @@ export default function IntegrationsSettingsPage() {
                     {wh.url}
                   </code>
                   <span
-                    className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded-[2px]"
+                    className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded-[var(--m-radius-container)]"
                     style={{
                       border: "1px solid var(--m-border)",
                       color: wh.enabled
@@ -370,7 +370,7 @@ export default function IntegrationsSettingsPage() {
                   </p>
                 )}
                 {logPages.has(wh.id) ? (
-                  <div className="rounded-[2px] mt-1" style={{ border: "1px solid var(--m-border)" }}>
+                  <div className="rounded-[var(--m-radius-container)] mt-1" style={{ border: "1px solid var(--m-border)" }}>
                     {(logPages.get(wh.id) ?? []).length === 0 && logLoading !== wh.id ? (
                       <p className="text-[12px] p-3" style={{ color: "var(--m-text-muted)" }}>
                         No attempts yet — send a test event.

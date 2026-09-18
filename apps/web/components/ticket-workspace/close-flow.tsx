@@ -237,7 +237,7 @@ function CloseFlowInner({
         data-testid="close-flow"
       >
         <div
-          className="grid w-full max-w-md gap-3 rounded-[2px] border p-4"
+          className="grid w-full max-w-md gap-3 rounded-[var(--m-radius-container)] border p-4"
           style={{ background: "var(--m-overlay-surface)", borderColor: "var(--m-border)" }}
         >
           <h2 className="text-sm font-semibold">Ticket validated for close</h2>
@@ -264,7 +264,7 @@ function CloseFlowInner({
       data-testid="close-flow"
     >
       <div
-        className="grid max-h-[90vh] w-full max-w-xl gap-3 overflow-y-auto rounded-[2px] border p-4"
+        className="grid max-h-[90vh] w-full max-w-xl gap-3 overflow-y-auto rounded-[var(--m-radius-container)] border p-4"
         style={{ background: "var(--m-overlay-surface)", borderColor: "var(--m-border)" }}
       >
         <div className="flex items-center justify-between">
@@ -320,7 +320,7 @@ function CloseFlowInner({
                   type="button"
                   role="radio"
                   aria-checked={finalKind === value}
-                  className="rounded-[2px] border px-2 py-0.5 text-[11px]"
+                  className="rounded-[var(--m-radius-container)] border px-2 py-0.5 text-[11px]"
                   style={{
                     borderColor: finalKind === value ? "var(--m-accent)" : "var(--m-border)",
                     color: finalKind === value ? "var(--m-accent)" : "var(--m-text-muted)",
@@ -351,7 +351,7 @@ function CloseFlowInner({
                 </p>
                 {(timeError !== null || entries.length === 0 || runningTimer !== null) && (
                   <p
-                    className="rounded-[2px] border border-dashed px-2 py-1.5 text-xs"
+                    className="rounded-[var(--m-radius-container)] border border-dashed px-2 py-1.5 text-xs"
                     style={{ borderColor: "var(--m-status-warning-fg)", color: "var(--m-status-warning-fg)" }}
                     data-testid="close-time-gap"
                   >
@@ -386,7 +386,7 @@ function CloseFlowInner({
                     type="button"
                     disabled={!allowed}
                     title={allowed ? undefined : "This board's workflow does not allow that transition"}
-                    className="rounded-[2px] border px-2 py-1 text-xs"
+                    className="rounded-[var(--m-radius-container)] border px-2 py-1 text-xs"
                     style={{
                       borderColor: nextStatusId === s.id ? "var(--m-accent)" : "var(--m-border)",
                       color: nextStatusId === s.id ? "var(--m-accent)" : undefined,

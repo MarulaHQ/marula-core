@@ -55,7 +55,7 @@ function Chip({ tag }: { tag: Tag }) {
   const color = tag.color ?? "var(--m-text-muted)";
   return (
     <span
-      className="inline-flex items-center gap-1 rounded-[2px] px-2 py-0.5 text-[11px] font-medium"
+      className="inline-flex items-center gap-1 rounded-[var(--m-radius-container)] px-2 py-0.5 text-[11px] font-medium"
       style={{ border: `1px solid ${color}`, color, background: "transparent" }}
     >
       {tag.name}
@@ -65,7 +65,7 @@ function Chip({ tag }: { tag: Tag }) {
 
 export default function TagsSettingsPage() {
   const auth = useRequireAuth();
-  const canManage = auth.me?.permissions.includes(MANAGE_BOARDS) ?? false;
+  const canManage = (auth.me?.permissions ?? []).includes(MANAGE_BOARDS) ?? false;
 
   const [tags, setTags] = useState<TagView[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -299,7 +299,7 @@ export default function TagsSettingsPage() {
                   type="button"
                   aria-label="No color"
                   aria-pressed={color === null}
-                  className="h-6 w-6 cursor-pointer rounded-[2px] border-2"
+                  className="h-6 w-6 cursor-pointer rounded-[var(--m-radius-container)] border-2"
                   style={{ borderColor: color === null ? "var(--m-text)" : "var(--m-border)", background: "transparent" }}
                   onClick={() => setColor(null)}
                 />
@@ -309,7 +309,7 @@ export default function TagsSettingsPage() {
                     type="button"
                     aria-label={c.label}
                     aria-pressed={color === c.hex}
-                    className="h-6 w-6 cursor-pointer rounded-[2px] border-2"
+                    className="h-6 w-6 cursor-pointer rounded-[var(--m-radius-container)] border-2"
                     style={{ background: c.hex, borderColor: color === c.hex ? "var(--m-text)" : "transparent" }}
                     onClick={() => setColor(c.hex)}
                   />

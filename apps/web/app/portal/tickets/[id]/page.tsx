@@ -197,7 +197,7 @@ export default function PortalTicketPage() {
           ← All requests
         </button>
         <div className="mt-2 flex flex-wrap items-baseline gap-2">
-          <h1 className="font-heading text-xl font-semibold tracking-tight">{t.title}</h1>
+          <h1 className="text-xl font-semibold tracking-tight">{t.title}</h1>
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-2 text-xs" style={{ color: "var(--m-text-muted)" }}>
           <span className="font-mono tabular-nums">{t.number}</span>

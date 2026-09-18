@@ -226,7 +226,7 @@ export function MoveBoardDialog({
                 onChange={(e) => setTargetBoardId(e.target.value)}
                 className="w-full text-[13px] px-2 py-1.5"
                 style={{
-                  borderRadius: 2,
+                  borderRadius: "var(--m-radius-control)",
                   border: "1px solid var(--m-border)",
                   background: "var(--m-surface)",
                   color: "var(--m-text)",
@@ -262,7 +262,7 @@ export function MoveBoardDialog({
                 onChange={(e) => setStatusId(e.target.value)}
                 className="w-full text-[13px] px-2 py-1.5"
                 style={{
-                  borderRadius: 2,
+                  borderRadius: "var(--m-radius-control)",
                   border: "1px solid var(--m-border)",
                   background: "var(--m-surface)",
                   color: "var(--m-text)",
@@ -292,7 +292,7 @@ export function MoveBoardDialog({
             <div
               data-testid="board-move-conflict"
               role="alert"
-              className="grid gap-2 rounded-[2px] border px-3 py-2"
+              className="grid gap-2 rounded-[var(--m-radius-container)] border px-3 py-2"
               style={{ borderColor: "var(--m-status-warning-fg)", background: "var(--m-status-warning-bg)" }}
             >
               <p className="text-[13px]" style={{ color: "var(--m-status-warning-fg)" }}>
