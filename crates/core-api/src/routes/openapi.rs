@@ -280,6 +280,8 @@ use utoipa::OpenApi;
         crate::routes::ai_policy::delete_my_pick,
         crate::routes::ai_policy::put_org_pick,
         crate::routes::ai_policy::get_my_usage,
+        // ChatRunner (Wave 18 lane 2)
+        crate::routes::chat_runner::post_turn,
         // org user management (Wave 11 lane 2)
         crate::routes::org_users::list,
         crate::routes::org_users::invite,
@@ -964,6 +966,9 @@ use utoipa::OpenApi;
         crate::routes::ai_policy::AiCapState,
         crate::routes::ai_policy::AiAuthorizeResponse,
         crate::routes::ai_policy::AiMyUsageResponse,
+        // ChatRunner (Wave 18 lane 2)
+        crate::routes::chat_runner::ChatTurnRequest,
+        crate::routes::chat_runner::LoopMessage,
         crate::routes::ai_policy::AiOrgUsageResponse,
         // org user management (Wave 11 lane 2)
         crate::routes::org_users::OrgUser,

@@ -53,6 +53,7 @@ pub mod byok;
 pub mod calendar;
 pub mod calendar_sync;
 pub mod catalog;
+pub mod chat_runner;
 pub mod checklists;
 pub mod clients;
 pub mod config_items;
@@ -209,7 +210,7 @@ pub fn build_router(state: AppState) -> Router {
     // gets a `correlation_id` span field + an echoed `x-correlation-id`
     // response header, so a client-reported failure pairs with exactly one
     // grep-able server log line.
-    Router::new()
+    let app = Router::new()
         .merge(api)
         .merge(internal)
         .merge(docs)
@@ -217,7 +218,12 @@ pub fn build_router(state: AppState) -> Router {
         .layer(middleware::from_fn(crate::otel_http::correlate))
         .layer(middleware::from_fn(crate::error::typed_rejections))
         .layer(middleware::from_fn(crate::otel_http::track))
-        .with_state(state)
+        .with_state(state);
+    // ChatRunner (Wave 18 lane 2) stamps the composed router on every
+    // build so its wardrobe tool self-calls ride the REAL middleware
+    // stack (auth/RBAC/RLS) with the caller's own bearer.
+    chat_runner::set_runner_router(app.clone());
+    app
 }
 
 /// Builds ALL `/api`-namespaced surfaces (public auth/machine endpoints,
@@ -1218,6 +1224,12 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             put(ai_policy::put_org_pick),
         )
         .route(&rp("/ai/me/usage"), get(ai_policy::get_my_usage))
+        // ChatRunner (ADR 0008 §3, Wave 18 lane 2): the bounded model
+        // loop over SSE. Authorization refusals ride lane 1's edge.
+        .route(
+            &rp("/ai/chat/sessions/{session_id}/turns"),
+            post(chat_runner::post_turn),
+        )
         // customization manifest (TASKLIST U5): admin-gated canonical
         // export; owner/admin checked inside the handler (policy §5).
         .route(&rp("/org/manifest"), get(manifest::get))

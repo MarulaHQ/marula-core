@@ -1,0 +1,18 @@
+{
+  "event_type": "ai.chat_turn_completed",
+  "entity": "ai_chat_turn",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "completion_tokens": 64,
+    "model": "gpt-4.1",
+    "outcome": "completed",
+    "prompt_tokens": 120,
+    "provider": "openai",
+    "session_id": "01914f6a-4d1f-7f22-8d1a-1f18a1c6e9a1",
+    "steps": 1,
+    "surface_key": "general_chat",
+    "turn_id": "01914f6a-4d1f-7f22-8d1a-1f18a1c6e9b2"
+  }
+}

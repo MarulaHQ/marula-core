@@ -1,0 +1,14 @@
+{
+  "event_type": "ai.chat_tool_invoked",
+  "entity": "ai_chat_tool_invocation",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "capability": "tickets:read",
+    "outcome": "executed",
+    "session_id": "01914f6a-4d1f-7f22-8d1a-1f18a1c6e9a1",
+    "tool": "tickets_get_ticket",
+    "turn_id": "01914f6a-4d1f-7f22-8d1a-1f18a1c6e9b2"
+  }
+}

@@ -1712,6 +1712,63 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             })
         ),
     },
+    PublishedEvent {
+        event_type: types::AI_CHAT_SESSION_STARTED,
+        entity: "ai_chat_session",
+        variant: "default",
+        shape: untyped_shape!(
+            ["session_id", "surface_key", "user_id"],
+            serde_json::json!({
+                "session_id": "01914f6a-4d1f-7f22-8d1a-1f18a1c6e9a1",
+                "surface_key": "general_chat",
+                "user_id": "6b6a0f2a-9a03-4a4a-9d4e-1f18a1c6e9a1",
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::AI_CHAT_TURN_COMPLETED,
+        entity: "ai_chat_turn",
+        variant: "default",
+        shape: untyped_shape!(
+            [
+                "session_id",
+                "turn_id",
+                "surface_key",
+                "provider",
+                "model",
+                "prompt_tokens",
+                "completion_tokens",
+                "steps",
+                "outcome"
+            ],
+            serde_json::json!({
+                "session_id": "01914f6a-4d1f-7f22-8d1a-1f18a1c6e9a1",
+                "turn_id": "01914f6a-4d1f-7f22-8d1a-1f18a1c6e9b2",
+                "surface_key": "general_chat",
+                "provider": "openai",
+                "model": "gpt-4.1",
+                "prompt_tokens": 120,
+                "completion_tokens": 64,
+                "steps": 1,
+                "outcome": "completed",
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::AI_CHAT_TOOL_INVOKED,
+        entity: "ai_chat_tool_invocation",
+        variant: "default",
+        shape: untyped_shape!(
+            ["session_id", "turn_id", "tool", "capability", "outcome"],
+            serde_json::json!({
+                "session_id": "01914f6a-4d1f-7f22-8d1a-1f18a1c6e9a1",
+                "turn_id": "01914f6a-4d1f-7f22-8d1a-1f18a1c6e9b2",
+                "tool": "tickets_get_ticket",
+                "capability": "tickets:read",
+                "outcome": "executed",
+            })
+        ),
+    },
     // -- portal ---------------------------------------------------------------
     PublishedEvent {
         event_type: types::PORTAL_USER_CREATED,

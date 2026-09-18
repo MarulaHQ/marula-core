@@ -203,6 +203,18 @@ pub mod types {
     pub const AI_MODEL_CREDENTIAL_REVOKED: &str = "ai.model_credential_revoked";
     pub const AI_CAP_UPDATED: &str = "ai.cap_updated";
     pub const AI_MODEL_PICK_UPDATED: &str = "ai.model_pick_updated";
+    /// ADR 0008 §3 chat-loop lifecycle (Wave 18 lane 2): the ChatRunner's
+    /// contract events. `ai.chat_session_started` records a client-borne
+    /// chat/assist session opening on a granted surface;
+    /// `ai.chat_turn_completed` records one bounded model turn (provider,
+    /// model, token spend, loop steps, outcome) so usage is reconstructible
+    /// from the event stream alone; `ai.chat_tool_invoked` records a
+    /// wardrobe tool invocation with its outcome (executed / refused /
+    /// proposed) and the capability that gated it. Payloads carry ids and
+    /// metadata only — never transcript content.
+    pub const AI_CHAT_SESSION_STARTED: &str = "ai.chat_session_started";
+    pub const AI_CHAT_TURN_COMPLETED: &str = "ai.chat_turn_completed";
+    pub const AI_CHAT_TOOL_INVOKED: &str = "ai.chat_tool_invoked";
     /// Emitted when the org profile (name/ticket prefix) is edited from
     /// General settings or the first-run wizard.
     pub const ORG_UPDATED: &str = "org.updated";
