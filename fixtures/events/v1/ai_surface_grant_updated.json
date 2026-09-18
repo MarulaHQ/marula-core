@@ -1,0 +1,13 @@
+{
+  "event_type": "ai.surface_grant_updated",
+  "entity": "ai_surface_grant",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "grantee_kind": "user",
+    "role_id": null,
+    "surface_key": "general_chat",
+    "user_id": "00000000-0000-0000-0000-000000000005"
+  }
+}

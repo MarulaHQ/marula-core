@@ -51,7 +51,7 @@ async fn seed_org(app: &PgPool, n: u64) -> Seeded {
     .await
     .expect("user");
     tx.commit().await.expect("commit seed");
-    let (board, ticket) = {
+    let (_board, ticket) = {
         let mut tx = org_tx(app, org).await;
         let board = core_db::boards::list_boards(&mut *tx, org)
             .await
@@ -71,7 +71,7 @@ async fn seed_org(app: &PgPool, n: u64) -> Seeded {
         let ticket = fixed_uuid(n + 2);
         let mut tx = org_tx(app, org).await;
         tickets::insert_ticket(
-            &mut *tx,
+            &mut tx,
             tickets::NewTicket {
                 id: ticket,
                 org_id: org,
@@ -300,7 +300,7 @@ async fn checklist_view_carries_na_state() {
     tickets::set_checklist_item(&mut *tx, s.org, item_id, false, true, Some(s.user))
         .await
         .expect("mark na");
-    let (items, _) = core_db::checklists::view(&mut *tx, s.org, s.ticket)
+    let (items, _) = core_db::checklists::view(&mut tx, s.org, s.ticket)
         .await
         .expect("view");
     tx.commit().await.expect("commit");

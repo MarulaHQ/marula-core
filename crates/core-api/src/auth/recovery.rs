@@ -73,10 +73,8 @@ pub struct MagicLinkConfirm {
 }
 
 fn link(config: &crate::config::Config, page: &str, raw: &str) -> String {
-    format!(
-        "{}?token={raw}",
-        format!("{}/{page}", config.web_base_url.trim_end_matches('/'))
-    )
+    let base = config.web_base_url.trim_end_matches('/');
+    format!("{base}/{page}?token={raw}")
 }
 
 /// Issues a hashed single-use token, invalidates previous links of the

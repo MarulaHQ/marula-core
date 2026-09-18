@@ -1,0 +1,12 @@
+{
+  "event_type": "ai.model_catalog_updated",
+  "entity": "ai_model_catalog",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "enabled": true,
+    "model": "gpt-4.1",
+    "provider": "openai"
+  }
+}

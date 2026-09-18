@@ -140,6 +140,7 @@ mod tests {
             sort_order: 0,
             is_entry: false,
             color: None,
+            wip_limit: None,
         }
     }
 

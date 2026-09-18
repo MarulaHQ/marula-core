@@ -241,6 +241,10 @@ pub const APPEARANCE_THEME: &str = "appearance.theme";
 pub const ONBOARDING_WIZARD_COMPLETED: &str = "onboarding.wizard_completed";
 pub const AI_COMPLETION_PROVIDER: &str = "ai.completion_provider";
 pub const AI_COMPLETION_MODEL: &str = "ai.completion_model";
+/// Admin policy flag (ADR 0008): whether users may add personal
+/// (per-user) sealed AI credentials at all. Default OFF — personal keys
+/// are opt-in per org, org credentials always work.
+pub const AI_PERSONAL_CREDENTIALS_ENABLED: &str = "ai.personal_credentials_enabled";
 /// Email greeting/sign-off (Wave 12 lane 6): per-user declarations for the
 /// client-email composers (close-flow summary email, reply composer).
 /// Editable defaults live in the settings registry, so they persist as
@@ -416,9 +420,12 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> =
                 scope: SettingScope::Org,
                 section: SettingSection::Integrations,
                 visibility: SettingVisibility::Ui,
-                label: "AI completion provider",
-                description: "Active LLM completion provider for BYOK intelligence. \
-                             'none' disables all outgoing model calls (none mode).",
+                label: "AI completion provider (legacy)",
+                description: "DEPRECATED (ADR 0008): superseded by the AI availability \
+                             matrix (settings/ai). Still readable and honored as an \
+                             overridable org default when the catalog contains the \
+                             customized (provider, model) pair; 'none' disables all \
+                             outgoing model calls (none mode).",
             },
             SettingDeclaration {
                 key: AI_COMPLETION_MODEL,
@@ -427,8 +434,25 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> =
                 scope: SettingScope::Org,
                 section: SettingSection::Integrations,
                 visibility: SettingVisibility::Ui,
-                label: "AI completion model",
-                description: "Model identifier to invoke on the active completion provider.",
+                label: "AI completion model (legacy)",
+                description: "DEPRECATED (ADR 0008): superseded by the AI availability \
+                             matrix (settings/ai). Still readable and honored as an \
+                             overridable org default when the catalog contains the \
+                             customized (provider, model) pair.",
+            },
+            SettingDeclaration {
+                key: AI_PERSONAL_CREDENTIALS_ENABLED,
+                kind: SettingKind::Boolean,
+                default: SettingValue::Boolean(false),
+                scope: SettingScope::Org,
+                section: SettingSection::Integrations,
+                visibility: SettingVisibility::Ui,
+                label: "Allow personal AI credentials",
+                description: "Admin policy flag (ADR 0008): whether users may add \
+                             personal (per-user) sealed AI credentials at all. Off \
+                             (default) restricts AI to org credentials; on, a user's \
+                             personal key serves only their own calls in surfaces \
+                             they are granted.",
             },
             SettingDeclaration {
                 key: NOTIFICATIONS_CLIENT_EVENTS,
@@ -595,7 +619,7 @@ mod tests {
             Some(SettingValue::Text("light".into()))
         );
         assert_eq!(declarations_for(SettingScope::User).len(), 3);
-        assert_eq!(declarations_for(SettingScope::Org).len(), 12);
+        assert_eq!(declarations_for(SettingScope::Org).len(), 13);
     }
 
     #[test]

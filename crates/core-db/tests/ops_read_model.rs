@@ -45,6 +45,9 @@ const EXPECTED_V1_VIEWS: &[&str] = &[
     "v1_invoice_lines",
     // 0067 fx reconciliation slice
     "v1_fx_reconciliation",
+    // 0081 AI availability matrix (ADR 0008, Wave 18 lane 1)
+    "v1_ai_usage_user_progress",
+    "v1_ai_usage_org_progress",
 ];
 
 /// (view, [(column, data_type)]) — the 0059 tranche column contracts,

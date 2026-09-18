@@ -1,0 +1,14 @@
+{
+  "event_type": "ai.cap_updated",
+  "entity": "ai_cap",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "has_hard_limit": false,
+    "has_soft_limit": true,
+    "period": "month",
+    "scope": "org",
+    "user_present": false
+  }
+}

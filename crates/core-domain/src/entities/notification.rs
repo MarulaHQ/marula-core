@@ -20,11 +20,16 @@ pub enum NotificationKind {
     /// recipient's preference chain — including quiet hours — governs
     /// whether their copy of a scheduled report CSV actually sends.
     ReportDelivery,
+    /// AI soft-cap warning (ADR 0008, Wave 18 lane 1): the per-user or
+    /// org-wide soft token cap was crossed at the completion edge; the
+    /// call proceeded — warn + notify only. Hard caps refuse (typed),
+    /// soft caps ride here.
+    AiCapWarn,
 }
 
 impl NotificationKind {
     /// Every kind, stable order — drives preference screens and defaults.
-    pub const ALL: [NotificationKind; 8] = [
+    pub const ALL: [NotificationKind; 9] = [
         NotificationKind::Mention,
         NotificationKind::Assignment,
         NotificationKind::SlaRisk,
@@ -33,6 +38,7 @@ impl NotificationKind {
         NotificationKind::MissingTime,
         NotificationKind::TicketUpdate,
         NotificationKind::ReportDelivery,
+        NotificationKind::AiCapWarn,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -45,6 +51,7 @@ impl NotificationKind {
             NotificationKind::MissingTime => "missing_time",
             NotificationKind::TicketUpdate => "ticket_update",
             NotificationKind::ReportDelivery => "report_delivery",
+            NotificationKind::AiCapWarn => "ai_cap_warn",
         }
     }
 }
@@ -61,6 +68,7 @@ impl std::str::FromStr for NotificationKind {
             "missing_time" => Ok(NotificationKind::MissingTime),
             "ticket_update" => Ok(NotificationKind::TicketUpdate),
             "report_delivery" => Ok(NotificationKind::ReportDelivery),
+            "ai_cap_warn" => Ok(NotificationKind::AiCapWarn),
             other => Err(crate::DomainError::Validation(format!(
                 "invalid notification kind: {other}"
             ))),

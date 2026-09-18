@@ -1611,6 +1611,107 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
         variant: "default",
         shape: untyped_shape!(["provider"], serde_json::json!({ "provider": "openai" })),
     },
+    // -- AI availability matrix (Wave 18 lane 1, ADR 0008) --------------------
+    // Every admin mutation of the matrix is audited through these typed
+    // contract events. Credential payloads are presence-only: secret
+    // bytes never leave the sealed store.
+    PublishedEvent {
+        event_type: types::AI_SURFACE_GRANT_UPDATED,
+        entity: "ai_surface_grant",
+        variant: "default",
+        shape: untyped_shape!(
+            ["surface_key", "grantee_kind", "role_id", "user_id"],
+            serde_json::json!({
+                "surface_key": "general_chat",
+                "grantee_kind": "user",
+                "role_id": serde_json::Value::Null,
+                "user_id": su(5).to_string(),
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::AI_SURFACE_GRANT_REVOKED,
+        entity: "ai_surface_grant",
+        variant: "default",
+        shape: untyped_shape!(
+            ["grant_id", "surface_key"],
+            serde_json::json!({
+                "grant_id": su(7).to_string(),
+                "surface_key": "general_chat",
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::AI_MODEL_CATALOG_UPDATED,
+        entity: "ai_model_catalog",
+        variant: "default",
+        shape: untyped_shape!(
+            ["provider", "model", "enabled"],
+            serde_json::json!({ "provider": "openai", "model": "gpt-4.1", "enabled": true })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::AI_MODEL_CREDENTIAL_UPDATED,
+        entity: "ai_model_credential",
+        variant: "default",
+        shape: untyped_shape!(
+            ["credential_id", "provider", "kind", "owner_present"],
+            serde_json::json!({
+                "credential_id": su(8).to_string(),
+                "provider": "openai",
+                "kind": "api_key",
+                "owner_present": false,
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::AI_MODEL_CREDENTIAL_REVOKED,
+        entity: "ai_model_credential",
+        variant: "default",
+        shape: untyped_shape!(
+            ["credential_id", "provider", "kind"],
+            serde_json::json!({
+                "credential_id": su(8).to_string(),
+                "provider": "openai",
+                "kind": "api_key",
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::AI_CAP_UPDATED,
+        entity: "ai_cap",
+        variant: "default",
+        shape: untyped_shape!(
+            [
+                "scope",
+                "user_present",
+                "period",
+                "has_soft_limit",
+                "has_hard_limit"
+            ],
+            serde_json::json!({
+                "scope": "org",
+                "user_present": false,
+                "period": "month",
+                "has_soft_limit": true,
+                "has_hard_limit": false,
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::AI_MODEL_PICK_UPDATED,
+        entity: "ai_model_pick",
+        variant: "default",
+        shape: untyped_shape!(
+            ["surface_key", "scope", "provider", "model"],
+            serde_json::json!({
+                "surface_key": "general_chat",
+                "scope": "user",
+                "provider": "openai",
+                "model": "gpt-4.1",
+            })
+        ),
+    },
     // -- portal ---------------------------------------------------------------
     PublishedEvent {
         event_type: types::PORTAL_USER_CREATED,

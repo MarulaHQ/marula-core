@@ -9,6 +9,7 @@
 //! crate persists and retrieves.
 
 pub mod agent_platform;
+pub mod ai_policy;
 pub mod alerting;
 pub mod approvals;
 pub mod assets;

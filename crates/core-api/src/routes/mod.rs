@@ -37,6 +37,7 @@
 //! literal paths.
 
 pub mod agent_platform;
+pub mod ai_policy;
 pub mod alerts;
 pub mod api_keys;
 pub mod appointment_requests;
@@ -1167,6 +1168,56 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             axum::routing::delete(byok::delete_byok_secret),
         )
         .route(&rp("/settings/ai/test"), post(byok::test_ai_connection))
+        // AI availability matrix + usage ledger (ADR 0008, Wave 18 lane 1)
+        .route(&rp("/settings/ai/matrix"), get(ai_policy::get_matrix))
+        .route(&rp("/settings/ai/catalog"), put(ai_policy::put_catalog))
+        .route(
+            &rp("/settings/ai/catalog/{entry_id}"),
+            axum::routing::delete(ai_policy::delete_catalog),
+        )
+        .route(
+            &rp("/settings/ai/credentials"),
+            put(ai_policy::put_org_credential),
+        )
+        .route(
+            &rp("/settings/ai/credentials"),
+            get(ai_policy::get_org_credentials),
+        )
+        .route(
+            &rp("/settings/ai/credentials/{credential_id}"),
+            axum::routing::delete(ai_policy::delete_org_credential),
+        )
+        .route(&rp("/settings/ai/grants"), put(ai_policy::put_grant))
+        .route(
+            &rp("/settings/ai/grants/{grant_id}"),
+            axum::routing::delete(ai_policy::delete_grant),
+        )
+        .route(&rp("/settings/ai/caps"), put(ai_policy::put_cap))
+        .route(
+            &rp("/settings/ai/caps/{cap_id}"),
+            axum::routing::delete(ai_policy::delete_cap),
+        )
+        .route(&rp("/settings/ai/usage/org"), get(ai_policy::get_org_usage))
+        .route(&rp("/ai/me/surfaces"), get(ai_policy::get_my_surfaces))
+        .route(&rp("/ai/me/authorize"), post(ai_policy::authorize))
+        .route(&rp("/ai/me/credentials"), put(ai_policy::put_my_credential))
+        .route(
+            &rp("/ai/me/credentials"),
+            get(ai_policy::get_my_credentials),
+        )
+        .route(
+            &rp("/ai/me/credentials/{credential_id}"),
+            axum::routing::delete(ai_policy::delete_my_credential),
+        )
+        .route(
+            &rp("/ai/me/model-picks/{surface_key}"),
+            put(ai_policy::put_my_pick).delete(ai_policy::delete_my_pick),
+        )
+        .route(
+            &rp("/settings/ai/model-picks/{surface_key}"),
+            put(ai_policy::put_org_pick),
+        )
+        .route(&rp("/ai/me/usage"), get(ai_policy::get_my_usage))
         // customization manifest (TASKLIST U5): admin-gated canonical
         // export; owner/admin checked inside the handler (policy §5).
         .route(&rp("/org/manifest"), get(manifest::get))

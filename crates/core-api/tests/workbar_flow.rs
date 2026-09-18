@@ -282,7 +282,7 @@ async fn na_requires_reason_and_composes_the_note_in_one_tx() {
     assert_eq!(flipped["na"], true);
 
     // 3. Reopen: also mandatory + composed.
-    let (st, err) = as_json(
+    let (st, _err) = as_json(
         send(
             &app,
             axum::http::Method::POST,
@@ -377,7 +377,7 @@ async fn close_gate_typed_409_and_option_a_batch() {
     )
     .await;
     assert_eq!(st, 200, "batch completes");
-    let (st, res) = (st, res);
+    let (_st, res) = (st, res);
     // Idempotent skip: the already-checked `done` item writes nothing new.
     let notes = res["appended_notes"].as_array().unwrap();
     assert_eq!(notes.len(), 1, "only the open item generated an auto note");

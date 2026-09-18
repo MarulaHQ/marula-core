@@ -125,7 +125,7 @@ async fn register_org(app: &Router, name: &str) -> String {
 /// The seeded default board's id (registration provisions one).
 async fn default_board(app: &Router, token: &str) -> Vec<Value> {
     let response = send(
-        &app,
+        app,
         axum::http::Method::GET,
         "/api/v1/boards",
         &[auth(token)],
@@ -156,7 +156,7 @@ async fn default_user(app: &Router, token: &str) -> String {
 
 async fn board_statuses(app: &Router, token: &str, board_id: &str) -> Vec<Value> {
     let response = send(
-        &app,
+        app,
         axum::http::Method::GET,
         &format!("/api/v1/boards/{board_id}/statuses"),
         &[auth(token)],
@@ -179,7 +179,7 @@ async fn create_ticket(
     title: &str,
 ) -> Value {
     let response = send(
-        &app,
+        app,
         axum::http::Method::POST,
         "/api/v1/tickets",
         &[auth(token)],

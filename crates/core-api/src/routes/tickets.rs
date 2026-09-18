@@ -1617,6 +1617,7 @@ fn validate_reason(reason: &Option<String>) -> ApiResult<String> {
 /// task with no ledger line, and the envelope key makes retries
 /// duplicate-proof. `workflow_meta` marks machine origin at the row level
 /// (never a body-text sentinel). Returns the inserted comment.
+#[allow(clippy::too_many_arguments)]
 async fn compose_task_append(
     ctx: &mut crate::org_tx::OrgTx<'_>,
     key: Option<&str>,
