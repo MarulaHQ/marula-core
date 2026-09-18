@@ -186,12 +186,16 @@ export default function MfaChallengePage() {
               id="code"
               value={code}
               onChange={(e) => setCode(e.target.value)}
-              placeholder="123456 or XXXXX-XXXXX"
+              placeholder="123456"
               className="font-mono tracking-widest"
               autoFocus
               autoComplete="one-time-code"
               inputMode="numeric"
             />
+            <p className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+              Six digits from your authenticator, or a recovery code
+              (XXXXX-XXXXX).
+            </p>
           </div>
           {error && (
             <FieldError data-testid="mfa-error">{error}</FieldError>

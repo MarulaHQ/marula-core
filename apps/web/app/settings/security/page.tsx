@@ -103,6 +103,7 @@ export default function SecuritySettingsPage() {
 
   // disable / regenerate forms
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [disableCode, setDisableCode] = useState("");
 
   // passkey registration
@@ -393,11 +394,37 @@ export default function SecuritySettingsPage() {
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="grid gap-1">
             <Label>Password</Label>
-            <Input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
+            <div className="relative">
+              <Input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="pr-12"
+              />
+              <button
+                type="button"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-pressed={showPassword}
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute inset-y-0 right-0 flex w-9 items-center justify-center transition-opacity duration-100 hover:opacity-70"
+                style={{ color: "var(--m-text-muted)" }}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  {showPassword ? (
+                    <>
+                      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" strokeLinejoin="round" />
+                      <circle cx="12" cy="12" r="2.5" />
+                      <path d="M4 4l16 16" strokeLinecap="round" />
+                    </>
+                  ) : (
+                    <>
+                      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" strokeLinejoin="round" />
+                      <circle cx="12" cy="12" r="2.5" />
+                    </>
+                  )}
+                </svg>
+              </button>
+            </div>
           </label>
           <label className="grid gap-1">
             <Label>Current code</Label>
@@ -434,6 +461,10 @@ export default function SecuritySettingsPage() {
           style={{ color: "var(--m-text-secondary)" }}
         >
           Platform authenticators (Touch ID, Windows Hello, security keys).
+        </p>
+        <p className="m-field-hint mb-3">
+          Removing a passkey also requires your password from the Sensitive
+          changes card plus a current second factor.
         </p>
         {credentials.length > 0 && (
           <ul className="mb-3 grid gap-1 text-xs">

@@ -10,6 +10,7 @@
 import { Button, Card, Spinner } from "@meridian/ui";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
+import { AuthBrand } from "../../components/auth/auth-brand";
 import { resolveApiBaseUrl, saveTokens } from "../../lib/api";
 
 const API_BASE = resolveApiBaseUrl();
@@ -74,7 +75,8 @@ function SsoLanding() {
       style={{ background: "var(--m-canvas)" }}
     >
       <Card className="m-rise w-full max-w-sm rounded-xl p-6 md:p-7" data-testid="sso-card">
-        <div className="grid justify-items-center gap-3 text-center">
+        <AuthBrand subtitle="Meridian account security." />
+        <div className="mt-5 grid justify-items-center gap-3 text-center">
           {status === "working" && (
             <span
               aria-hidden="true"

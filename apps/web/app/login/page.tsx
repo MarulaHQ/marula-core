@@ -156,7 +156,8 @@ export default function LoginPage() {
                   ? {
                       background: "var(--m-surface)",
                       color: "var(--m-text)",
-                      boxShadow: "0 1px 2px rgba(0, 0, 0, 0.1)",
+                      boxShadow:
+                        "0 1px 2px rgba(0, 0, 0, 0.1), inset 0 0 0 1px var(--m-border)",
                     }
                   : { color: "var(--m-text-secondary)" }
               }
