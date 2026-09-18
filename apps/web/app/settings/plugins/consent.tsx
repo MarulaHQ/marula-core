@@ -83,7 +83,7 @@ export function SettingsSchemaBlock({ schema }: { schema?: unknown }) {
         Declared settings schema
       </p>
       <pre
-        className="mt-1 max-h-40 overflow-auto rounded-[2px] border p-2 text-[12px] font-mono"
+        className="mt-1 max-h-40 overflow-auto rounded-[var(--m-radius-container)] border p-2 text-[12px] font-mono"
         style={{ borderColor: "var(--m-border)", background: "var(--m-canvas)" }}
         data-testid="settings-schema-block"
       >

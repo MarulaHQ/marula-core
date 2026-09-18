@@ -57,6 +57,8 @@ export interface SaveBarProps {
   /** Optional revert-to-last-saved affordance; hidden when absent. */
   onRevert?: () => void;
   saveLabel?: string;
+  /** Optional deterministic hook point for tests/drivers on the save button. */
+  saveTestId?: string;
 }
 
 /**
@@ -73,6 +75,7 @@ export function SaveBar({
   onSave,
   onRevert,
   saveLabel = "Save changes",
+  saveTestId,
 }: SaveBarProps): React.JSX.Element | null {
   if (onSave === undefined) return null;
   return (
@@ -80,7 +83,7 @@ export function SaveBar({
       className="flex flex-wrap items-center gap-3"
       data-testid="settings-save-bar"
     >
-      <Button variant="primary" disabled={!dirty || saving} onClick={onSave}>
+      <Button variant="primary" disabled={!dirty || saving} onClick={onSave} data-testid={saveTestId}>
         {saving ? "Saving…" : saveLabel}
       </Button>
       {onRevert !== undefined && dirty && !saving ? (

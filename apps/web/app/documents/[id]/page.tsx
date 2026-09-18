@@ -35,7 +35,7 @@ import {
 import type { components } from "@meridian/sdk";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   downloadDocumentAttachment,
@@ -78,6 +78,7 @@ export default function DocumentDetailPage() {
   const [links, setLinks] = useState<ResolvedLink[] | null>(null);
   const [attachments, setAttachments] = useState<DocumentAttachmentView[] | null>(null);
   const [attachmentsUnavailable, setAttachmentsUnavailable] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [attachBusy, setAttachBusy] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -373,7 +374,12 @@ export default function DocumentDetailPage() {
               )}
               {layout !== null ? <Tag tone="outline">{layout.name}</Tag> : null}
               <span className="tabular-nums">v{doc.current_version}</span>
-              <span>· updated {new Date(doc.content_updated_at).toLocaleString()}</span>
+              <span>
+                ·{" "}
+                {doc.content_updated_at === null || doc.content_updated_at === undefined
+                  ? "no content revision yet"
+                  : `updated ${new Date(doc.content_updated_at).toLocaleString()}`}
+              </span>
               {doc.restored_from_version != null ? (
                 <Tag tone="warning">restored from v{doc.restored_from_version}</Tag>
               ) : null}
@@ -428,7 +434,7 @@ export default function DocumentDetailPage() {
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
                 rows={16}
-                className="w-full rounded-[2px] border bg-transparent p-2 font-mono text-[12px]"
+                className="w-full rounded-[var(--m-radius-container)] border bg-transparent p-2 font-mono text-[12px]"
                 style={{ borderColor: "var(--m-border)" }}
               />
             </div>
@@ -640,12 +646,20 @@ export default function DocumentDetailPage() {
                     ))}
                   </ul>
                 )}
-                <div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={attachBusy}
+                  >
+                    Add attachment
+                  </Button>
                   <input
                     type="file"
+                    ref={fileInputRef}
+                    className="sr-only"
                     aria-label="Upload attachment"
                     data-testid="document-attach-upload"
-                    className="text-[12px]"
                     disabled={attachBusy}
                     onChange={(e) => {
                       const f = e.target.files?.[0];

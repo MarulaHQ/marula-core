@@ -118,7 +118,7 @@ export function ClientContactPod(props: ClientContactProps): ReactNode {
 
   return (
     <section
-      className="grid content-start gap-2 rounded-[2px] border p-3"
+      className="grid content-start gap-2 rounded-[var(--m-radius-container)] border p-3"
       style={{ borderColor: "var(--m-border)" }}
       data-testid="pod-client-contact"
       aria-label="Client and contact"
@@ -249,7 +249,7 @@ function ClientPicker({
   }, [search]);
 
   return (
-    <div className="grid gap-2 rounded-[2px] border p-2" style={{ borderColor: "var(--m-border)" }} data-testid="client-picker">
+    <div className="grid gap-2 rounded-[var(--m-radius-container)] border p-2" style={{ borderColor: "var(--m-border)" }} data-testid="client-picker">
       <Label htmlFor="client-picker-search">Client</Label>
       <Input
         id="client-picker-search"
@@ -268,7 +268,7 @@ function ClientPicker({
               <button
                 type="button"
                 disabled={busy}
-                className="w-full truncate rounded-[2px] px-2 py-1 text-left text-xs hover:bg-[var(--m-accent-soft)] disabled:opacity-50"
+                className="w-full truncate rounded-[var(--m-radius-container)] px-2 py-1 text-left text-xs hover:bg-[var(--m-accent-soft)] disabled:opacity-50"
                 style={c.id === currentId ? { background: "var(--m-accent-soft)" } : undefined}
                 data-testid={`client-option-${c.id}`}
                 onClick={() => void onPick(c.id)}
@@ -342,7 +342,7 @@ function ContactPicker({
   }
 
   return (
-    <div className="grid gap-2 rounded-[2px] border p-2" style={{ borderColor: "var(--m-border)" }} data-testid="contact-picker">
+    <div className="grid gap-2 rounded-[var(--m-radius-container)] border p-2" style={{ borderColor: "var(--m-border)" }} data-testid="contact-picker">
       <div className="flex items-baseline justify-between gap-2">
         <Label htmlFor="contact-picker-search">Contact at {clientName}</Label>
         <button
@@ -389,7 +389,7 @@ function ContactPicker({
                   <button
                     type="button"
                     disabled={busy}
-                    className="w-full truncate rounded-[2px] px-2 py-1 text-left text-xs hover:bg-[var(--m-accent-soft)] disabled:opacity-50"
+                    className="w-full truncate rounded-[var(--m-radius-container)] px-2 py-1 text-left text-xs hover:bg-[var(--m-accent-soft)] disabled:opacity-50"
                     style={c.id === currentId ? { background: "var(--m-accent-soft)" } : undefined}
                     data-testid={`contact-option-${c.id}`}
                     onClick={() => void onPick(c.id)}

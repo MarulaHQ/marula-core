@@ -18,6 +18,7 @@ import { useRouter } from "next/navigation";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { API_BASE, useAuth } from "../lib/api";
+import { BrandMark } from "./brand";
 import { NotificationDock } from "./notification-dock";
 import { OutboxDock } from "./instant/outbox-dock";
 import { ConnectionBanner } from "./instant/connection-banner";
@@ -229,13 +230,7 @@ export function AppHeader() {
       style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
     >
       <div className="flex shrink-0 items-center gap-2">
-        <span
-          aria-hidden="true"
-          className="flex h-6 w-6 items-center justify-center rounded-md text-[12px] font-bold"
-          style={{ background: "var(--m-ink)", color: "var(--m-paper)" }}
-        >
-          M
-        </span>
+        <BrandMark size={24} />
         <span className="text-sm font-semibold tracking-tight" style={{ color: "var(--m-text)" }}>
           Meridian
         </span>

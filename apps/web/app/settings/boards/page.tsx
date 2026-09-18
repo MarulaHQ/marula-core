@@ -40,7 +40,7 @@ import type { components } from "@meridian/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { api, useAuth, useRequireAuth } from "../../../lib/api";
-import { SettingsHeader } from "../../../components/settings/settings-shell";
+import { SaveBar, SettingsHeader } from "../../../components/settings/settings-shell";
 import { MANAGE_BOARDS_PERMISSION } from "../../../lib/admin/board-access";
 
 type Board = components["schemas"]["Board"];
@@ -54,7 +54,7 @@ type OrgUser = components["schemas"]["OrgUser"];
 export default function BoardAdminPage() {
   const auth = useRequireAuth();
   const { me } = useAuth();
-  const canAdmin = me?.permissions.includes(MANAGE_BOARDS_PERMISSION) ?? false;
+  const canAdmin = (me?.permissions ?? []).includes(MANAGE_BOARDS_PERMISSION) ?? false;
 
   const [boards, setBoards] = useState<Board[] | null>(null);
   const [groups, setGroups] = useState<BoardGroup[]>([]);
@@ -97,6 +97,9 @@ export default function BoardAdminPage() {
   const [templateItems, setTemplateItems] = useState<string[]>([]);
   const [templateRequire, setTemplateRequire] = useState(false);
   const [newItemText, setNewItemText] = useState("");
+  const [templateSaving, setTemplateSaving] = useState(false);
+  const [templateSaved, setTemplateSaved] = useState(false);
+  const [templateSaveError, setTemplateSaveError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const [b, g] = await Promise.all([
@@ -210,7 +213,9 @@ export default function BoardAdminPage() {
   const saveTemplate = async () => {
     if (selectedId === null || templateName.trim() === "") return;
     setBusy(true);
-    setActionError(null);
+    setTemplateSaving(true);
+    setTemplateSaveError(null);
+    setTemplateSaved(false);
     const { error } = await api.api.PUT("/api/v1/boards/{id}/checklist-template", {
       params: { path: { id: selectedId } },
       body: {
@@ -220,23 +225,28 @@ export default function BoardAdminPage() {
       },
     });
     setBusy(false);
+    setTemplateSaving(false);
     if (error !== undefined) {
-      setActionError("The checklist template was rejected.");
+      setTemplateSaveError("The checklist template was rejected.");
       return;
     }
+    setTemplateSaved(true);
     void refreshBoard(selectedId);
   };
 
   const deleteTemplate = async () => {
     if (selectedId === null) return;
     setBusy(true);
-    setActionError(null);
+    setTemplateSaving(true);
+    setTemplateSaveError(null);
+    setTemplateSaved(false);
     const { error } = await api.api.DELETE("/api/v1/boards/{id}/checklist-template", {
       params: { path: { id: selectedId } },
     });
     setBusy(false);
+    setTemplateSaving(false);
     if (error !== undefined) {
-      setActionError("The template deletion was rejected.");
+      setTemplateSaveError("The template deletion was rejected.");
       return;
     }
     void refreshBoard(selectedId);
@@ -245,6 +255,18 @@ export default function BoardAdminPage() {
   if (auth.status !== "authed") return null;
 
   const selected = boards?.find((b) => b.id === selectedId) ?? null;
+  const templateBaseline =
+    template !== null
+      ? {
+          name: template.template?.name ?? "",
+          items: (template.items ?? []).map((i) => i.text),
+          require: template.require_checklist_close ?? false,
+        }
+      : { name: "", items: [], require: false };
+  const templateDirty =
+    templateName !== templateBaseline.name ||
+    templateRequire !== templateBaseline.require ||
+    templateItems.join("\u0000") !== templateBaseline.items.join("\u0000");
 
   return (
     <div className="grid gap-6">
@@ -542,12 +564,27 @@ export default function BoardAdminPage() {
                   Saving replaces the whole template and item list; tickets already carry their
                   instances, so enforcement follows item identity, not text.
                 </FieldHint>
-                <div className="flex gap-2">
-                  <Button onClick={() => void saveTemplate()} disabled={busy || templateName.trim() === ""}>
-                    {busy ? <Spinner /> : null} Save template
-                  </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <SaveBar
+                    dirty={templateDirty && templateName.trim() !== "" && canAdmin}
+                    saving={templateSaving}
+                    saved={templateSaved}
+                    error={templateSaveError}
+                    onSave={() => void saveTemplate()}
+                    onRevert={
+                      templateDirty
+                        ? () => {
+                            setTemplateName(templateBaseline.name);
+                            setTemplateItems(templateBaseline.items);
+                            setTemplateRequire(templateBaseline.require);
+                            setTemplateSaveError(null);
+                          }
+                        : undefined
+                    }
+                    saveLabel="Save template"
+                  />
                   {template !== null && template.template !== null && template.template !== undefined ? (
-                    <Button variant="ghost" onClick={() => void deleteTemplate()} disabled={busy}>
+                    <Button variant="ghost" onClick={() => void deleteTemplate()} disabled={templateSaving}>
                       Delete template
                     </Button>
                   ) : null}

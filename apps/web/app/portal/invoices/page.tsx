@@ -91,7 +91,7 @@ export default function PortalInvoicesPage() {
   return (
     <section className="m-rise">
       <div className="mb-5">
-        <h1 className="font-heading text-xl font-semibold tracking-tight">Invoices</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Invoices</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--m-text-muted)" }}>
           Statements from your service provider. Payments are recorded on
           your account — no card is charged through this portal.

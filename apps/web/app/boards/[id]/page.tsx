@@ -366,7 +366,7 @@ function KanbanCard({
         </button>
         {!compact && (
           <div className="flex flex-wrap items-center gap-1.5">
-            <StatusTag tone={tone}>{ticket.category}</StatusTag>
+            <StatusTag tone={tone}>{current?.name ?? ticket.category}</StatusTag>
             {due !== null && <StatusTag tone={due.tone}>{due.label}</StatusTag>}
             <span className="ml-auto" />
             <span className="relative">
@@ -713,7 +713,7 @@ export default function BoardPage() {
             <MembersPanel boardId={boardId} />
             <NewTicketDialog
               boardId={boardId}
-              canCreate={auth.me?.permissions.includes("tickets:create") ?? false}
+              canCreate={(auth.me?.permissions ?? []).includes("tickets:create") ?? false}
             />
           </div>
 

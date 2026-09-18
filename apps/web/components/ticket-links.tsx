@@ -153,7 +153,7 @@ function TicketPicker({
           <li key={r.entity_id}>
             <button
               type="button"
-              className="grid w-full cursor-pointer gap-0.5 rounded-[2px] border p-2 text-left text-[12px] transition-opacity duration-100 hover:opacity-80"
+              className="grid w-full cursor-pointer gap-0.5 rounded-[var(--m-radius-container)] border p-2 text-left text-[12px] transition-opacity duration-100 hover:opacity-80"
               style={{ borderColor: "var(--m-border)" }}
               onClick={() => onPick({ id: r.entity_id, number: r.title.split(" ")[0] ?? "", title: r.title })}
             >
@@ -480,17 +480,17 @@ export function TicketLinksPanel({
           <Spinner />
         ) : (
           <>
-            <span className="rounded-[2px] border px-2 py-1 text-[11px]" style={{ borderColor: "var(--m-border)" }}>
+            <span className="rounded-[var(--m-radius-container)] border px-2 py-1 text-[11px]" style={{ borderColor: "var(--m-border)" }}>
               Children: <strong>{rollup.child_count}</strong>
               {rollup.child_open_count > 0 ? <span style={{ color: "var(--m-text-muted)" }}> ({rollup.child_open_count} open)</span> : null}
             </span>
-            <span className="rounded-[2px] border px-2 py-1 text-[11px]" style={{ borderColor: "var(--m-border)" }}>
+            <span className="rounded-[var(--m-radius-container)] border px-2 py-1 text-[11px]" style={{ borderColor: "var(--m-border)" }}>
               Major-incident members: <strong>{rollup.major_incident_member_count}</strong>
             </span>
-            <span className="rounded-[2px] border px-2 py-1 text-[11px]" style={{ borderColor: "var(--m-border)" }}>
+            <span className="rounded-[var(--m-radius-container)] border px-2 py-1 text-[11px]" style={{ borderColor: "var(--m-border)" }}>
               Folded time: <strong>{(rollup.time_minutes / 60).toFixed(1)} h</strong>
             </span>
-            <span className="rounded-[2px] border px-2 py-1 text-[11px]" style={{ borderColor: "var(--m-border)" }}>
+            <span className="rounded-[var(--m-radius-container)] border px-2 py-1 text-[11px]" style={{ borderColor: "var(--m-border)" }}>
               Billable money:{" "}
               <strong
                 title={moneyCurrency === null ? "Sum across lines of varying currency — open the Money tab for per-line detail" : undefined}
@@ -628,7 +628,7 @@ export function TicketLinksPanel({
             <div>
               <Label>{linkType === "parent_child" ? "Parent ticket" : "Major incident"}</Label>
               {linkTarget !== null ? (
-                <div className="flex items-center justify-between gap-2 rounded-[2px] border p-2 text-[12px]" style={{ borderColor: "var(--m-accent)" }}>
+                <div className="flex items-center justify-between gap-2 rounded-[var(--m-radius-container)] border p-2 text-[12px]" style={{ borderColor: "var(--m-accent)" }}>
                   <span className="font-medium">{linkTarget.title}</span>
                   <Button variant="ghost" size="sm" onClick={() => setLinkTarget(null)}>Change</Button>
                 </div>
@@ -689,7 +689,7 @@ export function TicketLinksPanel({
                   <TicketPicker excludeId={ticketId} pickLabel="Search for the survivor ticket" onPick={pickSurvivor} />
                 ) : (
                   <>
-                    <div className="rounded-[2px] border p-2 text-[12px]" style={{ borderColor: "var(--m-accent)" }} data-testid="merge-survivor">
+                    <div className="rounded-[var(--m-radius-container)] border p-2 text-[12px]" style={{ borderColor: "var(--m-accent)" }} data-testid="merge-survivor">
                       Survivor: <strong>{survivor.number} {survivor.title}</strong>{" "}
                       <StatusTag tone={survivor.category === "closed" ? "danger" : "neutral"}>{survivor.category}</StatusTag>
                       <Button variant="ghost" size="sm" onClick={() => setSurvivor(null)}>Change</Button>

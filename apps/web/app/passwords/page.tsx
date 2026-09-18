@@ -149,8 +149,8 @@ function scopeOf(scope: VaultScope) {
 export default function VaultPage() {
   const auth = useRequireAuth();
   const { me } = useAuth();
-  const canReveal = me?.permissions.includes("secrets:edit") ?? false;
-  const canManage = me?.permissions.includes("special:manage_users") ?? false;
+  const canReveal = (me?.permissions ?? []).includes("secrets:edit") ?? false;
+  const canManage = (me?.permissions ?? []).includes("special:manage_users") ?? false;
 
   // ---- vault-tree state (ADR 0006 browsing leg) ----
   const [clients, setClients] = useState<Client[] | null>(null);

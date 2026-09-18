@@ -39,6 +39,14 @@ const STATUS_NEW = {
   sort_order: 0,
 };
 
+const STATUS_IN_PROGRESS = {
+  id: "00000000-0000-4000-8000-00000000s002",
+  board_id: BOARD_ID,
+  name: "Working",
+  category: "in_progress",
+  sort_order: 1,
+};
+
 function setupApi(tickets: unknown[]): MockApi {
   const mock = new MockApi();
   mock.on("GET", "/api/v1/me", () => ({ json: ME_FIXTURE }));
@@ -50,7 +58,7 @@ function setupApi(tickets: unknown[]): MockApi {
   }));
   mock.on("GET", "/api/v1/notifications/unread-count", () => ({ json: { count: 0 } }));
   mock.on("GET", "/api/v1/notifications", () => ({ json: { items: [], next_cursor: null } }));
-  mock.on("GET", `/api/v1/boards/${BOARD_ID}/statuses`, () => ({ json: [STATUS_NEW] }));
+  mock.on("GET", `/api/v1/boards/${BOARD_ID}/statuses`, () => ({ json: [STATUS_NEW, STATUS_IN_PROGRESS] }));
   mock.on("GET", "/api/v1/tickets", () => ({ json: tickets }));
   mock.install();
   return mock;
@@ -134,7 +142,9 @@ describe("/boards/[id] — instant read model", () => {
     // Core event payloads carry board_id/assignee_id (gap-1 closure), so a
     // status change fans out to the board channel and patches one row.
     const mock = setupApi([TICKET_A]);
-    const moved = { ...TICKET_A, category: "in_progress" };
+    // The delta lands in a real status (the card tag prefers the column's
+    // human status name over the raw category string, lane 10 polish).
+    const moved = { ...TICKET_A, category: "in_progress", status_id: STATUS_IN_PROGRESS.id };
     mock.on("GET", `/api/v1/tickets/${TICKET_A.id}`, () => ({ json: moved }));
 
     render(page());
@@ -153,7 +163,7 @@ describe("/boards/[id] — instant read model", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("in_progress")).toBeInTheDocument();
+      expect(screen.getByText("Working")).toBeInTheDocument();
     });
     // Delta, not a re-snapshot.
     expect(mock.callsTo("GET", "/api/v1/tickets")).toHaveLength(1);

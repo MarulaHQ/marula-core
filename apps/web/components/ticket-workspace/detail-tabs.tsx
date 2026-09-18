@@ -45,7 +45,7 @@ export function DetailTabs({
             role="tab"
             aria-selected={selected}
             data-testid={`detail-tab-${tab.id}`}
-            className="rounded-[2px] border-b-2 px-2.5 py-1 text-xs transition-opacity duration-100"
+            className="rounded-[var(--m-radius-container)] border-b-2 px-2.5 py-1 text-xs transition-opacity duration-100"
             style={{
               borderColor: selected ? "var(--m-accent)" : "transparent",
               color: selected ? "var(--m-text)" : "var(--m-text-muted)",
@@ -65,7 +65,7 @@ export function DetailTabs({
 export function OriginalRequest({ ticket }: { ticket: Ticket }): ReactNode {
   return (
     <section
-      className="grid content-start gap-1.5 rounded-[2px] border p-3"
+      className="grid content-start gap-1.5 rounded-[var(--m-radius-container)] border p-3"
       style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
       data-testid="original-request"
       aria-label="Original request"

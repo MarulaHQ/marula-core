@@ -62,7 +62,7 @@ export function PodAdminSettings({
   }
   return (
     <div
-      className="grid gap-3 rounded-[2px] border p-3"
+      className="grid gap-3 rounded-[var(--m-radius-container)] border p-3"
       style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
       data-testid="pod-admin-settings"
     >
@@ -174,7 +174,7 @@ export function PodUserControls({
   }
   return (
     <div
-      className="grid gap-2 rounded-[2px] border p-3"
+      className="grid gap-2 rounded-[var(--m-radius-container)] border p-3"
       style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
       data-testid="pod-user-controls"
     >
@@ -190,7 +190,7 @@ export function PodUserControls({
             <span className="min-w-0 flex-1 truncate">{pod.title}</span>
             <button
               type="button"
-              className="rounded-[2px] border px-1.5 py-0.5"
+              className="rounded-[var(--m-radius-container)] border px-1.5 py-0.5"
               style={{ borderColor: "var(--m-border)" }}
               aria-label={`Move ${pod.title} up`}
               disabled={idx === 0}
@@ -200,7 +200,7 @@ export function PodUserControls({
             </button>
             <button
               type="button"
-              className="rounded-[2px] border px-1.5 py-0.5"
+              className="rounded-[var(--m-radius-container)] border px-1.5 py-0.5"
               style={{ borderColor: "var(--m-border)" }}
               aria-label={`Move ${pod.title} down`}
               disabled={idx === rearrangeable.length - 1}
@@ -210,7 +210,7 @@ export function PodUserControls({
             </button>
             <button
               type="button"
-              className="rounded-[2px] border px-1.5 py-0.5"
+              className="rounded-[var(--m-radius-container)] border px-1.5 py-0.5"
               style={{ borderColor: "var(--m-border)" }}
               aria-label={`Hide ${pod.title}`}
               onClick={() => hide(pod.id)}
@@ -228,7 +228,7 @@ export function PodUserControls({
               <button
                 key={id}
                 type="button"
-                className="rounded-[2px] border px-1.5 py-0.5 text-xs"
+                className="rounded-[var(--m-radius-container)] border px-1.5 py-0.5 text-xs"
                 style={{ borderColor: "var(--m-border)" }}
                 onClick={() => restore(id)}
               >

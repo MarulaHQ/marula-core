@@ -202,7 +202,7 @@ export function TicketTimeline({ ticketId, comments, namesByUser }: TimelineProp
             <button
               key={value}
               type="button"
-              className="rounded-[2px] border px-2 py-0.5 text-[11px] transition-opacity duration-100"
+              className="rounded-[var(--m-radius-container)] border px-2 py-0.5 text-[11px] transition-opacity duration-100"
               style={{
                 borderColor: kindFilter === value ? "var(--m-accent)" : "var(--m-border)",
                 color: kindFilter === value ? "var(--m-accent)" : "var(--m-text-muted)",
@@ -227,7 +227,7 @@ export function TicketTimeline({ ticketId, comments, namesByUser }: TimelineProp
             <button
               key={value}
               type="button"
-              className="rounded-[2px] border px-2 py-0.5 text-[11px] transition-opacity duration-100"
+              className="rounded-[var(--m-radius-container)] border px-2 py-0.5 text-[11px] transition-opacity duration-100"
               style={{
                 borderColor: visFilter === value ? "var(--m-accent)" : "var(--m-border)",
                 color: visFilter === value ? "var(--m-accent)" : "var(--m-text-muted)",
@@ -255,7 +255,7 @@ export function TicketTimeline({ ticketId, comments, namesByUser }: TimelineProp
           {filtered.map((row) => (
             <li
               key={row.id}
-              className="grid gap-0.5 rounded-[2px] border p-2 text-xs"
+              className="grid gap-0.5 rounded-[var(--m-radius-container)] border p-2 text-xs"
               style={{ borderColor: "var(--m-border)" }}
               data-testid={`timeline-row-${row.kind}`}
             >
@@ -314,7 +314,7 @@ function TypedEmailGap({ emailCount }: { emailCount: number | null }): ReactNode
       : "No email in/out rows yet — nothing has been sent to or received from this ticket's mailbox.";
   return (
     <p
-      className="rounded-[2px] border border-dashed px-2 py-1.5 text-[11px]"
+      className="rounded-[var(--m-radius-container)] border border-dashed px-2 py-1.5 text-[11px]"
       style={{ borderColor: "var(--m-border)", color: "var(--m-text-muted)" }}
       data-testid="timeline-email-gap"
     >

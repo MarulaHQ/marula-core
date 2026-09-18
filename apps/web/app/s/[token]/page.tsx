@@ -22,6 +22,8 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { api } from "../../../lib/api";
+import { BrandLockup } from "../../../components/brand";
+import { portalAccentOverrides } from "../../../lib/portal-branding";
 import { applyTheme } from "@meridian/ui";
 
 type PublicLinkView = components["schemas"]["PublicLinkView"];
@@ -202,7 +204,7 @@ export default function PublicBookingPage(): ReactNode {
   return (
     <PublicShell>
       <div className="grid gap-1">
-        <h1 className="font-heading text-lg font-semibold tracking-tight">{view?.meeting_type_name}</h1>
+        <h1 className="text-lg font-semibold tracking-tight">{view?.meeting_type_name}</h1>
         <p className="text-xs tabular-nums" style={{ color: "var(--m-text-muted)" }}>
           {view?.duration_minutes} minutes
           {view?.label !== null && view?.label !== undefined ? ` · ${view.label}` : null}
@@ -298,9 +300,9 @@ function PublicShell({ children }: { children: ReactNode }): ReactNode {
       className="flex min-h-full items-center justify-center p-6"
       data-testid="public-booking"
     >
-      <div className="m-rise w-full max-w-md">
-        <div className="mb-3 text-center">
-          <span className="font-heading text-lg font-semibold tracking-tight">Meridian</span>
+      <div className="m-rise w-full max-w-md" style={portalAccentOverrides()}>
+        <div className="mb-3 flex justify-center">
+          <BrandLockup size={20} />
         </div>
         <div
           className="grid gap-4 rounded-[0.75rem] border p-5"

@@ -76,7 +76,7 @@ function CreditNotesInner() {
   const params = useSearchParams();
   const prefillClient = params.get("client") ?? "";
   const prefillInvoice = params.get("invoice") ?? "";
-  const canSee = auth.me?.permissions.includes(VIEW_FINANCIALS) ?? false;
+  const canSee = (auth.me?.permissions ?? []).includes(VIEW_FINANCIALS) ?? false;
 
   const [notes, setNotes] = useState<CreditNote[] | null>(null);
   const [clients, setClients] = useState<Client[]>([]);

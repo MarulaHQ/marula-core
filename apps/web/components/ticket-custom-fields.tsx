@@ -211,7 +211,7 @@ export function TicketCustomFields({
               {def.kind === "select" ? (
                 <select
                   aria-label={def.name}
-                  className="rounded-[2px] border px-2 py-1.5 text-sm"
+                  className="rounded-[var(--m-radius-container)] border px-2 py-1.5 text-sm"
                   style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
                   value={typeof current === "string" ? current : ""}
                   onChange={(e) =>

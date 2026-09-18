@@ -60,7 +60,7 @@ export function SetupBanner() {
       <div className="flex items-center gap-2">
         <Link
           href="/welcome"
-          className="rounded-[2px] px-3 py-1.5 text-[13px] font-medium"
+          className="rounded-[var(--m-radius-container)] px-3 py-1.5 text-[13px] font-medium"
           style={{ background: "var(--m-accent)", color: "var(--m-on-accent)" }}
         >
           Set up now

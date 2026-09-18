@@ -936,7 +936,7 @@ function AddTaskDialog(props: {
           ) : null}
           <div>
             <Label>Depends on (finish-to-start)</Label>
-            <div className="grid max-h-40 gap-1 overflow-auto rounded-[2px] border p-2" style={{ borderColor: "var(--m-border)" }}>
+            <div className="grid max-h-40 gap-1 overflow-auto rounded-[var(--m-radius-container)] border p-2" style={{ borderColor: "var(--m-border)" }}>
               {props.tasks.length === 0 ? (
                 <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
                   No existing tasks to depend on.
@@ -998,7 +998,7 @@ function DependencyDialog(props: {
         description="Pick the full set of tasks this one depends on (finish-to-start). Saving replaces the whole set."
       >
         <div className="grid gap-3 p-4">
-          <div className="grid max-h-60 gap-1 overflow-auto rounded-[2px] border p-2" style={{ borderColor: "var(--m-border)" }}>
+          <div className="grid max-h-60 gap-1 overflow-auto rounded-[var(--m-radius-container)] border p-2" style={{ borderColor: "var(--m-border)" }}>
             {props.tasks
               .filter((t) => depTaskId === null || t.id !== depTaskId.id)
               .map((t) => {

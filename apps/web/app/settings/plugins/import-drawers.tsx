@@ -210,7 +210,7 @@ export function ZipImportDrawer({
       >
         <div className="grid gap-3 p-4" data-testid="zip-import-form">
           <div
-            className="rounded-[2px] border border-dashed p-4 text-center"
+            className="rounded-[var(--m-radius-container)] border border-dashed p-4 text-center"
             style={{ borderColor: "var(--m-border)" }}
             data-testid="zip-dropzone"
           >

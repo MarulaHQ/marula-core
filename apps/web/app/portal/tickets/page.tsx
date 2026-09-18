@@ -161,7 +161,7 @@ export default function PortalTicketsPage() {
   return (
     <section>
       <div className="mb-5">
-        <h1 className="font-heading text-xl font-semibold tracking-tight">Your requests</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Your requests</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--m-text-muted)" }}>
           {me !== null && me.role === "it_manager"
             ? "IT-manager view: includes your vendor's in-house updates on each request."

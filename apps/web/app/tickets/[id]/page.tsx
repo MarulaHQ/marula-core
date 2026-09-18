@@ -294,7 +294,7 @@ export default function TicketWorkbenchPage() {
 
   const mergedIntoId = ticket?.merged_into_ticket_id ?? null;
   const isMerged = mergedIntoId !== null;
-  const canMoveBoard = !isMerged && (auth.me?.permissions.includes("tickets:edit") ?? false);
+  const canMoveBoard = !isMerged && ((auth.me?.permissions ?? []).includes("tickets:edit") ?? false);
 
   function patchDetail(updater: (m: TicketDetailModel) => TicketDetailModel): void {
     patchModel(updater);

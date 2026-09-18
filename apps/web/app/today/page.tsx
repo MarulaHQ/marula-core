@@ -285,7 +285,7 @@ export default function TodayPage() {
                 </Button>
               </div>
               <div
-                className="flex h-2 gap-[2px] overflow-hidden rounded-[2px]"
+                className="flex h-2 gap-[2px] overflow-hidden rounded-[var(--m-radius-container)]"
                 style={{ background: "var(--m-canvas)" }}
                 aria-hidden="true"
               >
@@ -585,7 +585,7 @@ function QuickLogDialog({
       aria-label="Log missing time"
     >
       <div
-        className="w-full max-w-md rounded-[2px] border p-4"
+        className="w-full max-w-md rounded-[var(--m-radius-container)] border p-4"
         style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
       >
         <QuickLogForm items={items} onDone={onClose} />
@@ -652,7 +652,7 @@ function QuickLogForm({
           id="log-ticket"
           value={ticketId}
           onChange={(e) => setTicketId(e.target.value)}
-          className="rounded-[2px] px-2 py-1 text-xs"
+          className="rounded-[var(--m-radius-container)] px-2 py-1 text-xs"
           style={{ border: "1px solid var(--m-border)", background: "var(--m-surface)", color: "var(--m-text)" }}
         >
           {items.map((t) => (
@@ -671,7 +671,7 @@ function QuickLogForm({
             id="log-date"
             readOnly
             value={yesterdayIso()}
-            className="rounded-[2px] px-2 py-1 text-xs"
+            className="rounded-[var(--m-radius-container)] px-2 py-1 text-xs"
             style={{ border: "1px solid var(--m-border)", background: "var(--m-surface)", color: "var(--m-text)" }}
           />
         </div>
@@ -684,7 +684,7 @@ function QuickLogForm({
             type="time"
             value={startTime}
             onChange={(e) => setStartTime(e.target.value)}
-            className="rounded-[2px] px-2 py-1 text-xs"
+            className="rounded-[var(--m-radius-container)] px-2 py-1 text-xs"
             style={{ border: "1px solid var(--m-border)", background: "var(--m-surface)", color: "var(--m-text)" }}
           />
         </div>
@@ -698,7 +698,7 @@ function QuickLogForm({
             min={1}
             value={minutes}
             onChange={(e) => setMinutes(e.target.value)}
-            className="rounded-[2px] px-2 py-1 text-xs"
+            className="rounded-[var(--m-radius-container)] px-2 py-1 text-xs"
             style={{ border: "1px solid var(--m-border)", background: "var(--m-surface)", color: "var(--m-text)" }}
           />
         </div>
@@ -712,7 +712,7 @@ function QuickLogForm({
           value={notes}
           placeholder="What did you work on?"
           onChange={(e) => setNotes(e.target.value)}
-          className="rounded-[2px] px-2 py-1 text-xs"
+          className="rounded-[var(--m-radius-container)] px-2 py-1 text-xs"
           style={{ border: "1px solid var(--m-border)", background: "var(--m-surface)", color: "var(--m-text)" }}
         />
       </div>

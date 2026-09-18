@@ -131,7 +131,7 @@ export function TasksPanel({
             >
               <button
                 type="button"
-                className="rounded-[2px] border px-1 py-0.5 leading-none"
+                className="rounded-[var(--m-radius-container)] border px-1 py-0.5 leading-none"
                 style={{
                   borderColor: item.checked && !isNa ? "var(--m-status-success-fg)" : "var(--m-border)",
                   color: item.checked && !isNa ? "var(--m-status-success-fg)" : "var(--m-text-muted)",
@@ -145,7 +145,7 @@ export function TasksPanel({
               </button>
               <button
                 type="button"
-                className="rounded-[2px] border px-1 py-0.5 leading-none"
+                className="rounded-[var(--m-radius-container)] border px-1 py-0.5 leading-none"
                 style={{ borderColor: "var(--m-border)", color: "var(--m-text-muted)" }}
                 title="Uncheck"
                 aria-label={`Uncheck ${item.text}`}
@@ -156,7 +156,7 @@ export function TasksPanel({
               </button>
               <button
                 type="button"
-                className="rounded-[2px] border px-1 py-0.5 leading-none"
+                className="rounded-[var(--m-radius-container)] border px-1 py-0.5 leading-none"
                 style={{
                   borderColor: isNa ? "var(--m-warning)" : "var(--m-border)",
                   color: isNa ? "var(--m-warning)" : "var(--m-text-muted)",

@@ -415,7 +415,7 @@ function CreateDocumentForm({
           value={body}
           onChange={(e) => setBody(e.target.value)}
           rows={5}
-          className="w-full rounded-[2px] border bg-transparent p-2 text-[13px]"
+          className="w-full rounded-[var(--m-radius-container)] border bg-transparent p-2 text-[13px]"
           style={{ borderColor: "var(--m-border)" }}
         />
       </div>
@@ -588,7 +588,7 @@ function LayoutEditForm({
           value={schemaText}
           onChange={(e) => setSchemaText(e.target.value)}
           rows={10}
-          className="mt-1 w-full rounded-[2px] border bg-transparent p-2 font-mono text-[12px]"
+          className="mt-1 w-full rounded-[var(--m-radius-container)] border bg-transparent p-2 font-mono text-[12px]"
           style={{ borderColor: "var(--m-border)" }}
         />
       </div>

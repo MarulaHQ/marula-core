@@ -147,8 +147,8 @@ function errOf(error: unknown): ParsedErr {
 export default function SecretsVaultPage() {
   const auth = useRequireAuth();
   const { me } = useAuth();
-  const canReveal = me?.permissions.includes("secrets:edit") ?? false;
-  const canManage = me?.permissions.includes("special:manage_users") ?? false;
+  const canReveal = (me?.permissions ?? []).includes("secrets:edit") ?? false;
+  const canManage = (me?.permissions ?? []).includes("special:manage_users") ?? false;
 
   const [clients, setClients] = useState<Client[] | null>(null);
   const [scope, setScope] = useState<Scope>({ kind: "org" });
@@ -342,7 +342,7 @@ export default function SecretsVaultPage() {
                 .map((r) => (
                   <li
                     key={r.id}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-[2px] border px-3 py-2"
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--m-radius-container)] border px-3 py-2"
                     style={{ borderColor: "var(--m-border)" }}
                   >
                     <div className="min-w-0">
@@ -435,7 +435,7 @@ function TreeList({
           style={{ paddingLeft: depth * 14 }}
         >
           <button
-            className={`min-w-0 flex-1 truncate rounded-[2px] px-2 py-1 text-left text-[13px] transition-opacity duration-[120ms] hover:opacity-90 ${selected === f.id ? "font-medium" : ""}`}
+            className={`min-w-0 flex-1 truncate rounded-[var(--m-radius-container)] px-2 py-1 text-left text-[13px] transition-opacity duration-[120ms] hover:opacity-90 ${selected === f.id ? "font-medium" : ""}`}
             style={{ background: selected === f.id ? "var(--m-bg-subtle, transparent)" : undefined }}
             onClick={() => onSelect(f.id)}
           >
@@ -891,7 +891,7 @@ function LinksPanel({
           {links.map((l) => (
             <li
               key={l.id}
-              className="flex items-center justify-between gap-2 rounded-[2px] border px-3 py-2 text-[13px]"
+              className="flex items-center justify-between gap-2 rounded-[var(--m-radius-container)] border px-3 py-2 text-[13px]"
               style={{ borderColor: "var(--m-border)" }}
             >
               <span className="min-w-0">
@@ -1278,7 +1278,7 @@ function GrantsDialog({
                   {grants.map((g) => (
                     <li
                       key={g.id}
-                      className="flex items-center justify-between gap-2 rounded-[2px] border px-3 py-2 text-[13px]"
+                      className="flex items-center justify-between gap-2 rounded-[var(--m-radius-container)] border px-3 py-2 text-[13px]"
                       style={{ borderColor: "var(--m-border)" }}
                     >
                       <span className="min-w-0 truncate">

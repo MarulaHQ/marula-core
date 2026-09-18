@@ -71,7 +71,7 @@ export default function ClientsPage() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  const isAdmin = me?.permissions.includes("special:manage_users") ?? false;
+  const isAdmin = (me?.permissions ?? []).includes("special:manage_users") ?? false;
 
   const refresh = useCallback(async () => {
     const { data, error } = await api.api.GET("/api/v1/clients");
@@ -80,7 +80,9 @@ export default function ClientsPage() {
       setClients([]);
       return;
     }
-    setClients(data);
+    // Pre-guard (lane 10 sweep): a resolving read can carry a non-array —
+    // an honest empty roster, never a crash.
+    setClients(Array.isArray(data) ? data : []);
     setLoadError(null);
   }, []);
 
@@ -292,7 +294,7 @@ export default function ClientsPage() {
                     </span>
                   </Td>
                   <Td>
-                    {client.restricted_to === null || client.restricted_to.length === 0 ? (
+                    {!Array.isArray(client.restricted_to) || client.restricted_to.length === 0 ? (
                       <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
                         All members
                       </span>

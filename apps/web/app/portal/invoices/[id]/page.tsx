@@ -143,7 +143,7 @@ export default function PortalInvoiceDetailPage() {
           ← Invoices
         </button>
         <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
-          <h1 className="font-heading text-xl font-semibold tracking-tight tabular-nums">
+          <h1 className="text-xl font-semibold tracking-tight tabular-nums">
             {inv.number}
           </h1>
           <div className="flex items-center gap-2">

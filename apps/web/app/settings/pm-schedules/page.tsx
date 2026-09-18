@@ -39,7 +39,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { api, useRequireAuth } from "../../../lib/api";
-import { ConfirmDestructive, SettingsHeader } from "../../../components/settings/settings-shell";
+import { ConfirmDestructive, SaveBar, SettingsHeader } from "../../../components/settings/settings-shell";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 
 type PmSchedule = components["schemas"]["PmSchedule"];
@@ -573,17 +573,16 @@ export default function PmSchedulesSettingsPage() {
               </div>
             </div>
             <CadenceEditor draft={cadence} onChange={setCadence} idPrefix="pm" />
-            {formError !== null ? (
-              <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }} data-testid="pm-form-error">
-                {formError}
-              </p>
-            ) : null}
+            <SaveBar
+              dirty={form.name.trim() !== "" && form.title.trim() !== ""}
+              saving={formBusy}
+              error={formError}
+              onSave={() => void save()}
+              saveLabel={editing === null ? "Create schedule" : "Save"}
+            />
             <DialogActions>
               <Button variant="ghost" onClick={() => setDialogOpen(false)}>
                 Cancel
-              </Button>
-              <Button variant="primary" onClick={() => void save()} disabled={formBusy || form.name.trim() === "" || form.title.trim() === ""}>
-                {formBusy ? <Spinner /> : null} {editing === null ? "Create schedule" : "Save"}
               </Button>
             </DialogActions>
           </div>

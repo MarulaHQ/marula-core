@@ -161,7 +161,7 @@ function PasswordResetInner(): ReactNode {
       >
         <Card className="m-rise w-full max-w-sm rounded-xl p-6 md:p-7" data-testid="password-reset-card">
           <AuthBrand />
-          <h1 className="mt-4 font-heading text-base font-semibold tracking-tight" style={{ color: "var(--m-text)" }}>
+          <h1 className="mt-4 text-base font-semibold tracking-tight" style={{ color: "var(--m-text)" }}>
             Reset your password
           </h1>
           {mode === "sent" ? (
@@ -230,7 +230,7 @@ function PasswordResetInner(): ReactNode {
       >
         <Card className="m-rise w-full max-w-sm rounded-xl p-6 md:p-7">
           <AuthBrand />
-          <h1 className="mt-4 font-heading text-base font-semibold tracking-tight" style={{ color: "var(--m-text)" }}>
+          <h1 className="mt-4 text-base font-semibold tracking-tight" style={{ color: "var(--m-text)" }}>
             Password updated
           </h1>
           <p className="mt-2 text-[13px]" style={{ color: "var(--m-text-secondary)" }} role="status">
@@ -256,7 +256,7 @@ function PasswordResetInner(): ReactNode {
     >
       <Card className="m-rise w-full max-w-sm rounded-xl p-6 md:p-7" data-testid="password-reset-confirm-card">
         <AuthBrand />
-        <h1 className="mt-4 font-heading text-base font-semibold tracking-tight" style={{ color: "var(--m-text)" }}>
+        <h1 className="mt-4 text-base font-semibold tracking-tight" style={{ color: "var(--m-text)" }}>
           Set a new password
         </h1>
         <p className="mt-1 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>

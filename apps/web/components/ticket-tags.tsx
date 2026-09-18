@@ -22,7 +22,7 @@ export function TagChip({ tag }: { tag: Tag }) {
   const color = tag.color ?? "var(--m-text-muted)";
   return (
     <span
-      className="inline-flex items-center rounded-[2px] px-2 py-0.5 text-[11px] font-medium"
+      className="inline-flex items-center rounded-[var(--m-radius-container)] px-2 py-0.5 text-[11px] font-medium"
       style={{ border: `1px solid ${color}`, color, background: "transparent" }}
     >
       {tag.name}

@@ -48,7 +48,7 @@ function JsonBlock({ label, value }: { label: string; value: unknown }) {
         {label}
       </p>
       <pre
-        className="mt-1 max-h-40 overflow-auto rounded-[2px] border p-2 text-[12px]"
+        className="mt-1 max-h-40 overflow-auto rounded-[var(--m-radius-container)] border p-2 text-[12px]"
         style={{ borderColor: "var(--m-border)", background: "var(--m-canvas)" }}
       >
         {value === null ? "(no record)" : JSON.stringify(value, null, 2)}
@@ -309,7 +309,7 @@ export default function AgentPlatformPage() {
                 {proposals.map((p) => (
                   <div
                     key={p.id}
-                    className="rounded-[2px] border p-3"
+                    className="rounded-[var(--m-radius-container)] border p-3"
                     style={{ borderColor: "var(--m-border)" }}
                   >
                     <div className="flex flex-wrap items-center gap-2">
