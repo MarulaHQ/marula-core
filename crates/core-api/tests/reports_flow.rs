@@ -51,15 +51,15 @@ async fn test_state() -> (AppState, Router) {
     // execution enforces real RLS separately: routes/reports derives an
     // app-role pool itself and binds app.org_id per request.
     let pool = connect_admin(&admin_url).await.expect("admin pool");
-    let mut config = Config::from_env();
+    let mut config = Config::from_env_allow_dev_fallback().expect("test config");
     let admin_url2 = admin_url.clone();
     config.database_url = admin_url;
     let reporting_url = admin_url2;
     let state = AppState {
         pool,
-        config: Arc::new(config),
+        config: Arc::new(config.clone()),
         oidc: OidcHttpClient::new(),
-        mail: Arc::new(core_api::email::MailStack::from_config(&Config::from_env())),
+        mail: Arc::new(core_api::email::MailStack::from_config(&config)),
         store: Arc::new(core_store::memory::MemoryStore::new()),
         reporting: core_api::state::AppState::reporting_pool_lazy(&reporting_url)
             .expect("lazy reporting pool"),

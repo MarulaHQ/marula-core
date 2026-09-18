@@ -50,16 +50,16 @@ async fn test_state_with_mail(
     core_db::assert_rls_coverage(&pool)
         .await
         .expect("RLS coverage holds with lane-6 tables");
-    let mut config = Config::from_env();
+    let mut config = Config::from_env_allow_dev_fallback().expect("test config");
     let reporting_url = config.database_url.clone();
     config.database_url = admin_url;
-    let mut mail = core_api::email::MailStack::from_config(&Config::from_env());
+    let mut mail = core_api::email::MailStack::from_config(&config);
     if let Some(transport) = transport_override {
         mail.transport = transport;
     }
     let state = AppState {
         pool,
-        config: Arc::new(config),
+        config: Arc::new(config.clone()),
         oidc: OidcHttpClient::new(),
         mail: Arc::new(mail),
         store: Arc::new(core_store::memory::MemoryStore::new()),
@@ -893,10 +893,14 @@ async fn auto_email_rides_the_outbound_ledger_exactly_once() {
         tx.commit().await.unwrap();
     }
 
+    // Wave 19 lane 5: registration ships the email-verification leg, so
+    // the baseline is ONE queued (unsent) outbound; the BOOKING must add
+    // the next single row on top of it (that exact increment is asserted
+    // below — the exactly-once ledger is preserved).
     assert_eq!(
         org_outbound_count(&state, org.org_id).await,
-        0,
-        "nothing enqueued yet"
+        1,
+        "exactly the register-time verification mail enqueued"
     );
     let response = send(
         &app,
@@ -922,8 +926,8 @@ async fn auto_email_rides_the_outbound_ledger_exactly_once() {
     // originating ticket, body rendered with the placeholders expanded.
     assert_eq!(
         org_outbound_count(&state, org.org_id).await,
-        1,
-        "exactly one ledger row per booking"
+        2,
+        "exactly ONE more ledger row per booking (verification baseline spent)"
     );
     let mut tx = state.pool.begin().await.unwrap();
     core_db::set_org(&mut tx, org.org_id).await.unwrap();
@@ -937,7 +941,7 @@ async fn auto_email_rides_the_outbound_ledger_exactly_once() {
     .await
     .unwrap();
     tx.commit().await.unwrap();
-    assert_eq!(count, 1, "one message row behind the ledger row");
+    assert_eq!(count, 2, "one message row behind the ledger row (+register verification mail)");
     assert!(ticket_set, "confirmation lands on the ticket timeline");
 
     // A second booking attempt through the same (now used) token is a
@@ -959,8 +963,8 @@ async fn auto_email_rides_the_outbound_ledger_exactly_once() {
     assert_eq!(response.status(), 409, "a used link cannot book again");
     assert_eq!(
         org_outbound_count(&state, org.org_id).await,
-        1,
-        "the retry path never double-enqueues"
+        2,
+        "the retry path never double-enqueues (still register baseline + 1 booking)"
     );
 
     // The transport is NOT touched on the write path: the WORKER claims

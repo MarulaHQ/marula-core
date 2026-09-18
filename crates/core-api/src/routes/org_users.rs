@@ -722,3 +722,67 @@ pub async fn accept_invite(
     let tokens = issue_tokens(&state, user_id, org_id, None).await?;
     Ok(Json(tokens))
 }
+
+// --- Wave 19 lane 5: admin email-verification override -----------------------
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct SetEmailVerifiedRequest {
+    /// true = admin-stamped verification; false = revokes the stamp.
+    pub verified: bool,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct EmailVerifiedResponse {
+    #[schema(value_type = uuid::Uuid)]
+    pub id: Uuid,
+    pub email_verified: bool,
+}
+
+/// POST /api/org/users/{id}/email-verified — the admin OVERRIDE for the
+/// email-verification gate (migration 0088). Audited both ways.
+#[utoipa::path(operation_id = "org_users_set_email_verified", post, path = "/api/org/users/{id}/email-verified", tag = "org-users", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    request_body = SetEmailVerifiedRequest,
+    responses((status = 200, body = EmailVerifiedResponse), (status = 404), (status = 403)))]
+pub async fn set_email_verified(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    Json(req): Json<SetEmailVerifiedRequest>,
+) -> ApiResult<Json<EmailVerifiedResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, manage_users())?;
+    let org_id = authed.principal.user.org_id;
+    let actor_id = authed.principal.user.id;
+
+    let mut tx = state
+        .pool
+        .begin()
+        .await
+        .map_err(|e| ApiError::Internal(e.into()))?;
+    core_db::set_org(&mut tx, org_id).await?;
+    let target = core_db::users::get_user(&mut *tx, org_id, id).await
+        .map_err(|_| ApiError::NotFound)?;
+    if req.verified {
+        core_db::users::mark_email_verified(&mut *tx, id).await?;
+    } else {
+        core_db::users::clear_email_verified(&mut *tx, id).await?;
+    }
+    core_db::audit::insert(
+        &mut *tx,
+        &AuditEvent {
+            id: Uuid::now_v7(),
+            org_id,
+            actor: Actor::Human(actor_id),
+            action: "auth.email_verified_override".into(),
+            entity_type: Some("user".into()),
+            entity_id: Some(id.to_string()),
+            detail: serde_json::json!({ "verified": req.verified, "target_email": target.email }),
+            ip: None,
+            occurred_at: chrono::Utc::now(),
+        },
+    )
+    .await?;
+    tx.commit().await.map_err(|e| ApiError::Internal(e.into()))?;
+    Ok(Json(EmailVerifiedResponse { id, email_verified: req.verified }))
+}

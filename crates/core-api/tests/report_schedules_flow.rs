@@ -40,15 +40,15 @@ async fn test_state() -> AppState {
         .expect("report_schedules e2e needs MERIDIAN_TEST_DATABASE_URL or DATABASE_URL");
     let pool = connect(&admin_url).await.expect("pool");
     core_db::run_migrations(&pool).await.expect("migrations");
-    let mut config = Config::from_env();
+    let mut config = Config::from_env_allow_dev_fallback().expect("test config");
     let reporting_url = config.database_url.clone();
     config.database_url = admin_url;
     config.secret_key = core_api::config::SecretKey([31; 32]);
     AppState {
         pool,
-        config: Arc::new(config),
+        config: Arc::new(config.clone()),
         oidc: OidcHttpClient::new(),
-        mail: Arc::new(core_api::email::MailStack::from_config(&Config::from_env())),
+        mail: Arc::new(core_api::email::MailStack::from_config(&config)),
         store: Arc::new(core_store::memory::MemoryStore::new()),
         reporting: core_api::state::AppState::reporting_pool_lazy(&reporting_url)
             .expect("lazy reporting pool"),

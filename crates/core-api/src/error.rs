@@ -21,7 +21,7 @@
 //! `pre_close_checklist_blocked`, `tasks_unassigned`,
 //! `dispatch_move_conflict`,
 //! `import_chunk_rejected`,
-//! `migration_cursor_mismatch`, `migration_chunk_reused`, `rate_limited`,
+//! `migration_cursor_mismatch`, `migration_chunk_reused`, `rate_limited`, `auth_rate_limited`,
 //! `task_dependencies_unsatisfied`, `undo_reverts_only`,
 //! `time_entry_locked`,
 //! `service_unavailable`, `internal_error`.
@@ -217,6 +217,18 @@ pub enum ApiError {
     #[error("rate limit exceeded; retry after {retry_after_secs}s")]
     RateLimited {
         /// Seconds until the current fixed window resets.
+        retry_after_secs: i64,
+    },
+    /// Typed 429 for the auth-throttle family (Wave 19 lane 5): a
+    /// durable per-IP + per-actor lockout is engaged on this auth
+    /// surface. Same envelope shape as [`ApiError::RateLimited`] with the
+    /// distinct `auth_rate_limited` reason so clients can branch without
+    /// conflating connector budgets with credential gates. LOGIN is the
+    /// deliberate exception — there the 401 uniform-shape answer is kept
+    /// (threat model §A1: no lock-state enumeration).
+    #[error("auth rate limit engaged; retry after {retry_after_secs}s")]
+    AuthThrottled {
+        /// Seconds until the current exponential-backoff lock expires.
         retry_after_secs: i64,
     },
     /// Typed 409 for a time-entry mutation the invoicing lock refuses
@@ -552,6 +564,12 @@ impl IntoResponse for ApiError {
                 format!("rate limit exceeded; retry after {retry_after_secs}s"),
                 Some(json!({ "retry_after_secs": retry_after_secs })),
             ),
+            ApiError::AuthThrottled { retry_after_secs } => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "auth_rate_limited",
+                format!("auth rate limit engaged; retry after {retry_after_secs}s"),
+                Some(json!({ "retry_after_secs": retry_after_secs })),
+            ),
             ApiError::Unavailable(m) => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "service_unavailable",
@@ -580,7 +598,7 @@ impl IntoResponse for ApiError {
             }
         }
         let mut response = (status, Json(json!({ "error": error }))).into_response();
-        if let ApiError::RateLimited { retry_after_secs } = &self {
+        if let ApiError::RateLimited { retry_after_secs } | ApiError::AuthThrottled { retry_after_secs } = &self {
             if let Ok(value) = retry_after_secs.to_string().parse() {
                 response
                     .headers_mut()

@@ -8,6 +8,7 @@
 // Non-purpose: no HTTP listening and no Node interceptors (msw etc.);
 // everything here is dependency-light and synchronous.
 import { setFetchRouter } from "./fetch-router";
+import { saveTokens } from "../../lib/api";
 
 interface RecordedCall {
   method: string;
@@ -107,17 +108,19 @@ function makeJsonResponse(json: unknown, status: number): Response {
 }
 
 /** Seeds stored auth so AuthProvider restores instantly (no refresh call). */
+/**
+ * Wave 19 lane 5: tokens persist MEMORY-ONLY in lib/api (httpOnly cookie
+ * owns the refresh secret now) — tests seed through saveTokens (the same
+ * public surface pages use), not the localStorage family, which saveTokens
+ * clears on first write.
+ */
 export function seedAuthTokens(): void {
-  window.localStorage.setItem(
-    "meridian-tokens",
-    JSON.stringify({
-      access_token: "test-access",
-      refresh_token: "test-refresh",
-      session_id: "sess",
-      expires_in: 900,
-    }),
-  );
-  window.localStorage.setItem("meridian-tokens-exp", String(Date.now() + 60_000));
+  saveTokens({
+    access_token: "test-access",
+    refresh_token: "test-refresh",
+    session_id: "sess",
+    expires_in: 900,
+  });
 }
 
 /** Standard /api/v1/me answer matching MeResponse (owner-permissioned). */

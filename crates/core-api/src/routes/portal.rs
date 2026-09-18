@@ -14,6 +14,7 @@
 //! portal v1 (documented deferral — TOTP/WebAuthn enrollment is a staff
 //! feature); no ticket creation or status changes from the portal.
 
+use crate::auth::cookies;
 use crate::auth::jwt;
 use crate::auth::PortalAuthed;
 use crate::error::{ApiError, ApiResult};
@@ -23,6 +24,7 @@ use axum::{
     extract::{Path, Query, State},
     http::{header::AUTHORIZATION, Extensions},
     middleware::Next,
+    response::IntoResponse,
     Json,
 };
 use core_domain::entities::{Actor, AuditEvent, PortalRole, TicketComment};
@@ -124,8 +126,9 @@ pub struct PortalProfile {
 ))]
 pub async fn login(
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<PortalLoginRequest>,
-) -> ApiResult<Json<PortalLoginResponse>> {
+) -> ApiResult<axum::response::Response> {
     // Narrow SECURITY DEFINER bridge (migration 0021): identity only.
     let resolved: Option<(Uuid, Uuid, Uuid)> =
         sqlx::query_as("SELECT portal_user_id, org_id, client_id FROM portal_resolve_login($1)")
@@ -157,6 +160,13 @@ pub async fn login(
             serde_json::json!({}),
         )
         .await;
+        let _ = crate::auth::hardening::record_failure(
+            &state,
+            crate::auth::hardening::kinds::PASSWORD_LOGIN,
+            &headers,
+            crate::auth::hardening::GateSubject::Email(&req.email),
+        )
+        .await;
         return Err(ApiError::Unauthorized("invalid credentials".into()));
     }
     // First successful login activates an invited identity.
@@ -174,6 +184,13 @@ pub async fn login(
         role: creds.role,
     };
     let response = issue_portal_tokens(&state, &identity, None).await?;
+    let _ = crate::auth::hardening::record_success(
+        &state,
+        crate::auth::hardening::kinds::PASSWORD_LOGIN,
+        &headers,
+        crate::auth::hardening::GateSubject::Email(&req.email),
+    )
+    .await;
     audit_best_effort(
         &state,
         org_id,
@@ -184,13 +201,20 @@ pub async fn login(
         serde_json::json!({ "method": "password" }),
     )
     .await;
-    Ok(Json(response))
+    let cookies_head = portal_cookie_head(
+        &state,
+        response.session_id,
+        &response.refresh_token,
+    );
+    Ok(portal_json_response(response, cookies_head))
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct PortalRefreshRequest {
-    pub refresh_token: String,
-    pub session_id: Uuid,
+    #[serde(default)]
+    pub refresh_token: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<Uuid>,
 }
 
 /// POST /api/portal/refresh — rotation within the portal session family.
@@ -200,13 +224,36 @@ pub struct PortalRefreshRequest {
     request_body = PortalRefreshRequest, responses((status = 200, body = PortalLoginResponse)))]
 pub async fn refresh(
     State(state): State<AppState>,
-    Json(req): Json<PortalRefreshRequest>,
-) -> ApiResult<Json<PortalLoginResponse>> {
-    let hash = jwt::hash_refresh_token(&req.refresh_token);
+    headers: axum::http::HeaderMap,
+    req: Option<Json<PortalRefreshRequest>>,
+) -> ApiResult<axum::response::Response> {
+    if !cookies::double_submit_ok(&headers) {
+        return Err(ApiError::Forbidden("csrf check failed".into()));
+    }
+    // Per-IP throttle BEFORE session resolution (typed 429; no account
+    // identity exists yet, so the code cannot fingerprint anything).
+    crate::auth::hardening::enforce_gate(
+        &state,
+        crate::auth::hardening::kinds::REFRESH,
+        &headers,
+        crate::auth::hardening::GateSubject::IpOnly,
+        false,
+    )
+    .await?;
+    let refresh_token: Option<(Uuid, String)> = match req {
+        Some(Json(PortalRefreshRequest { refresh_token: Some(t), session_id: Some(sid) })) => {
+            Some((sid, t))
+        }
+        _ => cookies::portal_refresh_pair_from(&headers),
+    };
+    let Some((session_id, raw_refresh)) = refresh_token else {
+        return Err(ApiError::Unauthorized("invalid refresh token".into()));
+    };
+    let hash = jwt::hash_refresh_token(&raw_refresh);
     let resolved: Option<(Uuid, Uuid, Uuid)> = sqlx::query_as(
         "SELECT portal_user_id, org_id, client_id FROM portal_resolve_session($1, $2)",
     )
-    .bind(req.session_id)
+    .bind(session_id)
     .bind(hash)
     .fetch_optional(&state.pool)
     .await
@@ -233,7 +280,7 @@ pub async fn refresh(
         .map_err(|e| ApiError::Internal(e.into()))?;
     core_db::set_org(&mut tx, org_id).await?;
     // Retire the presented session BEFORE minting its successor.
-    core_db::portal::revoke_session(&mut *tx, req.session_id).await?;
+    core_db::portal::revoke_session(&mut *tx, session_id).await?;
     tx.commit()
         .await
         .map_err(|e| ApiError::Internal(e.into()))?;
@@ -247,7 +294,35 @@ pub async fn refresh(
         role: user.role,
     };
     let response = issue_portal_tokens(&state, &identity, None).await?;
-    Ok(Json(response))
+    let cookies_head = portal_cookie_head(&state, response.session_id, &response.refresh_token);
+    Ok(portal_json_response(response, cookies_head))
+}
+
+/// Cookie-trio shaper for the portal family (`meridian_portal` jar).
+fn portal_cookie_head(
+    state: &AppState,
+    session_id: Uuid,
+    refresh: &str,
+) -> Vec<(axum::http::HeaderName, String)> {
+    let secure = state.config.public_base_url.starts_with("https");
+    let csrf = cookies::new_csrf_token();
+    vec![
+        (axum::http::header::SET_COOKIE, cookies::portal_cookie(secure, &format!("{session_id}.{refresh}"), state.config.refresh_ttl_secs)),
+        (axum::http::header::SET_COOKIE, cookies::csrf_cookie(secure, &csrf)),
+    ]
+}
+
+fn portal_json_response(
+    body: PortalLoginResponse,
+    cookie_headers: Vec<(axum::http::HeaderName, String)>,
+) -> axum::response::Response {
+    let mut response = Json(body).into_response();
+    for (name, value) in cookie_headers {
+        if let Ok(value) = axum::http::HeaderValue::from_str(&value) {
+            response.headers_mut().append(name, value);
+        }
+    }
+    response
 }
 
 /// Everything the token issuer needs to mint both halves of the pair and

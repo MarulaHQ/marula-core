@@ -462,3 +462,71 @@ pub async fn resolve_login_org(pool: &PgPool, email: &str) -> DbResult<(Uuid, Uu
         .await?
         .ok_or(DbError::NotFound)
 }
+/// Wave 19 lane 5: revokes EVERY live refresh session of one user
+/// (password-reset / email-takeover response). Returns rows killed.
+/// RLS applies — the caller must carry the org scope.
+pub async fn revoke_all_user_sessions<'e, E>(executor: E, user_id: Uuid) -> DbResult<u64>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let result = sqlx::query(
+        "UPDATE auth_sessions SET revoked_at = now() \
+         WHERE user_id = $1 AND revoked_at IS NULL",
+    )
+    .bind(user_id)
+    .execute(executor)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+/// Wave 19 lane 5: marks a user's email verified (verification link or
+/// admin override). Idempotent: the first stamp wins the timestamp.
+pub async fn mark_email_verified<'e, E>(executor: E, user_id: Uuid) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    sqlx::query(
+        "UPDATE users SET email_verified = true, \
+                email_verified_at = COALESCE(email_verified_at, now()) \
+         WHERE id = $1",
+    )
+    .bind(user_id)
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
+/// Wave 19 lane 5: admin override — flips an unverified email back to
+/// unverified (the override is also retractable) and clears the stamp.
+pub async fn clear_email_verified<'e, E>(executor: E, user_id: Uuid) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    sqlx::query(
+        "UPDATE users SET email_verified = false, email_verified_at = NULL WHERE id = $1",
+    )
+    .bind(user_id)
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+/// Wave 19 lane 5: replaces one user's password hash (password-reset
+/// completion and admin resets). RLS applies; callers audit + revoke
+/// sessions themselves. Plain runner — no offline-cache churn.
+pub async fn set_password_hash<'e, E>(
+    executor: E,
+    user_id: Uuid,
+    password_hash: &str,
+) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    sqlx::query(
+        "UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1",
+    )
+    .bind(user_id)
+    .bind(password_hash)
+    .execute(executor)
+    .await?;
+    Ok(())
+}

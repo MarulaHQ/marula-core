@@ -162,24 +162,33 @@ export class MeridianClient {
     return this.authCall("/api/v1/auth/mfa/verify", body);
   }
 
-  /** POST /api/v1/auth/refresh — rotates the stored refresh token in place. */
+  /**
+   * POST /api/v1/auth/refresh — rotates the stored refresh token in place.
+   * Wave 19 lane 5: when no secret is held in memory (fresh page load) the
+   * httpOnly session cookie drives the rotation (credentials included);
+   * the server falls back to the cookie pair and answers the same shape.
+   */
   async refresh(): Promise<TokenPair> {
-    if (!this.refreshToken || !this.sessionId) {
-      throw new Error("no refresh token held — login first");
+    if (this.refreshToken && this.sessionId) {
+      return this.authCall("/api/v1/auth/refresh", {
+        refresh_token: this.refreshToken,
+        session_id: this.sessionId,
+      });
     }
-    return this.authCall("/api/v1/auth/refresh", {
-      refresh_token: this.refreshToken,
-      session_id: this.sessionId,
-    });
+    // Cookie-only bootstrap (no ambient body credential) — requires the
+    // double-submit csrf cookie value.
+    return this.authCall("/api/v1/auth/refresh", {});
   }
 
   /** POST /api/v1/auth/logout — revokes the stored refresh session. */
   async logout(): Promise<void> {
-    if (!this.refreshToken || !this.sessionId) return;
-    await this.authCall("/api/v1/auth/logout", {
-      refresh_token: this.refreshToken,
-      session_id: this.sessionId,
-    });
+    const had = this.refreshToken !== null || this.sessionId !== null;
+    await this.authCall("/api/v1/auth/logout", had
+      ? {
+          refresh_token: this.refreshToken ?? "",
+          session_id: this.sessionId,
+        }
+      : {});
     this.accessToken = null;
     this.refreshToken = null;
     this.sessionId = null;
@@ -194,9 +203,23 @@ export class MeridianClient {
       | "/api/v1/auth/logout",
     body: unknown,
   ): Promise<TokenPair> {
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+    };
+    // Cookie-session CSRF double-submit: browsers echo the non-httpOnly
+    // csrf cookie the API set on the last auth response. Bearer- and
+    // cookie-less calls are unaffected (server-side no-op then).
+    if (typeof document !== "undefined") {
+      const csrf = document.cookie
+        .split(";")
+        .map((c) => c.trim())
+        .find((c) => c.startsWith("meridian_csrf="));
+      if (csrf) headers["x-meridian-csrf"] = csrf.slice("meridian_csrf=".length);
+    }
     const response = await this.fetchFn(`${this.baseUrl}${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
+      credentials: "include",
       body: JSON.stringify(body),
     });
     if (response.status === 204 || path === "/api/v1/auth/logout") {

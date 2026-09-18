@@ -2,17 +2,20 @@
 //! refresh sessions with chain reuse detection, TOTP + WebAuthn MFA, and
 //! the request middleware that resolves a Principal.
 
+pub mod cookies;
+pub mod federation;
 pub mod handlers;
+pub mod hardening;
 pub mod jwt;
 pub mod mfa_handlers;
 pub mod middleware;
 pub mod oidc_client;
+pub mod provider;
 pub mod password;
 pub mod presets;
+pub mod recovery;
 pub mod totp_service;
 pub mod webauthn_service;
-
-pub mod federation;
 
 use core_domain::entities::{PortalUser, Principal};
 use uuid::Uuid;

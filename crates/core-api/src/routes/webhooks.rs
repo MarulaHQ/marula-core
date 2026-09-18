@@ -70,7 +70,7 @@ mod tests {
     use tower::ServiceExt;
 
     fn test_state(with_secret: bool) -> AppState {
-        let mut config = Config::from_env();
+        let mut config = Config::from_env_allow_dev_fallback().expect("test config");
         config.email_inbound_hmac_secret = with_secret.then(|| "test-secret".to_string());
         config.database_url =
             "postgres://meridian_app:meridian_app@localhost:1/never_connected".into();
@@ -84,8 +84,8 @@ mod tests {
                 "postgres://meridian_app:meridian_app@localhost:1/never_connected",
             )
             .expect("lazy reporting pool"),
-            config: std::sync::Arc::new(config),
-            mail: std::sync::Arc::new(MailStack::from_config(&Config::from_env())),
+            config: std::sync::Arc::new(config.clone()),
+            mail: std::sync::Arc::new(MailStack::from_config(&config)),
             store: std::sync::Arc::new(core_store::memory::MemoryStore::new()),
             oidc: crate::auth::oidc_client::OidcHttpClient::new(),
         }

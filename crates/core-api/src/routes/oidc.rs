@@ -760,7 +760,7 @@ pub async fn callback(
 }
 
 /// Creates a disabled-password user under the org's default Technician role.
-async fn provision_jit_user(
+pub(crate) async fn provision_jit_user(
     tx: &mut sqlx::Transaction<'static, sqlx::Postgres>,
     org_id: Uuid,
     email: &str,
@@ -792,6 +792,11 @@ async fn provision_jit_user(
     if let Some(role_id) = role_id {
         core_db::users::assign_role(&mut **tx, user_id, role_id).await?;
     }
+    // Wave 19 lane 5: the IdP asserted a VERIFIED email (the linking decision
+    // rule gated provisioning on it) — the account is born verified.
+    core_db::users::mark_email_verified(&mut **tx, user_id)
+        .await
+        .map_err(ApiError::from)?;
     Ok(user_id)
 }
 

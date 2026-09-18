@@ -679,6 +679,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/email-verification/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/auth/email-verification/confirm — marks the email verified
+         *     (single-use, audited).
+         */
+        post: operations["auth_email_verification_confirm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/email-verification/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/auth/email-verification/request — resend (public, THROTTLED;
+         *     admin override rides POST /api/org/users/{id}/email-verified).
+         */
+        post: operations["auth_email_verification_request"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/login": {
         parameters: {
             query?: never;
@@ -712,6 +752,48 @@ export interface paths {
         put?: never;
         /** POST /api/auth/logout — revokes the refresh session and audits the event. */
         post: operations["handlers_logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/magic-link/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/auth/magic-link/confirm — consumes the link and issues a
+         *     full session through the SAME machinery as password login. STAFF
+         *     family only (the portal is NOT included — see the threat model).
+         */
+        post: operations["auth_magic_link_confirm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/magic-link/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/auth/magic-link/request — deny-by-default per org
+         *     (`orgs.magic_link_sign_in`, 0088): unknown emails AND disabled orgs
+         *     collapse into the SAME uniform answer.
+         */
+        post: operations["auth_magic_link_request"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1069,6 +1151,47 @@ export interface paths {
         get: operations["oidc_login_redirect"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/password-reset/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/auth/password-reset/confirm — consumes the token, sets the
+         *     new password, and revokes ALL of the user's live sessions (the
+         *     reset's security payload: a stolen session cannot outlive it).
+         */
+        post: operations["auth_password_reset_confirm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/password-reset/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/auth/password-reset/request — issues a single-use token +
+         *     mail when the account exists; ALWAYS the uniform answer.
+         */
+        post: operations["auth_password_reset_request"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4277,6 +4400,26 @@ export interface paths {
          *     token is an indistinguishable 404.
          */
         post: operations["org_users_accept_invite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/org/users/{id}/email-verified": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/org/users/{id}/email-verified — the admin OVERRIDE for the
+         *     email-verification gate (migration 0088). Audited both ways.
+         */
+        post: operations["org_users_set_email_verified"];
         delete?: never;
         options?: never;
         head?: never;
@@ -11954,6 +12097,14 @@ export interface components {
             /** @description Which transport adapter handled the message (postmark/smtp/…). */
             transport: string;
         };
+        EmailVerifiedResponse: {
+            email_verified: boolean;
+            /** Format: uuid */
+            id: string;
+        };
+        EmailVerifyRequest: {
+            email: string;
+        };
         EmbedMutationResponse: components["schemas"]["KbEmbed"] & {
             mutation: components["schemas"]["MutationMeta"];
         };
@@ -13160,6 +13311,9 @@ export interface components {
             mfa_required: boolean;
             mfa_token: string;
         };
+        MagicLinkConfirm: {
+            token: string;
+        };
         /**
          * @description Planned downtime: an absolute UTC interval during which SLA clocks do
          *     not consume business-time budget (vendor maintenance, change freezes).
@@ -14058,6 +14212,13 @@ export interface components {
         PasswordMutationResponse: components["schemas"]["PasswordEntry"] & {
             mutation: components["schemas"]["MutationMeta"];
         };
+        PasswordResetConfirm: {
+            new_password: string;
+            token: string;
+        };
+        PasswordResetRequest: {
+            email: string;
+        };
         /**
          * @description The audited reveal response: plaintext is returned exactly once,
          *     over TLS, to a caller holding `passwords:edit`; the reveal emits a
@@ -14777,9 +14938,9 @@ export interface components {
             role: components["schemas"]["PortalRole"];
         };
         PortalRefreshRequest: {
-            refresh_token: string;
+            refresh_token?: string | null;
             /** Format: uuid */
-            session_id: string;
+            session_id?: string | null;
         };
         PortalReplyRequest: {
             body: string;
@@ -15772,12 +15933,14 @@ export interface components {
             status: string;
         };
         RefreshRequest: {
-            refresh_token: string;
             /**
-             * Format: uuid
-             * @description Session id returned alongside the refresh token.
+             * @description Optional: when omitted, the refresh pair rides the httpOnly
+             *     session cookie (browser clients); bearer-mode clients keep
+             *     sending both fields exactly as before.
              */
-            session_id: string;
+            refresh_token?: string | null;
+            /** Format: uuid */
+            session_id?: string | null;
         };
         /** @description POST /api/credit-notes/{id}/refund body. */
         RefundCreditNoteRequest: components["schemas"]["MutationParams"] & {
@@ -16769,6 +16932,10 @@ export interface components {
              *     must not create a cycle (typed 422 names the offending edge).
              */
             depends_on: string[];
+        };
+        SetEmailVerifiedRequest: {
+            /** @description true = admin-stamped verification; false = revokes the stamp. */
+            verified: boolean;
         };
         /** @description PUT /api/dispatch/queue/{ticket_id} body. */
         SetQueueRankRequest: components["schemas"]["MutationParams"] & {
@@ -17962,6 +18129,9 @@ export interface components {
             /** Format: uuid */
             session_id: string;
         };
+        TokenRequest: {
+            token: string;
+        };
         TotpDisableRequest: {
             /** @description Current TOTP code or a recovery code. */
             code: string;
@@ -18099,6 +18269,10 @@ export interface components {
              * @description Trail row id (stable reference for actioned reverts).
              */
             write_id: string;
+        };
+        /** @description The uniform shape every request surface returns. */
+        UniformOk: {
+            ok: boolean;
         };
         UnreadCount: {
             /** Format: int64 */
@@ -18551,6 +18725,9 @@ export interface components {
              */
             applied: boolean;
             reason?: string | null;
+        };
+        VerifyStatus: {
+            email_verified: boolean;
         };
         /**
          * @description Versioned read-model views. Variant ↔ physical view name is frozen
@@ -20017,6 +20194,71 @@ export interface operations {
             };
         };
     };
+    auth_email_verification_confirm: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TokenRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerifyStatus"];
+                };
+            };
+            /** @description invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    auth_email_verification_request: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EmailVerifyRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UniformOk"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     handlers_login: {
         parameters: {
             query?: never;
@@ -20061,6 +20303,71 @@ export interface operations {
         };
         responses: {
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    auth_magic_link_confirm: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MagicLinkConfirm"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenPair"];
+                };
+            };
+            /** @description invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    auth_magic_link_request: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EmailVerifyRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UniformOk"];
+                };
+            };
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -20532,6 +20839,79 @@ export interface operations {
                 content?: never;
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    auth_password_reset_confirm: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordResetConfirm"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UniformOk"];
+                };
+            };
+            /** @description invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    auth_password_reset_request: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordResetRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UniformOk"];
+                };
+            };
+            /** @description flood throttle */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -26801,6 +27181,43 @@ export interface operations {
             };
             /** @description validation error */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    org_users_set_email_verified: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetEmailVerifiedRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmailVerifiedResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

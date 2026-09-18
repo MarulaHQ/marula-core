@@ -10,16 +10,15 @@
 //! - Recovery codes are argon2id-hashed, single-use IN SQL, revealed once.
 //! - Disable/regenerate require password + a current second factor.
 
-use crate::auth::{
-    handlers::{audit_best_effort, issue_tokens},
-    jwt, password, totp_service,
+use crate::auth::handlers::{audit_best_effort, issue_tokens};
+use crate::auth::hardening::{enforce_gate, record_failure, record_success, GateSubject};
+use crate::auth::{jwt, password, totp_service,
     webauthn_service::{self, CeremonyContext},
-    AuthedUser,
-};
+    AuthedUser};
 use crate::error::{ApiError, ApiResult};
 use crate::routes::openapi::TokenPair;
 use crate::state::AppState;
-use axum::{extract::State, http::Extensions, Json};
+use axum::{extract::State, http::{Extensions, HeaderMap}, Json};
 use core_domain::entities::{Actor, AuditEvent};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -367,10 +366,25 @@ pub struct MfaVerifyRequest {
     responses((status = 200, body = TokenPair), (status = 401)))]
 pub async fn mfa_verify(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<MfaVerifyRequest>,
-) -> ApiResult<Json<TokenPair>> {
+) -> ApiResult<axum::response::Response> {
     let (user_id, org_id) = jwt::verify_mfa_pending_token(&state.config, &req.mfa_token)
         .ok_or_else(|| ApiError::Unauthorized("mfa session expired".into()))?;
+
+    // Durable throttles keyed on the bridge identity + IP (typed 429 —
+    // the caller proved possession of a live mfa_pending bridge, so the
+    // code reveals nothing further). Defensive: the 6-digit TOTP
+    // keyspace must not be brute-forceable online, so this GATE is the
+    // aggressive one.
+    enforce_gate(
+        &state,
+        crate::auth::hardening::kinds::MFA_VERIFY,
+        &headers,
+        GateSubject::User(user_id),
+        false,
+    )
+    .await?;
 
     let mut tx = org_tx(&state, org_id).await?;
     let user = core_db::users::get_user(&mut *tx, org_id, user_id).await?;
@@ -405,11 +419,25 @@ pub async fn mfa_verify(
                 tx.commit()
                     .await
                     .map_err(|e| ApiError::Internal(e.into()))?;
+                let _ = record_success(
+                    &state,
+                    crate::auth::hardening::kinds::MFA_VERIFY,
+                    &headers,
+                    GateSubject::User(user_id),
+                )
+                .await;
                 let tokens = issue_tokens(&state, user_id, org_id, None).await?;
-                Ok(Json(tokens))
+                Ok(mfa_tokens_response(&state, tokens))
             }
             None => {
                 audit_mfa_failure(&state, org_id, user_id, "bad_code").await;
+                let _ = record_failure(
+                    &state,
+                    crate::auth::hardening::kinds::MFA_VERIFY,
+                    &headers,
+                    GateSubject::User(user_id),
+                )
+                .await;
                 Err(ApiError::Unauthorized("invalid code".into()))
             }
         },
@@ -423,7 +451,7 @@ async fn finish_mfa_login(
     user_id: Uuid,
     method: &str,
     matched_step: i64,
-) -> ApiResult<Json<TokenPair>> {
+) -> ApiResult<axum::response::Response> {
     let mut tx = tx;
     audit_in_tx(
         &mut tx,
@@ -437,7 +465,14 @@ async fn finish_mfa_login(
         .await
         .map_err(|e| ApiError::Internal(e.into()))?;
     let tokens = issue_tokens(state, user_id, org_id, None).await?;
-    Ok(Json(tokens))
+    Ok(mfa_tokens_response(state, tokens))
+}
+
+/// Token-pair responses after an MFA finish ride the same cookie trio as
+/// login (threat model §A2 — one session cookie, one csrf, same flags;
+/// `headers::Mark` for the memory-only access token stays in the client).
+fn mfa_tokens_response(state: &AppState, tokens: TokenPair) -> axum::response::Response {
+    crate::auth::handlers::mfa_cookie_response(state, tokens)
 }
 
 async fn match_recovery_code(
@@ -755,10 +790,20 @@ pub async fn webauthn_credential_remove(
     responses((status = 200, body = WebauthnBeginResponse), (status = 401)))]
 pub async fn webauthn_login_begin(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<MfaTokenRequest>,
 ) -> ApiResult<Json<WebauthnBeginResponse>> {
     let (user_id, org_id) = jwt::verify_mfa_pending_token(&state.config, &req.mfa_token)
         .ok_or_else(|| ApiError::Unauthorized("mfa session expired".into()))?;
+    // Typed 429 (proof-of-possession already established via the bridge).
+    enforce_gate(
+        &state,
+        crate::auth::hardening::kinds::WEBAUTHN_BEGIN,
+        &headers,
+        GateSubject::User(user_id),
+        false,
+    )
+    .await?;
     let ctx = ctx_from_config(&state)?;
 
     let mut tx = org_tx(&state, org_id).await?;
@@ -829,11 +874,20 @@ pub struct WebauthnLoginFinishRequest {
     responses((status = 200, body = TokenPair), (status = 401)))]
 pub async fn webauthn_login_finish(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<WebauthnLoginFinishRequest>,
-) -> ApiResult<Json<TokenPair>> {
+) -> ApiResult<axum::response::Response> {
     let (user_id, org_id, challenge_id) =
         jwt::verify_webauthn_challenge_token(&state.config, &req.challenge_token)
             .ok_or_else(|| ApiError::Unauthorized("invalid or expired ceremony".into()))?;
+    enforce_gate(
+        &state,
+        crate::auth::hardening::kinds::WEBAUTHN_LOGIN,
+        &headers,
+        GateSubject::User(user_id),
+        false,
+    )
+    .await?;
     let ctx = ctx_from_config(&state)?;
 
     let mut tx = org_tx(&state, org_id).await?;
@@ -850,9 +904,19 @@ pub async fn webauthn_login_finish(
         serde_json::from_value(req.credential)
             .map_err(|_| ApiError::Validation("malformed assertion".into()))?;
 
-    let result = ctx
-        .finish_authentication(&response, &auth_state)
-        .map_err(webauthn_rejection)?;
+    let result = match ctx.finish_authentication(&response, &auth_state) {
+        Ok(result) => result,
+        Err(e) => {
+            let _ignored = record_failure(
+                &state,
+                crate::auth::hardening::kinds::WEBAUTHN_LOGIN,
+                &headers,
+                GateSubject::User(user_id),
+            )
+            .await;
+            return Err(webauthn_rejection(e));
+        }
+    };
     let used_cred_id = data_encoding::BASE64URL_NOPAD.encode(result.cred_id());
 
     core_db::mfa::touch_webauthn_credential(&mut *tx, &used_cred_id).await?;
@@ -867,6 +931,13 @@ pub async fn webauthn_login_finish(
     tx.commit()
         .await
         .map_err(|e| ApiError::Internal(e.into()))?;
+    let _ = record_success(
+        &state,
+        crate::auth::hardening::kinds::WEBAUTHN_LOGIN,
+        &headers,
+        GateSubject::User(user_id),
+    )
+    .await;
     let tokens = issue_tokens(&state, user_id, org_id, None).await?;
-    Ok(Json(tokens))
+    Ok(mfa_tokens_response(&state, tokens))
 }
