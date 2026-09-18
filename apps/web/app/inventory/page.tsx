@@ -43,6 +43,13 @@ const STATUS_TONE: Record<CiMergeStatus, "neutral" | "success" | "warning" | "da
   rejected: "neutral",
 };
 
+const ITEM_TONE: Record<string, "neutral" | "success" | "warning" | "danger"> = {
+  active: "success",
+  merged: "neutral",
+  retired: "neutral",
+  orphan: "warning",
+};
+
 type Signal = Record<string, unknown>;
 
 /** Evidence is `{ signals: [<loose key/value objects>] }` (CI3). */
@@ -365,8 +372,8 @@ export default function InventoryPage(): ReactNode {
             Config items
           </h2>
           <input
-            className="rounded-[2px] border px-2 py-1 text-[13px]"
-            style={{ borderColor: "var(--m-border)", color: "var(--m-text)", maxWidth: 320 }}
+            className="w-full rounded-md border bg-transparent px-2 py-1 text-[13px] md:max-w-80"
+            style={{ borderColor: "var(--m-border)", color: "var(--m-text)" }}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search name, tag, identity…"
@@ -397,7 +404,9 @@ export default function InventoryPage(): ReactNode {
                     )}
                   </Td>
                   <Td className="font-mono text-[12px]">{i.tag}</Td>
-                  <Td>{i.status}</Td>
+                  <Td>
+                    <StatusTag tone={ITEM_TONE[i.status] ?? "neutral"}>{i.status}</StatusTag>
+                  </Td>
                   <Td className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
                     {(() => {
                       const keys = (i.identity_keys as string[] | null) ?? [];

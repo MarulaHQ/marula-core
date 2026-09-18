@@ -1,13 +1,17 @@
-// /billing/[id] — one invoice (Wave 9 lane 1 close-out).
+// /billing/[id] — one invoice (Wave 9 lane 1 close-out; Wave 17 lane 5 UX pass).
 //
-// Purpose: the invoice aggregate: document header, lines, payment
-// receipts, dunning posture, and the actions that write through the
-// instant-first envelope — record payment (the `none` provider approves
-// locally and is presented as ledger-only), forward-only dunning
-// transitions, void, and the print-ready HTML document.
+// Purpose: the invoice aggregate: a color+text status bar at the top of
+// the document (status × dunning posture × outstanding balance), the
+// lines and payment ledgers, the forward-only dunning ladder rendered
+// honestly, and the actions that write through the instant-first
+// envelope — record payment (the `none` provider approves locally and is
+// presented as ledger-only), forward-only dunning transitions, void, and
+// the print-ready HTML document.
 //
 // Non-purpose: no editing of issued lines; the document is an artifact of
-// the invoice run's contract evaluation.
+// the invoice run's contract evaluation. Issued documents keep the
+// locked_after_invoicing read-only posture — only ledger-level actions
+// (payments, dunning, void) mutate, never the lines.
 "use client";
 
 import { rejectionText } from "../../../lib/error-copy";
@@ -40,6 +44,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, apiBaseUrl, loadTokens, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { money } from "../../../lib/format";
+import { dunningTone, invoiceStatusTone } from "../../../lib/money-summary";
 
 type InvoiceDetail = components["schemas"]["InvoiceDetail"];
 type DunningState = components["schemas"]["DunningState"];
@@ -51,6 +56,14 @@ const DUNNING_LADDER: DunningState[] = [
   "final_notice",
   "collections",
 ];
+
+const STATUS_COPY: Record<DunningState, string> = {
+  none: "Current on payment",
+  reminder_sent: "Reminder sent",
+  overdue: "Payment overdue",
+  final_notice: "Final notice",
+  collections: "In collections",
+};
 
 export default function InvoiceDetailPage() {
   const auth = useRequireAuth();
@@ -288,7 +301,7 @@ export default function InvoiceDetailPage() {
 
   if (invoice === null) {
     return (
-      <div className="grid gap-4 p-8">
+      <div className="mx-auto grid w-full max-w-[1400px] gap-4 p-8">
         {loadError !== null ? (
           <p role="alert" className="text-[13px]">{loadError}</p>
         ) : (
@@ -300,22 +313,62 @@ export default function InvoiceDetailPage() {
 
   const ladderIndex = DUNNING_LADDER.indexOf(invoice.dunning_state);
   const forwardStates = DUNNING_LADDER.slice(ladderIndex + 1);
+  const unpaid = invoice.total_minor - invoice.total_paid_minor;
+  const statusTone = invoiceStatusTone(invoice.status);
 
   return (
-    <div className="grid gap-6">
-      <div className="flex items-start justify-between gap-4">
+    <div className="mx-auto grid w-full max-w-[1400px] gap-6 p-4 md:p-6">
+      <div className="m-rise">
+        <Link
+          href="/billing"
+          className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2"
+          style={{ color: "var(--m-text-secondary)" }}
+        >
+          ← Billing
+        </Link>
+      </div>
+
+      {/* Color+text status bar at the top of the document: where the invoice
+          stands and who owes what, glanceable before any scrolling. */}
+      <div
+        className="m-rise flex flex-wrap items-center justify-between gap-3 rounded-[var(--m-radius-control)] border p-4"
+        style={{ borderColor: "var(--m-border)", background: "var(--m-bg-subtle)" }}
+        data-testid="invoice-status-bar"
+      >
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <Tag tone={statusTone as "success" | "neutral" | "danger" | "outline"}>{invoice.status}</Tag>
+          <Tag tone={dunningTone(invoice.dunning_state) as "success" | "warning" | "danger" | "neutral"}>
+            {STATUS_COPY[invoice.dunning_state]}
+          </Tag>
+          <span className="text-[13px] font-mono tabular-nums" style={{ color: "var(--m-text)" }}>
+            {invoice.number}
+          </span>
+        </div>
+        <div className="flex items-center gap-4 font-mono text-[13px] tabular-nums">
+          {invoice.status === "issued" ? (
+            <span>
+              <span style={{ color: "var(--m-text-muted)" }}>Outstanding </span>
+              <span className="font-semibold" style={{ color: unpaid > 0 ? "var(--m-status-danger-fg)" : "var(--m-status-success-fg)" }}>
+                {money(unpaid, invoice.currency)}
+              </span>
+            </span>
+          ) : null}
+          <span style={{ color: "var(--m-text-secondary)" }}>
+            Due {invoice.due_on ?? "—"}
+          </span>
+        </div>
+      </div>
+
+      <div className="m-rise flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold tabular-nums">{invoice.number}</h1>
-          <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Issued {invoice.issued_at} · Due {invoice.due_on}
+          <p className="text-[13px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+            Issued {invoice.issued_at ?? "—"} · Due {invoice.due_on ?? "—"}
             {invoice.period_from !== null && invoice.period_to !== null
               ? ` · Period ${invoice.period_from} → ${invoice.period_to}`
               : ""}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Tag>{invoice.status}</Tag>
-          {invoice.dunning_state !== "none" ? <Tag>{invoice.dunning_state}</Tag> : null}
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="secondary" onClick={() => void openPrintDocument()}>
             Print document
           </Button>
@@ -347,7 +400,7 @@ export default function InvoiceDetailPage() {
                         value={payAmount}
                         onChange={(e) => setPayAmount(e.target.value)}
                       />
-                      <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+                      <p className="mt-1 font-mono text-[13px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
                         Outstanding {money(outstanding, invoice.currency)}
                       </p>
                     </div>
@@ -389,8 +442,13 @@ export default function InvoiceDetailPage() {
         </p>
       ) : null}
 
-      <Card>
-        <h2 className="p-4 pb-0 text-sm font-semibold">Lines</h2>
+      <Card className="m-rise">
+        <div className="flex items-center justify-between p-4 pb-0">
+          <h2 className="text-sm font-semibold">Lines</h2>
+          <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+            Read-only document — lines are fixed when the run issues.
+          </span>
+        </div>
         <Table>
           <thead>
             <tr>
@@ -403,29 +461,29 @@ export default function InvoiceDetailPage() {
           </thead>
           <tbody>
             {invoice.lines.map((line) => (
-              <Tr key={line.id}>
+              <Tr key={line.id} className="row-hover">
                 <Td>{line.description}</Td>
                 <Td>
                   <Tag>{line.kind}</Tag>
                 </Td>
-                <Td>
+                <Td className="tabular-nums">
                   {line.period_start} → {line.period_end}
                 </Td>
-                <Td className="text-right tabular-nums">
+                <Td className="text-right font-mono text-[12px] tabular-nums">
                   {line.quantity_minutes > 0
                     ? `${(line.quantity_minutes / 60).toFixed(1)} h`
                     : "—"}
                 </Td>
-                <Td className="text-right tabular-nums">
+                <Td className="text-right font-mono text-[13px] tabular-nums">
                   {money(line.amount_minor, invoice.currency)}
                 </Td>
               </Tr>
             ))}
-            <Tr>
+            <Tr style={{ background: "var(--m-bg-subtle)" }}>
               <Td colSpan={4} className="text-right font-semibold">
                 Total
               </Td>
-              <Td className="text-right tabular-nums font-semibold">
+              <Td className="text-right font-mono text-[13px] font-semibold tabular-nums">
                 {money(invoice.total_minor, invoice.currency)}
               </Td>
             </Tr>
@@ -433,8 +491,13 @@ export default function InvoiceDetailPage() {
         </Table>
       </Card>
 
-      <Card>
-        <h2 className="p-4 pb-0 text-sm font-semibold">Payments</h2>
+      <Card className="m-rise">
+        <div className="flex items-center justify-between p-4 pb-0">
+          <h2 className="text-sm font-semibold">Payments</h2>
+          <span className="font-mono text-[12px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+            Paid {money(invoice.total_paid_minor, invoice.currency)} of {money(invoice.total_minor, invoice.currency)}
+          </span>
+        </div>
         {invoice.payments.length === 0 ? (
           <div className="p-4">
             <EmptyState message="No payments recorded yet." />
@@ -451,13 +514,13 @@ export default function InvoiceDetailPage() {
             </thead>
             <tbody>
               {invoice.payments.map((p) => (
-                <Tr key={p.id}>
-                  <Td>{new Date(p.received_at).toLocaleString()}</Td>
+                <Tr key={p.id} className="row-hover">
+                  <Td className="text-[12px]">{new Date(p.received_at).toLocaleString()}</Td>
                   <Td>
                     <Tag>{p.provider === "none" ? "none (ledger-only)" : p.provider}</Tag>
                   </Td>
                   <Td>{p.notes ?? "—"}</Td>
-                  <Td className="text-right tabular-nums">{money(p.amount_minor, p.currency)}</Td>
+                  <Td className="text-right font-mono text-[12px] tabular-nums">{money(p.amount_minor, p.currency)}</Td>
                 </Tr>
               ))}
             </tbody>
@@ -465,38 +528,61 @@ export default function InvoiceDetailPage() {
         )}
       </Card>
 
-      <Card>
-        <h2 className="p-4 pb-0 text-sm font-semibold">Collections</h2>
+      <Card className="m-rise">
+        <div className="flex items-center justify-between p-4 pb-2">
+          <h2 className="text-sm font-semibold">Collections</h2>
+          <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+            The ladder moves forward only.
+          </span>
+        </div>
+        {/* Honest ladder: steps behind stay filled, current highlighted, steps
+            ahead outlined — never a silent jump. */}
+        <ol className="flex flex-wrap gap-1 px-4 pb-1" aria-label="Dunning ladder">
+          {DUNNING_LADDER.map((state, i) => {
+            const reached = i <= ladderIndex;
+            const current = i === ladderIndex;
+            return (
+              <li key={state}>
+                <span
+                  aria-current={current ? "step" : undefined}
+                  className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold"
+                  style={{
+                    background: reached ? "var(--m-status-warning-bg)" : "transparent",
+                    color: reached ? "var(--m-status-warning-fg)" : "var(--m-text-muted)",
+                    border: current ? "1px solid var(--m-status-warning-fg)" : "1px solid var(--m-border)",
+                    paddingTop: 2,
+                    paddingBottom: 2,
+                  }}
+                >
+                  {i === 0 ? "current" : STATUS_COPY[state]}
+                </span>
+              </li>
+            );
+          })}
+        </ol>
         <div className="grid gap-3 p-4">
-          <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Current state <Tag>{invoice.dunning_state}</Tag>
-            {invoice.dunning_note !== null ? ` — ${invoice.dunning_note}` : ""}
-            {invoice.dunning_updated_at != null
-              ? ` (updated ${new Date(invoice.dunning_updated_at).toLocaleString()})`
-              : ""}
-          </p>
           {invoice.status === "issued" ? (
             forwardStates.length > 0 ? (
-              <div className="flex items-end gap-3">
+              <div className="flex flex-wrap items-end gap-3">
                 <div>
                   <Label htmlFor="dunning-target">Advance to</Label>
                   <Select
                     value={dunningTarget}
                     onValueChange={(v) => setDunningTarget(v as DunningState)}
                   >
-                    <SelectTrigger id="dunning-target" className="w-44" aria-label="Advance dunning to">
+                    <SelectTrigger id="dunning-target" style={{ width: 180 }} aria-label="Advance dunning to">
                       <SelectValue placeholder="Choose state" />
                     </SelectTrigger>
                     <SelectContent>
                       {forwardStates.map((s) => (
                         <SelectItem key={s} value={s}>
-                          {s}
+                          {STATUS_COPY[s]}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="flex-1">
+                <div className="min-w-[200px] flex-1">
                   <Label htmlFor="dunning-note">Note</Label>
                   <Input
                     id="dunning-note"
@@ -524,6 +610,14 @@ export default function InvoiceDetailPage() {
           {dunningError !== null ? (
             <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
               {dunningError}
+            </p>
+          ) : null}
+          {invoice.dunning_note !== null ? (
+            <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+              Last note: “{invoice.dunning_note}”
+              {invoice.dunning_updated_at != null
+                ? ` (${new Date(invoice.dunning_updated_at).toLocaleString()})`
+                : ""}
             </p>
           ) : null}
           {invoice.status === "issued" ? (

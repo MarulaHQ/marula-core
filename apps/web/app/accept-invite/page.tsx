@@ -78,8 +78,14 @@ function AcceptInviteInner(): ReactNode {
 
   if (token === "") {
     return (
-      <main className="flex min-h-full items-center justify-center p-6" style={{ background: "var(--m-canvas)" }}>
+      <main
+        className="m-rise flex min-h-full items-center justify-center p-6"
+        style={{ background: "var(--m-canvas)" }}
+      >
         <Card className="w-full max-w-sm p-6">
+          <div className="mb-3 text-center">
+            <span className="font-heading text-lg font-semibold tracking-tight">Meridian</span>
+          </div>
           <h1 className="text-base font-semibold">Accept invite</h1>
           <p className="mt-2 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
             This page needs the setup link your administrator sent you (it should look like
@@ -95,8 +101,14 @@ function AcceptInviteInner(): ReactNode {
   }
 
   return (
-    <main className="flex min-h-full items-center justify-center p-6" style={{ background: "var(--m-canvas)" }}>
+    <main
+      className="m-rise flex min-h-full items-center justify-center p-6"
+      style={{ background: "var(--m-canvas)" }}
+    >
       <Card className="w-full max-w-sm p-6" data-testid="accept-invite-card">
+        <div className="mb-3 text-center">
+          <span className="font-heading text-lg font-semibold tracking-tight">Meridian</span>
+        </div>
         <h1 className="text-base font-semibold">Set your password</h1>
         <p className="mt-1 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
           Finish setting up your Meridian account. You will land signed in.

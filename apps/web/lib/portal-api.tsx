@@ -51,6 +51,7 @@ interface PortalTicket {
   created_at: string;
   updated_at: string;
   resolved_at?: string | null;
+  due_at?: string | null;
 }
 
 interface PortalComment {
@@ -244,6 +245,23 @@ export const portalApi = {
     });
   },
 
+  /** Attachment attachments on one ticket (portal v2 pins): metadata only;
+   * bytes stream on download. */
+  listTicketAttachments(id: string): Promise<PortalAttachmentView[]> {
+    return portalFetch<PortalAttachmentView[]>(`/api/v1/portal/tickets/${id}/attachments`, {});
+  },
+
+  /** The attachment bytes as a blob URL (bearer-fetched; the caller opens
+   * and later revokes it). */
+  async ticketAttachmentUrl(id: string, attachmentId: string): Promise<string> {
+    const response = await fetch(
+      `${API_BASE}/api/v1/portal/tickets/${id}/attachments/${attachmentId}/download`,
+      { headers: { authorization: `Bearer ${loadTokens()?.access_token ?? ""}` } },
+    );
+    if (!response.ok) throw new PortalError("attachment unavailable", response.status);
+    return URL.createObjectURL(await response.blob());
+  },
+
   kbCategories(): Promise<PortalKbCategory[]> {
     return portalFetch<PortalKbCategory[]>("/api/v1/portal/kb/categories", {});
   },
@@ -357,6 +375,16 @@ export interface PortalInvoiceDetail {
 export interface PortalPayResponse {
   payment: PortalPayment;
   invoice: PortalInvoice;
+}
+
+/** Portal attachment view (pins: metadata only, bytes stream on download). */
+export interface PortalAttachmentView {
+  id: string;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  sha256: string;
+  created_at: string;
 }
 
 export interface PortalKbCategory {

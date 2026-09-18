@@ -2,7 +2,11 @@
 // (Portal v2). The document link opens the SAME print-ready HTML staff
 // print. Payment rides the PaymentProvider seam in its none-mode: nothing
 // is charged externally, the receipt records that the client settled the
-// amount — the copy below says exactly that.
+// amount — the copy below says exactly that (security copy stays exact).
+//
+// Wave 17 lane 8 UX pass: monospace tabular money everywhere, past-due /
+// due-soon signals off the real due date, quick "pay in full" affordance,
+// staggered entrance.
 "use client";
 
 import { friendlyMutationText } from "../../../../lib/error-copy";
@@ -11,7 +15,6 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import {
   portalApi,
-  usePortalAuth,
   useRequirePortalAuth,
   type PortalInvoiceDetail,
 } from "../../../../lib/portal-api";
@@ -25,6 +28,20 @@ function dateTime(iso: string): string {
     dateStyle: "medium",
     timeStyle: "short",
   });
+}
+
+function dateOnly(iso: string): string {
+  return new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function daysUntil(iso: string): number {
+  const today = new Date().setHours(0, 0, 0, 0);
+  const due = new Date(`${iso}T00:00:00`).setHours(0, 0, 0, 0);
+  return Math.round((due - today) / 86_400_000);
 }
 
 export default function PortalInvoiceDetailPage() {
@@ -111,9 +128,11 @@ export default function PortalInvoiceDetailPage() {
   const inv = detail.invoice;
   const outstanding = inv.outstanding_minor;
   const providerNone = detail.payments.some((p) => p.provider === "none");
+  const overdue = inv.status === "issued" && daysUntil(inv.due_on) < 0;
+  const soon = inv.status === "issued" && !overdue && daysUntil(inv.due_on) <= 7;
 
   return (
-    <section className="space-y-4">
+    <section className="m-rise space-y-4">
       <div>
         <button
           type="button"
@@ -121,29 +140,39 @@ export default function PortalInvoiceDetailPage() {
           className="text-xs transition-colors duration-100 hover:underline"
           style={{ color: "var(--m-text-muted)" }}
         >
-          Invoices
+          ← Invoices
         </button>
-        <div className="mt-1 flex items-center justify-between gap-3">
-          <h1 className="text-base font-semibold">{inv.number}</h1>
-          <StatusTag tone={inv.status === "paid" ? "success" : "neutral"}>
-            {inv.status === "paid" ? "Paid" : "Open"}
-          </StatusTag>
+        <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
+          <h1 className="font-heading text-xl font-semibold tracking-tight tabular-nums">
+            {inv.number}
+          </h1>
+          <div className="flex items-center gap-2">
+            {overdue && <StatusTag tone="danger">Past due</StatusTag>}
+            {soon && <StatusTag tone="warning">Due soon</StatusTag>}
+            <StatusTag tone={inv.status === "paid" ? "success" : "neutral"}>
+              {inv.status === "paid" ? "Paid" : "Open"}
+            </StatusTag>
+          </div>
         </div>
-        <p className="mt-0.5 text-xs" style={{ color: "var(--m-text-muted)" }}>
-          Issued {inv.issued_at} · Due {inv.due_on}
+        <p className="mt-0.5 text-xs tabular-nums" style={{ color: "var(--m-text-muted)" }}>
+          Issued {dateOnly(inv.issued_at)} · Due {dateOnly(inv.due_on)}
         </p>
       </div>
 
       <Card>
         <CardHeader>Summary</CardHeader>
         <CardContent>
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+          <dl className="grid grid-cols-3 gap-x-4 gap-y-1 text-sm">
             <dt style={{ color: "var(--m-text-muted)" }}>Total</dt>
-            <dd className="text-right tabular-nums">{money(inv.total_minor, inv.currency)}</dd>
+            <dd className="col-span-2 text-right font-mono text-sm tabular-nums">
+              {money(inv.total_minor, inv.currency)}
+            </dd>
             <dt style={{ color: "var(--m-text-muted)" }}>Paid</dt>
-            <dd className="text-right tabular-nums">{money(inv.total_paid_minor, inv.currency)}</dd>
+            <dd className="col-span-2 text-right font-mono text-sm tabular-nums">
+              {money(inv.total_paid_minor, inv.currency)}
+            </dd>
             <dt style={{ color: "var(--m-text-muted)" }}>Outstanding</dt>
-            <dd className="text-right font-medium tabular-nums">
+            <dd className="col-span-2 text-right font-semibold font-mono text-sm tabular-nums">
               {money(outstanding, inv.currency)}
             </dd>
           </dl>
@@ -156,18 +185,24 @@ export default function PortalInvoiceDetailPage() {
       <Card>
         <CardHeader>Line items</CardHeader>
         <CardContent>
-          <ul className="space-y-1 text-sm">
-            {detail.lines.map((line) => (
-              <li key={line.id} className="flex items-baseline justify-between gap-3">
+          <ul className="space-y-2 text-sm">
+            {detail.lines.map((line, i) => (
+              <li
+                key={line.id}
+                className="m-rise flex items-baseline justify-between gap-3"
+                style={{ animationDelay: `${Math.min(i * 30, 180)}ms` }}
+              >
                 <span className="min-w-0">
                   {line.description}
                   {line.quantity_minutes > 0 && (
-                    <span className="ml-2 text-xs" style={{ color: "var(--m-text-muted)" }}>
+                    <span className="ml-2 font-mono text-xs tabular-nums" style={{ color: "var(--m-text-muted)" }}>
                       {line.quantity_minutes} min
                     </span>
                   )}
                 </span>
-                <span className="shrink-0 tabular-nums">{money(line.amount_minor, inv.currency)}</span>
+                <span className="shrink-0 font-mono text-sm tabular-nums">
+                  {money(line.amount_minor, inv.currency)}
+                </span>
               </li>
             ))}
           </ul>
@@ -178,14 +213,16 @@ export default function PortalInvoiceDetailPage() {
         <Card>
           <CardHeader>Receipts</CardHeader>
           <CardContent>
-            <ul className="space-y-1 text-sm">
+            <ul className="space-y-2 text-sm">
               {detail.payments.map((p) => (
                 <li key={p.id} className="flex items-baseline justify-between gap-3">
-                  <span style={{ color: "var(--m-text-muted)" }}>{dateTime(p.received_at)}</span>
-                  <span className="shrink-0 tabular-nums">
+                  <span className="text-xs tabular-nums" style={{ color: "var(--m-text-muted)" }}>
+                    {dateTime(p.received_at)}
+                  </span>
+                  <span className="shrink-0 font-mono text-sm tabular-nums">
                     {money(p.amount_minor, p.currency)}
                     {p.provider === "none" && (
-                      <span className="ml-2 text-xs" style={{ color: "var(--m-text-muted)" }}>
+                      <span className="ml-2 font-sans text-xs" style={{ color: "var(--m-text-muted)" }}>
                         recorded on account
                       </span>
                     )}
@@ -217,10 +254,18 @@ export default function PortalInvoiceDetailPage() {
                   step="0.01"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
-                  className="mt-1 w-32 rounded-md border bg-transparent px-2 py-1 text-sm tabular-nums outline-none transition-colors duration-100 focus:border-[var(--m-accent)]"
+                  className="mt-1 w-32 rounded-[0.75rem] border bg-transparent px-2 py-1.5 font-mono text-sm tabular-nums outline-none transition-colors duration-100 focus:border-[var(--m-accent)]"
                   style={{ borderColor: "var(--m-border)" }}
                 />
               </label>
+              <button
+                type="button"
+                onClick={() => setAmount((outstanding / 100).toFixed(2))}
+                className="mb-0.5 rounded-[999px] border px-2.5 py-1 text-xs transition-colors duration-100"
+                style={{ borderColor: "var(--m-border)", color: "var(--m-text-secondary)", background: "var(--m-canvas)" }}
+              >
+                Full amount ({money(outstanding, inv.currency)})
+              </button>
               <label className="text-xs" style={{ color: "var(--m-text-muted)" }}>
                 Reference (optional)
                 <input
@@ -228,7 +273,7 @@ export default function PortalInvoiceDetailPage() {
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Check number, transfer id…"
-                  className="mt-1 w-56 rounded-md border bg-transparent px-2 py-1 text-sm outline-none transition-colors duration-100 focus:border-[var(--m-accent)]"
+                  className="mt-1 w-56 rounded-[0.75rem] border bg-transparent px-2 py-1.5 text-sm outline-none transition-colors duration-100 focus:border-[var(--m-accent)]"
                   style={{ borderColor: "var(--m-border)" }}
                 />
               </label>

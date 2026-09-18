@@ -318,7 +318,11 @@ export default function ApprovalsPage() {
       )}
 
       {rejectOpen && selected.size > 0 && (
-        <div className="grid gap-2 p-3" style={{ border: "1px solid var(--m-border)" }} data-testid="reject-panel">
+        <div
+          className="m-rise grid gap-2 rounded-[var(--m-radius-control)] border p-3"
+          style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
+          data-testid="reject-panel"
+        >
           <Label>Rejection reason</Label>
           <select
             value={rejectReason}
@@ -451,7 +455,11 @@ function QueueRow({
   const ownEntry = e.user_id === meId;
   const inQueueTab = tab === "queue" && isApprover;
   return (
-    <div className="p-3" style={{ border: "1px solid var(--m-border)" }} data-testid={`approval-row-${e.id}`}>
+    <div
+      className="m-rise rounded-[var(--m-radius-control)] border p-3 transition-shadow duration-100"
+      style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
+      data-testid={`approval-row-${e.id}`}
+    >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="flex min-w-0 items-start gap-2">
           {inQueueTab && (

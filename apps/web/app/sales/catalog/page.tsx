@@ -25,6 +25,7 @@ import {
   Label,
   Spinner,
   StatusTag,
+  Tag,
   Table,
   Td,
   Th,
@@ -293,21 +294,47 @@ export default function CatalogPage(): ReactNode {
   }
 
   return (
-    <div className="mx-auto grid w-full max-w-[1400px] gap-4 p-4 md:p-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
+    <div className="mx-auto grid w-full max-w-[1400px] gap-6 p-4 md:p-6">
+      <header className="m-rise flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold" style={{ color: "var(--m-text)" }}>
             Catalog
           </h1>
           <p className="mt-0.5 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Products and services with their pricing; quote lines pick from
-            here.
+            Products and services with their pricing; quote lines pick from here.
           </p>
         </div>
         <Button onClick={openCreate} data-testid="catalog-new">
           New catalog item
         </Button>
       </header>
+
+      <div data-testid="catalog-stat-strip" className="grid gap-3 sm:grid-cols-3">
+        {(() => {
+          const list = items ?? [];
+          const active = list.filter((i) => i.active);
+          const cats = [...new Set(list.map((i) => i.category).filter((c): c is string => c != null))];
+          return (
+            [
+              { label: "Items", value: list.length, hint: `${active.length} active`, testId: "catalog-stat-items" },
+              { label: "Categories", value: cats.length, hint: "free-form groups", testId: "catalog-stat-cats" },
+              { label: "Taxable", value: list.filter((i) => i.taxable).length, hint: "tax-defaulted items", testId: "catalog-stat-taxable" },
+            ] as const
+          ).map((t, i) => (
+            <Card key={t.label} className="m-rise p-4" style={{ animationDelay: `${Math.min(i, 6) * 40}ms` }}>
+              <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
+                {t.label}
+              </p>
+              <p className="mt-1 font-mono text-xl font-semibold tabular-nums" style={{ color: "var(--m-text)" }} data-testid={t.testId}>
+                {t.value}
+              </p>
+              <p className="mt-0.5 text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+                {t.hint}
+              </p>
+            </Card>
+          ));
+        })()}
+      </div>
 
       <div className="flex flex-wrap items-center gap-2">
         <Input
@@ -326,43 +353,62 @@ export default function CatalogPage(): ReactNode {
         </p>
       )}
 
-      <Card className="overflow-x-auto p-0">
+      <Card className="m-rise overflow-x-auto p-0">
         <Table data-testid="catalog-table">
           <thead>
             <tr>
               <Th>Name</Th>
               <Th>SKU</Th>
               <Th>Unit</Th>
-              <Th>Price</Th>
-              <Th>Cost</Th>
-              <Th>Taxable</Th>
+              <Th className="text-right">Price</Th>
+              <Th className="text-right">Cost</Th>
+              <Th>Tax</Th>
               <Th>State</Th>
-              <Th>Actions</Th>
+              <Th className="text-right">Actions</Th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map((item) => (
-              <Tr key={item.id} data-testid={`catalog-row-${item.id}`}>
+            {filtered.map((item, i) => (
+              <Tr key={item.id} className="row-hover" data-testid={`catalog-row-${item.id}`}>
                 <Td>
                   <span className="font-medium">{item.name}</span>
                   {item.category !== null && item.category !== undefined && (
-                    <span className="ml-1 text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+                    <Tag tone="outline" className="ml-1.5 text-[10px]">
                       {item.category}
+                    </Tag>
+                  )}
+                  {item.group_name != null && item.group_name !== "" ? (
+                    <span className="ml-1.5 text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+                      {item.group_name}
                     </span>
+                  ) : null}
+                </Td>
+                <Td className="font-mono text-[12px]">{item.sku ?? "—"}</Td>
+                <Td>{item.unit}</Td>
+                <Td className="text-right font-mono text-[13px] tabular-nums">{money(item.unit_price_minor, item.currency)}</Td>
+                <Td className="text-right font-mono text-[12px] tabular-nums">
+                  {item.cost_minor === null || item.cost_minor === undefined ? (
+                    <span style={{ color: "var(--m-text-muted)" }}>—</span>
+                  ) : (
+                    money(item.cost_minor, item.currency)
                   )}
                 </Td>
-                <Td>{item.sku ?? "—"}</Td>
-                <Td>{item.unit}</Td>
-                <Td>{money(item.unit_price_minor, item.currency)}</Td>
-                <Td>{item.cost_minor === null || item.cost_minor === undefined ? <span style={{ color: "var(--m-text-muted)" }}>—</span> : money(item.cost_minor, item.currency)}</Td>
-                <Td>{item.taxable ? "Yes" : "No"}</Td>
+                <Td>
+                  {item.taxable ? (
+                    <Tag tone="outline">taxable</Tag>
+                  ) : (
+                    <Tag tone="outline" style={{ color: "var(--m-text-muted)" }}>
+                      exempt
+                    </Tag>
+                  )}
+                </Td>
                 <Td>
                   <StatusTag tone={item.active ? "success" : "neutral"}>
                     {item.active ? "active" : "archived"}
                   </StatusTag>
                 </Td>
                 <Td>
-                  <div className="flex flex-wrap gap-1">
+                  <div className="flex justify-end gap-1">
                     <Button size="sm" variant="secondary" onClick={() => openEdit(item)}>
                       Edit
                     </Button>
