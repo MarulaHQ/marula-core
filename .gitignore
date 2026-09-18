@@ -51,3 +51,11 @@ apps/web/out/
 
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 /graft/
+
+# skills-CLI project-local install artifacts (real installs live in ~/.agents/skills + ~/.config/kilo/skills)
+skills-lock.json
+/agent/
+.claude/skills/hallmark
+.kiro/skills/
+.windsurf/skills/
+.agents/skills/hallmark
