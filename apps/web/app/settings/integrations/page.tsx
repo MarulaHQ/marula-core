@@ -28,6 +28,7 @@ import {
 import type { components } from "@meridian/sdk";
 import { useCallback, useEffect, useReducer, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
+import { SettingsHeader } from "../../../components/settings/settings-shell";
 import Link from "next/link";
 import {
   EVENT_CATALOG,
@@ -207,22 +208,22 @@ export default function IntegrationsSettingsPage() {
 
   return (
     <div className="grid gap-6 max-w-2xl">
-      <header>
-        <h1 className="text-lg font-semibold" style={{ color: "var(--m-text)" }}>
-          Integrations
-        </h1>
-        <p className="mt-1 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-          Signed webhooks push every change you subscribe to. Deliveries are HMAC-signed and retried
-          with backoff — every attempt lands in the log. Machine API keys live under{" "}
-          <Link
-            href="/settings/api-keys"
-            style={{ color: "var(--m-accent)", textDecoration: "underline" }}
-          >
-            API keys
-          </Link>
-          .
-        </p>
-      </header>
+      <SettingsHeader
+        title="Integrations"
+        description={
+          <>
+            Signed webhooks push every change you subscribe to. Deliveries are HMAC-signed and retried
+            with backoff — every attempt lands in the log. Machine API keys live under{" "}
+            <Link
+              href="/settings/api-keys"
+              style={{ color: "var(--m-accent)", textDecoration: "underline" }}
+            >
+              API keys
+            </Link>
+            .
+          </>
+        }
+      />
 
       {shownSecret ? (
         <Card>

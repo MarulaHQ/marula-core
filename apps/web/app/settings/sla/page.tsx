@@ -24,6 +24,7 @@ import {
 import type { components } from "@meridian/sdk";
 import { useEffect, useMemo, useReducer, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
+import { SettingsHeader } from "../../../components/settings/settings-shell";
 import {
   FIRE_ONCE_NOTE,
   WEEKDAY_LABELS,
@@ -83,6 +84,9 @@ export default function SlaSettingsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [calDraft, dispatchCal] = useReducer(calendarReducer, undefined, emptyCalendarDraft);
   const [calError, setCalError] = useState<string | null>(null);
+  // Inline validation errors surface only after the user touches the draft —
+  // a pristine editor never opens with a red "Name is required." wall.
+  const [calTouched, setCalTouched] = useState(false);
   const [calSaved, setCalSaved] = useState(false);
   const [savingCal, setSavingCal] = useState(false);
   const [holidayInput, setHolidayInput] = useState("");
@@ -255,15 +259,10 @@ export default function SlaSettingsPage() {
 
   return (
     <div className="grid gap-6 max-w-3xl">
-      <header>
-        <h1 className="text-lg font-semibold" style={{ color: "var(--m-text)" }}>
-          SLA
-        </h1>
-        <p className="mt-1 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-          Business-hours calendars govern every SLA clock; escalation ladders fire once per ticket
-          when consumed budget crosses an offset.
-        </p>
-      </header>
+      <SettingsHeader
+        title="SLA"
+        description="Business-hours calendars govern every SLA clock; escalation ladders fire once per ticket when consumed budget crosses an offset."
+      />
 
       {/* --- Calendars -------------------------------------------------- */}
       <Card className="p-5 grid gap-3">
@@ -324,9 +323,12 @@ export default function SlaSettingsPage() {
             <Input
               id="cal-name"
               value={calDraft.name}
-              onChange={(e) => dispatchCal({ type: "set-name", value: e.target.value })}
+              onChange={(e) => {
+                setCalTouched(true);
+                dispatchCal({ type: "set-name", value: e.target.value });
+              }}
             />
-            {calErrors["name"] !== undefined && (
+            {calTouched && calErrors["name"] !== undefined && (
               <span role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
                 {calErrors["name"]}
               </span>
@@ -337,7 +339,10 @@ export default function SlaSettingsPage() {
             <Input
               id="cal-tz"
               value={calDraft.timezone}
-              onChange={(e) => dispatchCal({ type: "set-timezone", value: e.target.value })}
+              onChange={(e) => {
+                setCalTouched(true);
+                dispatchCal({ type: "set-timezone", value: e.target.value });
+              }}
             />
             <FieldHint>IANA zone name, e.g. Europe/Berlin.</FieldHint>
           </label>
@@ -352,7 +357,10 @@ export default function SlaSettingsPage() {
                     <input
                       type="checkbox"
                       checked={window != null}
-                      onChange={() => dispatchCal({ type: "toggle-day", index: i })}
+                      onChange={() => {
+                        setCalTouched(true);
+                        dispatchCal({ type: "toggle-day", index: i });
+                      }}
                       aria-label={`${day} open`}
                     />
                     {day}

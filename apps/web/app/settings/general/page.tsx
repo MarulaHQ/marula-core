@@ -13,7 +13,6 @@
 
 import { friendlyMutationText } from "../../../lib/error-copy";
 import {
-  Button,
   Card,
   FieldHint,
   Input,
@@ -27,6 +26,7 @@ import {
 import type { components } from "@meridian/sdk";
 import { useEffect, useMemo, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
+import { SettingsHeader, SaveBar } from "../../../components/settings/settings-shell";
 
 type Declaration = components["schemas"]["DeclarationView"];
 type ValueView = components["schemas"]["ValueView"];
@@ -163,6 +163,14 @@ export default function GeneralSettingsPage() {
         );
         setDeclarations(uiDecls);
         const map: Record<string, string | number | boolean> = {};
+        // Defaults-first: an unoverridden key renders the shipped default so
+        // no control starts blank when the value has never been saved.
+        for (const d of uiDecls) {
+          const dv = d.default;
+          if (typeof dv === "string" || typeof dv === "number" || typeof dv === "boolean") {
+            map[d.key] = dv;
+          }
+        }
         for (const v of valuesRes.data ?? [])
           map[v.key] = asControlValue(v.value);
         setValues(map);
@@ -238,21 +246,10 @@ export default function GeneralSettingsPage() {
 
   return (
     <div className="grid gap-6 max-w-2xl">
-      <header>
-        <h1
-          className="text-lg font-semibold"
-          style={{ color: "var(--m-text)" }}
-        >
-          General
-        </h1>
-        <p
-          className="mt-1 text-[13px]"
-          style={{ color: "var(--m-text-secondary)" }}
-        >
-          Tenant identity and organization-wide defaults. Changes apply
-          immediately after saving and are recorded in the audit log.
-        </p>
-      </header>
+      <SettingsHeader
+        title="General"
+        description="Tenant identity and organization-wide defaults. Changes apply immediately after saving and are recorded in the audit log."
+      />
 
       {profileDraft && (
         <Card className="p-5 grid gap-3">
@@ -332,32 +329,7 @@ export default function GeneralSettingsPage() {
         )}
       </Card>
 
-      <div className="flex items-center gap-3">
-        <Button
-          variant="primary"
-          disabled={!canSave}
-          onClick={() => void save()}
-        >
-          {saving ? "Saving…" : "Save changes"}
-        </Button>
-        {saved && !error && (
-          <span
-            className="text-[12px]"
-            style={{ color: "var(--m-status-success-fg)" }}
-          >
-            Saved.
-          </span>
-        )}
-        {error && (
-          <span
-            className="text-[12px]"
-            role="alert"
-            style={{ color: "var(--m-status-danger-fg)" }}
-          >
-            {error}
-          </span>
-        )}
-      </div>
+      <SaveBar dirty={canSave} saving={saving} saved={saved} error={error} onSave={() => void save()} />
     </div>
   );
 }

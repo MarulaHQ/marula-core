@@ -45,6 +45,7 @@ import {
 import type { components } from "@meridian/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
+import { ConfirmDestructive, SettingsHeader } from "../../../components/settings/settings-shell";
 import { OFFLINE_RETRY_COPY, reasonCopy } from "../../../lib/error-copy";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 
@@ -136,6 +137,8 @@ export default function TeamSettingsPage() {
   // Per-row action state
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<{ userId: string; text: string } | null>(null);
+  // Deactivate confirmation (shared destructive pattern — never window.confirm)
+  const [pendingDeactivate, setPendingDeactivate] = useState<OrgUser | null>(null);
 
   // Preset-role roster (RB1): rows + canonical presets + portal tiers.
   const [rolesData, setRolesData] = useState<RolesListResponse | null>(null);
@@ -347,12 +350,10 @@ export default function TeamSettingsPage() {
   return (
     <div className="grid gap-4">
       <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold">Team</h1>
-          <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            {total !== null ? `${total} member${total === 1 ? "" : "s"} in this org.` : "Staff directory for this org."}
-          </p>
-        </div>
+        <SettingsHeader
+          title="Team"
+          description={total !== null ? `${total} member${total === 1 ? "" : "s"} in this org.` : "Staff directory for this org."}
+        />
         {canManage ? (
           <Dialog
             open={inviteOpen}
@@ -517,7 +518,7 @@ export default function TeamSettingsPage() {
                           disabled={busyUserId === user.id}
                         >
                           <SelectTrigger className="w-44" aria-label={`Org role for ${user.display_name}`}>
-                            <SelectValue placeholder="custom roles only" />
+                            <SelectValue placeholder="Custom role" />
                           </SelectTrigger>
                           <SelectContent>
                             {BUILTIN_ROLES.map((r) => (
@@ -554,15 +555,7 @@ export default function TeamSettingsPage() {
                               size="sm"
                               disabled={busyUserId === user.id || isSelf}
                               title={isSelf ? "You cannot deactivate your own account" : undefined}
-                              onClick={() => {
-                                if (
-                                  window.confirm(
-                                    `Deactivate ${user.display_name}? Their sessions are signed out immediately and login is blocked (the account is never deleted).`,
-                                  )
-                                ) {
-                                  void setStatus(user, false);
-                                }
-                              }}
+                              onClick={() => setPendingDeactivate(user)}
                             >
                               Deactivate
                             </Button>
@@ -726,6 +719,22 @@ export default function TeamSettingsPage() {
           </div>
         </Card>
       ) : null}
+
+      <ConfirmDestructive
+        open={pendingDeactivate !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDeactivate(null);
+        }}
+        title={`Deactivate ${pendingDeactivate?.display_name ?? ""}?`}
+        body="Their sessions are signed out immediately and login is blocked. The account is never deleted — activation restores access."
+        confirmLabel="Deactivate"
+        onConfirm={() => {
+          if (pendingDeactivate === null) return;
+          const user = pendingDeactivate;
+          setPendingDeactivate(null);
+          void setStatus(user, false);
+        }}
+      />
     </div>
   );
 }

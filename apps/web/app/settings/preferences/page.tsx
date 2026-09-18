@@ -19,6 +19,7 @@ import type { Theme } from "@meridian/ui";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
+import { SettingsHeader } from "../../../components/settings/settings-shell";
 
 type GreetingKey = "email.greeting" | "email.signoff";
 
@@ -137,21 +138,10 @@ export default function UserPreferencesPage() {
 
   return (
     <div className="grid gap-6 max-w-2xl">
-      <header>
-        <h1
-          className="text-lg font-semibold"
-          style={{ color: "var(--m-text)" }}
-        >
-          Preferences
-        </h1>
-        <p
-          className="mt-1 text-[13px]"
-          style={{ color: "var(--m-text-secondary)" }}
-        >
-          Settings that travel with your account. Until you save a choice,
-          appearance follows your system.
-        </p>
-      </header>
+      <SettingsHeader
+        title="Preferences"
+        description="Settings that travel with your account. Until you save a choice, appearance follows your system."
+      />
 
       <Card className="p-5 grid gap-3">
         <h2 className="text-sm font-semibold">Appearance</h2>

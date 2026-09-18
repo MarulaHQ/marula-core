@@ -31,6 +31,7 @@ import type { components } from "@meridian/sdk";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { api, useRequireAuth } from "../../../lib/api";
+import { SettingsHeader } from "../../../components/settings/settings-shell";
 import { money } from "../../../lib/format";
 
 type FxRateEntry = components["schemas"]["FxRateEntry"];
@@ -147,15 +148,10 @@ export default function FxPage(): ReactNode {
 
   return (
     <div className="grid gap-6 max-w-4xl">
-      <header>
-        <h1 className="text-lg font-semibold" style={{ color: "var(--m-text)" }}>
-          FX rates
-        </h1>
-        <p className="mt-0.5 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-          The org's rate book against the base currency ({base ?? "—"}) plus
-          the reconciliation view of every conversion the core recorded.
-        </p>
-      </header>
+      <SettingsHeader
+        title="FX rates"
+        description={`The org's rate book against the base currency (${base ?? "—"}) plus the reconciliation view of every conversion the core recorded.`}
+      />
 
       <Card className="grid gap-3 p-5">
         <h2 className="text-sm font-semibold">Record a rate</h2>

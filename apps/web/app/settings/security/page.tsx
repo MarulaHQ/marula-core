@@ -14,6 +14,7 @@ import { Button, Card, FieldHint, Input, Label } from "@meridian/ui";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { resolveApiBaseUrl, useAuth, useRequireAuth } from "../../../lib/api";
+import { SettingsHeader } from "../../../components/settings/settings-shell";
 
 const API_BASE = resolveApiBaseUrl();
 
@@ -250,16 +251,10 @@ export default function SecuritySettingsPage() {
 
   return (
     <div className="grid gap-6 max-w-2xl">
-      <header>
-        <h1 className="text-lg font-semibold">Security</h1>
-        <p
-          className="mt-1 text-xs"
-          style={{ color: "var(--m-text-secondary)" }}
-        >
-          Signed in as {me?.email}. Manage two-factor authentication and
-          devices.
-        </p>
-      </header>
+      <SettingsHeader
+        title="Security"
+        description={`Signed in as ${me?.email}. Manage two-factor authentication and devices.`}
+      />
 
       {(notice || error) && (
         <p

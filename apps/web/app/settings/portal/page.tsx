@@ -34,6 +34,7 @@ import {
 import type { components } from "@meridian/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
+import { SettingsHeader } from "../../../components/settings/settings-shell";
 
 type Client = components["schemas"]["Client"];
 type BoardNavEntry = components["schemas"]["BoardNavEntry"];
@@ -229,14 +230,10 @@ export default function PortalAdminSettingsPage() {
 
   return (
     <div className="grid gap-6 max-w-5xl mx-auto p-6">
-      <header>
-        <h1 className="text-lg font-semibold" style={{ color: "var(--m-text)" }}>
-          Portal Administration
-        </h1>
-        <p className="mt-1 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-          Manage client portal user access credentials and configure per-client board visibility exposures.
-        </p>
-      </header>
+      <SettingsHeader
+        title="Portal"
+        description="Manage client portal user access credentials and configure per-client board visibility exposures."
+      />
 
       {/* Client Picker */}
       <Card className="p-4">

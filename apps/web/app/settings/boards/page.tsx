@@ -40,6 +40,7 @@ import type { components } from "@meridian/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { api, useAuth, useRequireAuth } from "../../../lib/api";
+import { SettingsHeader } from "../../../components/settings/settings-shell";
 import { MANAGE_BOARDS_PERMISSION } from "../../../lib/admin/board-access";
 
 type Board = components["schemas"]["Board"];
@@ -247,13 +248,11 @@ export default function BoardAdminPage() {
 
   return (
     <div className="grid gap-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-semibold">Boards</h1>
-          <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Create boards, group them, manage members and checklist templates.
-          </p>
-        </div>
+      <div className="flex items-start justify-between">
+        <SettingsHeader
+          title="Boards"
+          description="Create boards, group them, manage members and checklist templates."
+        />
         {canAdmin ? (
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
             <DialogTrigger asChild>

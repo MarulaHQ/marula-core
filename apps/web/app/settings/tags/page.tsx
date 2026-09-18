@@ -33,6 +33,7 @@ import type { components } from "@meridian/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
+import { SettingsHeader } from "../../../components/settings/settings-shell";
 
 type TagView = components["schemas"]["TagView"];
 type Tag = components["schemas"]["Tag"];
@@ -206,12 +207,10 @@ export default function TagsSettingsPage() {
   return (
     <div className="grid gap-4">
       <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold">Tags</h1>
-          <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Org-wide labels applied to tickets. The ticket list filters with AND semantics: a ticket must carry every selected tag.
-          </p>
-        </div>
+        <SettingsHeader
+          title="Tags"
+          description="Org-wide labels applied to tickets. The ticket list filters with AND semantics: a ticket must carry every selected tag."
+        />
         {canManage ? (
           <Button onClick={openCreate} data-testid="create-tag">
             New tag
