@@ -67,7 +67,10 @@ export function useNotifications() {
       ]);
       if (count.data) setUnread(count.data.count);
       if (page.data) {
-        setItems(page.data.items as NotificationItem[]);
+        // The inbox read model resolves asynchronously; a malformed/null
+        // payload never becomes a non-array here — the dock guards before
+        // map/filter, this hook guarantees the invariant at the source.
+        setItems(Array.isArray(page.data.items) ? (page.data.items as NotificationItem[]) : []);
         setNextCursor(page.data.next_cursor ?? null);
       }
     } finally {
@@ -134,7 +137,7 @@ export function useNotifications() {
     if (ids.length === 0) return;
     await api.api.POST("/api/v1/notifications/mark-read", { body: { ids } });
     setItems((prev) =>
-      prev.map((n) =>
+      (Array.isArray(prev) ? prev : []).map((n) =>
         ids.includes(n.id) ? { ...n, read_at: n.read_at ?? new Date().toISOString() } : n,
       ),
     );
@@ -145,7 +148,7 @@ export function useNotifications() {
   const markAllRead = useCallback(async () => {
     await api.api.POST("/api/v1/notifications/read-all");
     setItems((prev) =>
-      prev.map((n) => ({ ...n, read_at: n.read_at ?? new Date().toISOString() })),
+      (Array.isArray(prev) ? prev : []).map((n) => ({ ...n, read_at: n.read_at ?? new Date().toISOString() })),
     );
     setUnread(0);
   }, []);
@@ -158,7 +161,10 @@ export function useNotifications() {
         params: { query: { limit: 50, cursor: nextCursor } },
       });
       if (data) {
-        setItems((prev) => [...prev, ...(data.items as NotificationItem[])]);
+        setItems((prev) => [
+          ...(Array.isArray(prev) ? prev : []),
+          ...(Array.isArray(data.items) ? (data.items as NotificationItem[]) : []),
+        ]);
         setNextCursor(data.next_cursor ?? null);
       }
     } finally {

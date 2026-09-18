@@ -120,6 +120,13 @@ export interface FirstResponseSummary {
   response_p90_secs: number;
 }
 
+export interface FirstResponseRow {
+  ticket_id: string;
+  ticket_number: string;
+  created_at: string;
+  first_staff_comment_at: string | null;
+}
+
 function pageOf(data: unknown): ReportPage {
   const page = data as ReportPage;
   return {
@@ -223,6 +230,17 @@ export const firstResponseSummary = (page: ReportPage): FirstResponseSummary => 
   response_p50_secs: num(page.summary.response_p50_secs),
   response_p90_secs: num(page.summary.response_p90_secs),
 });
+
+/** Per-ticket first-response rows (row keys mirror crates/core-reports
+ * catalog.rs FIRST_RESPONSE columns); rows carry the raw UTC timestamps. */
+export const firstResponseRows = (page: ReportPage): FirstResponseRow[] =>
+  page.rows.map((r) => ({
+    ticket_id: str(r.ticket_id),
+    ticket_number: str(r.ticket_number),
+    created_at: str(r.created_at),
+    first_staff_comment_at: typeof r.first_staff_comment_at === "string" ? r.first_staff_comment_at : null,
+  }));
+
 
 // --- CSV export ----------------------------------------------------------------
 

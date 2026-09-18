@@ -249,3 +249,37 @@ export function assignLanes(dayEntries: CalendarEntry[]): LaneSlot[] {
   flush();
   return slots;
 }
+
+// --- month-grid keyboard navigation (Wave 17 lane 12) -------------------------
+
+/**
+ * Arrow-key day focus over the fixed 7-wide month grid. `index` is the
+ * linear 0-based cell index (row*7 + weekday); returns the next index or
+ * null for non-movement keys. Movement clamps inside the rendered grid —
+ * the 6 week rows always cover the month, so day focus can traverse the
+ * whole month without repainting a different anchor.
+ */
+export function monthFocusMove(index: number, key: string, rowCount: number): number | null {
+  const count = rowCount * 7;
+  const row = Math.floor(index / 7);
+  const col = index % 7;
+  switch (key) {
+    case "ArrowLeft":
+      return col > 0 ? index - 1 : null;
+    case "ArrowRight":
+      return col < 6 ? index + 1 : null;
+    case "ArrowUp":
+      return row > 0 ? index - 7 : null;
+    case "ArrowDown":
+      return row < rowCount - 1 ? index + 7 : null;
+    case "Home":
+      return index - col;
+    case "End":
+      return index + (6 - col);
+    case "Enter":
+    case " ":
+      return index; // activation stays on the cell (the click handler owns it)
+    default:
+      return null;
+  }
+}

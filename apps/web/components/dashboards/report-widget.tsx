@@ -16,12 +16,13 @@ import { Button, Card, EmptyState, StatusTag, Tag, Table, Td, Th, Tr } from "@me
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { WidgetDef } from "../../lib/dashboards";
-import { formatMinutes, formatSeconds } from "../../lib/dashboards";
+import { AGING_BUCKET_LABELS, formatMinutes, formatSeconds } from "../../lib/dashboards";
 import {
   agingRows,
   agingSummary,
   downloadReportCsv,
   fetchReport,
+  firstResponseRows,
   firstResponseSummary,
   rollupRows,
   slaAttainmentRows,
@@ -71,6 +72,10 @@ function attainmentTone(pct: number): "success" | "warning" | "danger" {
 export function ReportWidget({ def, meUserId, entranceDelay = 0, onRemove }: Props) {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
+  // Chart ↔ data-table alternative (keyboard a11y: recharts tooltips are
+  // hover-only; the table presents the same rows to keyboard/AT readers).
+  const [showTable, setShowTable] = useState(false);
+  const tableAvailable = def.viz === "bar" || def.viz === "line";
 
   useEffect(() => {
     let cancelled = false;
@@ -117,7 +122,7 @@ export function ReportWidget({ def, meUserId, entranceDelay = 0, onRemove }: Pro
       </div>
     );
   } else {
-    body = <WidgetBody def={def} page={state.page} />;
+    body = <WidgetBody def={def} page={state.page} showTable={showTable} />;
   }
 
   return (
@@ -136,6 +141,18 @@ export function ReportWidget({ def, meUserId, entranceDelay = 0, onRemove }: Pro
           </Tag>
         </div>
         <div className="flex items-center gap-1 opacity-0 transition-opacity duration-100 group-focus-within:opacity-100 group-hover:opacity-100">
+          {tableAvailable && (
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-pressed={showTable}
+              data-testid={`widget-table-toggle`}
+              aria-label={showTable ? `Show ${def.title} as chart` : `Show ${def.title} as data table`}
+              onClick={() => setShowTable((v) => !v)}
+            >
+              {showTable ? "Chart" : "Table"}
+            </Button>
+          )}
           <Button variant="ghost" size="sm" onClick={exportCsv} aria-label={`Export ${def.title} as CSV`}>
             CSV
           </Button>
@@ -166,7 +183,15 @@ function WidgetSkeleton({ label }: { label: string }) {
   );
 }
 
-function WidgetBody({ def, page }: { def: WidgetDef; page: ReportPage | undefined }) {
+function WidgetBody({
+  def,
+  page,
+  showTable,
+}: {
+  def: WidgetDef;
+  page: ReportPage | undefined;
+  showTable: boolean;
+}) {
   if (page === undefined) return null;
   if (page.rows.length === 0) {
     return <EmptyState message={def.empty} />;
@@ -177,6 +202,16 @@ function WidgetBody({ def, page }: { def: WidgetDef; page: ReportPage | undefine
     case "time_by_client:org": {
       const rows = rollupRows(page);
       const s = timeRollupSummary(page);
+      if (showTable) {
+        return (
+          <>
+            <RollupDataTable rows={rows} />
+            <Footer>
+              {formatMinutes(s.total_minutes)} total · {formatMinutes(s.billable_minutes)} billable
+            </Footer>
+          </>
+        );
+      }
       return (
         <>
           <RollupBarChart
@@ -194,6 +229,16 @@ function WidgetBody({ def, page }: { def: WidgetDef; page: ReportPage | undefine
     case "ticket_throughput:org": {
       const rows = throughputRows(page);
       const s = throughputSummary(page);
+      if (showTable) {
+        return (
+          <>
+            <ThroughputDataTable rows={rows} />
+            <Footer>
+              {s.created_total} created · {s.resolved_total} resolved
+            </Footer>
+          </>
+        );
+      }
       return (
         <>
           <ThroughputLineChart rows={rows} ariaLabel={`${def.title} line chart, created vs resolved per day`} />
@@ -207,6 +252,16 @@ function WidgetBody({ def, page }: { def: WidgetDef; page: ReportPage | undefine
     case "ticket_aging:org": {
       const rows = agingRows(page);
       const s = agingSummary(page);
+      if (showTable) {
+        return (
+          <>
+            <AgingDataTable rows={rows} />
+            <Footer>
+              {s.open_total} open · {s.breached_open} breached
+            </Footer>
+          </>
+        );
+      }
       return (
         <>
           <AgingBarChart rows={rows} ariaLabel={`${def.title} bar chart, open tickets per age bucket`} />
@@ -220,6 +275,19 @@ function WidgetBody({ def, page }: { def: WidgetDef; page: ReportPage | undefine
     case "sla_attainment:org": {
       const rows = slaAttainmentRows(page);
       const s = slaAttainmentSummary(page);
+      if (showTable) {
+        return (
+          <>
+            <AttainmentDataTable rows={rows} />
+            <Footer>
+              <span style={{ color: `var(--m-status-${attainmentTone(s.attainment_pct)}-fg)` }}>
+                {s.attainment_pct}%
+              </span>{" "}
+              attainment over {s.resolutions_total} resolutions
+            </Footer>
+          </>
+        );
+      }
       return (
         <>
           <AttainmentBarChart rows={rows} ariaLabel={`${def.title} bar chart, attainment percent per policy`} />
@@ -269,15 +337,15 @@ function WidgetBody({ def, page }: { def: WidgetDef; page: ReportPage | undefine
     case "first_response:self":
     case "first_response:org": {
       const s = firstResponseSummary(page);
+      const rows = firstResponseRows(page);
+      const unanswered = rows.filter((r) => r.first_staff_comment_at === null);
+      // Unanswered drilldown rides its own toggle (the stat card has no
+      // header chart toggle; the drilldown table IS the a11y alternative).
       return (
-        <>
-          <div className="grid grid-cols-3 gap-3 max-w-xl">
-            <Stat label="Median response" value={formatSeconds(s.response_p50_secs)} />
-            <Stat label="90th percentile" value={formatSeconds(s.response_p90_secs)} />
-            <Stat label="Unanswered" value={String(s.unanswered_count)} />
-          </div>
-          <Footer>{s.answered_count} of {s.tickets_total} answered</Footer>
-        </>
+        <UnansweredStatPanel
+          summary={s}
+          unanswered={unanswered}
+        />
       );
     }
     default:
@@ -308,6 +376,239 @@ function Stat({ label, value }: { label: string; value: string }) {
       <span className="font-mono text-lg font-semibold tabular-nums" style={{ color: "var(--m-text)" }}>
         {value}
       </span>
+    </div>
+  );
+}
+
+// --- keyboard data-table alternatives (Wave 17 lane 12) ------------------------
+// Recharts tooltips are hover-only; every chart widget exposes the SAME rows
+// as a plain Table the keyboard can traverse. Columns mirror the chart axes
+// so chart and table read identically (Amplitude/Canva grammar — see
+// design/qa-stragglers/DESIGN-RESEARCH.md).
+
+function RollupDataTable({
+  rows,
+}: {
+  rows: ReturnType<typeof rollupRows>;
+}) {
+  return (
+    <Table aria-label="Hours per group as data">
+      <thead>
+        <tr>
+          <Th>Group</Th>
+          <Th className="text-right">Hours</Th>
+          <Th className="text-right">Billable hours</Th>
+          <Th className="text-right">Entries</Th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <Tr key={r.group_id}>
+            <Td>{r.label !== "" ? r.label : r.group_id.slice(0, 8)}</Td>
+            <Td className="text-right font-mono tabular-nums">{formatMinutes(r.metric)}</Td>
+            <Td className="text-right font-mono tabular-nums">{formatMinutes(r.billable_minutes)}</Td>
+            <Td className="text-right font-mono tabular-nums">{r.entry_count}</Td>
+          </Tr>
+        ))}
+      </tbody>
+    </Table>
+  );
+}
+
+function ThroughputDataTable({
+  rows,
+}: {
+  rows: ReturnType<typeof throughputRows>;
+}) {
+  return (
+    <Table aria-label="Created vs resolved per day as data">
+      <thead>
+        <tr>
+          <Th>Day</Th>
+          <Th className="text-right">Created</Th>
+          <Th className="text-right">Resolved</Th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <Tr key={r.day}>
+            <Td>{r.day}</Td>
+            <Td className="text-right font-mono tabular-nums">{r.created_count}</Td>
+            <Td className="text-right font-mono tabular-nums">{r.resolved_count}</Td>
+          </Tr>
+        ))}
+      </tbody>
+    </Table>
+  );
+}
+
+function AgingDataTable({
+  rows,
+}: {
+  rows: ReturnType<typeof agingRows>;
+}) {
+  return (
+    <Table aria-label="Open tickets per age bucket as data">
+      <thead>
+        <tr>
+          <Th>Age bucket</Th>
+          <Th className="text-right">Open</Th>
+          <Th className="text-right">Avg age</Th>
+          <Th className="text-right">Oldest</Th>
+        </tr>
+      </thead>
+      <tbody>
+        {[...rows]
+          .sort((a, b) => a.bucket_ordinal - b.bucket_ordinal)
+          .map((r) => (
+            <Tr key={r.bucket}>
+              <Td>{AGING_BUCKET_LABELS[r.bucket] ?? r.bucket}</Td>
+              <Td className="text-right font-mono tabular-nums">{r.open_count}</Td>
+              <Td className="text-right font-mono tabular-nums">{r.avg_age_days}d</Td>
+              <Td className="text-right font-mono tabular-nums">{r.oldest_age_days}d</Td>
+            </Tr>
+          ))}
+      </tbody>
+    </Table>
+  );
+}
+
+function AttainmentDataTable({
+  rows,
+}: {
+  rows: ReturnType<typeof slaAttainmentRows>;
+}) {
+  return (
+    <Table aria-label="Attainment percent per policy as data">
+      <thead>
+        <tr>
+          <Th>Policy</Th>
+          <Th className="text-right">Attainment</Th>
+          <Th className="text-right">Met</Th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <Tr key={r.group_id}>
+            <Td>{r.label !== "" ? r.label : r.group_id.slice(0, 8)}</Td>
+            <Td className="text-right font-mono tabular-nums">{r.attainment_pct}%</Td>
+            <Td className="text-right font-mono tabular-nums">{r.resolutions_met}</Td>
+          </Tr>
+        ))}
+      </tbody>
+    </Table>
+  );
+}
+
+// --- first-response drilldown ---------------------------------------------------
+
+/**
+ * The First response stat row with the Unanswered drilldown: the Unanswered
+ * figure is an expanded-state toggle that opens the unanswered-tickets view —
+ * the widget's own rows filtered to those still awaiting a first staff
+ * comment, each deep-linking to the ticket. No separate endpoint: the report
+ * the widget already fetched carries the per-ticket rows.
+ */
+function UnansweredStatPanel({
+  summary,
+  unanswered,
+}: {
+  summary: ReturnType<typeof firstResponseSummary>;
+  unanswered: ReturnType<typeof firstResponseRows>;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <>
+      <div className="grid grid-cols-3 gap-3 max-w-xl">
+        <Stat label="Median response" value={formatSeconds(summary.response_p50_secs)} />
+        <Stat label="90th percentile" value={formatSeconds(summary.response_p90_secs)} />
+        <div>
+          <button
+            type="button"
+            aria-pressed={expanded}
+            aria-expanded={expanded}
+            data-testid="unanswered-drilldown"
+            onClick={() => setExpanded((v) => !v)}
+            className="grid w-full gap-0.5 cursor-pointer rounded-[2px] border-0 bg-transparent p-0 text-left outline-offset-4"
+          >
+            <span className="text-[10px] font-medium uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
+              Unanswered
+            </span>
+            <span className="flex items-baseline gap-1">
+              <span
+                className="font-mono text-lg font-semibold tabular-nums hover:underline"
+                style={{
+                  color:
+                    summary.unanswered_count > 0
+                      ? "var(--m-status-warning-fg)"
+                      : "var(--m-text)",
+                }}
+              >
+                {summary.unanswered_count}
+              </span>
+              <span
+                className="text-[10px] transition-transform duration-100"
+                style={{ color: "var(--m-text-muted)", transform: expanded ? "rotate(90deg)" : "rotate(0deg)" }}
+                aria-hidden="true"
+              >
+                ▸
+              </span>
+            </span>
+          </button>
+        </div>
+      </div>
+      {expanded && (
+        <UnansweredTicketsTable
+          rows={unanswered}
+          total={summary.unanswered_count}
+        />
+      )}
+      <Footer>
+        {summary.answered_count} of {summary.tickets_total} answered
+      </Footer>
+    </>
+  );
+}
+
+function UnansweredTicketsTable({
+  rows,
+  total,
+}: {
+  rows: ReturnType<typeof firstResponseRows>;
+  total: number;
+}) {
+  const truncated = rows.length < total;
+  return (
+    <div>
+      <Table aria-label="Tickets awaiting first response">
+        <thead>
+          <tr>
+            <Th>Ticket</Th>
+            <Th>Created</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <Tr key={r.ticket_id}>
+              <Td>
+                <a
+                  href={`/tickets/${r.ticket_id}`}
+                  className="font-mono hover:underline"
+                  style={{ color: "var(--m-accent)" }}
+                >
+                  {r.ticket_number}
+                </a>
+              </Td>
+              <Td>{r.created_at === "" ? "—" : r.created_at.slice(0, 10)}</Td>
+            </Tr>
+          ))}
+        </tbody>
+      </Table>
+      {truncated && (
+        <p className="pt-1 text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+          Showing {rows.length} of {total} unanswered (page-1 rows of the report).
+        </p>
+      )}
     </div>
   );
 }

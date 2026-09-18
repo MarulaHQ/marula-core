@@ -134,9 +134,14 @@ export function NotificationDock() {
     }
   };
 
+  // Pre-guard the map/filter: the dock can mount and open before the
+  // notification read model resolves, and any non-array `items` (or a
+  // non-integer unread badge) must render as empty state, never crash.
+  const safeItems = Array.isArray(items) ? items : [];
+  const safeUnread = typeof unread === "number" && unread > 0 ? unread : 0;
   const groups = BUCKET_ORDER.map((label) => ({
     label,
-    rows: items.filter((n) => dayBucket(n.created_at) === label),
+    rows: safeItems.filter((n) => n !== null && dayBucket(n.created_at) === label),
   })).filter((g) => g.rows.length > 0);
 
   return (
@@ -144,17 +149,17 @@ export function NotificationDock() {
       <Button
         variant="ghost"
         size="sm"
-        aria-label={`Notifications${unread > 0 ? ` (${unread} unread)` : ""}`}
+        aria-label={`Notifications${safeUnread > 0 ? ` (${safeUnread} unread)` : ""}`}
         onClick={() => setOpen((v) => !v)}
       >
         <BellIcon />
-        {unread > 0 && (
+        {safeUnread > 0 && (
           <span
             data-testid="unread-badge"
             className="ml-1 min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full text-[11px] font-medium"
             style={{ background: "var(--m-accent)", color: "var(--m-on-accent)" }}
           >
-            {unread > 9 ? "9+" : unread}
+            {safeUnread > 9 ? "9+" : safeUnread}
           </span>
         )}
       </Button>
@@ -178,7 +183,7 @@ export function NotificationDock() {
               Notifications
             </span>
             <div className="flex items-center gap-1">
-              {unread > 0 && (
+              {safeUnread > 0 && (
                 <Button variant="ghost" size="sm" onClick={() => void markAllRead()}>
                   Mark all read
                 </Button>
