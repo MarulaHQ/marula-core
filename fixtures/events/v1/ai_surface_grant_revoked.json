@@ -1,0 +1,11 @@
+{
+  "event_type": "ai.surface_grant_revoked",
+  "entity": "ai_surface_grant",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "grant_id": "00000000-0000-0000-0000-000000000007",
+    "surface_key": "general_chat"
+  }
+}

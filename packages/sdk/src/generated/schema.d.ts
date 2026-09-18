@@ -138,6 +138,119 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ai/me/authorize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /ai/me/authorize — the completion-edge resolution (typed refusals;
+         *     degrade-never-5xx). Lane 2's ChatRunner consumes this same edge.
+         */
+        post: operations["ai_my_authorize_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/me/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /ai/me/credentials — the caller's personal credential summaries. */
+        get: operations["ai_my_credentials_get"];
+        /** PUT /ai/me/credentials — seal a PERSONAL credential (flag-gated). */
+        put: operations["ai_my_credential_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/me/credentials/{credential_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** DELETE /ai/me/credentials/{credential_id} — revoke a PERSONAL credential. */
+        delete: operations["ai_my_credential_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/me/model-picks/{surface_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * PUT /ai/me/model-picks/{surface_key} — a sticky pick; the pair must sit
+         *     inside the admin allowlist or the pick is typed-refused.
+         */
+        put: operations["ai_my_pick_put"];
+        post?: never;
+        /** DELETE /ai/me/model-picks/{surface_key} — clears the sticky pick. */
+        delete: operations["ai_my_pick_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/me/surfaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /ai/me/surfaces — which surfaces the CALLER may use
+         *     (deny-by-default: only granted, enabled, non-internal rows surface).
+         */
+        get: operations["ai_my_surfaces_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/me/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /ai/me/usage — personal progress against caps. */
+        get: operations["ai_my_usage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/alert-sources": {
         parameters: {
             query?: never;
@@ -7228,6 +7341,181 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/settings/ai/caps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** PUT /settings/ai/caps — upsert org-wide or per-user soft/hard caps (audited). */
+        put: operations["settings_ai_cap_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/ai/caps/{cap_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** DELETE /settings/ai/caps/{cap_id}. */
+        delete: operations["settings_ai_cap_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/ai/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** PUT /settings/ai/catalog — upsert one curated (provider, model) pair. */
+        put: operations["settings_ai_catalog_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/ai/catalog/{entry_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** DELETE /settings/ai/catalog/{entry_id}. */
+        delete: operations["settings_ai_catalog_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/ai/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /settings/ai/credentials — the org's credential summaries (admin). */
+        get: operations["settings_ai_credentials_get"];
+        /** PUT /settings/ai/credentials — seal an ORG credential (admin). */
+        put: operations["settings_ai_credential_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/ai/credentials/{credential_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** DELETE /settings/ai/credentials/{credential_id} — revoke an ORG credential. */
+        delete: operations["settings_ai_credential_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/ai/grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** PUT /settings/ai/grants — upsert one per-surface grant (audited). */
+        put: operations["settings_ai_grant_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/ai/grants/{grant_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** DELETE /settings/ai/grants/{grant_id} — revoke one grant (audited). */
+        delete: operations["settings_ai_grant_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/ai/matrix": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /settings/ai/matrix — the full admin view. */
+        get: operations["settings_ai_matrix_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/ai/model-picks/{surface_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * PUT /settings/ai/model-picks/{surface_key} — the ORG default pick
+         *     (owner/admin standing; stored as user_id NULL so every member's
+         *     resolution falls back onto it when no personal pick holds).
+         */
+        put: operations["settings_ai_org_pick_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/settings/ai/status": {
         parameters: {
             query?: never;
@@ -7262,6 +7550,23 @@ export interface paths {
          *     when a lane wires them.
          */
         post: operations["settings_ai_test"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/ai/usage/org": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /settings/ai/usage/org — org progress roll-up (admin). */
+        get: operations["settings_ai_usage_org_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -8980,6 +9285,176 @@ export interface components {
          * @enum {string}
          */
         Aggregate: "count" | "sum" | "avg" | "min" | "max";
+        AiAuthorizeRequest: {
+            model?: string | null;
+            /**
+             * @description Optional explicit (provider, model) ask — must sit inside the
+             *     admin allowlist (an out-of-list ask is REFUSED, never redirected).
+             */
+            provider?: string | null;
+            surface_key: string;
+        };
+        AiAuthorizeResponse: {
+            caps: components["schemas"]["AiCapState"];
+            credential: components["schemas"]["AiAuthorizedCredential"];
+            model: string;
+            provider: string;
+            /**
+             * @description `requested` | `user_pick` | `org_pick` | `legacy_org_default` |
+             *     `catalog_first`.
+             */
+            resolution: string;
+            surface_key: string;
+            /**
+             * @description Non-empty when a SOFT cap was crossed: the call proceeds; the
+             *     warn also rides an `ai_cap_warn` notification.
+             */
+            warnings: string[];
+        };
+        AiAuthorizedCredential: {
+            /** Format: uuid */
+            id: string;
+            kind: string;
+            /** @description true when a personal (per-user) credential was selected. */
+            personal: boolean;
+        };
+        AiCapDto: {
+            /** Format: int64 */
+            hard_token_limit: number | null;
+            /** Format: uuid */
+            id: string;
+            period: string;
+            /** Format: int64 */
+            soft_token_limit: number | null;
+            user_id: string | null;
+        };
+        AiCapMutationResponse: {
+            mutation: components["schemas"]["MutationMeta"];
+            status: components["schemas"]["AiCapDto"];
+        };
+        AiCapState: {
+            /** Format: int64 */
+            hard_token_limit: number | null;
+            /** Format: double */
+            pct_hard: number | null;
+            /** Format: int64 */
+            soft_token_limit: number | null;
+            /** Format: int64 */
+            used_tokens: number;
+        };
+        AiCatalogDto: {
+            capabilities: unknown;
+            /** Format: int32 */
+            cost_weight: number;
+            enabled: boolean;
+            /** Format: uuid */
+            id: string;
+            label: string;
+            model: string;
+            provider: string;
+        };
+        AiCatalogMutationResponse: {
+            mutation: components["schemas"]["MutationMeta"];
+            status: components["schemas"]["AiCatalogDto"];
+        };
+        /** @description Presence-only credential descriptor — never secret material. */
+        AiCredentialDto: {
+            credential_meta: unknown;
+            /** Format: uuid */
+            id: string;
+            /** @description `api_key` | `oauth_token` | `subscription_account`. */
+            kind: string;
+            label: string;
+            owner_user_id: string | null;
+            provider: string;
+            /** @description `active` | `revoked`. */
+            status: string;
+        };
+        AiCredentialMutationResponse: {
+            mutation: components["schemas"]["MutationMeta"];
+            status: components["schemas"]["AiCredentialDto"];
+        };
+        AiGrantDto: {
+            /** @description `role` | `user`. */
+            grantee_kind: string;
+            /** Format: uuid */
+            id: string;
+            role_id: string | null;
+            /** Format: uuid */
+            surface_id: string;
+            surface_key: string;
+            user_id: string | null;
+        };
+        AiGrantMutationResponse: {
+            mutation: components["schemas"]["MutationMeta"];
+            status: components["schemas"]["AiGrantDto"];
+        };
+        AiMatrixResponse: {
+            caps: components["schemas"]["AiCapDto"][];
+            catalog: components["schemas"]["AiCatalogDto"][];
+            credentials: components["schemas"]["AiCredentialDto"][];
+            grants: components["schemas"]["AiGrantDto"][];
+            /** @description The `ai.personal_credentials_enabled` admin policy flag state. */
+            personal_credentials_enabled: boolean;
+            surfaces: components["schemas"]["AiSurfaceDto"][];
+        };
+        AiMySurfacesResponse: {
+            surfaces: components["schemas"]["AiSurfaceAccessDto"][];
+        };
+        AiMyUsageResponse: {
+            /** Format: int64 */
+            hard_token_limit: number | null;
+            /** Format: double */
+            pct_hard: number | null;
+            /** Format: double */
+            pct_soft: number | null;
+            period: string;
+            /** Format: int64 */
+            soft_token_limit: number | null;
+            /** Format: int64 */
+            used_tokens: number;
+        };
+        AiOrgUsageResponse: {
+            /** Format: int64 */
+            active_users: number;
+            /** Format: int64 */
+            hard_token_limit: number | null;
+            /** Format: double */
+            pct_hard: number | null;
+            period: string;
+            /** Format: int64 */
+            soft_token_limit: number | null;
+            /** @description surface → token totals for the period. */
+            tokens_by_surface: unknown;
+            /** Format: int64 */
+            used_tokens: number;
+        };
+        AiPickMutationResponse: {
+            model: string;
+            mutation: components["schemas"]["MutationMeta"];
+            provider: string;
+            /** @description `user` | `org`. */
+            scope: string;
+            surface_key: string;
+        };
+        AiSurfaceAccessDto: {
+            granted: boolean;
+            kind: string;
+            label: string;
+            models_available: boolean;
+            surface_key: string;
+        };
+        AiSurfaceDto: {
+            description: string;
+            enabled: boolean;
+            /** Format: uuid */
+            id: string;
+            key: string;
+            /** @description `native` | `internal` | `plugin`. */
+            kind: string;
+            label: string;
+            org_id: string | null;
+        };
         AlertListQuery: {
             /** Format: int64 */
             limit?: number;
@@ -14436,7 +14911,7 @@ export interface components {
             user_id: string;
         };
         /** @enum {string} */
-        NotificationKind: "mention" | "assignment" | "sla_risk" | "sla_breach" | "escalation" | "missing_time" | "ticket_update" | "report_delivery";
+        NotificationKind: "mention" | "assignment" | "sla_risk" | "sla_breach" | "escalation" | "missing_time" | "ticket_update" | "report_delivery" | "ai_cap_warn";
         /** @description One page of the inbox plus the cursor to continue with. */
         NotificationPage: {
             items: components["schemas"]["Notification"][];
@@ -16065,6 +16540,48 @@ export interface components {
             occurred_at: string;
             source: string;
             status: string;
+        };
+        PutAiCapRequest: components["schemas"]["MutationParams"] & {
+            /** Format: int64 */
+            hard_token_limit?: number | null;
+            period?: string;
+            /** @description `org` | `user`. */
+            scope: string;
+            /** Format: int64 */
+            soft_token_limit?: number | null;
+            /** Format: uuid */
+            user_id?: string | null;
+        };
+        PutAiCatalogRequest: components["schemas"]["MutationParams"] & {
+            capabilities?: string[];
+            /** Format: int32 */
+            cost_weight?: number;
+            enabled?: boolean;
+            label?: string;
+            model: string;
+            provider: string;
+        };
+        PutAiCredentialRequest: components["schemas"]["MutationParams"] & {
+            credential_meta?: unknown;
+            /** @description `api_key` | `oauth_token` | `subscription_account`. */
+            kind: string;
+            label?: string;
+            provider: string;
+            /** @description Plaintext secret — sealed at rest, never surfaced back. */
+            secret: string;
+        };
+        PutAiGrantRequest: components["schemas"]["MutationParams"] & {
+            /** @description `role` | `user`. */
+            grantee_kind: string;
+            /** Format: uuid */
+            role_id?: string | null;
+            surface_key: string;
+            /** Format: uuid */
+            user_id?: string | null;
+        };
+        PutAiPickRequest: components["schemas"]["MutationParams"] & {
+            model: string;
+            provider: string;
         };
         /** @description Request to store or update a sealed BYOK API key. */
         PutByokSecretRequest: components["schemas"]["MutationParams"] & {
@@ -19625,6 +20142,249 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    ai_my_authorize_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AiAuthorizeRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiAuthorizeResponse"];
+                };
+            };
+            /** @description typed refusal: ai_surface_not_granted | ai_surface_disabled | ai_surface_internal | ai_model_not_allowed | ai_no_models_configured | ai_hard_cap_reached | ai_no_credential */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description rls_sparse */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ai_my_credentials_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiCredentialDto"][];
+                };
+            };
+        };
+    };
+    ai_my_credential_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutAiCredentialRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiCredentialMutationResponse"];
+                };
+            };
+            /** @description personal credentials disabled by policy */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ai_my_credential_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credential_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiCredentialMutationResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description rls_sparse */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ai_my_pick_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                surface_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutAiPickRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiPickMutationResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description rls_sparse */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description model not in the admin allowlist */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ai_my_pick_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                surface_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiPickMutationResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description rls_sparse */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ai_my_surfaces_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiMySurfacesResponse"];
+                };
+            };
+        };
+    };
+    ai_my_usage_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiMyUsageResponse"];
+                };
             };
         };
     };
@@ -33775,6 +34535,380 @@ export interface operations {
             };
         };
     };
+    settings_ai_cap_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutAiCapRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiCapMutationResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description cap validation */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    settings_ai_cap_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cap_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiCapMutationResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description rls_sparse */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    settings_ai_catalog_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutAiCatalogRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiCatalogMutationResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description duplicate (provider, model) pair */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    settings_ai_catalog_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiCatalogMutationResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description rls_sparse */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    settings_ai_credentials_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiCredentialDto"][];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    settings_ai_credential_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutAiCredentialRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiCredentialMutationResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    settings_ai_credential_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credential_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiCredentialMutationResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description rls_sparse */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    settings_ai_grant_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutAiGrantRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiGrantMutationResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unknown surface or grantee validation */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    settings_ai_grant_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                grant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiGrantMutationResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description rls_sparse */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    settings_ai_matrix_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiMatrixResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    settings_ai_org_pick_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                surface_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutAiPickRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiPickMutationResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description rls_sparse */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description model not in the admin allowlist */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     settings_ai_status: {
         parameters: {
             query?: never;
@@ -33813,6 +34947,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TestConnectionResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    settings_ai_usage_org_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiOrgUsageResponse"];
                 };
             };
             403: {

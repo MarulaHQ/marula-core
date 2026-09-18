@@ -561,6 +561,7 @@ where
 /// Inserts a ticket comment. `workflow_meta` is the machine-provenance
 /// payload for server-composed workflow appends (migration 0080) — None
 /// for user-written notes.
+#[allow(clippy::too_many_arguments)]
 pub async fn insert_comment<'e, E>(
     executor: E,
     id: Uuid,

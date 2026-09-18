@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO search_index (id, org_id, entity_kind, entity_id, parent_id, title, body, client_scope)\n           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n           ON CONFLICT (org_id, entity_kind, entity_id) DO UPDATE SET\n             parent_id = EXCLUDED.parent_id,\n             title = EXCLUDED.title,\n             body = EXCLUDED.body,\n             client_scope = EXCLUDED.client_scope,\n             indexed_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "51bd2a587efacf63656cd39dfc69a89d2bd89aed1f41cec1410fef13fe70534c"
+}

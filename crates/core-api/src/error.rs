@@ -159,6 +159,22 @@ pub enum ApiError {
         /// derived cheaply at write time.
         suggestion: Option<String>,
     },
+    /// Typed 403 refusal at the AI completion edge (ADR 0008, Wave 18
+    /// lane 1): the runner/assist client branches on `reason` —
+    /// `ai_surface_not_granted`, `ai_model_not_allowed`,
+    /// `ai_no_models_configured`, `ai_hard_cap_reached`,
+    /// `ai_no_credential`, `ai_surface_disabled`, `ai_surface_internal`.
+    /// Degrade-never-5xx: the refusal NEVER masks as a server fault, so
+    /// the human workflow degrades gracefully instead of erroring.
+    #[error("{message}")]
+    AiCallRefused {
+        /// Machine-readable refusal reason (clients branch on this).
+        reason: &'static str,
+        /// Fixed human-readable message.
+        message: String,
+        /// The surface the call was attempted on.
+        surface: String,
+    },
     /// Typed 409 for a unique-constraint collision with a KNOWN, typed
     /// meaning (the constraint registry below): `kind` is the machine
     /// reason code, `message` the fixed human copy. Unknown constraints
@@ -372,6 +388,34 @@ fn map_unique_constraint(constraint: &str) -> Option<(&'static str, &'static str
             "search_pin_conflict",
             "this result was just pinned elsewhere; reload your pins and retry",
         )),
+        // Wave 18 lane 1 (ADR 0008 ai_policy_ledger, migration 0081): the
+        // matrix identity constraints. Catalog conflicts are a real admin
+        // mistake (dup pair); the rest only refuse concurrent upsert
+        // races (handlers answer idempotently otherwise).
+        "uq_ai_model_catalog_pair" => Some((
+            "ai_model_catalog_pair_taken",
+            "this (provider, model) pair is already in the catalog",
+        )),
+        "uq_ai_surface_grants_grantee" => Some((
+            "ai_surface_grant_taken",
+            "this surface grant already exists; edit the existing row instead",
+        )),
+        "uq_ai_model_credentials_owner" => Some((
+            "ai_model_credential_taken",
+            "a credential of this kind for this provider already exists at this scope",
+        )),
+        "uq_ai_caps_scope" => Some((
+            "ai_caps_scope_taken",
+            "a cap for this scope and period already exists",
+        )),
+        "uq_ai_model_picks_surface" => Some((
+            "ai_model_pick_taken",
+            "a pick for this surface already exists at this scope",
+        )),
+        "uq_ai_surfaces_key" => Some((
+            "ai_surface_key_taken",
+            "this surface key is already registered",
+        )),
         _ => None,
     }
 }
@@ -532,6 +576,16 @@ impl IntoResponse for ApiError {
             ApiError::UniqueConflict { kind, message } => {
                 (StatusCode::CONFLICT, *kind, message.to_string(), None)
             }
+            ApiError::AiCallRefused {
+                reason,
+                message,
+                surface,
+            } => (
+                StatusCode::FORBIDDEN,
+                *reason,
+                message.clone(),
+                Some(json!({ "surface": surface })),
+            ),
             ApiError::SlugTaken { suggestion } => (
                 StatusCode::CONFLICT,
                 "org_slug_taken",
@@ -813,6 +867,14 @@ mod tests {
             "plugin_catalog_slug_key",
             "plugin_versions_catalog_id_version_key",
             "plugin_installs_org_id_catalog_id_key",
+            // Wave 18 lane 1 (ADR 0008 migration 0081): the AI-matrix
+            // identity constraints surface typed, not generic.
+            "uq_ai_model_catalog_pair",
+            "uq_ai_surface_grants_grantee",
+            "uq_ai_model_credentials_owner",
+            "uq_ai_caps_scope",
+            "uq_ai_model_picks_surface",
+            "uq_ai_surfaces_key",
         ];
         let mut seen = std::collections::HashSet::new();
         for constraint in known {
@@ -824,8 +886,8 @@ mod tests {
         }
         // The two taxonomy constraints deliberately SHARE one reason code
         // (`category_name_taken` — root-name and child-name collisions are
-        // the same UX problem), so 15 constraints map to 14 distinct codes.
-        assert_eq!(seen.len(), 14, "unexpected reason-code fan-out: {seen:?}");
+        // the same UX problem), so 21 constraints map to 20 distinct codes.
+        assert_eq!(seen.len(), 20, "unexpected reason-code fan-out: {seen:?}");
         assert_eq!(
             map_unique_constraint("uq_ticket_categories_root_name").map(|(k, _)| k),
             map_unique_constraint("uq_ticket_categories_child_name").map(|(k, _)| k)

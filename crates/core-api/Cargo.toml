@@ -71,3 +71,9 @@ data-encoding = { workspace = true }
 base32 = "0.5"
 base64 = "0.22"
 bytes = { workspace = true }
+
+# The `openapi` cfg is set by SDK-generation feature unification (handlers
+# annotate `cfg_attr(feature = "openapi", ...)`) — declared here so
+# unexpected_cfgs stops flagging the established pattern.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("openapi"))'] }

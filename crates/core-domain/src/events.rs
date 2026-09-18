@@ -185,6 +185,24 @@ pub mod types {
     /// flags only — secret bytes never leave the sealed store.
     pub const AI_BYOK_UPDATED: &str = "ai.byok_updated";
     pub const AI_BYOK_DELETED: &str = "ai.byok_deleted";
+    /// ADR 0008 availability matrix (Wave 18 lane 1): admin mutations of
+    /// the AI policy surface. `ai.surface_grant_updated` /
+    /// `ai.surface_grant_revoked` record per-surface per-role/user grants
+    /// (deny-by-default posture, every grant audited);
+    /// `ai.model_catalog_updated` records a curated (provider, model)
+    /// entry upsert/disable; `ai.model_credential_updated` /
+    /// `ai.model_credential_revoked` record the sealed ModelCredential
+    /// slot lifecycle (presence-only payloads — secret bytes never leave
+    /// the sealed store); `ai.cap_updated` records org-wide / per-user
+    /// soft+hard token caps; `ai.model_pick_updated` records a sticky
+    /// per-surface model pick (user or org default scope).
+    pub const AI_SURFACE_GRANT_UPDATED: &str = "ai.surface_grant_updated";
+    pub const AI_SURFACE_GRANT_REVOKED: &str = "ai.surface_grant_revoked";
+    pub const AI_MODEL_CATALOG_UPDATED: &str = "ai.model_catalog_updated";
+    pub const AI_MODEL_CREDENTIAL_UPDATED: &str = "ai.model_credential_updated";
+    pub const AI_MODEL_CREDENTIAL_REVOKED: &str = "ai.model_credential_revoked";
+    pub const AI_CAP_UPDATED: &str = "ai.cap_updated";
+    pub const AI_MODEL_PICK_UPDATED: &str = "ai.model_pick_updated";
     /// Emitted when the org profile (name/ticket prefix) is edited from
     /// General settings or the first-run wizard.
     pub const ORG_UPDATED: &str = "org.updated";

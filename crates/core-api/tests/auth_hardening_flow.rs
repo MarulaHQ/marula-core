@@ -83,7 +83,7 @@ async fn body_json(response: axum::response::Response) -> Value {
 async fn register_org(app: &axum::Router, slug: &str) -> Value {
     let tokens = body_json(
         send(
-            &app,
+            app,
             Method::POST,
             "/api/auth/register",
             None,
@@ -172,7 +172,7 @@ async fn pathological_refresh_throttle_is_a_typed_429() {
     let app = core_api::router(test_state(&admin_url).await);
     // Elaborate the isolated caller IP so other tests' durable lockouts
     // cannot bleed into this one's curve.
-    let ip = format!("114.9.10.{}", Uuid::now_v7().to_string());
+    let ip = format!("114.9.10.{}", Uuid::now_v7());
     // Attempt 1: invalid refresh ⇒ counting (uniform 401).
     let first = send(
         &app,
@@ -213,9 +213,9 @@ async fn refresh_reuse_after_rotation_kills_the_whole_chain() {
     let app = core_api::router(test_state(&admin_url).await);
     // Elaborate the isolated caller IP (durable per-IP counters are
     // process-wide; other tests must not bleed into this chain check).
-    let ip = format!("114.51.40.{}", Uuid::now_v7().to_string());
+    let ip = format!("114.51.40.{}", Uuid::now_v7());
     let ip = ip.as_str();
-    let ip_dead = format!("114.51.41.{}", Uuid::now_v7().to_string());
+    let _ip_dead = format!("114.51.41.{}", Uuid::now_v7());
     let seeded = register_org(&app, "reuse").await;
     let refresh = seeded["refresh_token"].as_str().unwrap().to_string();
     let session = Uuid::parse_str(seeded["session_id"].as_str().unwrap()).unwrap();
@@ -249,7 +249,7 @@ async fn refresh_reuse_after_rotation_kills_the_whole_chain() {
     // The rotation's successor DIED with the chain — presenting it is a
     // 401. A FRESH caller ip because this test's own IP is now under the
     // exponential lock it just demonstrated (durable, per-IP).
-    let ip_dead = format!("114.51.41.{}", Uuid::now_v7().to_string());
+    let ip_dead = format!("114.51.41.{}", Uuid::now_v7());
     let dead = send(
         &app,
         Method::POST,
@@ -359,7 +359,7 @@ async fn login_sets_the_hardened_cookie_trio() {
         "cook-{}",
         Uuid::now_v7().to_string()[..8].to_ascii_lowercase()
     );
-    let email = format!("owner@{slug}.test");
+    let _email = format!("owner@{slug}.test");
     // Bootstrap the account (same login POST follows register verbatim).
     register_org(&app, &slug).await;
     let response = send(
