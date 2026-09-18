@@ -8,10 +8,10 @@
 // side-by-side diff between any two versions, restore (which creates a
 // NEW version — history is never rewritten), and the related-items panel
 // driven by the shared cross-entity picker (never paste-a-UUID).
-// Attachments-on-documents: the object-storage seam (core-store, 2.14)
-// exists but NO documents attachment API ships yet — the rail renders a
-// typed "not available yet" state and the backend need is filed back
-// UNCHECKED; never fake rows, never a dead button.
+// Attachments-on-documents: the raw-byte seam (lib/api bypass) holds —
+// rows render from the typed list endpoint, uploads POST raw bytes with
+// the x-filename contract, and size-cap/permission rejections surface
+// verbatim; never fake rows, never a dead button.
 "use client";
 
 import { rejectionText } from "../../../lib/error-copy";
@@ -36,7 +36,12 @@ import type { components } from "@meridian/sdk";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, useRequireAuth } from "../../../lib/api";
+import {
+  api,
+  downloadDocumentAttachment,
+  uploadDocumentAttachment,
+  useRequireAuth,
+} from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { FieldsEditor, parseFieldInputs } from "../fields-editor";
 import { EntityPicker } from "../../../components/entities/entity-picker";
@@ -48,6 +53,13 @@ type DocumentVersion = components["schemas"]["DocumentVersion"];
 type DocumentLayout = components["schemas"]["DocumentLayout"];
 type Client = components["schemas"]["Client"];
 type ResolvedLink = components["schemas"]["ResolvedLink"];
+type DocumentAttachmentView = components["schemas"]["DocumentAttachmentView"];
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+}
 
 /** Document custom fields as a flat record (wire type is a loose object). */
 function fieldsOf(d: DocumentView): Record<string, unknown> {
@@ -64,6 +76,10 @@ export default function DocumentDetailPage() {
   const [layouts, setLayouts] = useState<DocumentLayout[] | null>(null);
   const [clients, setClients] = useState<Client[] | null>(null);
   const [links, setLinks] = useState<ResolvedLink[] | null>(null);
+  const [attachments, setAttachments] = useState<DocumentAttachmentView[] | null>(null);
+  const [attachmentsUnavailable, setAttachmentsUnavailable] = useState(false);
+  const [attachError, setAttachError] = useState<string | null>(null);
+  const [attachBusy, setAttachBusy] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [body, setBody] = useState<string | null>(null);
@@ -103,6 +119,19 @@ export default function DocumentDetailPage() {
     if (data !== undefined) setLinks(data);
   }, [id]);
 
+  const loadAttachments = useCallback(async () => {
+    const res = await api.api.GET("/api/v1/documents/{id}/attachments", {
+      params: { path: { id } },
+    });
+    if (res.error !== undefined || res.data === undefined) {
+      setAttachments(null);
+      setAttachmentsUnavailable(true);
+      return;
+    }
+    setAttachments(res.data.attachments);
+    setAttachmentsUnavailable(false);
+  }, [id]);
+
   const refresh = useCallback(async () => {
     const [d, l, c] = await Promise.all([
       api.api.GET("/api/v1/documents/{id}", { params: { path: { id } } }),
@@ -123,7 +152,8 @@ export default function DocumentDetailPage() {
     if (c.data !== undefined) setClients(c.data);
     void loadVersions();
     void loadLinks();
-  }, [id, loadVersions, loadLinks]);
+    void loadAttachments();
+  }, [id, loadVersions, loadLinks, loadAttachments]);
 
   useEffect(() => {
     if (auth.status === "authed" && id !== "") void refresh();
@@ -258,6 +288,45 @@ export default function DocumentDetailPage() {
   const removeLink = async (linkRowId: string) => {
     await api.api.DELETE("/api/v1/documents/links/{id}", { params: { path: { id: linkRowId } } });
     await loadLinks();
+  };
+
+  const uploadAttachment = async (file: File) => {
+    setAttachBusy(true);
+    setAttachError(null);
+    try {
+      await uploadDocumentAttachment(id, file);
+      await loadAttachments();
+    } catch (e) {
+      setAttachError(e instanceof Error ? e.message : "The upload was rejected.");
+    } finally {
+      setAttachBusy(false);
+    }
+  };
+
+  const deleteAttachment = async (attachmentId: string) => {
+    setAttachError(null);
+    const res = await api.api.DELETE(
+      "/api/v1/documents/{id}/attachments/{attachment_id}",
+      { params: { path: { id, attachment_id: attachmentId } } },
+    );
+    if (res.error !== undefined) {
+      setAttachError(
+        res.response.status === 404
+          ? "That attachment is no longer on this document."
+          : "Only the uploader or an org owner/admin can remove an attachment.",
+      );
+      return;
+    }
+    await loadAttachments();
+  };
+
+  const downloadAttachmentRow = async (attachment: DocumentAttachmentView) => {
+    setAttachError(null);
+    try {
+      await downloadDocumentAttachment(id, attachment.id, attachment.filename);
+    } catch (e) {
+      setAttachError(e instanceof Error ? e.message : "Download failed.");
+    }
   };
 
   if (auth.status !== "authed") return null;
@@ -516,9 +585,77 @@ export default function DocumentDetailPage() {
 
           <Card className="m-entity-rise" style={{ "--stagger-i": 3 } as React.CSSProperties}>
             <h2 className="p-4 pb-1 text-sm font-semibold">Attachments</h2>
-            <div className="p-4">
-              <EmptyState message="Not available yet — documents don't take file attachments in this build. The storage seam exists; the documents-attachments API is queued for a backend lane (tracked as a follow-up)." />
-            </div>
+            {attachError !== null ? (
+              <p role="alert" className="px-4 pb-2 text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
+                {attachError}
+              </p>
+            ) : null}
+            {attachmentsUnavailable ? (
+              <div className="p-4 pt-0">
+                <EmptyState message="Attachments are not available for this document in your scope." />
+              </div>
+            ) : attachments === null ? (
+              <div className="px-4 pb-4"><Spinner /></div>
+            ) : (
+              <div className="grid gap-2 px-4 pb-4">
+                {attachments.length === 0 ? (
+                  <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+                    No files on this document yet. Uploads are content-addressed and integrity-checked.
+                  </p>
+                ) : (
+                  <ul className="grid gap-2">
+                    {attachments.map((a) => (
+                      <li
+                        key={a.id}
+                        className="m-entity-row flex items-center justify-between gap-3 rounded-[0.5rem] border px-3 py-2 text-[13px]"
+                        style={{ borderColor: "var(--m-border)" }}
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium">{a.filename}</span>
+                          <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+                            {a.content_type} · {Number.isFinite(a.size_bytes) ? formatSize(a.size_bytes) : "—"}
+                            {a.sha256 ? ` · ${a.sha256.slice(0, 12)}…` : ""}
+                          </span>
+                        </span>
+                        <span className="flex shrink-0 items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            aria-label={`Download ${a.filename}`}
+                            onClick={() => void downloadAttachmentRow(a)}
+                          >
+                            Download
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            aria-label={`Remove ${a.filename}`}
+                            data-testid={`document-attachment-delete-${a.id}`}
+                            onClick={() => void deleteAttachment(a.id)}
+                          >
+                            ✕
+                          </Button>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div>
+                  <input
+                    type="file"
+                    aria-label="Upload attachment"
+                    data-testid="document-attach-upload"
+                    className="text-[12px]"
+                    disabled={attachBusy}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = "";
+                      if (f !== undefined) void uploadAttachment(f);
+                    }}
+                  />
+                </div>
+              </div>
+            )}
           </Card>
 
           <Card className="m-entity-rise" style={{ "--stagger-i": 4 } as React.CSSProperties}>

@@ -1877,6 +1877,7 @@ async fn commit_insert(
                     category,
                     sort,
                     is_entry,
+                    None,
                 )
                 .await?;
             }

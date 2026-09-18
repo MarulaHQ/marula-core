@@ -976,6 +976,26 @@ pub async fn change_status(
             .ok_or(ApiError::NotFound)?
             .clone();
 
+        // Per-column WIP cap (0089): the target column's occupancy
+        // (excluding THIS ticket — a move within is self-neutral) is
+        // enforced inside the same write transaction as the move, so a
+        // concurrent move cannot squeeze past the cap either. Typed 422
+        // naming the column + its cap; the board UI renders the count.
+        if let Some(wip_limit) = target.wip_limit {
+            let occupancy = core_db::boards::count_tickets_in_status(
+                &mut *ctx.tx,
+                req.status_id,
+                id,
+            )
+            .await?;
+            if occupancy >= i64::from(wip_limit) {
+                return Err(ApiError::Validation(format!(
+                    "status `{}` has reached its WIP limit ({}/{}) — move the ticket elsewhere or raise the cap",
+                    target.name, occupancy, wip_limit
+                )));
+            }
+        }
+
         // Board-level RBAC (deny wins): closing is a distinct board-scoped
         // operation from ordinary work, so the role matrix can forbid
         // closure while still allowing edits.

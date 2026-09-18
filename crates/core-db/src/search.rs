@@ -74,7 +74,11 @@ impl SearchKind {
 }
 
 /// Upserts one index row. Replaying the same (org, kind, entity) is
-/// idempotent — the row count never grows on retries.
+/// idempotent — the row count never grows on retries. `client_scope`
+/// carries the document's client scoping (0089): set ONLY for the
+/// `document` kind, mirroring `documents.client_id` (NULL = org-global);
+/// ON DELETE SET NULL propagates client deletion into scope reassignment.
+#[allow(clippy::too_many_arguments)]
 pub async fn upsert_row<'e, E>(
     executor: E,
     org_id: Uuid,
@@ -83,17 +87,19 @@ pub async fn upsert_row<'e, E>(
     parent_id: Option<Uuid>,
     title: &str,
     body: &str,
+    client_scope: Option<Uuid>,
 ) -> DbResult<()>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     sqlx::query!(
-        r#"INSERT INTO search_index (id, org_id, entity_kind, entity_id, parent_id, title, body)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
+        r#"INSERT INTO search_index (id, org_id, entity_kind, entity_id, parent_id, title, body, client_scope)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
            ON CONFLICT (org_id, entity_kind, entity_id) DO UPDATE SET
              parent_id = EXCLUDED.parent_id,
              title = EXCLUDED.title,
              body = EXCLUDED.body,
+             client_scope = EXCLUDED.client_scope,
              indexed_at = now()"#,
         Uuid::now_v7(),
         org_id,
@@ -101,7 +107,8 @@ where
         entity_id,
         parent_id,
         title,
-        body
+        body,
+        client_scope
     )
     .execute(executor)
     .await?;
@@ -129,6 +136,41 @@ where
     Ok(result.rows_affected() > 0)
 }
 
+/// One stored index row, by identity — the pin-upsert resolution reads the
+/// live title + parent + scope snapshot here (0089): a pin is a stored
+/// result, so pinning REQUIRES the row to exist in the index.
+#[derive(Debug, Clone)]
+pub struct IndexedRow {
+    pub parent_id: Option<Uuid>,
+    pub title: String,
+    pub client_scope: Option<Uuid>,
+}
+
+pub async fn lookup_row<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    kind: SearchKind,
+    entity_id: Uuid,
+) -> DbResult<Option<IndexedRow>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query!(
+        "SELECT parent_id, title, client_scope FROM search_index \
+         WHERE org_id = $1 AND entity_kind = $2 AND entity_id = $3",
+        org_id,
+        kind.as_str(),
+        entity_id
+    )
+    .fetch_optional(executor)
+    .await?;
+    Ok(row.map(|r| IndexedRow {
+        parent_id: r.parent_id,
+        title: r.title,
+        client_scope: r.client_scope,
+    }))
+}
+
 /// One ranked hit. `body_excerpt` is raw text for client-side snippets;
 /// `score` blends FTS rank (title/body weights) with trigram similarity.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -143,13 +185,18 @@ pub struct SearchHit {
 
 /// Ranked page of hits. `kinds` must be non-empty (callers derive it from
 /// the principal's permissions); `trigram` enables the partial-token ILIKE
-/// leg used for prefix/partial tokens.
+/// leg used for prefix/partial tokens. `client_id` scopes the `document`
+/// kind (0089): when set, indexed documents answer only if they are
+/// org-global (`client_scope` IS NULL) or belong to the named client —
+/// every other kind is untouched.
+#[allow(clippy::too_many_arguments)]
 pub async fn search_page<'e, E>(
     executor: E,
     org_id: Uuid,
     kinds: &[String],
     q: &str,
     trigram: bool,
+    client_id: Option<Uuid>,
     limit: i64,
     offset: i64,
 ) -> DbResult<Vec<SearchHit>>
@@ -169,12 +216,19 @@ where
                tsv @@ websearch_to_tsquery('english', $3)
                OR ($4 AND title || ' ' || body ILIKE '%' || $3 || '%')
              )
+             AND (
+               entity_kind <> 'document'
+               OR $5::uuid IS NULL
+               OR client_scope IS NULL
+               OR client_scope = $5
+             )
            ORDER BY score DESC, indexed_at DESC, entity_id
-           LIMIT $5 OFFSET $6"#,
+           LIMIT $6 OFFSET $7"#,
         org_id,
         kinds,
         q,
         trigram,
+        client_id,
         limit,
         offset
     )
@@ -201,6 +255,7 @@ pub async fn search_count<'e, E>(
     kinds: &[String],
     q: &str,
     trigram: bool,
+    client_id: Option<Uuid>,
 ) -> DbResult<i64>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
@@ -213,11 +268,18 @@ where
              AND (
                tsv @@ websearch_to_tsquery('english', $3)
                OR ($4 AND title || ' ' || body ILIKE '%' || $3 || '%')
+             )
+             AND (
+               entity_kind <> 'document'
+               OR $5::uuid IS NULL
+               OR client_scope IS NULL
+               OR client_scope = $5
              )"#,
         org_id,
         kinds,
         q,
-        trigram
+        trigram,
+        client_id
     )
     .fetch_one(executor)
     .await?;
@@ -388,6 +450,7 @@ pub async fn fts_candidates<'e, E>(
     kinds: &[String],
     q: &str,
     trigram: bool,
+    client_id: Option<Uuid>,
     limit: i64,
 ) -> DbResult<Vec<SearchKey>>
 where
@@ -402,15 +465,22 @@ where
                tsv @@ websearch_to_tsquery('english', $3)
                OR ($4 AND title || ' ' || body ILIKE '%' || $3 || '%')
              )
+             AND (
+               entity_kind <> 'document'
+               OR $5::uuid IS NULL
+               OR client_scope IS NULL
+               OR client_scope = $5
+             )
            ORDER BY ts_rank(tsv, websearch_to_tsquery('english', $3)) * 8
                       + CASE WHEN $4 THEN similarity(title || ' ' || body, $3)
                              ELSE 0 END DESC,
                     indexed_at DESC, entity_id
-           LIMIT $5"#,
+           LIMIT $6"#,
         org_id,
         kinds,
         q,
         trigram,
+        client_id,
         limit
     )
     .fetch_all(executor)
@@ -430,21 +500,37 @@ pub async fn vector_candidates<'e, E>(
     org_id: Uuid,
     kinds: &[String],
     embedding: &[f32],
+    client_id: Option<Uuid>,
     limit: i64,
 ) -> DbResult<Vec<SearchKey>>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
+    // Embeddings carry no scope of their own — the document scoping is
+    // re-derived from the mirrored search_index row (an orphaned embedding
+    // of a deleted document cannot answer; the EXISTS resolves the scope).
     let rows = sqlx::query!(
-        r#"SELECT entity_kind, entity_id
-           FROM search_embeddings
-           WHERE org_id = $1
-             AND entity_kind = ANY($2)
-           ORDER BY embedding <=> $3::text::vector, entity_kind, entity_id
-           LIMIT $4"#,
+        r#"SELECT e.entity_kind, e.entity_id
+           FROM search_embeddings e
+           WHERE e.org_id = $1
+             AND e.entity_kind = ANY($2)
+             AND (
+               e.entity_kind <> 'document'
+               OR $4::uuid IS NULL
+               OR EXISTS (
+                 SELECT 1 FROM search_index s
+                  WHERE s.org_id = e.org_id
+                    AND s.entity_kind = e.entity_kind
+                    AND s.entity_id = e.entity_id
+                    AND (s.client_scope IS NULL OR s.client_scope = $4)
+               )
+             )
+           ORDER BY e.embedding <=> $3::text::vector, e.entity_kind, e.entity_id
+           LIMIT $5"#,
         org_id,
         kinds,
         embedding_to_pg(embedding),
+        client_id,
         limit
     )
     .fetch_all(executor)
@@ -511,8 +597,10 @@ where
 /// The hybrid page: both legs ranked independently, fused by RRF in
 /// core-domain, paginated, then hydrated. Score scale differs from the
 /// legacy FTS path (RRF shares, higher is better) — same response shape.
-/// Runs over one connection (`&mut PgConnection`) because it issues several
-/// queries; callers pass an RLS-scoped transaction exactly as elsewhere.
+/// `client_id` scopes the `document` kind in BOTH legs (0089), exactly as
+/// the legacy FTS path documents it. Runs over one connection
+/// (`&mut PgConnection`) because it issues several queries; callers pass
+/// an RLS-scoped transaction exactly as elsewhere.
 #[allow(clippy::too_many_arguments)]
 pub async fn search_hybrid_page(
     tx: &mut PgConnection,
@@ -520,13 +608,14 @@ pub async fn search_hybrid_page(
     kinds: &[String],
     q: &str,
     trigram: bool,
+    client_id: Option<Uuid>,
     embedding: &[f32],
     limit: i64,
     offset: i64,
 ) -> DbResult<Vec<SearchHit>> {
     let depth = candidate_limit(limit, offset);
-    let lexical = fts_candidates(&mut *tx, org_id, kinds, q, trigram, depth).await?;
-    let vector = vector_candidates(&mut *tx, org_id, kinds, embedding, depth).await?;
+    let lexical = fts_candidates(&mut *tx, org_id, kinds, q, trigram, client_id, depth).await?;
+    let vector = vector_candidates(&mut *tx, org_id, kinds, embedding, client_id, depth).await?;
     let fused = reciprocal_rank_fusion(&[&lexical, &vector]);
     let page: Vec<&(SearchKey, f64)> = fused
         .iter()
@@ -545,13 +634,17 @@ pub async fn search_hybrid_page(
 }
 
 /// Total distinct matches across both legs — the union the fused page is
-/// drawn from, powering result counts and pagination metadata.
+/// drawn from, powering result counts and pagination metadata. `client_id`
+/// scopes the `document` kind on BOTH union legs (0089 — the embeddings
+/// leg re-derives the scope from the mirrored index row, so an embedded
+/// out-of-scope document never inflates the count).
 pub async fn search_hybrid_count<'e, E>(
     executor: E,
     org_id: Uuid,
     kinds: &[String],
     q: &str,
     trigram: bool,
+    client_id: Option<Uuid>,
 ) -> DbResult<i64>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
@@ -567,14 +660,32 @@ where
                   tsv @@ websearch_to_tsquery('english', $3)
                   OR ($4 AND title || ' ' || body ILIKE '%' || $3 || '%')
                 )
+                AND (
+                  entity_kind <> 'document'
+                  OR $5::uuid IS NULL
+                  OR client_scope IS NULL
+                  OR client_scope = $5
+                )
              UNION
-             SELECT entity_kind, entity_id FROM search_embeddings
-              WHERE org_id = $1 AND entity_kind = ANY($2)
+             SELECT e.entity_kind, e.entity_id FROM search_embeddings e
+              WHERE e.org_id = $1 AND e.entity_kind = ANY($2)
+                AND (
+                  e.entity_kind <> 'document'
+                  OR $5::uuid IS NULL
+                  OR EXISTS (
+                    SELECT 1 FROM search_index s
+                     WHERE s.org_id = e.org_id
+                       AND s.entity_kind = e.entity_kind
+                       AND s.entity_id = e.entity_id
+                       AND (s.client_scope IS NULL OR s.client_scope = $5)
+                  )
+                )
            ) u"#,
         org_id,
         kinds,
         q,
-        trigram
+        trigram,
+        client_id
     )
     .fetch_one(executor)
     .await?;

@@ -188,6 +188,10 @@ import type { MeridianPaths } from "@meridian/sdk";
 const TICKET_ATTACHMENTS_PATH = "/api/v1/tickets/{id}/attachments" satisfies keyof MeridianPaths;
 const ATTACHMENT_DOWNLOAD_PATH =
   "/api/v1/attachments/{id}/download" satisfies keyof MeridianPaths;
+const DOCUMENT_ATTACHMENTS_PATH =
+  "/api/v1/documents/{id}/attachments" satisfies keyof MeridianPaths;
+const DOCUMENT_ATTACHMENT_DOWNLOAD_PATH =
+  "/api/v1/documents/{id}/attachments/{attachment_id}/download" satisfies keyof MeridianPaths;
 const PLUGIN_ZIP_STAGE_PATH = "/api/v1/plugins/distribution/staged/zip" satisfies keyof MeridianPaths;
 
 /** Auth header for manual fetches against the API base URL. */
@@ -248,6 +252,72 @@ export async function downloadAttachment(attachmentId: string, filename: string)
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+export interface UploadedDocumentAttachment {
+  id: string;
+  document_id: string;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  sha256: string;
+}
+
+/**
+ * Uploads one file against a document (same raw bypass as the ticket
+ * surface: octet-stream body, `x-filename` + declared content-type).
+ * Throws with the server's message on validation failures — size-cap
+ * rejections surface verbatim.
+ */
+export async function uploadDocumentAttachment(
+  documentId: string,
+  file: File,
+): Promise<UploadedDocumentAttachment> {
+  const response = await fetch(
+    `${apiBaseUrl()}${DOCUMENT_ATTACHMENTS_PATH.replace("{id}", documentId)}`,
+    {
+      method: "POST",
+      headers: {
+        ...authHeaders(),
+        "content-type": file.type === "" ? "application/octet-stream" : file.type,
+        "x-filename": file.name,
+      },
+      body: file,
+    },
+  );
+  if (!response.ok) {
+    const detail = (await response.json().catch(() => null)) as
+      | { error?: { message?: string } }
+      | null;
+    throw new Error(detail?.error?.message ?? `Upload failed (${response.status})`);
+  }
+  return (await response.json()) as UploadedDocumentAttachment;
+}
+
+/** Streams a document attachment through the API; honors content-disposition. */
+export async function downloadDocumentAttachment(
+  documentId: string,
+  attachmentId: string,
+  fallbackFilename: string,
+): Promise<void> {
+  const response = await fetch(
+    `${apiBaseUrl()}${
+      DOCUMENT_ATTACHMENT_DOWNLOAD_PATH
+        .replace("{id}", documentId)
+        .replace("{attachment_id}", attachmentId)
+    }`,
+    { headers: authHeaders() },
+  );
+  if (!response.ok) throw new Error(`Download failed (${response.status})`);
+  const disposition = response.headers.get("content-disposition") ?? "";
+  const match = /filename\*?=(?:UTF-8'')?"?([^";]+)/i.exec(disposition);
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = match?.[1]?.trim() ?? fallbackFilename;
   anchor.click();
   URL.revokeObjectURL(url);
 }

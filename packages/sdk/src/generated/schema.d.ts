@@ -222,6 +222,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/alerts/{id}/acknowledge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/alerts/{id}/acknowledge — triage: open → acknowledged.
+         *     Instant-first (IF1/IF2): idempotency-keyed, read-your-write. Re-ack
+         *     (or ack of an already-resolved alert) is a typed conflict — the state
+         *     is honest, never silently rewritten.
+         */
+        post: operations["alerts_acknowledge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/alerts/{id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/alerts/{id}/resolve — triage: open/acknowledged → resolved.
+         *     Resolving straight from `open` leaves the ack fields NULL (no
+         *     acknowledgement ever happened — the row renders that honestly).
+         */
+        post: operations["alerts_resolve"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/api-keys": {
         parameters: {
             query?: never;
@@ -1320,6 +1363,22 @@ export interface paths {
         patch: operations["automation_rules_update"];
         trace?: never;
     };
+    "/api/v1/automation-rules/{id}/test-run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["automation_rules_test_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/availability": {
         parameters: {
             query?: never;
@@ -1910,6 +1969,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/calendar/deadlines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/calendar/deadlines — the ORG-WIDE ticket-deadline read model
+         *     (Wave 17 lane 13): /calendar team mode overlays THIS instead of the
+         *     bounded page-1 tickets fetch. Alive tickets only (category not closed)
+         *     whose due date falls in the window; hydrated in the row itself.
+         */
+        get: operations["calendar_deadlines"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/calendar/team": {
         parameters: {
             query?: never;
@@ -2070,6 +2151,30 @@ export interface paths {
         get: operations["board_exposures_list"];
         /** PUT /api/clients/{id}/board-exposures — upsert one board×client row. */
         put: operations["board_exposures_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/clients/{id}/completeness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/clients/{id}/completeness — backend documentation-completeness
+         *     scoring (Wave 17 lane 13): the weights live SERVER-side now, replacing
+         *     the honest client-side metadata scoring the clients lane shipped.
+         *     Same shape, same pro-ration doctrine: score = round(earned /
+         *     maxKnown × 100) with null legs (leg absent) pro-rated OUT, never a
+         *     silent zero.
+         */
+        get: operations["clients_completeness"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -3083,6 +3188,70 @@ export interface paths {
         patch: operations["documents_update"];
         trace?: never;
     };
+    "/api/v1/documents/{id}/attachments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/documents/{id}/attachments — newest-first list for one doc. */
+        get: operations["document_attachments_list"];
+        put?: never;
+        /**
+         * POST /api/documents/{id}/attachments — raw octet-stream upload (same
+         *     header contract as the ticket surface: `x-filename` + declared
+         *     content-type verified against sniffed magic bytes).
+         */
+        post: operations["document_attachments_upload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}/attachments/{attachment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/documents/{id}/attachments/{attachment_id} — author-gated
+         *     (the uploader, or an org owner/admin). The stored object is reclaimed
+         *     only when NO row in EITHER attachments table still references the same
+         *     content-addressed key.
+         */
+        delete: operations["document_attachments_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{id}/attachments/{attachment_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/documents/{id}/attachments/{attachment_id}/download — streams
+         *     the stored object behind documents authz (no presigned URLs in v1).
+         */
+        get: operations["document_attachments_download"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/documents/{id}/links": {
         parameters: {
             query?: never;
@@ -3980,7 +4149,15 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * DELETE /api/meeting-types/{id} — HARD delete with audit (Wave 17 lane
+         *     13): unlike the Pause toggle (PATCH `is_active`), this removes the
+         *     template outright. A scheduling link still referencing the row refuses
+         *     with a typed conflict (the FK RESTRICT surfaces) — pause the links
+         *     FIRST or re-target them; history rows (bookings) are untouched by the
+         *     template's deletion.
+         */
+        delete: operations["meeting_types_delete"];
         options?: never;
         head?: never;
         /** PATCH /api/meeting-types/{id} */
@@ -4279,13 +4456,59 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * GET /api/org/exports — the org-export ledger read model (0089):
+         *     newest-first list over the exports the org has created so
+         *     /settings/export grows its list/archive surface over real history.
+         */
+        get: operations["org_export_list"];
         put?: never;
         /**
          * POST /api/org/exports — builds the versioned bundle, streams it into
          *     the ObjectStore, and returns the signed download link.
          */
         post: operations["org_export_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/org/exports/{export_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/org/exports/{export_id} — archives (or restores) ONE ledger
+         *     row; a pure read-model toggle over the row, content untouched.
+         */
+        patch: operations["org_export_archive"];
+        trace?: never;
+    };
+    "/api/v1/org/exports/{export_id}/download-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/org/exports/{export_id}/download-link — mints ONE fresh
+         *     15-minute signed link for a LEDGERED export (the link is never stored
+         *     — this is the per-row download affordance the history surface uses).
+         */
+        post: operations["org_export_link"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6703,6 +6926,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/search/pins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/search/pins — the caller's own pins, newest-first. */
+        get: operations["search_pins_list"];
+        put?: never;
+        /**
+         * POST /api/search/pins — pins one stored result. The entity must EXIST
+         *     in the index (a pin is a stored result, never invented) and kind sits
+         *     behind the same permission gate the query ran behind. Idempotent:
+         *     re-pinning the same (kind, id) answers the stored pin.
+         */
+        post: operations["search_pins_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/search/pins/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/search/pins/{id} — unpins the caller's OWN pin; another
+         *     user's pin is simply not theirs (typed 404, never a conflict leak).
+         */
+        delete: operations["search_pins_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/secrets/folders": {
         parameters: {
             query?: never;
@@ -8721,11 +8987,25 @@ export interface components {
             offset?: number;
             /** Format: uuid */
             source_id?: string | null;
+            /**
+             * @description Triage filter (0089): "open" | "acknowledged" | "resolved" —
+             *     absent returns all states.
+             */
+            status?: string | null;
             /** Format: uuid */
             ticket_id?: string | null;
         };
         AlertListResponse: {
             alerts: components["schemas"]["AlertView"][];
+        };
+        /**
+         * @description Instant-first mutation response for a triage action (0089). The alert
+         *     IS the read-your-write result; `mutation` carries the envelope metadata
+         *     (idempotency replay, entity seq).
+         */
+        AlertMutationResponse: {
+            alert: components["schemas"]["AlertView"];
+            mutation: components["schemas"]["MutationMeta"];
         };
         /**
          * @description Alert severity vocabulary. Maps onto ticket priorities when an alert
@@ -8769,6 +9049,9 @@ export interface components {
         };
         /** @description One normalized alert (canonical ingest document + ledger row view). */
         AlertView: {
+            acked_at?: string | null;
+            /** Format: uuid */
+            acked_by?: string | null;
             attributes: Record<string, never>;
             /** @description Storm grouping key (defaults to the dedup key server-side). */
             correlation_key: string;
@@ -8783,9 +9066,14 @@ export interface components {
             /** Format: uuid */
             org_id: string;
             received_at: string;
+            resolved_at?: string | null;
+            /** Format: uuid */
+            resolved_by?: string | null;
             severity: string;
             /** Format: uuid */
             source_id: string;
+            /** @description Triage state (0089): "open" | "acknowledged" | "resolved". */
+            status: string;
             title: string;
         };
         /**
@@ -9169,6 +9457,38 @@ export interface components {
             /** @enum {string} */
             type: "unassigned";
         };
+        /**
+         * @description POST /api/automation-rules/{id}/test-run — dry-run one rule against the
+         *     org's most recent tickets (board-scoped when the rule binds a board),
+         *     PROPOSAL-shaped: what WOULD match and what the actions would do. The
+         *     rule editor renders the result; nothing is ever applied and no event is
+         *     emitted — a test-run writes nothing (Wave 17 lane 13 contract: the rule
+         *     editor never pretends to execute).
+         */
+        AutomationTestRunMatch: {
+            /** Format: uuid */
+            assignee_id?: string | null;
+            number: string;
+            /** Format: uuid */
+            ticket_id: string;
+            title: string;
+        };
+        AutomationTestRunResponse: {
+            /**
+             * @description The rule's CURRENT action documents, returned verbatim — the
+             *     editor renders them as the proposal preview (never re-derived).
+             */
+            actions_preview: unknown;
+            matched_count: number;
+            matches: components["schemas"]["AutomationTestRunMatch"][];
+            /** Format: uuid */
+            rule_id: string;
+            /**
+             * @description What the run sampled (the org's recent tickets, board-filtered
+             *     when the rule binds a board).
+             */
+            sampled_count: number;
+        };
         AvailabilityListResponse: {
             /** Format: uuid */
             user_id: string;
@@ -9438,6 +9758,12 @@ export interface components {
             org_id: string;
             /** Format: int32 */
             sort_order: number;
+            /**
+             * Format: int32
+             * @description Per-column WIP cap (0089): occupancy of this column is enforced
+             *     server-side at ticket status change. `None` = no limit.
+             */
+            wip_limit?: number | null;
         };
         /**
          * @description GET response for a board's workflow: either its explicit matrix or the
@@ -9620,6 +9946,29 @@ export interface components {
             time_of_day: string;
             /** @description IANA zone the wall clock reads in. */
             timezone?: string;
+        };
+        /** @description One deadline the overlay renders. Hydration lives in the row. */
+        CalendarDeadlineEntry: {
+            /** Format: uuid */
+            assignee_id?: string | null;
+            /** Format: uuid */
+            board_id: string;
+            /** @description Semantic category (informational — closed tickets never arrive). */
+            category: string;
+            /** Format: uuid */
+            client_id?: string | null;
+            due_at: string;
+            number: string;
+            /** Format: uuid */
+            ticket_id: string;
+            title: string;
+        };
+        CalendarDeadlinesResponse: {
+            deadlines: components["schemas"]["CalendarDeadlineEntry"][];
+            /** Format: date-time */
+            from: string;
+            /** Format: date-time */
+            to: string;
         };
         /** @description Absolute UTC time-off punching holes in availability. */
         CalendarExclusion: {
@@ -10156,6 +10505,21 @@ export interface components {
             updated_at: string;
         };
         /**
+         * @description The backend documentation-completeness read model — the weights live
+         *     here; the web card renders the facts.
+         */
+        ClientCompletenessView: {
+            /** @description One human sentence, honest about the untouched legs (n/a). */
+            basis: string;
+            gaps: components["schemas"]["CompletenessGap"][];
+            /**
+             * Format: int32
+             * @description 0..=100, pro-rated over the legs the facts CAN speak about
+             *     (never a silent zero and never a padded 100).
+             */
+            score: number;
+        };
+        /**
          * @description Instant-first mutation response (IF2): client fields at the top level
          *     (unchanged shape) plus the additive `mutation` metadata.
          */
@@ -10205,6 +10569,16 @@ export interface components {
              *     (idempotent); unknown ids 404 the whole call (batch atomicity).
              */
             task_ids: string[];
+        };
+        /** @description One named scoring leg that couldn't earn its weight. */
+        CompletenessGap: {
+            hint: string;
+            /**
+             * @description Stable vocabulary the web card maps to copy (same keys the client
+             *     lane's card used — the render contract did not move).
+             */
+            key: string;
+            label: string;
         };
         /** @description Instant-first mutation response (IF2). */
         ConfigItemMutationResponse: components["schemas"]["DeviceAsset"] & {
@@ -11182,6 +11556,16 @@ export interface components {
              */
             ticket_id?: string | null;
         };
+        CreateSearchPinRequest: {
+            /** Format: uuid */
+            entity_id: string;
+            entity_kind: string;
+            /**
+             * @description The query that produced the result (2..=256 chars — the same bounds
+             *     GET /api/search enforces), snapshotted on the pin.
+             */
+            query: string;
+        };
         CreateSecretFolderRequest: {
             /**
              * Format: uuid
@@ -11245,6 +11629,12 @@ export interface components {
             name: string;
             /** Format: int32 */
             sort_order: number;
+            /**
+             * Format: int32
+             * @description Optional per-column WIP cap (0089). 1..=1000 — the DB CHECK is the
+             *     backstop; this route validates before the write.
+             */
+            wip_limit?: number | null;
         };
         CreateTagRequest: components["schemas"]["MutationParams"] & {
             color?: string | null;
@@ -11879,6 +12269,31 @@ export interface components {
             /** Format: uuid */
             updated_by?: string | null;
         };
+        DocumentAttachmentDeleted: {
+            deleted: boolean;
+            /** @description Whether the backing object was reclaimed too (refcount hit 0). */
+            object_removed: boolean;
+        };
+        DocumentAttachmentList: {
+            attachments: components["schemas"]["DocumentAttachmentView"][];
+        };
+        DocumentAttachmentView: {
+            content_type: string;
+            created_at: string;
+            /** Format: uuid */
+            document_id: string;
+            filename: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            /** @description sha256 hex — integrity verifiable after download. */
+            sha256: string;
+            /** Format: int64 */
+            size_bytes: number;
+            /** Format: uuid */
+            uploaded_by?: string | null;
+        };
         /**
          * @description An org-managed document/asset type. System layouts (the seeded
          *     standard MSP set) are editable but not deletable.
@@ -12161,6 +12576,9 @@ export interface components {
             expense: components["schemas"]["TicketExpense"];
             mutation: components["schemas"]["MutationMeta"];
         };
+        ExportArchiveUpdate: {
+            archived: boolean;
+        };
         /** @description The org-data export envelope, `bundle_version` 1. */
         ExportBundle: {
             /**
@@ -12261,6 +12679,31 @@ export interface components {
             field_id: string;
             /** @description The typed value exactly as stored (JSONB passthrough). */
             value: Record<string, never>;
+        };
+        ExportHistoryList: {
+            exports: components["schemas"]["ExportHistoryView"][];
+        };
+        /**
+         * @description One ledger row as /settings/export renders it. The signed link is
+         *     NEVER stored — rows carry content facts; links are minted fresh.
+         */
+        ExportHistoryView: {
+            archived: boolean;
+            /** Format: int32 */
+            bundle_version: number;
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** Format: uuid */
+            export_id: string;
+            sha256: string;
+            /** Format: int64 */
+            size_bytes: number;
+        };
+        ExportLinkRefreshed: {
+            download_url: string;
+            /** Format: date-time */
+            expires_at: string;
         };
         /** @description Org profile identity. */
         ExportOrg: {
@@ -13769,6 +14212,9 @@ export interface components {
             name: string;
             /** @description Free-form org-edited payload (location hint, agenda, questions…). */
             parameters?: unknown;
+        };
+        MeetingTypeDeleted: {
+            deleted: boolean;
         };
         MeetingTypeMutation: {
             meeting_type: components["schemas"]["MeetingType"];
@@ -16626,7 +17072,36 @@ export interface components {
              */
             by_work_type: components["schemas"]["WorkTypeSlice"][];
         };
+        SearchPinList: {
+            pins: components["schemas"]["SearchPinView"][];
+        };
+        /** @description One pinned result as the /search surface renders it. */
+        SearchPinView: {
+            created_at: string;
+            /** Format: uuid */
+            entity_id: string;
+            entity_kind: string;
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: uuid
+             * @description e.g. comment → its ticket id; mirrors the live row.
+             */
+            parent_id?: string | null;
+            /** @description The pinned query, snapshotted (a pin re-runs THIS query). */
+            query: string;
+            /** @description The title AT PIN TIME (the honest snapshot, never re-faked). */
+            title: string;
+        };
         SearchQuery: {
+            /**
+             * Format: uuid
+             * @description Optional client scope for the `document` kind (0089, per-client
+             *     document scoping): when set, indexed documents answer only when
+             *     org-global (client_scope NULL) or scoped to THIS client. Every
+             *     other kind is untouched.
+             */
+            client_id?: string | null;
             /** Format: int64 */
             limit?: number;
             /** Format: int64 */
@@ -18600,6 +19075,11 @@ export interface components {
             name?: string | null;
             /** Format: int32 */
             sort_order?: number | null;
+            /**
+             * @description WIP cap (0089): absent = unchanged; JSON `null` = CLEAR the cap; a
+             *     number = set it (1..=1000 — the DB CHECK is the backstop).
+             */
+            wip_limit?: components["schemas"]["WipLimitUpdate"];
         };
         UpdateTagRequest: components["schemas"]["MutationParams"] & {
             /** @description Some → set (null clears); absent → no change. */
@@ -18809,6 +19289,16 @@ export interface components {
             /** Format: uuid */
             id: string;
             url: string;
+        };
+        /**
+         * @description WIP-cap patch input (0089): `Default` (field absent) = unchanged;
+         *     JSON null = clear; a number = set. serde's `Option<Option>` mapping
+         *     makes a present-but-null field UNREPRESENTABLE from JSON (null folds
+         *     to the outer None), so the three states ride an explicit enum.
+         */
+        WipLimitUpdate: "Unchanged" | "Clear" | {
+            /** Format: int32 */
+            Set: number;
         };
         WorkTypeSlice: {
             /** Format: int64 */
@@ -19245,6 +19735,11 @@ export interface operations {
             query?: {
                 source_id?: string | null;
                 ticket_id?: string | null;
+                /**
+                 * @description Triage filter (0089): "open" | "acknowledged" | "resolved" —
+                 *     absent returns all states.
+                 */
+                status?: string | null;
                 limit?: number;
                 offset?: number;
             };
@@ -19304,6 +19799,98 @@ export interface operations {
             };
             /** @description unknown source_ref */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    alerts_acknowledge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MutationParams"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertMutationResponse"];
+                };
+            };
+            /** @description alert not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description alert already acknowledged or resolved */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    alerts_resolve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MutationParams"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertMutationResponse"];
+                };
+            };
+            /** @description alert not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description alert already resolved */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -21105,6 +21692,41 @@ export interface operations {
             };
         };
     };
+    automation_rules_test_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutomationTestRunResponse"];
+                };
+            };
+            /** @description rule not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description stored rule document is malformed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     availability_list: {
         parameters: {
             query?: {
@@ -22182,6 +22804,41 @@ export interface operations {
             };
         };
     };
+    calendar_deadlines: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Absolute UTC window [from, to); capped at 62 days like the team
+                 *     view (a deadline overlay never walks quarterly ranges).
+                 */
+                from?: string | null;
+                to?: string | null;
+                /** @description Optional per-person narrowing (personal mode rides the same model). */
+                assignee_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarDeadlinesResponse"];
+                };
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     calendar_team: {
         parameters: {
             query?: {
@@ -22574,6 +23231,34 @@ export interface operations {
                 };
             };
             /** @description board or client missing */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    clients_completeness: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientCompletenessView"];
+                };
+            };
+            /** @description client not visible in scope */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -24682,6 +25367,117 @@ export interface operations {
             };
         };
     };
+    document_attachments_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentAttachmentList"];
+                };
+            };
+        };
+    };
+    document_attachments_upload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": number[];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentAttachmentView"];
+                };
+            };
+            /** @description document not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    document_attachments_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                attachment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentAttachmentDeleted"];
+                };
+            };
+            /** @description attachment not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    document_attachments_download: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                attachment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": number[];
+                };
+            };
+        };
+    };
     documents_list_links: {
         parameters: {
             query?: never;
@@ -26520,6 +27316,41 @@ export interface operations {
             };
         };
     };
+    meeting_types_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeetingTypeDeleted"];
+                };
+            };
+            /** @description meeting type not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description a scheduling link still references this meeting type */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     meeting_types_update: {
         parameters: {
             query?: never;
@@ -26975,6 +27806,30 @@ export interface operations {
             };
         };
     };
+    org_export_list: {
+        parameters: {
+            query?: {
+                /** @description Filter by archive state; absent returns all rows. */
+                archived?: boolean | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportHistoryList"];
+                };
+            };
+        };
+    };
     org_export_create: {
         parameters: {
             query?: never;
@@ -26991,6 +27846,66 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ExportCreatedResponse"];
                 };
+            };
+        };
+    };
+    org_export_archive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                export_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExportArchiveUpdate"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportHistoryView"];
+                };
+            };
+            /** @description export not in this org's ledger */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    org_export_link: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                export_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportLinkRefreshed"];
+                };
+            };
+            /** @description export not in this org's ledger */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -31981,6 +32896,13 @@ export interface operations {
                  *     substrings via the trigram fallback.
                  */
                 q: string;
+                /**
+                 * @description Optional client scope for the `document` kind (0089, per-client
+                 *     document scoping): when set, indexed documents answer only when
+                 *     org-global (client_scope NULL) or scoped to THIS client. Every
+                 *     other kind is untouched.
+                 */
+                client_id?: string | null;
                 limit?: number;
                 offset?: number;
             };
@@ -31997,6 +32919,97 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SearchResponse"];
                 };
+            };
+        };
+    };
+    search_pins_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchPinList"];
+                };
+            };
+        };
+    };
+    search_pins_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSearchPinRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchPinView"];
+                };
+            };
+            /** @description no permission for that kind */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description that row is not in your org's search index */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    search_pins_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description pin not visible to this user */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

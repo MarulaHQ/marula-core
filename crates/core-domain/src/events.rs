@@ -227,6 +227,12 @@ pub mod types {
     /// for `incident_created` and `collapsed` outcomes only — a replayed
     /// `duplicate` dedup_key writes nothing and emits nothing.
     pub const ALERT_INGESTED: &str = "alert.ingested";
+    /// Alert triage (Wave 17 lane 13, migration 0089): a staff member
+    /// acknowledged or resolved a stored alert through the /alerts
+    /// surface. Forward-only through the API — the row carries the
+    /// actor + timestamp it reported.
+    pub const ALERT_ACKNOWLEDGED: &str = "alert.acknowledged";
+    pub const ALERT_RESOLVED: &str = "alert.resolved";
     /// Lightweight change markers — consumers refetch the user's windows.
     pub const AVAILABILITY_UPDATED: &str = "availability.updated";
     pub const ON_CALL_UPDATED: &str = "on_call.updated";
@@ -239,6 +245,10 @@ pub mod types {
     pub const SCHEDULING_LINK_VIEWED: &str = "scheduling_link.viewed";
     pub const SCHEDULING_LINK_SCHEDULED: &str = "scheduling_link.scheduled";
     pub const SCHEDULING_LINK_REVOKED: &str = "scheduling_link.revoked";
+    /// Scheduling templates (Wave 17 lane 13): a meeting type was hard
+    /// deleted by an admin. DELETE refuses when a scheduling link still
+    /// references the row (typed conflict — the FK RESTRICT surfaces).
+    pub const MEETING_TYPE_DELETED: &str = "meeting_type.deleted";
     /// Two-way calendar sync (Wave 14 lane 2). Connection lifecycle (a
     /// connection was created/updated/disabled or a poll failed →
     /// `status: "error"`), and the outcome of one inbound sync run
@@ -258,6 +268,11 @@ pub mod types {
     pub const ATTACHMENT_ADDED: &str = "attachment.added";
     pub const ATTACHMENT_LINKED: &str = "attachment.linked";
     pub const ATTACHMENT_DELETED: &str = "attachment.deleted";
+    /// Documents attachments (Wave 17 lane 13, migration 0089): the
+    /// documents surface over the same content-addressed seam — a distinct
+    /// family from `attachment.*` (that one is ticket/email-shaped).
+    pub const DOCUMENT_ATTACHMENT_ADDED: &str = "document_attachment.added";
+    pub const DOCUMENT_ATTACHMENT_DELETED: &str = "document_attachment.deleted";
     /// Custom fields / dynamic forms v1 (TASKLIST 2.17): definition CRUD
     /// through the board settings surface and typed ticket-value writes.
     pub const CUSTOM_FIELD_DEF_CREATED: &str = "custom_field.def_created";
@@ -1432,6 +1447,38 @@ pub struct AlertIngested {
     pub occurred_at: DateTime<Utc>,
 }
 
+/// `alert.acknowledged` — a staff member acknowledged the alert
+/// (Wave 17 lane 13, migration 0089). The row's `status` is
+/// `acknowledged` after this; forward-only through the API (the route
+/// refuses re-ack with a typed validation error).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AlertAcknowledged {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub alert_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub org_id: OrgId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub acknowledged_by: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub acknowledged_at: DateTime<Utc>,
+}
+
+/// `alert.resolved` — a staff member resolved the alert. From any
+/// open/acknowledged state; the row's `status` is `resolved` after.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AlertResolved {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub alert_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub org_id: OrgId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub resolved_by: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub resolved_at: DateTime<Utc>,
+}
+
 /// Extracts @mentions from a note body (`@alice`, `@alice@org` → user ids
 /// resolved by the caller). Returns the distinct handle strings.
 pub fn extract_mentions(body: &str) -> Vec<String> {
@@ -1495,6 +1542,57 @@ pub struct AttachmentDeleted {
 }
 
 // --- workflow constructs (Wave 11 lane 9, migration 0056) --------------------
+
+/// `meeting_type.deleted` — a meeting type was hard deleted by an admin
+/// (Wave 17 lane 13). The endpoint refuses (typed conflict) while a
+/// scheduling link still references the row, so this event means the row
+/// is GONE — paused templates are PATCHes, not deletes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct MeetingTypeDeleted {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub meeting_type_id: uuid::Uuid,
+    pub name: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub deleted_by: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub deleted_at: DateTime<Utc>,
+}
+
+/// `document_attachment.added` — a file was stored and bound to a
+/// document over the documents-attachments surface (Wave 17 lane 13,
+/// migration 0089). Distinct from `attachment.added` (that family is
+/// ticket/email-shaped); same content-addressed dedup doctrine.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct DocumentAttachmentAdded {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub attachment_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub org_id: OrgId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub document_id: uuid::Uuid,
+    pub filename: String,
+    pub content_type: String,
+    pub size_bytes: i64,
+    /// sha256 hex — consumers can verify integrity after download.
+    pub sha256: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub uploaded_by: Option<uuid::Uuid>,
+}
+
+/// `document_attachment.deleted` — the metadata row went away;
+/// `object_removed` reports whether the backing bytes were reclaimed too
+/// (refcount hit 0).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct DocumentAttachmentDeleted {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub attachment_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub document_id: uuid::Uuid,
+    pub object_removed: bool,
+}
 
 /// `tag.created` — a tag was added to the org taxonomy.
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,0 +1,17 @@
+{
+  "event_type": "document_attachment.added",
+  "entity": "document_attachment",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "attachment_id": "00000000-0000-0000-0000-000000000015",
+    "content_type": "image/png",
+    "document_id": "00000000-0000-0000-0000-000000000016",
+    "filename": "network-diagram.png",
+    "org_id": "00000000-0000-0000-0000-000000000002",
+    "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "size_bytes": 12345,
+    "uploaded_by": "00000000-0000-0000-0000-000000000005"
+  }
+}

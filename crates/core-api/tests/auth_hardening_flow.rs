@@ -15,7 +15,7 @@
 
 use axum::http::Method;
 use core_api::{config::Config, state::AppState};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sqlx::PgPool;
 use std::{sync::Arc, time::Duration};
 use tower::ServiceExt;
@@ -88,20 +88,21 @@ async fn register_org(app: &axum::Router, slug: &str) -> Value {
             "/api/auth/register",
             None,
             &[],
-            Some(
-                json!({
-                    "org_name": "Hard Co",
-                    "org_slug": slug,
-                    "email": format!("owner@{slug}.test"),
-                    "password": "correct-horse-battery-11",
-                    "display_name": "Owner",
-                }),
-            ),
+            Some(json!({
+                "org_name": "Hard Co",
+                "org_slug": slug,
+                "email": format!("owner@{slug}.test"),
+                "password": "correct-horse-battery-11",
+                "display_name": "Owner",
+            })),
         )
         .await,
     )
     .await;
-    let bearer: String = tokens["access_token"].as_str().map(String::from).unwrap_or_default();
+    let bearer: String = tokens["access_token"]
+        .as_str()
+        .map(String::from)
+        .unwrap_or_default();
     let me = body_json(send(app, Method::GET, "/api/me", Some(&bearer), &[], None).await).await;
     json!({
         "access_token": bearer,
@@ -354,7 +355,10 @@ async fn login_sets_the_hardened_cookie_trio() {
         .or_else(|_| std::env::var("DATABASE_URL"))
         .expect("needs MERIDIAN_TEST_DATABASE_URL or DATABASE_URL");
     let app = core_api::router(test_state(&admin_url).await);
-    let slug = format!("cook-{}", Uuid::now_v7().to_string()[..8].to_ascii_lowercase());
+    let slug = format!(
+        "cook-{}",
+        Uuid::now_v7().to_string()[..8].to_ascii_lowercase()
+    );
     let email = format!("owner@{slug}.test");
     // Bootstrap the account (same login POST follows register verbatim).
     register_org(&app, &slug).await;
@@ -379,7 +383,9 @@ async fn login_sets_the_hardened_cookie_trio() {
         .filter_map(|v| v.to_str().ok().map(String::from))
         .collect();
     assert!(
-        set_cookies.iter().any(|c| c.starts_with("meridian_session=") && c.contains("HttpOnly")),
+        set_cookies
+            .iter()
+            .any(|c| c.starts_with("meridian_session=") && c.contains("HttpOnly")),
         "httpOnly session cookie missing: {set_cookies:?}"
     );
     assert!(set_cookies.iter().any(|c| c.contains("SameSite=Lax")));

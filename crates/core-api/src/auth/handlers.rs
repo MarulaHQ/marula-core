@@ -367,7 +367,6 @@ pub async fn login(
         )
         .await;
         return Ok(auth_json_response(
-
             LoginResponse::MfaRequired {
                 mfa_required: true,
                 mfa_token,
@@ -401,7 +400,10 @@ pub async fn login(
     .await;
 
     let cookies_head = auth_cookie_headers(&state, tokens.session_id, &tokens.refresh_token);
-    Ok(auth_json_response(LoginResponse::Tokens(tokens), cookies_head))
+    Ok(auth_json_response(
+        LoginResponse::Tokens(tokens),
+        cookies_head,
+    ))
 }
 
 fn audit_failed_login(state: &AppState, org_id: Uuid) {
@@ -483,10 +485,7 @@ pub(crate) async fn issue_tokens_with_cookies(
 
 /// Token-pair responses issued after any second-factor finish share the
 /// same session-cookie trio + shaper as the password login (§A2 parity).
-pub(crate) fn mfa_cookie_response(
-    state: &AppState,
-    tokens: TokenPair,
-) -> axum::response::Response {
+pub(crate) fn mfa_cookie_response(state: &AppState, tokens: TokenPair) -> axum::response::Response {
     let head = auth_cookie_headers(state, tokens.session_id, &tokens.refresh_token);
     auth_json_response(tokens, head)
 }
@@ -520,9 +519,10 @@ pub async fn refresh(
 
     // Cookie fallback: browser clients may POST with no (or empty) body.
     let refresh_token: Option<(Uuid, String)> = match req {
-        Some(Json(RefreshRequest { refresh_token: Some(t), session_id: Some(sid) })) => {
-            Some((sid, t))
-        }
+        Some(Json(RefreshRequest {
+            refresh_token: Some(t),
+            session_id: Some(sid),
+        })) => Some((sid, t)),
         _ => cookies::session_refresh_pair_from(&headers),
     };
     let Some((sid, secret)) = refresh_token else {
@@ -626,8 +626,7 @@ pub async fn refresh(
         new_session,
     )
     .map_err(|e| ApiError::Internal(e.into()))?;
-    let cookies_head =
-        auth_cookie_headers(&state, new_session, &new_refresh);
+    let cookies_head = auth_cookie_headers(&state, new_session, &new_refresh);
     Ok(auth_json_response(
         TokenPair {
             access_token: access,
@@ -650,9 +649,10 @@ pub async fn logout(
     // Cookie fallback: browser clients may POST with no (or empty) body
     // — the httpOnly session cookie carries (session, secret).
     let refresh_token = match req {
-        Some(Json(RefreshRequest { refresh_token: Some(t), session_id: Some(sid) })) => {
-            Some((sid, t))
-        }
+        Some(Json(RefreshRequest {
+            refresh_token: Some(t),
+            session_id: Some(sid),
+        })) => Some((sid, t)),
         _ => cookies::session_refresh_pair_from(&headers),
     };
     if !cookies::double_submit_ok(&headers) {

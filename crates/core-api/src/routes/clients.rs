@@ -426,3 +426,199 @@ pub async fn create_asset(
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(asset))
 }
+
+// --- documentation completeness (Wave 17 lane 13, 0089) -----------------------
+
+/// One named scoring leg that couldn't earn its weight.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CompletenessGap {
+    /// Stable vocabulary the web card maps to copy (same keys the client
+    /// lane's card used — the render contract did not move).
+    pub key: String,
+    pub label: String,
+    pub hint: String,
+}
+
+/// The backend documentation-completeness read model — the weights live
+/// here; the web card renders the facts.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ClientCompletenessView {
+    /// 0..=100, pro-rated over the legs the facts CAN speak about
+    /// (never a silent zero and never a padded 100).
+    pub score: i32,
+    pub gaps: Vec<CompletenessGap>,
+    /// One human sentence, honest about the untouched legs (n/a).
+    pub basis: String,
+}
+
+/// GET /api/clients/{id}/completeness — backend documentation-completeness
+/// scoring (Wave 17 lane 13): the weights live SERVER-side now, replacing
+/// the honest client-side metadata scoring the clients lane shipped.
+/// Same shape, same pro-ration doctrine: score = round(earned /
+/// maxKnown × 100) with null legs (leg absent) pro-rated OUT, never a
+/// silent zero.
+#[utoipa::path(operation_id = "clients_completeness", get, path = "/api/clients/{id}/completeness", tag = "clients", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    responses((status = 200, body = ClientCompletenessView),
+              (status = 404, description = "client not visible in scope")))]
+pub async fn completeness(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<ClientCompletenessView>> {
+    // Section docs: the weights + gap vocabulary are pinned here so the
+    // web card and the CI can audit them from ONE definition.
+    const CONTACT_EMAIL: i64 = 25;
+    const SITES: i64 = 20;
+    const TYPED_DOCUMENTS: i64 = 25;
+    const UNTYPED_DOCUMENTS: i64 = 10;
+    const FRESHNESS: i64 = 10;
+    const ASSETS: i64 = 15;
+    const PORTAL_USERS: i64 = 5;
+
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, client_view_permission())?;
+    let org_id = authed.principal.user.org_id;
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    // Same visibility rule as get_one (restricted_to honored).
+    let client = core_db::clients::get_client(&mut *tx, org_id, id).await?;
+    if !client.restricted_to.is_empty()
+        && !client.restricted_to.contains(&authed.principal.user.id)
+        && !authed.principal.is_owner_or_admin()
+    {
+        return Err(ApiError::NotFound);
+    }
+    let f = core_db::client_completeness::load_facts(&mut *tx, org_id, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+
+    let mut gaps: Vec<CompletenessGap> = Vec::new();
+
+    let mut earned = 0i64;
+    let mut max_known = 0i64;
+
+    // Contacts (25): ANY contact with a non-empty email speaks for the leg.
+    max_known += CONTACT_EMAIL;
+    if f.contacts_n == 0 {
+        gaps.push(CompletenessGap {
+            key: "contacts".into(),
+            label: "No contacts".into(),
+            hint: "Add a contact so there is someone to reach.".into(),
+        });
+    } else if f.contacts_with_email_n == 0 {
+        gaps.push(CompletenessGap {
+            key: "contact-email".into(),
+            label: "No contact has an email".into(),
+            hint: "Emails reach the client — add at least one.".into(),
+        });
+        earned += 0;
+    } else {
+        earned += CONTACT_EMAIL;
+        if f.primary_contacts_n == 0 {
+            gaps.push(CompletenessGap {
+                key: "primary-contact".into(),
+                label: "No primary contact".into(),
+                hint: "Mark one contact as primary.".into(),
+            });
+        }
+    }
+
+    // Sites (20)
+    max_known += SITES;
+    if f.sites_n == 0 {
+        gaps.push(CompletenessGap {
+            key: "sites".into(),
+            label: "No sites".into(),
+            hint: "Log at least one site or location.".into(),
+        });
+    } else {
+        earned += SITES;
+    }
+
+    // Documents (25 typed / 10 any / 0 none) + freshness counts together
+    // with the documents breadcrumb (the doc metadata exists first).
+    max_known += TYPED_DOCUMENTS;
+    if f.documents_n == 0 {
+        gaps.push(CompletenessGap {
+            key: "documents".into(),
+            label: "No documents".into(),
+            hint: "Log at least one document for the client.".into(),
+        });
+    } else if f.typed_documents_n == 0 {
+        gaps.push(CompletenessGap {
+            key: "typed-document".into(),
+            label: "Documents have no type".into(),
+            hint: "Assign templates so documents bind to layout fields.".into(),
+        });
+        earned += UNTYPED_DOCUMENTS;
+        // Freshness only counts when documents indicate activity at all.
+        if let Some(latest) = f.latest_document_at {
+            max_known += FRESHNESS;
+            let fresh = (chrono::Utc::now() - latest).num_days()
+                < core_db::client_completeness::FRESH_WINDOW_DAYS;
+            if fresh {
+                earned += FRESHNESS;
+            } else {
+                gaps.push(CompletenessGap {
+                    key: "freshness".into(),
+                    label: "Documentation may be stale".into(),
+                    hint: "Newest document is older than 180 days.".into(),
+                });
+            }
+        }
+    } else {
+        earned += TYPED_DOCUMENTS;
+        if let Some(latest) = f.latest_document_at {
+            max_known += FRESHNESS;
+            let fresh = (chrono::Utc::now() - latest).num_days()
+                < core_db::client_completeness::FRESH_WINDOW_DAYS;
+            if fresh {
+                earned += FRESHNESS;
+            } else {
+                gaps.push(CompletenessGap {
+                    key: "freshness".into(),
+                    label: "Documentation may be stale".into(),
+                    hint: "Newest document is older than 180 days.".into(),
+                });
+            }
+        }
+    }
+
+    // Assets (15)
+    max_known += ASSETS;
+    if f.assets_n == 0 {
+        gaps.push(CompletenessGap {
+            key: "assets".into(),
+            label: "No assets".into(),
+            hint: "Register at least one managed device.".into(),
+        });
+    } else {
+        earned += ASSETS;
+    }
+
+    // Portal users (5)
+    max_known += PORTAL_USERS;
+    if f.portal_users_n == 0 {
+        gaps.push(CompletenessGap {
+            key: "portal".into(),
+            label: "No portal users".into(),
+            hint: "Invite a contact so the client has portal access.".into(),
+        });
+    } else {
+        earned += PORTAL_USERS;
+    }
+
+    let score = if max_known == 0 {
+        100
+    } else {
+        ((earned * 100 + max_known - 1) / max_known).clamp(0, 100)
+    };
+    let score = score as i32;
+    let basis = format!(
+        "scored from the org's live rows (contacts {} / sites {} / documents {} typed {} / assets {} / portal users {}).",
+        f.contacts_n, f.sites_n, f.documents_n, f.typed_documents_n, f.assets_n, f.portal_users_n
+    );
+    Ok(Json(ClientCompletenessView { score, gaps, basis }))
+}

@@ -24,17 +24,12 @@ pub mod gate_kind {
 }
 
 /// Seconds until the strictest lockout for these keys expires (0 = allow).
-pub async fn gate_check(
-    pool: &PgPool,
-    kind: &str,
-    lock_keys: &[String],
-) -> DbResult<i64> {
-    let remaining: Option<i64> =
-        sqlx::query_scalar("SELECT app_auth_gate_check($1, $2)")
-            .bind(kind)
-            .bind(lock_keys)
-            .fetch_one(pool)
-            .await?;
+pub async fn gate_check(pool: &PgPool, kind: &str, lock_keys: &[String]) -> DbResult<i64> {
+    let remaining: Option<i64> = sqlx::query_scalar("SELECT app_auth_gate_check($1, $2)")
+        .bind(kind)
+        .bind(lock_keys)
+        .fetch_one(pool)
+        .await?;
     Ok(remaining.unwrap_or(0))
 }
 
@@ -48,16 +43,14 @@ pub async fn gate_fail(
     subject_key: Option<&str>,
     ip_key: Option<&str>,
 ) -> DbResult<i64> {
-    let secs: i64 = sqlx::query_scalar(
-        "SELECT app_auth_gate_fail($1, $2, $3, $4, $5)",
-    )
-    .bind(kind)
-    .bind(lock_keys)
-    .bind(org_id)
-    .bind(subject_key)
-    .bind(ip_key)
-    .fetch_one(pool)
-    .await?;
+    let secs: i64 = sqlx::query_scalar("SELECT app_auth_gate_fail($1, $2, $3, $4, $5)")
+        .bind(kind)
+        .bind(lock_keys)
+        .bind(org_id)
+        .bind(subject_key)
+        .bind(ip_key)
+        .fetch_one(pool)
+        .await?;
     Ok(secs)
 }
 
@@ -81,10 +74,7 @@ pub struct PutToken<'a> {
 }
 
 /// Stores one hashed single-use token (the raw token never persists).
-pub async fn put_one_use_token<'e, E>(
-    executor: E,
-    token: PutToken<'_>,
-) -> DbResult<()>
+pub async fn put_one_use_token<'e, E>(executor: E, token: PutToken<'_>) -> DbResult<()>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
@@ -123,11 +113,7 @@ pub async fn consume_one_use_token(
             .bind(token_hash)
             .fetch_optional(pool)
             .await?;
-    Ok(row.map(
-        |(user_id, org_id)| {
-            TokenResolution { user_id, org_id }
-        },
-    ))
+    Ok(row.map(|(user_id, org_id)| TokenResolution { user_id, org_id }))
 }
 
 /// Narrow pre-auth (user, org, email_verified) resolution — SECURITY
@@ -138,15 +124,18 @@ pub async fn resolve_auth_email(
     email: &str,
     magic_link: bool,
 ) -> DbResult<Option<(Uuid, Uuid, bool)>> {
-    let row: Option<(Uuid, Uuid, bool)> =
-        sqlx::query_as(
-            "SELECT user_id, org_id, email_verified \
+    let row: Option<(Uuid, Uuid, bool)> = sqlx::query_as(
+        "SELECT user_id, org_id, email_verified \
              FROM app_resolve_auth_email($1, $2)",
-        )
-        .bind(email)
-        .bind(if magic_link { "magic_link" } else { "password_reset" })
-        .fetch_optional(pool)
-        .await?;
+    )
+    .bind(email)
+    .bind(if magic_link {
+        "magic_link"
+    } else {
+        "password_reset"
+    })
+    .fetch_optional(pool)
+    .await?;
     Ok(row)
 }
 
@@ -172,10 +161,7 @@ where
 /// Under-org-scope read of one user's email-verification flag
 /// (migration 0088 column; default false). The login gate and the
 /// admin-override surface read it here.
-pub async fn user_email_verified<'e, E>(
-    executor: E,
-    user_id: Uuid,
-) -> DbResult<bool>
+pub async fn user_email_verified<'e, E>(executor: E, user_id: Uuid) -> DbResult<bool>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {

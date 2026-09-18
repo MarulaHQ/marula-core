@@ -33,6 +33,25 @@ fn board_manage() -> Permission {
     Permission::ManageBoards
 }
 
+fn validate_wip_limit(limit: i32) -> ApiResult<()> {
+    if !(1..=1000).contains(&limit) {
+        return Err(ApiError::Validation(
+            "wip_limit must be between 1 and 1000".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Maps the decoded WIP-cap patch onto the DB patch: Unchanged = `None`
+/// (COALESCE), Clear = `Some(None)`, Set(n) = `Some(Some(n))`.
+fn parse_wip_limit_update(req: &UpdateStatusRequest) -> Option<Option<i32>> {
+    match req.wip_limit {
+        WipLimitUpdate::Unchanged => None,
+        WipLimitUpdate::Clear => Some(None),
+        WipLimitUpdate::Set(limit) => Some(Some(limit)),
+    }
+}
+
 /// GET /api/boards
 #[utoipa::path(operation_id = "boards_list", get, path = "/api/boards", tag = "boards", security(("bearer" = [])),
     responses((status = 200, body = [core_domain::entities::Board])))]
@@ -104,6 +123,7 @@ pub async fn create(
                 category,
                 sort,
                 is_entry,
+                None,
             )
             .await?;
         }
@@ -154,6 +174,9 @@ pub struct CreateStatusRequest {
     pub category: TicketStatusCategory,
     pub sort_order: i32,
     pub is_entry: bool,
+    /// Optional per-column WIP cap (0089). 1..=1000 — the DB CHECK is the
+    /// backstop; this route validates before the write.
+    pub wip_limit: Option<i32>,
 }
 
 /// POST /api/boards/{id}/statuses — adds a custom status bound to a
@@ -175,6 +198,9 @@ pub async fn add_status(
     if req.name.trim().is_empty() {
         return Err(ApiError::Validation("status name is required".into()));
     }
+    if let Some(limit) = req.wip_limit {
+        validate_wip_limit(limit)?;
+    }
     let status = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         authorize_board_op(&mut ctx.tx, &authed.principal, id, BoardOp::ConfigureBoard).await?;
         let status = core_db::boards::add_status(
@@ -186,6 +212,7 @@ pub async fn add_status(
             req.category,
             req.sort_order,
             req.is_entry,
+            req.wip_limit,
         )
         .await?;
         ctx.emit(
@@ -205,6 +232,37 @@ pub async fn add_status(
     Ok(Json(status))
 }
 
+/// WIP-cap patch input (0089): `Default` (field absent) = unchanged;
+/// JSON null = clear; a number = set. serde's `Option<Option>` mapping
+/// makes a present-but-null field UNREPRESENTABLE from JSON (null folds
+/// to the outer None), so the three states ride an explicit enum.
+#[derive(Debug, Clone, Copy, PartialEq, Default, ToSchema)]
+pub enum WipLimitUpdate {
+    #[default]
+    Unchanged,
+    Clear,
+    Set(i32),
+}
+
+impl<'de> serde::Deserialize<'de> for WipLimitUpdate {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        match serde_json::Value::deserialize(deserializer)? {
+            serde_json::Value::Null => Ok(Self::Clear),
+            other => {
+                let n = other.as_i64().ok_or_else(|| {
+                    serde::de::Error::custom("wip_limit must be a number or null")
+                })?;
+                let limit = i32::try_from(n)
+                    .map_err(|_| serde::de::Error::custom("wip_limit is out of range"))?;
+                Ok(Self::Set(limit))
+            }
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateStatusRequest {
     pub name: Option<String>,
@@ -212,6 +270,10 @@ pub struct UpdateStatusRequest {
     pub category: Option<TicketStatusCategory>,
     pub sort_order: Option<i32>,
     pub is_entry: Option<bool>,
+    /// WIP cap (0089): absent = unchanged; JSON `null` = CLEAR the cap; a
+    /// number = set it (1..=1000 — the DB CHECK is the backstop).
+    #[serde(default)]
+    pub wip_limit: WipLimitUpdate,
 }
 
 /// PATCH /api/boards/{id}/statuses/{status_id} — rebinds/reorders/renames a
@@ -237,6 +299,9 @@ pub async fn update_status(
             return Err(ApiError::Validation("status name cannot be empty".into()));
         }
     }
+    if let WipLimitUpdate::Set(limit) = req.wip_limit {
+        validate_wip_limit(limit)?;
+    }
     let status = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         authorize_board_op(&mut ctx.tx, &authed.principal, id, BoardOp::ConfigureBoard).await?;
         let status = core_db::boards::update_status(
@@ -247,6 +312,7 @@ pub async fn update_status(
                 category: req.category,
                 sort_order: req.sort_order,
                 is_entry: req.is_entry,
+                wip_limit: parse_wip_limit_update(&req),
             },
         )
         .await?;

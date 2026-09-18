@@ -12,7 +12,10 @@ async fn main() -> anyhow::Result<()> {
     // OTEL_EXPORTER_OTLP_ENDPOINT is set; guard lives for `main`.
     let _telemetry = core_otel::init("core-api");
 
-    let config = std::sync::Arc::new(core_api::config::Config::from_env().expect("configuration fail-closed (from_env): see the operator copy above"));
+    let config = std::sync::Arc::new(
+        core_api::config::Config::from_env()
+            .expect("configuration fail-closed (from_env): see the operator copy above"),
+    );
     tracing::info!(addr = %config.bind_addr, "starting core-api");
 
     let pool = core_db::connect(&config.database_url).await.context(

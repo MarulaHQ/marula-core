@@ -121,6 +121,16 @@ pub struct AlertView {
     pub incident_ticket_id: Option<Uuid>,
     #[schema(value_type = String)]
     pub received_at: chrono::DateTime<chrono::Utc>,
+    /// Triage state (0089): "open" | "acknowledged" | "resolved".
+    pub status: String,
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub acked_by: Option<Uuid>,
+    #[schema(value_type = Option<String>)]
+    pub acked_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub resolved_by: Option<Uuid>,
+    #[schema(value_type = Option<String>)]
+    pub resolved_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl From<AlertRow> for AlertView {
@@ -138,6 +148,11 @@ impl From<AlertRow> for AlertView {
             attributes: r.attributes,
             incident_ticket_id: r.incident_ticket_id,
             received_at: r.received_at,
+            status: r.status,
+            acked_by: r.acked_by,
+            acked_at: r.acked_at,
+            resolved_by: r.resolved_by,
+            resolved_at: r.resolved_at,
         }
     }
 }
@@ -1096,6 +1111,9 @@ pub struct AlertListQuery {
     pub source_id: Option<Uuid>,
     #[schema(value_type = Option<uuid::Uuid>)]
     pub ticket_id: Option<Uuid>,
+    /// Triage filter (0089): "open" | "acknowledged" | "resolved" —
+    /// absent returns all states.
+    pub status: Option<String>,
     #[serde(default = "default_limit")]
     pub limit: i64,
     #[serde(default)]
@@ -1109,6 +1127,241 @@ fn default_limit() -> i64 {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AlertListResponse {
     pub alerts: Vec<AlertView>,
+}
+
+/// Instant-first mutation response for a triage action (0089). The alert
+/// IS the read-your-write result; `mutation` carries the envelope metadata
+/// (idempotency replay, entity seq).
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AlertMutationResponse {
+    pub alert: AlertView,
+    pub mutation: instant::MutationMeta,
+}
+
+/// RLS-verified triage vocabulary — exactly the CHECK's three values.
+fn parse_alert_status(s: &str) -> ApiResult<String> {
+    match s.trim() {
+        "open" | "acknowledged" | "resolved" => Ok(s.trim().to_string()),
+        other => Err(ApiError::Validation(format!(
+            "status must be one of open|acknowledged|resolved, got `{other}`"
+        ))),
+    }
+}
+
+/// POST /api/alerts/{id}/acknowledge — triage: open → acknowledged.
+/// Instant-first (IF1/IF2): idempotency-keyed, read-your-write. Re-ack
+/// (or ack of an already-resolved alert) is a typed conflict — the state
+/// is honest, never silently rewritten.
+#[utoipa::path(operation_id = "alerts_acknowledge", post, path = "/api/alerts/{id}/acknowledge", tag = "alerts", security(("bearer" = [])),
+    params(("id" = Uuid, Path)), responses(
+        (status = 200, body = AlertMutationResponse),
+        (status = 404, description = "alert not visible in scope"),
+        (status = 409, description = "alert already acknowledged or resolved"),
+        (status = 422, description = "validation failed")))]
+pub async fn acknowledge(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    Json(req): Json<instant::MutationParams>,
+) -> ApiResult<Json<AlertMutationResponse>> {
+    triage(state, extensions, id, req, Triage::Acknowledge).await
+}
+
+/// POST /api/alerts/{id}/resolve — triage: open/acknowledged → resolved.
+/// Resolving straight from `open` leaves the ack fields NULL (no
+/// acknowledgement ever happened — the row renders that honestly).
+#[utoipa::path(operation_id = "alerts_resolve", post, path = "/api/alerts/{id}/resolve", tag = "alerts", security(("bearer" = [])),
+    params(("id" = Uuid, Path)), responses(
+        (status = 200, body = AlertMutationResponse),
+        (status = 404, description = "alert not visible in scope"),
+        (status = 409, description = "alert already resolved"),
+        (status = 422, description = "validation failed")))]
+pub async fn resolve(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    Json(req): Json<instant::MutationParams>,
+) -> ApiResult<Json<AlertMutationResponse>> {
+    triage(state, extensions, id, req, Triage::Resolve).await
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Triage {
+    Acknowledge,
+    Resolve,
+}
+
+impl Triage {
+    fn entity_op(self) -> &'static str {
+        match self {
+            Self::Acknowledge => "acknowledge",
+            Self::Resolve => "resolve",
+        }
+    }
+}
+
+async fn triage(
+    state: AppState,
+    extensions: Extensions,
+    alert_id: Uuid,
+    params: instant::MutationParams,
+    action: Triage,
+) -> ApiResult<Json<AlertMutationResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(
+        &authed.principal,
+        Permission::Matrix {
+            module: core_domain::policy::Module::Tickets,
+            action: core_domain::policy::Action::Edit,
+        },
+    )?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+    let fingerprint = serde_json::json!({ "action": action.entity_op() });
+    let key = params.idempotency_key.clone();
+
+    let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        if let InstantClaim::Replay(stored) = instant::claim(
+            &mut ctx,
+            instant::ClaimSpec {
+                entity: "alert",
+                entity_id: Some(alert_id),
+                key: key.as_deref(),
+                fingerprint: &fingerprint,
+            },
+        )
+        .await?
+        {
+            return Ok((ctx, MutationOutcome::Replayed(stored)));
+        }
+        // Load first so "gone" is a 404 and "already handled" is a typed
+        // conflict — never a silent no-op.
+        let before = core_db::alerting::get_alert(&mut *ctx.tx, org_id, alert_id)
+            .await
+            .map_err(ApiError::from)?;
+        let already_err = |message: &'static str| ApiError::Conflict(message.to_string());
+        let row = match action {
+            Triage::Acknowledge => match before.status.as_str() {
+                "open" => {
+                    core_db::alerting::acknowledge_alert(&mut *ctx.tx, org_id, alert_id, user_id)
+                        .await?
+                        .expect("guard above proved status='open'")
+                }
+                "acknowledged" => return Err(already_err("alert is already acknowledged")),
+                "resolved" => return Err(already_err("alert is already resolved")),
+                _ => return Err(already_err("alert is not open")),
+            },
+            Triage::Resolve => match before.status.as_str() {
+                "open" | "acknowledged" => {
+                    core_db::alerting::resolve_alert(&mut *ctx.tx, org_id, alert_id, user_id)
+                        .await?
+                        .expect("the pre-read proved a live state")
+                }
+                "resolved" => return Err(already_err("alert is already resolved")),
+                _ => return Err(already_err("alert is not live")),
+            },
+        };
+        let view = AlertView::from(row.clone());
+        match action {
+            Triage::Acknowledge => {
+                ctx.emit(
+                    types::ALERT_ACKNOWLEDGED,
+                    "alert",
+                    Some(alert_id.to_string().as_str()),
+                    &serde_json::to_value(core_domain::events::AlertAcknowledged {
+                        alert_id,
+                        org_id,
+                        acknowledged_by: user_id,
+                        acknowledged_at: chrono::Utc::now(),
+                    })
+                    .unwrap_or_default(),
+                )
+                .await?;
+            }
+            Triage::Resolve => {
+                ctx.emit(
+                    types::ALERT_RESOLVED,
+                    "alert",
+                    Some(alert_id.to_string().as_str()),
+                    &serde_json::to_value(core_domain::events::AlertResolved {
+                        alert_id,
+                        org_id,
+                        resolved_by: user_id,
+                        resolved_at: chrono::Utc::now(),
+                    })
+                    .unwrap_or_default(),
+                )
+                .await?;
+            }
+        }
+        core_db::audit::insert(
+            &mut *ctx.tx,
+            &AuditEvent {
+                id: Uuid::now_v7(),
+                org_id,
+                actor: Actor::Human(user_id),
+                action: format!("alert.{}", action.entity_op()),
+                entity_type: Some("alert".into()),
+                entity_id: Some(alert_id.to_string()),
+                detail: serde_json::json!({
+                    "from_status": before.status,
+                    "to_status": row.status,
+                    "dedup_key": row.dedup_key,
+                    "severity": row.severity,
+                }),
+                ip: None,
+                occurred_at: chrono::Utc::now(),
+            },
+        )
+        .await?;
+        let write_seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: "alert",
+                entity_id: alert_id,
+                version: params.version,
+            },
+        )
+        .await?;
+        let after = serde_json::to_value(view.clone()).unwrap_or(Value::Null);
+        let now = chrono::Utc::now();
+        let placeholder = AlertMutationResponse {
+            alert: view.clone(),
+            mutation: instant::MutationMeta {
+                seq: write_seq,
+                version: write_seq,
+                updated_at: now,
+                before: None,
+                after: Value::Null,
+                idempotency_key: key.clone(),
+            },
+        };
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: "alert",
+                entity_id: alert_id,
+                op: action.entity_op(),
+                seq: write_seq,
+                before: Some(serde_json::json!({ "status": before.status })),
+                after,
+                updated_at: now,
+                key: key.as_deref(),
+                payload: &placeholder,
+                provenance: Default::default(),
+            },
+        )
+        .await?;
+        Ok((
+            ctx,
+            MutationOutcome::Applied(AlertMutationResponse {
+                alert: view,
+                mutation,
+            }),
+        ))
+    })
+    .await?;
+    Ok(Json(outcome.into_response()?))
 }
 
 /// GET /api/alerts — newest-first ledger browse, filterable by source and
@@ -1129,6 +1382,10 @@ pub async fn list(
             action: core_domain::policy::Action::View,
         },
     )?;
+    let status = match q.status.as_deref() {
+        None => None,
+        Some(raw) => Some(parse_alert_status(raw)?),
+    };
     // RLS-scoped read (pool carries no app.org_id GUC).
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     core_db::set_org_and_user(
@@ -1144,6 +1401,7 @@ pub async fn list(
         AlertFilter {
             source_id: q.source_id,
             ticket_id: q.ticket_id,
+            status,
             limit: q.limit,
             offset: q.offset,
         },
@@ -1181,6 +1439,11 @@ pub fn admin_routes(gen: crate::routes::ApiGeneration) -> Router<AppState> {
             patch(sources_patch),
         )
         .route(&format!("{base}/alerts"), get(list))
+        .route(
+            &format!("{base}/alerts/{{id}}/acknowledge"),
+            post(acknowledge),
+        )
+        .route(&format!("{base}/alerts/{{id}}/resolve"), post(resolve))
 }
 
 #[cfg(test)]

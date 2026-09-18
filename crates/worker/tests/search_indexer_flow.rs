@@ -192,6 +192,7 @@ async fn ticket_events_resolve_to_fresh_upserts_then_delete_when_gone() {
         .expect("row exists ⇒ upsert");
     match op {
         IndexOp::Upsert {
+            client_scope: _,
             entity_kind,
             entity_id,
             parent_id,
@@ -381,6 +382,7 @@ async fn kb_article_events_index_content_and_deleted_drops_it() {
         .expect("row exists ⇒ upsert");
     match op {
         IndexOp::Upsert {
+            client_scope: _,
             entity_kind,
             entity_id,
             parent_id,

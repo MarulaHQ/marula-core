@@ -23,12 +23,12 @@
 //! * The org MFA policy applies regardless of identity source (federated
 //!   gate parity), and every lifecycle step is audited.
 
+use crate::auth::federation::LinkNamespace;
 use crate::auth::handlers::{audit_best_effort, federated_mfa_gate};
 use crate::error::{ApiError, ApiResult};
 use crate::routes::openapi::TokenPair;
 use crate::state::AppState;
 use axum::Json;
-use crate::auth::federation::LinkNamespace;
 use uuid::Uuid;
 
 /// Version of the auth-provider interface contract. Bump on any debate
@@ -120,7 +120,8 @@ pub async fn resolve_and_issue(
         },
         &verified.subject,
     )
-    .await? {
+    .await?
+    {
         Some(user_id) => user_id,
         None if ctx.jit_allowed && verified.email_verified => {
             // JIT is the ORG's explicit opt-in (deny-by-default at the
@@ -162,9 +163,7 @@ pub async fn resolve_and_issue(
         .map_err(|e| ApiError::Internal(e.into()))?;
 
     // Org MFA gate BEFORE tokens exist — identity source irrelevant.
-    if let Some((mfa_token, methods)) =
-        federated_mfa_gate(state, user_id, ctx.org_id).await?
-    {
+    if let Some((mfa_token, methods)) = federated_mfa_gate(state, user_id, ctx.org_id).await? {
         audit_best_effort(
             state,
             ctx.org_id,
@@ -208,8 +207,8 @@ async fn provision_jit_then_issue(
         .clone()
         .unwrap_or_else(|| email.clone());
     let mut tx = tx;
-    let user_id = crate::routes::oidc::provision_jit_user(&mut tx, ctx.org_id, &email, &display_name)
-        .await?;
+    let user_id =
+        crate::routes::oidc::provision_jit_user(&mut tx, ctx.org_id, &email, &display_name).await?;
     tx.commit()
         .await
         .map_err(|e| ApiError::Internal(e.into()))?;
@@ -253,7 +252,9 @@ async fn provision_jit_then_issue(
 /// `auth.federated_*` audit actions above are the trail; nothing here
 /// needs a `types::` constant yet.
 pub mod contract {
-    pub use super::{AUTH_PROVIDER_INTERFACE_VERSION, ProviderContext, ProviderLoginOutcome, VerifiedPrincipal};
+    pub use super::{
+        ProviderContext, ProviderLoginOutcome, VerifiedPrincipal, AUTH_PROVIDER_INTERFACE_VERSION,
+    };
 
     /// Interface check: event types this lane's federation path emits and
     /// where they live. Audit-only by design — `contract.replay` fixtures
@@ -263,4 +264,3 @@ pub mod contract {
         pub const FEDERATED_LOGIN_FAILED: &str = "auth.federated_login_failed";
     }
 }
-

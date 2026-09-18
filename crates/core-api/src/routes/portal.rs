@@ -201,11 +201,7 @@ pub async fn login(
         serde_json::json!({ "method": "password" }),
     )
     .await;
-    let cookies_head = portal_cookie_head(
-        &state,
-        response.session_id,
-        &response.refresh_token,
-    );
+    let cookies_head = portal_cookie_head(&state, response.session_id, &response.refresh_token);
     Ok(portal_json_response(response, cookies_head))
 }
 
@@ -241,9 +237,10 @@ pub async fn refresh(
     )
     .await?;
     let refresh_token: Option<(Uuid, String)> = match req {
-        Some(Json(PortalRefreshRequest { refresh_token: Some(t), session_id: Some(sid) })) => {
-            Some((sid, t))
-        }
+        Some(Json(PortalRefreshRequest {
+            refresh_token: Some(t),
+            session_id: Some(sid),
+        })) => Some((sid, t)),
         _ => cookies::portal_refresh_pair_from(&headers),
     };
     let Some((session_id, raw_refresh)) = refresh_token else {
@@ -307,8 +304,18 @@ fn portal_cookie_head(
     let secure = state.config.public_base_url.starts_with("https");
     let csrf = cookies::new_csrf_token();
     vec![
-        (axum::http::header::SET_COOKIE, cookies::portal_cookie(secure, &format!("{session_id}.{refresh}"), state.config.refresh_ttl_secs)),
-        (axum::http::header::SET_COOKIE, cookies::csrf_cookie(secure, &csrf)),
+        (
+            axum::http::header::SET_COOKIE,
+            cookies::portal_cookie(
+                secure,
+                &format!("{session_id}.{refresh}"),
+                state.config.refresh_ttl_secs,
+            ),
+        ),
+        (
+            axum::http::header::SET_COOKIE,
+            cookies::csrf_cookie(secure, &csrf),
+        ),
     ]
 }
 

@@ -212,6 +212,7 @@ async fn seed_full_org(db: &TestDb, n: u64) -> Base {
         TicketStatusCategory::Waiting,
         15,
         false,
+        None,
     )
     .await
     .expect("custom status");
@@ -227,6 +228,7 @@ async fn seed_full_org(db: &TestDb, n: u64) -> Base {
         TicketStatusCategory::Open,
         0,
         true,
+        None,
     )
     .await
     .expect("net status");
@@ -239,6 +241,7 @@ async fn seed_full_org(db: &TestDb, n: u64) -> Base {
         TicketStatusCategory::Closed,
         10,
         false,
+        None,
     )
     .await
     .expect("net status");

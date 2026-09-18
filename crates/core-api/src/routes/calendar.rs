@@ -283,3 +283,97 @@ async fn build_personal(
         availability_windows: windows,
     })
 }
+
+// --- org-wide ticket deadline read model (Wave 17 lane 13, migration 0089) -----
+
+/// One deadline the overlay renders. Hydration lives in the row.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CalendarDeadlineEntry {
+    #[schema(value_type = uuid::Uuid)]
+    pub ticket_id: Uuid,
+    #[schema(value_type = uuid::Uuid)]
+    pub board_id: Uuid,
+    pub number: String,
+    pub title: String,
+    #[schema(value_type = String)]
+    pub due_at: DateTime<Utc>,
+    /// Semantic category (informational — closed tickets never arrive).
+    pub category: String,
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub assignee_id: Option<Uuid>,
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub client_id: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CalendarDeadlinesResponse {
+    pub from: DateTime<Utc>,
+    pub to: DateTime<Utc>,
+    pub deadlines: Vec<CalendarDeadlineEntry>,
+}
+
+#[derive(Debug, Deserialize, utoipa::IntoParams, ToSchema)]
+pub struct DeadlineRangeQuery {
+    /// Absolute UTC window [from, to); capped at 62 days like the team
+    /// view (a deadline overlay never walks quarterly ranges).
+    pub from: Option<DateTime<Utc>>,
+    pub to: Option<DateTime<Utc>>,
+    /// Optional per-person narrowing (personal mode rides the same model).
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub assignee_id: Option<Uuid>,
+}
+
+/// GET /api/calendar/deadlines — the ORG-WIDE ticket-deadline read model
+/// (Wave 17 lane 13): /calendar team mode overlays THIS instead of the
+/// bounded page-1 tickets fetch. Alive tickets only (category not closed)
+/// whose due date falls in the window; hydrated in the row itself.
+#[utoipa::path(operation_id = "calendar_deadlines", get, path = "/api/calendar/deadlines", tag = "scheduling", security(("bearer" = [])),
+    params(DeadlineRangeQuery),
+    responses((status = 200, body = CalendarDeadlinesResponse),
+              (status = 422, description = "validation failed")))]
+pub async fn deadlines(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Query(q): Query<DeadlineRangeQuery>,
+) -> ApiResult<Json<CalendarDeadlinesResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, sched(Action::View))?;
+    let org_id = authed.principal.user.org_id;
+    let to_default = q.from.map_or(Utc::now(), |f| f) + Duration::days(8);
+    let from = q.from.unwrap_or_else(|| Utc::now() - Duration::days(1));
+    let to = q.to.unwrap_or(to_default);
+    if to <= from || to - from > Duration::days(62) {
+        return Err(ApiError::Validation("range must be within 62 days".into()));
+    }
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let rows = core_db::scheduling::list_ticket_deadlines_between(
+        &mut *tx,
+        org_id,
+        from,
+        to,
+        q.assignee_id,
+    )
+    .await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(CalendarDeadlinesResponse {
+        from,
+        to,
+        deadlines: rows
+            .into_iter()
+            .map(|r| CalendarDeadlineEntry {
+                ticket_id: r.ticket_id,
+                board_id: r.board_id,
+                number: r.number,
+                title: r.title,
+                due_at: r.due_at,
+                category: r.category,
+                assignee_id: r.assignee_id,
+                client_id: r.client_id,
+            })
+            .collect(),
+    }))
+}

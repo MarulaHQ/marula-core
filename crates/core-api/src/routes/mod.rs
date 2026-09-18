@@ -62,6 +62,7 @@ pub mod custom_fields;
 pub mod dev;
 pub mod dispatch;
 pub mod dispatch_connector;
+pub mod document_attachments;
 pub mod documents;
 pub mod edge;
 pub mod email_admin;
@@ -116,9 +117,9 @@ pub mod webhooks;
 pub mod workflow_overrides;
 
 use crate::auth::handlers as auth_handlers;
-use crate::auth::recovery as recovery;
 use crate::auth::mfa_handlers as mfa;
 use crate::auth::middleware::require_auth;
+use crate::auth::recovery;
 use crate::state::AppState;
 use axum::{
     middleware,
@@ -238,12 +239,30 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(&rp("/auth/logout"), post(auth_handlers::logout))
         // Wave 19 lane 5 recovery flows (Scope B): public, uniform-shaped
         // request answers + single-use hashed confirm tokens.
-        .route(&rp("/auth/password-reset/request"), post(recovery::password_reset_request))
-        .route(&rp("/auth/password-reset/confirm"), post(recovery::password_reset_confirm))
-        .route(&rp("/auth/email-verification/request"), post(recovery::email_verification_request))
-        .route(&rp("/auth/email-verification/confirm"), post(recovery::email_verification_confirm))
-        .route(&rp("/auth/magic-link/request"), post(recovery::magic_link_request))
-        .route(&rp("/auth/magic-link/confirm"), post(recovery::magic_link_confirm))
+        .route(
+            &rp("/auth/password-reset/request"),
+            post(recovery::password_reset_request),
+        )
+        .route(
+            &rp("/auth/password-reset/confirm"),
+            post(recovery::password_reset_confirm),
+        )
+        .route(
+            &rp("/auth/email-verification/request"),
+            post(recovery::email_verification_request),
+        )
+        .route(
+            &rp("/auth/email-verification/confirm"),
+            post(recovery::email_verification_confirm),
+        )
+        .route(
+            &rp("/auth/magic-link/request"),
+            post(recovery::magic_link_request),
+        )
+        .route(
+            &rp("/auth/magic-link/confirm"),
+            post(recovery::magic_link_confirm),
+        )
         // MFA completion of a password login.
         .route(&rp("/auth/mfa/verify"), post(mfa::mfa_verify))
         .route(
@@ -518,6 +537,13 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // clients
         .route(&rp("/clients"), get(clients::list).post(clients::create))
         .route(&rp("/clients/{id}"), get(clients::get_one))
+        // backend documentation-completeness scoring (Wave 17 lane 13,
+        // migration 0089): the weights live server-side; the client card
+        // renders the facts.
+        .route(
+            &rp("/clients/{id}/completeness"),
+            get(clients::completeness),
+        )
         .route(
             &rp("/clients/{id}/sites"),
             get(clients::list_sites).post(clients::create_site),
@@ -631,6 +657,13 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/automation-rules/{id}"),
             axum::routing::patch(sla_admin::update_rule).delete(sla_admin::delete_rule),
+        )
+        // rule test-run (Wave 17 lane 13): dry-run against sampled
+        // tickets, proposal-shaped — the editor renders the result, never
+        // a fake run.
+        .route(
+            &rp("/automation-rules/{id}/test-run"),
+            post(sla_admin::test_run_rule),
         )
         .route(
             &rp("/tickets/{id}/comments"),
@@ -747,6 +780,19 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         )
         // unified search (TASKLIST 2.16)
         .route(&rp("/search"), get(search::search))
+        // search pins (Wave 17 lane 13, migration 0089): operator-curated
+        // persistent results; the local recent chips are untouched.
+        .route(
+            &rp("/search/pins"),
+            get(search::pins_list).post(search::pins_create),
+        )
+        .route(
+            &rp("/search/pins/{id}"),
+            axum::routing::delete(search::pins_delete),
+        )
+        // org-wide ticket-deadline read model for /calendar team mode
+        // (Wave 17 lane 13, migration 0089).
+        .route(&rp("/calendar/deadlines"), get(calendar::deadlines))
         // knowledge base (TASKLIST Phase 3 native KB v1): categories +
         // articles with client-facing flags; mutations instant-first.
         .route(
@@ -821,6 +867,21 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             get(documents::get_version),
         )
         .route(&rp("/documents/{id}/restore"), post(documents::restore))
+        // documents attachments (Wave 17 lane 13, migration 0089): the
+        // documents surface over the core-store seam (2.14); content-
+        // addressed dedup shared with the ticket attachments surface.
+        .route(
+            &rp("/documents/{id}/attachments"),
+            get(document_attachments::list).post(document_attachments::upload),
+        )
+        .route(
+            &rp("/documents/{id}/attachments/{attachment_id}"),
+            axum::routing::delete(document_attachments::delete),
+        )
+        .route(
+            &rp("/documents/{id}/attachments/{attachment_id}/download"),
+            get(document_attachments::download),
+        )
         // docs-platform v1 (Wave 11 lane 7, 0053): typed document
         // layouts, cross-entity links, and the password vault.
         .route(
@@ -1029,7 +1090,17 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             post(imports::run_batch),
         )
         // org-data export (TASKLIST D1): signed-download bundle creation.
-        .route(&rp("/org/exports"), post(export::create))
+        // History ledger (Wave 17 lane 13, migration 0089): list/archive
+        // read model + one fresh signed link per row.
+        .route(&rp("/org/exports"), get(export::list).post(export::create))
+        .route(
+            &rp("/org/exports/{export_id}"),
+            axum::routing::patch(export::archive),
+        )
+        .route(
+            &rp("/org/exports/{export_id}/download-link"),
+            post(export::download_link),
+        )
         // audit (admin)
         .route(&rp("/audit-events"), get(audit::list))
         // provenance read model (TASKLIST IF9): the 2.3 audit query API
@@ -1321,7 +1392,8 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         )
         .route(
             &rp("/meeting-types/{id}"),
-            axum::routing::patch(scheduling_links::update_meeting_type),
+            axum::routing::patch(scheduling_links::update_meeting_type)
+                .delete(scheduling_links::delete_meeting_type),
         )
         .route(
             &rp("/scheduling-links"),

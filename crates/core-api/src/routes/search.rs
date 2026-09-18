@@ -17,6 +17,7 @@ use crate::auth::middleware::{authed, require_permission};
 use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
 use axum::{
+    extract::Path,
     extract::{Query, State},
     http::Extensions,
     Json,
@@ -52,6 +53,12 @@ pub struct SearchQuery {
     /// `-excluded`, plain terms AND-ed. Tokens ≥3 chars also match as
     /// substrings via the trigram fallback.
     pub q: String,
+    /// Optional client scope for the `document` kind (0089, per-client
+    /// document scoping): when set, indexed documents answer only when
+    /// org-global (client_scope NULL) or scoped to THIS client. Every
+    /// other kind is untouched.
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub client_id: Option<Uuid>,
     #[serde(default = "default_limit")]
     pub limit: i64,
     #[serde(default)]
@@ -189,6 +196,7 @@ pub async fn search(
                 &kinds,
                 &trimmed,
                 trigram,
+                q.client_id,
                 embedding,
                 limit,
                 offset,
@@ -200,6 +208,7 @@ pub async fn search(
                 &kinds,
                 &trimmed,
                 trigram,
+                q.client_id,
             )
             .await?,
         ),
@@ -210,6 +219,7 @@ pub async fn search(
                 &kinds,
                 &trimmed,
                 trigram,
+                q.client_id,
                 limit,
                 offset,
             )
@@ -220,6 +230,7 @@ pub async fn search(
                 &kinds,
                 &trimmed,
                 trigram,
+                q.client_id,
             )
             .await?,
         ),
@@ -244,4 +255,217 @@ pub async fn search(
             })
             .collect(),
     }))
+}
+
+// --- pins (Wave 17 lane 13, migration 0089) -----------------------------------
+
+/// One pinned result as the /search surface renders it.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SearchPinView {
+    #[schema(value_type = uuid::Uuid)]
+    pub id: Uuid,
+    /// The pinned query, snapshotted (a pin re-runs THIS query).
+    pub query: String,
+    pub entity_kind: String,
+    pub entity_id: Uuid,
+    /// e.g. comment → its ticket id; mirrors the live row.
+    pub parent_id: Option<Uuid>,
+    /// The title AT PIN TIME (the honest snapshot, never re-faked).
+    pub title: String,
+    #[schema(value_type = String)]
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SearchPinList {
+    pub pins: Vec<SearchPinView>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct CreateSearchPinRequest {
+    /// The query that produced the result (2..=256 chars — the same bounds
+    /// GET /api/search enforces), snapshotted on the pin.
+    pub query: String,
+    pub entity_kind: String,
+    #[schema(value_type = uuid::Uuid)]
+    pub entity_id: Uuid,
+}
+
+/// GET /api/search/pins — the caller's own pins, newest-first.
+#[utoipa::path(operation_id = "search_pins_list", get, path = "/api/search/pins", tag = "search", security(("bearer" = [])),
+    responses((status = 200, body = SearchPinList)))]
+pub async fn pins_list(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Query(q): Query<std::collections::HashMap<String, String>>,
+) -> ApiResult<Json<SearchPinList>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    // A pin list shows kinds ONLY through the same permission gate the
+    // search surface uses — never a wider sidebar.
+    require_permission(&authed.principal, tickets(Action::View))?;
+    let limit: i64 = q.get("limit").and_then(|v| v.parse().ok()).unwrap_or(50);
+    let offset: i64 = q.get("offset").and_then(|v| v.parse().ok()).unwrap_or(0);
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let rows = core_db::search_pins::list_for_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+        limit,
+        offset,
+    )
+    .await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(SearchPinList {
+        pins: rows
+            .into_iter()
+            .map(|r| SearchPinView {
+                id: r.id,
+                query: r.query,
+                entity_kind: r.entity_kind,
+                entity_id: r.entity_id,
+                parent_id: r.parent_id,
+                title: r.title,
+                created_at: r.created_at,
+            })
+            .collect(),
+    }))
+}
+
+/// The per-kind permission gate (mirrors the search route's allow-list).
+fn kind_permission(kind: core_db::search::SearchKind) -> Permission {
+    match kind {
+        core_db::search::SearchKind::Ticket | core_db::search::SearchKind::Comment => {
+            tickets(Action::View)
+        }
+        core_db::search::SearchKind::Client
+        | core_db::search::SearchKind::Site
+        | core_db::search::SearchKind::Contact => clients(Action::View),
+        core_db::search::SearchKind::KbArticle => Permission::Matrix {
+            module: Module::Kb,
+            action: Action::View,
+        },
+        core_db::search::SearchKind::Document => Permission::Matrix {
+            module: Module::Documents,
+            action: Action::View,
+        },
+    }
+}
+
+/// POST /api/search/pins — pins one stored result. The entity must EXIST
+/// in the index (a pin is a stored result, never invented) and kind sits
+/// behind the same permission gate the query ran behind. Idempotent:
+/// re-pinning the same (kind, id) answers the stored pin.
+#[utoipa::path(operation_id = "search_pins_create", post, path = "/api/search/pins", tag = "search", security(("bearer" = [])),
+    request_body = CreateSearchPinRequest,
+    responses((status = 200, body = SearchPinView),
+              (status = 404, description = "that row is not in your org's search index"),
+              (status = 403, description = "no permission for that kind"),
+              (status = 422, description = "validation failed")))]
+pub async fn pins_create(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Json(req): Json<CreateSearchPinRequest>,
+) -> ApiResult<Json<SearchPinView>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    let query = req.query.trim().to_string();
+    if query.chars().count() < MIN_QUERY_CHARS || query.chars().count() > MAX_QUERY_CHARS {
+        return Err(ApiError::Validation(format!(
+            "query must be {MIN_QUERY_CHARS}..={MAX_QUERY_CHARS} characters"
+        )));
+    }
+    let kind = core_db::search::SearchKind::parse(&req.entity_kind)
+        .ok_or_else(|| ApiError::Validation("unknown entity_kind".into()))?;
+    require_permission(&authed.principal, kind_permission(kind))?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+    let pin = crate::org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        // The pin snapshots the LIVE index row: no row → typed 404 (the
+        // honest "that result is not pin-able").
+        let indexed = core_db::search::lookup_row(&mut *ctx.tx, org_id, kind, req.entity_id)
+            .await?
+            .ok_or(ApiError::NotFound)?;
+        let pin = core_db::search_pins::upsert(
+            &mut ctx.tx,
+            core_db::search_pins::NewSearchPin {
+                id: Uuid::now_v7(),
+                org_id,
+                user_id,
+                query: &query,
+                entity_kind: kind.as_str(),
+                entity_id: req.entity_id,
+                parent_id: indexed.parent_id,
+                title: &indexed.title,
+            },
+        )
+        .await?;
+        let pin = match pin {
+            Some(p) => p,
+            // Idempotent re-pin: the row already exists — answer it.
+            None => core_db::search_pins::find_by_identity(
+                &mut ctx.tx,
+                org_id,
+                user_id,
+                kind.as_str(),
+                req.entity_id,
+            )
+            .await?
+            .expect("unique race: the identity row must exist"),
+        };
+        Ok((ctx, pin))
+    })
+    .await?;
+    Ok(Json(SearchPinView {
+        id: pin.id,
+        query: pin.query,
+        entity_kind: pin.entity_kind,
+        entity_id: pin.entity_id,
+        parent_id: pin.parent_id,
+        title: pin.title,
+        created_at: pin.created_at,
+    }))
+}
+
+/// DELETE /api/search/pins/{id} — unpins the caller's OWN pin; another
+/// user's pin is simply not theirs (typed 404, never a conflict leak).
+#[utoipa::path(operation_id = "search_pins_delete", delete, path = "/api/search/pins/{id}", tag = "search", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    responses((status = 200, body = Object),
+              (status = 404, description = "pin not visible to this user")))]
+pub async fn pins_delete(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    let org_id = authed.principal.user.org_id;
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let deleted =
+        core_db::search_pins::delete(&mut tx, org_id, authed.principal.user.id, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    if deleted.is_none() {
+        return Err(ApiError::NotFound);
+    }
+    Ok(Json(serde_json::json!({ "deleted": true })))
+}
+
+/// Mounts the pin routes onto the protected surface.
+pub fn pin_routes(gen: crate::routes::ApiGeneration) -> axum::Router<crate::state::AppState> {
+    use axum::routing::{delete, post};
+    let base = gen.base();
+    axum::Router::new()
+        .route(
+            &format!("{base}/search/pins"),
+            post(pins_create).get(pins_list),
+        )
+        .route(&format!("{base}/search/pins/{{id}}"), delete(pins_delete))
 }

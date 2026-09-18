@@ -374,6 +374,127 @@ fn rule_row(rec: core_db::automations::AutomationRuleRecord) -> serde_json::Valu
     })
 }
 
+/// POST /api/automation-rules/{id}/test-run — dry-run one rule against the
+/// org's most recent tickets (board-scoped when the rule binds a board),
+/// PROPOSAL-shaped: what WOULD match and what the actions would do. The
+/// rule editor renders the result; nothing is ever applied and no event is
+/// emitted — a test-run writes nothing (Wave 17 lane 13 contract: the rule
+/// editor never pretends to execute).
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct AutomationTestRunMatch {
+    #[schema(value_type = uuid::Uuid)]
+    pub ticket_id: Uuid,
+    pub number: String,
+    pub title: String,
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub assignee_id: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct AutomationTestRunResponse {
+    #[schema(value_type = uuid::Uuid)]
+    pub rule_id: Uuid,
+    /// What the run sampled (the org's recent tickets, board-filtered
+    /// when the rule binds a board).
+    pub sampled_count: usize,
+    pub matched_count: usize,
+    pub matches: Vec<AutomationTestRunMatch>,
+    /// The rule's CURRENT action documents, returned verbatim — the
+    /// editor renders them as the proposal preview (never re-derived).
+    pub actions_preview: serde_json::Value,
+}
+
+/// How many recent tickets one test run samples.
+const TEST_RUN_SAMPLE: i64 = 50;
+
+#[utoipa::path(operation_id = "automation_rules_test_run", post, path = "/api/automation-rules/{id}/test-run", tag = "automations", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    responses((status = 200, body = AutomationTestRunResponse),
+              (status = 404, description = "rule not visible in scope"),
+              (status = 422, description = "stored rule document is malformed")))]
+pub async fn test_run_rule(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<AutomationTestRunResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, admin(Action::View))?;
+    let org_id = authed.principal.user.org_id;
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let record = core_db::automations::get(&mut *tx, org_id, id).await?;
+    // Parse through core-domain — the SAME parse path the worker's matcher
+    // runs, so a preview never disagrees with a live evaluation. A rule
+    // the runner would SKIP (malformed, out-of-band-written) reports as
+    // typed validation instead of faking zero matches.
+    let row = core_domain::automations::AutomationRuleRow {
+        id: record.id,
+        org_id: record.org_id,
+        board_id: record.board_id,
+        name: record.name.clone(),
+        trigger_event: record.trigger_event.clone(),
+        conditions: record.conditions.clone(),
+        actions: record.actions.clone(),
+        enabled: record.enabled,
+    };
+    let parsed = core_domain::automations::AutomationRule::parse(&row)
+        .map_err(|e| ApiError::Validation(format!("stored rule does not parse: {e}")))?;
+    // Sample the org's recent tickets bounded by the sample cap; when the
+    // rule binds a board, the sample IS board-live (matching the live
+    // matcher's board gate) instead of padding the sample off-board.
+    let rows = core_db::tickets::list_tickets(
+        &mut *tx,
+        org_id,
+        core_db::tickets::TicketFilter {
+            board_id: record.board_id,
+            assignee_id: None,
+            client_id: None,
+            category: None,
+            priority: None,
+            tag_ids: None,
+            limit: TEST_RUN_SAMPLE,
+            offset: 0,
+            cursor: None,
+        },
+    )
+    .await?;
+    tx.commit().await.map_err(ApiError::from)?;
+
+    let previews: Vec<AutomationTestRunMatch> = rows
+        .iter()
+        .filter(|t| {
+            core_domain::automations::matches_all(
+                &parsed.conditions,
+                &core_domain::automations::TicketSnapshot {
+                    ticket_id: t.id,
+                    org_id: t.org_id,
+                    board_id: t.board_id,
+                    number: t.number.0.clone(),
+                    title: t.title.clone(),
+                    priority: t.priority,
+                    category: t.category,
+                    assignee_id: t.assignee_id,
+                },
+            )
+        })
+        .map(|t| AutomationTestRunMatch {
+            ticket_id: t.id,
+            number: t.number.0.clone(),
+            title: t.title.clone(),
+            assignee_id: t.assignee_id,
+        })
+        .collect();
+    Ok(Json(AutomationTestRunResponse {
+        rule_id: id,
+        sampled_count: rows.len(),
+        matched_count: previews.len(),
+        matches: previews,
+        actions_preview: record.actions,
+    }))
+}
+
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct CreateRuleRequest {
     pub name: String,

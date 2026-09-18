@@ -153,13 +153,12 @@ async fn issue_mail_token(
         .await
         .map_err(|e| ApiError::Internal(e.into()))?;
     core_db::set_org(&mut mail_tx, org_id).await?;
-    let address: Option<String> =
-        sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
-            .bind(user_id)
-            .fetch_optional(&mut *mail_tx)
-            .await
-            .map_err(ApiError::from)?
-            .flatten();
+    let address: Option<String> = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(&mut *mail_tx)
+        .await
+        .map_err(ApiError::from)?
+        .flatten();
     if let Some(address) = address {
         let (subject, body) = render(link(&state.config, page, &raw));
         crate::email::enqueue_outbound(
@@ -226,14 +225,16 @@ pub async fn password_reset_request(
                 page: "password-reset",
                 audit_action: "auth.password_reset_requested",
             },
-            |reset_link| (
-                "Reset your Meridian password".to_string(),
-                format!(
-                    "A password reset was requested for your account.\n\n\
+            |reset_link| {
+                (
+                    "Reset your Meridian password".to_string(),
+                    format!(
+                        "A password reset was requested for your account.\n\n\
                      Open this single-use link (valid {RESET_TTL_SECS} minutes):\n{reset_link}\n\n\
                      If it wasn't you, ignore this mail."
-                ),
-            ),
+                    ),
+                )
+            },
         )
         .await?;
     }
@@ -337,13 +338,15 @@ pub async fn email_verification_request(
                     page: "verify-email",
                     audit_action: "auth.email_verification_requested",
                 },
-                |verify_link| (
-                    "Verify your Meridian email".to_string(),
-                    format!(
-                        "Confirm your Meridian account email.\n\n\
+                |verify_link| {
+                    (
+                        "Verify your Meridian email".to_string(),
+                        format!(
+                            "Confirm your Meridian account email.\n\n\
                          Open this single-use link (valid {VERIFY_TTL_SECS}):\n{verify_link}"
-                    ),
-                ),
+                        ),
+                    )
+                },
             )
             .await?;
         }
@@ -371,10 +374,11 @@ pub async fn email_verification_confirm(
     )
     .await?;
     let presented = jwt::hash_refresh_token(req.token.trim());
-    let resolution = tokens::consume_one_use_token(&state.pool, tokens::gate_kind::EMAIL_VERIFY, &presented)
-        .await
-        .map_err(ApiError::from)?
-        .ok_or_else(|| ApiError::Unauthorized("invalid or expired verification link".into()))?;
+    let resolution =
+        tokens::consume_one_use_token(&state.pool, tokens::gate_kind::EMAIL_VERIFY, &presented)
+            .await
+            .map_err(ApiError::from)?
+            .ok_or_else(|| ApiError::Unauthorized("invalid or expired verification link".into()))?;
     let mut tx = state
         .pool
         .begin()
@@ -400,7 +404,9 @@ pub async fn email_verification_confirm(
     tx.commit()
         .await
         .map_err(|e| ApiError::Internal(e.into()))?;
-    Ok(Json(VerifyStatus { email_verified: true }))
+    Ok(Json(VerifyStatus {
+        email_verified: true,
+    }))
 }
 
 // ---------------------------------------------------------------------------

@@ -7,9 +7,10 @@
 // (create → secret shown exactly once, rotate posture per docs, enable/
 // disable optimistic).
 //
-// Non-purpose: acknowledge/resolve flows are NOT in the API shape
-// (AlertView carries no ack/status fields) — the surface renders what the
-// contract exposes and the flow rides the incident tickets themselves.
+// Triage: open → acknowledged → resolved via POST /alerts/{id}/acknowledge
+// and /alerts/{id}/resolve (0089) — optimistic flip, server response replaces
+// it; re-transition is a typed conflict (shown) and a vanished alert is a
+// 404 (the row leaves the list, never faked).
 "use client";
 
 import {
@@ -39,7 +40,7 @@ import type { components } from "@meridian/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, useRequireAuth } from "../../lib/api";
-import { rejectionText } from "../../lib/error-copy";
+import { rejectionText, envelopeOf, friendlyMutationText } from "../../lib/error-copy";
 
 type AlertSourceView = components["schemas"]["AlertSourceView"];
 type AlertView = components["schemas"]["AlertView"];
@@ -56,6 +57,12 @@ const SEVERITY_TONE: Record<string, "danger" | "warning" | "neutral"> = {
 
 const SEVERITY_FILTERS = ["all", "critical", "warning", "info", "escalated", "unrouted"] as const;
 type SeverityFilter = (typeof SEVERITY_FILTERS)[number];
+
+const STATUS_TONE: Record<string, "success" | "warning" | "neutral"> = {
+  open: "warning",
+  acknowledged: "neutral",
+  resolved: "success",
+};
 
 function matchesFilter(alert: AlertView, filter: SeverityFilter): boolean {
   if (filter === "all") return true;
@@ -98,6 +105,10 @@ export default function AlertsPage() {
   const [filterSourceId, setFilterSourceId] = useState<string>("");
   const [filterTicketId, setFilterTicketId] = useState<string>("");
   const [severityFilter, setSeverityFilter] = useState<SeverityFilter>("all");
+  const [filterStatus, setFilterStatus] = useState<"all" | "open" | "acknowledged" | "resolved">("all");
+  // Per-row triage feedback: conflict messages hang on the alert id.
+  const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
+  const [busyAlertId, setBusyAlertId] = useState<string | null>(null);
   const [sourceById, setSourceById] = useState<Map<string, AlertSourceView>>(new Map());
 
   const refreshBoards = useCallback(async () => {
@@ -129,6 +140,7 @@ export default function AlertsPage() {
         query: {
           source_id: filterSourceId === "" ? null : filterSourceId,
           ticket_id: filterTicketId.trim() === "" ? null : filterTicketId.trim(),
+          status: filterStatus === "all" ? null : filterStatus,
           limit: 100,
         },
       },
@@ -139,7 +151,7 @@ export default function AlertsPage() {
       return;
     }
     setAlerts(data.alerts);
-  }, [filterSourceId, filterTicketId]);
+  }, [filterSourceId, filterTicketId, filterStatus]);
 
   useEffect(() => {
     if (auth.status === "authed") {
@@ -208,6 +220,62 @@ export default function AlertsPage() {
     }
     void refreshSources();
   };
+
+  /** Shared triage transition (acknowledge | resolve), IF envelope:
+   * optimistic status flip → server alert replaces it; 409 surfaces the
+   * conflict honestly; 404 removes the row that left scope. */
+  const triageAlert = useCallback(
+    async (
+      alert: AlertView,
+      path: "/api/v1/alerts/{id}/acknowledge" | "/api/v1/alerts/{id}/resolve",
+      nextStatus: string,
+    ) => {
+      const id = alert.id;
+      setBusyAlertId(id);
+      const prev = alerts;
+      setAlerts(
+        (cur) => (cur ?? []).map((a) => (a.id === id ? { ...a, status: nextStatus } : a)),
+      );
+      const { data, error } = await api.api.POST(path, {
+        params: { path: { id } },
+        body: {
+          idempotency_key:
+            typeof crypto !== "undefined" && crypto.randomUUID !== undefined
+              ? crypto.randomUUID()
+              : `triage-${Date.now()}`,
+        },
+      });
+      setBusyAlertId(null);
+      if (error !== undefined || data === undefined) {
+        // Gone from scope: the row leaves the list — never rendered as fake.
+        const status = (error as { status?: number } | null | undefined)?.status;
+        const env = envelopeOf(error);
+        if (status === 404 || env.reason === "not_found" || env.reason === "rls_sparse") {
+          setAlerts((cur) => (prev ?? []).filter((a) => a.id !== id));
+          setRowErrors((cur) => ({ ...cur, [id]: "That alert is no longer in your visible workspace — it left the list." }));
+          window.setTimeout(() => setRowErrors((cur) => omitKey(cur, id)), 6000);
+          return;
+        }
+        // Optimistic state was already synced above; revert and render the
+        // typed conflict (re-transition) or other rejection honestly.
+        setAlerts(prev);
+        setRowErrors((cur) => ({
+          ...cur,
+          [id]: friendlyMutationText(error, "The triage change was rejected."),
+        }));
+        window.setTimeout(() => setRowErrors((cur) => omitKey(cur, id)), 8000);
+        return;
+      }
+      setAlerts((cur) => (cur ?? []).map((a) => (a.id === id ? data.alert : a)));
+    },
+    [alerts],
+  );
+
+  const handleAcknowledge = (a: AlertView) =>
+    void triageAlert(a, "/api/v1/alerts/{id}/acknowledge", "acknowledged");
+
+  const handleResolve = (a: AlertView) =>
+    void triageAlert(a, "/api/v1/alerts/{id}/resolve", "resolved");
 
   const filteredAlerts = useMemo(
     () => (alerts ?? []).filter((a) => matchesFilter(a, severityFilter)),
@@ -320,6 +388,24 @@ export default function AlertsPage() {
                   onChange={(e) => setFilterTicketId(e.target.value)}
                 />
               </div>
+
+              <div className="w-44">
+                <Label htmlFor="filter-status">Triage status</Label>
+                <Select
+                  value={filterStatus}
+                  onValueChange={(v) => setFilterStatus((v ?? "all") as typeof filterStatus)}
+                >
+                  <SelectTrigger id="filter-status" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All states</SelectItem>
+                    <SelectItem value="open">Open</SelectItem>
+                    <SelectItem value="acknowledged">Acknowledged</SelectItem>
+                    <SelectItem value="resolved">Resolved</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div className="mt-3 flex flex-wrap gap-1" role="group" aria-label="Severity facets">
               {SEVERITY_FILTERS.map((f) => {
@@ -382,6 +468,7 @@ export default function AlertsPage() {
                     <Th>Severity</Th>
                     <Th>Alert</Th>
                     <Th>Source</Th>
+                    <Th>Triage</Th>
                     <Th>Escalation</Th>
                     <Th>Received</Th>
                   </tr>
@@ -399,6 +486,43 @@ export default function AlertsPage() {
                         </div>
                       </Td>
                       <Td className="text-[12px]">{sourceById.get(a.source_id)?.name ?? a.source_id.slice(0, 8)}</Td>
+                      <Td>
+                        <div className="flex items-center gap-2">
+                          <Tag tone={STATUS_TONE[a.status] ?? "neutral"}>{a.status}</Tag>
+                          {rowErrors[a.id] !== undefined ? (
+                            <span className="text-[11px]" style={{ color: "var(--m-status-danger-fg)" }}>
+                              {rowErrors[a.id]}
+                            </span>
+                          ) : null}
+                          {a.status === "open" ? (
+                            <Button
+                              data-testid={`alert-ack-${a.id}`}
+                              variant="ghost"
+                              size="sm"
+                              disabled={busyAlertId === a.id}
+                              onClick={() => handleAcknowledge(a)}
+                            >
+                              Acknowledge
+                            </Button>
+                          ) : null}
+                          {a.status === "open" || a.status === "acknowledged" ? (
+                            <Button
+                              data-testid={`alert-resolve-${a.id}`}
+                              variant="ghost"
+                              size="sm"
+                              disabled={busyAlertId === a.id}
+                              onClick={() => handleResolve(a)}
+                            >
+                              Resolve
+                            </Button>
+                          ) : null}
+                          {a.acked_by !== null && a.acked_by !== undefined && a.acked_at !== null && a.acked_at !== undefined ? (
+                            <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+                              acked {relativeTime(a.acked_at)}
+                            </span>
+                          ) : null}
+                        </div>
+                      </Td>
                       <Td>
                         {a.incident_ticket_id !== null && a.incident_ticket_id !== undefined ? (
                           <div className="flex items-center gap-2">
@@ -591,6 +715,15 @@ function relativeTime(iso: string): string {
   const hours = Math.round(mins / 60);
   if (hours < 24) return `${hours}h ago`;
   return new Date(iso).toLocaleDateString();
+}
+
+function omitKey(
+  record: Record<string, string>,
+  key: string,
+): Record<string, string> {
+  const next = { ...record };
+  delete next[key];
+  return next;
 }
 
 /** Severity counts land in the merged record; read them defensively. */

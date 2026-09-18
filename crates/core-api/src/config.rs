@@ -211,8 +211,7 @@ impl Config {
     }
 
     fn from_env_inner(dev_fallback: bool) -> Result<Self, String> {
-        let dev_tools = std::env::var("MERIDIAN_DEV_TOOLS").as_deref() == Ok("1")
-            || dev_fallback;
+        let dev_tools = std::env::var("MERIDIAN_DEV_TOOLS").as_deref() == Ok("1") || dev_fallback;
         let jwt_secret = match std::env::var("JWT_SECRET") {
             Ok(secret) if is_64_hex(&secret) => secret,
             Ok(_) => {
@@ -488,7 +487,10 @@ mod hardening_tests {
         std::env::remove_var("MERIDIAN_DEV_TOOLS");
         std::env::remove_var("MERIDIAN_SECRET_KEY");
         let err = Config::from_env().expect_err("production boot must hard-fail");
-        assert!(err.contains("JWT_SECRET"), "operator copy names the variable: {err}");
+        assert!(
+            err.contains("JWT_SECRET"),
+            "operator copy names the variable: {err}"
+        );
     }
 
     #[test]

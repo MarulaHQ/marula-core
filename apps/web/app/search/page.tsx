@@ -11,8 +11,10 @@
 // without a detail page (site, contact, KB article) render as
 // informational rows, never links to nowhere.
 //
-// Non-purpose: no server-side filters/facets, no portal visibility logic,
-// no pinned-server state (pins are a local read later if wanted).
+// Non-purpose: no server-side filters/facets, no portal visibility logic;
+// local recents are unchanged. Pins are PERSISTENT and server-backed
+// (GET/POST/DELETE /api/v1/search/pins): a pin stores the query + the
+// snapshot title at pin time and re-runs its query with one click.
 "use client";
 
 import { friendlyMutationText } from "../../lib/error-copy";
@@ -25,6 +27,7 @@ import { api, useRequireAuth } from "../../lib/api";
 
 type SearchResult = components["schemas"]["SearchResult"];
 type SearchResponse = components["schemas"]["SearchResponse"];
+type SearchPinView = components["schemas"]["SearchPinView"];
 
 const GROUP_ORDER = ["ticket", "comment", "client", "document", "kb_article", "site", "contact"] as const;
 
@@ -119,6 +122,10 @@ export default function SearchPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recent, setRecent] = useState<string[]>([]);
+  // Server-backed pins: the caller's own, newest-first.
+  const [pins, setPins] = useState<SearchPinView[] | null>(null);
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [rowPinError, setRowPinError] = useState<string | null>(null);
   const [cursorIndex, setCursorIndex] = useState<number | null>(null);
   // Monotonic sequence guard against out-of-order debounced responses.
   const seqRef = useRef(0);
@@ -158,6 +165,74 @@ export default function SearchPage() {
   useEffect(() => {
     setRecent(loadRecent());
   }, []);
+
+  useEffect(() => {
+    if (auth.status !== "authed") return;
+    let cancelled = false;
+    void api.api
+      .GET("/api/v1/search/pins")
+      .then(({ data }) => {
+        if (!cancelled) setPins(data?.pins ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setPins([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.status]);
+
+  const refreshPins = useCallback(async () => {
+    const { data, error } = await api.api.GET("/api/v1/search/pins");
+    if (error !== undefined || data === undefined) {
+      setPinError("Your pins could not be reloaded — the strip may be stale.");
+      return;
+    }
+    setPins(data.pins);
+    setPinError(null);
+  }, []);
+
+  const handlePin = useCallback(
+    async (hit: SearchResult, querySnapshot: string) => {
+      setRowPinError(null);
+      const { error, data } = await api.api.POST("/api/v1/search/pins", {
+        body: { query: querySnapshot, entity_kind: hit.entity_kind, entity_id: hit.entity_id },
+      });
+      if (error !== undefined || data === undefined) {
+        // 404: the pinned row left the org's index — honest, no fake pin.
+        setRowPinError(
+          friendlyMutationText(
+            error,
+            "The result could not be pinned.",
+          ),
+        );
+        return;
+      }
+      // Idempotent POST answers the stored pin — reflect server state.
+      setPins((cur) => {
+        const rest = (cur ?? []).filter((p) => p.id !== data.id);
+        return [data, ...rest];
+      });
+    },
+    [],
+  );
+
+  const handleUnpin = useCallback(
+    async (pin: SearchPinView) => {
+      const prev = pins;
+      setPins((cur) => (cur ?? []).filter((p) => p.id !== pin.id));
+      const { error } = await api.api.DELETE("/api/v1/search/pins/{id}", {
+        params: { path: { id: pin.id } },
+      });
+      if (error !== undefined) {
+        setPins(prev);
+        setPinError(friendlyMutationText(error, "The pin could not be removed. Try again."));
+        return;
+      }
+      setPinError(null);
+    },
+    [pins],
+  );
 
   const flat = useMemo(() => flatResults(response), [response]);
 
@@ -259,7 +334,52 @@ export default function SearchPage() {
         {!loading && error === null && query.length < 2 && (
           <>
             <EmptyState message='Type at least two characters. Use "quotes" for exact phrases and -word to exclude.' />
-            {recent.length > 0 ? (
+        {pinError !== null ? (
+          <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
+            {pinError}
+          </p>
+        ) : null}
+        {/* Persistent pins strip — snapshot titles, click re-runs the query. */}
+        {pins !== null ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
+              Pinned
+            </span>
+            {(pins ?? []).length === 0 ? (
+              <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+                Pin a result to keep it here.
+              </span>
+            ) : (
+              (pins ?? []).map((pin) => (
+                <span
+                  key={pin.id}
+                  className="flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]"
+                  style={{ borderColor: "var(--m-border)", background: "color-mix(in srgb, var(--m-accent) 6%, transparent)" }}
+                >
+                  <button
+                    className="flex items-center gap-1 transition-opacity duration-100 hover:opacity-80"
+                    onClick={() => setRawQuery(pin.query)}
+                    title={`Runs “${pin.query}”`}
+                  >
+                    <Tag>{GROUP_KIND_LABEL[pin.entity_kind] ?? pin.entity_kind}</Tag>
+                    {pin.title}
+                  </button>
+                  <button
+                    data-testid={`search-unpin-${pin.id}`}
+                    aria-label={`Unpin ${pin.title}`}
+                    className="underline-offset-2 hover:underline"
+                    style={{ color: "var(--m-text-muted)" }}
+                    onClick={() => void handleUnpin(pin)}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))
+            )}
+          </div>
+        ) : null}
+
+        {recent.length > 0 ? (
               <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>
                 Recent searches re-run with one click above.
               </p>
@@ -326,14 +446,22 @@ export default function SearchPage() {
                       {href !== null ? (
                         <Link
                           href={href}
-                          className="flex min-w-0 flex-col hover:underline"
+                          className="flex min-w-0 flex-1 flex-col hover:underline"
                           onFocus={() => setCursorIndex(flatIndex)}
                         >
                           {body}
                         </Link>
                       ) : (
-                        <div className="flex min-w-0 flex-col">{body}</div>
+                        <div className="min-w-0 flex-1">{body}</div>
                       )}
+                      <button
+                        data-testid={`search-pin-${hit.entity_kind}-${hit.entity_id}`}
+                        className="shrink-0 text-[11px] underline-offset-2 hover:underline"
+                        style={{ color: "var(--m-text-muted)" }}
+                        onClick={() => void handlePin(hit, query)}
+                      >
+                        Pin
+                      </button>
                     </li>
                   );
                 })}
@@ -341,6 +469,11 @@ export default function SearchPage() {
             </section>
           );
         })}
+        {rowPinError !== null ? (
+          <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
+            {rowPinError}
+          </p>
+        ) : null}
         {response !== null && response.total > (response.results?.length ?? 0) && (
           <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>
             Showing {response.results?.length ?? 0} of {response.total} matches.

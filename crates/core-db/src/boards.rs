@@ -22,17 +22,19 @@ pub async fn add_status(
     category: TicketStatusCategory,
     sort_order: i32,
     is_entry: bool,
+    wip_limit: Option<i32>,
 ) -> DbResult<BoardStatus> {
     sqlx::query!(
-        r#"INSERT INTO board_statuses (id, board_id, org_id, name, category, sort_order, is_entry)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)"#,
+        r#"INSERT INTO board_statuses (id, board_id, org_id, name, category, sort_order, is_entry, wip_limit)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
         id,
         board_id,
         org_id,
         name,
         category.as_str(),
         sort_order,
-        is_entry
+        is_entry,
+        wip_limit
     )
     .execute(&mut *conn)
     .await?;
@@ -176,10 +178,12 @@ fn status_from_row(row: sqlx::postgres::PgRow) -> DbResult<BoardStatus> {
         sort_order: row.get("sort_order"),
         is_entry: row.get("is_entry"),
         color: row.get("color"),
+        wip_limit: row.get("wip_limit"),
     })
 }
 
-const STATUS_COLS: &str = "id, board_id, org_id, name, category, sort_order, is_entry, color";
+const STATUS_COLS: &str =
+    "id, board_id, org_id, name, category, sort_order, is_entry, color, wip_limit";
 
 pub async fn list_statuses<'e, E>(executor: E, board_id: Uuid) -> DbResult<Vec<BoardStatus>>
 where
@@ -220,13 +224,16 @@ where
 }
 
 /// Patchable status metadata. `None` fields are left unchanged; the semantic
-/// category may be re-bound (behavior follows it immediately).
+/// category may be re-bound (behavior follows it immediately). `wip_limit` is
+/// the double-Option: `None` = unchanged, `Some(None)` = clear the cap,
+/// `Some(Some(n))` = set it.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct StatusPatch<'a> {
     pub name: Option<&'a str>,
     pub category: Option<TicketStatusCategory>,
     pub sort_order: Option<i32>,
     pub is_entry: Option<bool>,
+    pub wip_limit: Option<Option<i32>>,
 }
 
 /// Updates one status's presentation/binding metadata in place.
@@ -235,26 +242,69 @@ pub async fn update_status(
     status_id: Uuid,
     patch: StatusPatch<'_>,
 ) -> DbResult<BoardStatus> {
-    let affected = sqlx::query!(
-        r#"UPDATE board_statuses SET
-             name = COALESCE($2, name),
-             category = COALESCE($3, category),
-             sort_order = COALESCE($4, sort_order),
-             is_entry = COALESCE($5, is_entry)
-           WHERE id = $1"#,
-        status_id,
-        patch.name,
-        patch.category.map(|c| c.as_str()),
-        patch.sort_order,
-        patch.is_entry,
-    )
-    .execute(&mut *conn)
-    .await?
-    .rows_affected();
+    let affected = if let Some(limit) = patch.wip_limit {
+        sqlx::query!(
+            r#"UPDATE board_statuses SET
+                 name = COALESCE($2, name),
+                 category = COALESCE($3, category),
+                 sort_order = COALESCE($4, sort_order),
+                 is_entry = COALESCE($5, is_entry),
+                 wip_limit = $6
+               WHERE id = $1"#,
+            status_id,
+            patch.name,
+            patch.category.map(|c| c.as_str()),
+            patch.sort_order,
+            patch.is_entry,
+            limit,
+        )
+        .execute(&mut *conn)
+        .await?
+        .rows_affected()
+    } else {
+        sqlx::query!(
+            r#"UPDATE board_statuses SET
+                 name = COALESCE($2, name),
+                 category = COALESCE($3, category),
+                 sort_order = COALESCE($4, sort_order),
+                 is_entry = COALESCE($5, is_entry)
+               WHERE id = $1"#,
+            status_id,
+            patch.name,
+            patch.category.map(|c| c.as_str()),
+            patch.sort_order,
+            patch.is_entry,
+        )
+        .execute(&mut *conn)
+        .await?
+        .rows_affected()
+    };
     if affected == 0 {
         return Err(DbError::NotFound);
     }
     get_status(&mut *conn, status_id).await
+}
+
+/// Live occupancy of one status column: everything currently sitting in it.
+/// The WIP-limit gate counts tickets EXCLUDING the one being moved (a move
+/// into a column holding `limit - 1` others is legal; the count + the
+/// move are checked under one transaction so a concurrent move cannot
+/// squeeze past the cap).
+pub async fn count_tickets_in_status<'e, E>(
+    executor: E,
+    status_id: Uuid,
+    excluding_ticket_id: Uuid,
+) -> DbResult<i64>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let (count,): (i64,) =
+        sqlx::query_as("SELECT count(*) FROM tickets WHERE status_id = $1 AND id <> $2")
+            .bind(status_id)
+            .bind(excluding_ticket_id)
+            .fetch_one(executor)
+            .await?;
+    Ok(count)
 }
 
 /// Removes an unused custom status. Referencing tickets raise a foreign-key

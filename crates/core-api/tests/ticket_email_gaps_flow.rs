@@ -941,7 +941,10 @@ async fn auto_email_rides_the_outbound_ledger_exactly_once() {
     .await
     .unwrap();
     tx.commit().await.unwrap();
-    assert_eq!(count, 2, "one message row behind the ledger row (+register verification mail)");
+    assert_eq!(
+        count, 2,
+        "one message row behind the ledger row (+register verification mail)"
+    );
     assert!(ticket_set, "confirmation lands on the ticket timeline");
 
     // A second booking attempt through the same (now used) token is a

@@ -210,12 +210,20 @@ pub struct AlertRow {
     pub attributes: Value,
     pub incident_ticket_id: Option<Uuid>,
     pub received_at: DateTime<Utc>,
+    /// Triage state (0089): "open" | "acknowledged" | "resolved".
+    pub status: String,
+    pub acked_by: Option<Uuid>,
+    pub acked_at: Option<DateTime<Utc>>,
+    pub resolved_by: Option<Uuid>,
+    pub resolved_at: Option<DateTime<Utc>>,
 }
 
 const ALERT_COLS: &str = "id, org_id, source_id, dedup_key, correlation_key, title, description, \
-     severity, occurred_at, attributes, incident_ticket_id, received_at";
+     severity, occurred_at, attributes, incident_ticket_id, received_at, \
+     status, acked_by, acked_at, resolved_by, resolved_at";
 const ALERT_COLS_FOR_SELECT: &str = "SELECT id, org_id, source_id, dedup_key, correlation_key, \
-     title, description, severity, occurred_at, attributes, incident_ticket_id, received_at";
+     title, description, severity, occurred_at, attributes, incident_ticket_id, received_at, \
+     status, acked_by, acked_at, resolved_by, resolved_at";
 
 pub struct NewAlert<'a> {
     pub id: Uuid,
@@ -288,6 +296,9 @@ where
 pub struct AlertFilter {
     pub source_id: Option<Uuid>,
     pub ticket_id: Option<Uuid>,
+    /// Triage filter (0089): "open" | "acknowledged" | "resolved" —
+    /// None returns all states.
+    pub status: Option<String>,
     pub limit: i64,
     pub offset: i64,
 }
@@ -305,16 +316,88 @@ where
          WHERE org_id = $1 \
            AND ($2::uuid IS NULL OR source_id = $2) \
            AND ($3::uuid IS NULL OR incident_ticket_id = $3) \
+           AND ($4::text IS NULL OR status = $4) \
          ORDER BY received_at DESC, id DESC \
-         LIMIT LEAST(GREATEST($4, 1), 200) OFFSET GREATEST($5, 0)"
+         LIMIT LEAST(GREATEST($5, 1), 200) OFFSET GREATEST($6, 0)"
     );
     sqlx::query_as::<_, AlertRow>(&sql)
         .bind(org_id)
         .bind(f.source_id)
         .bind(f.ticket_id)
+        .bind(f.status)
         .bind(f.limit)
         .bind(f.offset)
         .fetch_all(executor)
+        .await
+        .map_err(Into::into)
+}
+
+/// One alert by id (RLS org-scoped). The ack/resolve routes re-read the
+/// row FIRST so "already handled" is a typed conflict, not a silent
+/// no-op and not a lost 404.
+pub async fn get_alert<'e, E>(executor: E, org_id: Uuid, alert_id: Uuid) -> DbResult<AlertRow>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let sql = format!("{ALERT_COLS_FOR_SELECT} FROM alerts WHERE org_id = $1 AND id = $2");
+    sqlx::query_as::<_, AlertRow>(&sql)
+        .bind(org_id)
+        .bind(alert_id)
+        .fetch_optional(executor)
+        .await?
+        .ok_or(DbError::NotFound)
+}
+
+/// Acknowledges an OPEN alert: status → "acknowledged" with the actor +
+/// timestamp. `Ok(None)` = the row exists but is not open (already
+/// handled) — the caller maps that to a typed conflict; row-not-found
+/// surfaces as `DbError::NotFound` from `get_alert` beforehand.
+pub async fn acknowledge_alert<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    alert_id: Uuid,
+    actor_id: Uuid,
+) -> DbResult<Option<AlertRow>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let sql = format!(
+        "UPDATE alerts SET status = 'acknowledged', acked_by = $3, acked_at = now() \
+         WHERE org_id = $1 AND id = $2 AND status = 'open' \
+         RETURNING {ALERT_COLS}"
+    );
+    sqlx::query_as::<_, AlertRow>(&sql)
+        .bind(org_id)
+        .bind(alert_id)
+        .bind(actor_id)
+        .fetch_optional(executor)
+        .await
+        .map_err(Into::into)
+}
+
+/// Resolves an alert from ANY live state (open or acknowledged).
+/// `Ok(None)` = the row exists but is already resolved — typed conflict
+/// at the route. A resolve straight from `open` leaves `acked_*` NULL
+/// (no acknowledgement ever happened — the row renders that honestly).
+pub async fn resolve_alert<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    alert_id: Uuid,
+    actor_id: Uuid,
+) -> DbResult<Option<AlertRow>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let sql = format!(
+        "UPDATE alerts SET status = 'resolved', resolved_by = $3, resolved_at = now() \
+         WHERE org_id = $1 AND id = $2 AND status IN ('open','acknowledged') \
+         RETURNING {ALERT_COLS}"
+    );
+    sqlx::query_as::<_, AlertRow>(&sql)
+        .bind(org_id)
+        .bind(alert_id)
+        .bind(actor_id)
+        .fetch_optional(executor)
         .await
         .map_err(Into::into)
 }
