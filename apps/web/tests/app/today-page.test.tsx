@@ -71,7 +71,7 @@ const DUE_TODAY = {
   category: "open",
   status_name: "New",
   client_name: null,
-  due_at: new Date(MIDDAY_EOD).toISOString(),
+  due_at: MIDDAY_EOD,
   sla_resolution_due: null,
 };
 const LATER = {
@@ -161,6 +161,7 @@ const MEMBER_ME = {
 function setupApi(me: typeof ME_FIXTURE, myWork: unknown[] = MY_WORK): MockApi {
   const mock = new MockApi();
   mock.on("GET", "/api/v1/me", () => ({ json: me }));
+  mock.on("GET", "/api/v1/boards/nav", () => ({ json: [] }));
   mock.on("GET", "/api/v1/tickets/my-work", () => ({ json: myWork }));
   mock.on("GET", "/api/v1/time-gaps/me", () => ({ json: GAP }));
   mock.on("GET", "/api/v1/time-entries/approvals/queue", () => ({

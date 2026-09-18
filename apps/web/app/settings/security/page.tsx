@@ -10,7 +10,7 @@
 "use client";
 
 import { friendlyMutationText } from "../../../lib/error-copy";
-import { Button, Card, FieldHint, Input, Label } from "@meridian/ui";
+import { Button, Card, FieldHint, Input, Label, Tag } from "@meridian/ui";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { resolveApiBaseUrl, useAuth, useRequireAuth } from "../../../lib/api";
@@ -249,7 +249,7 @@ export default function SecuritySettingsPage() {
   });
 
   return (
-    <div className="grid gap-6 max-w-2xl">
+    <div className="m-rise grid max-w-2xl gap-6">
       <header>
         <h1 className="text-lg font-semibold">Security</h1>
         <p
@@ -295,30 +295,38 @@ export default function SecuritySettingsPage() {
             <div className="grid gap-1">
               <Label>Secret (enter manually in your app)</Label>
               <code
-                className="rounded-[2px] px-2 py-1 text-xs"
+                className="m-rise rounded-lg px-2.5 py-1.5 text-xs"
                 style={{
                   background: "var(--m-surface-raised)",
+                  border: "1px solid var(--m-border)",
+                  fontFamily: "var(--font-mono)",
+                  letterSpacing: "0.08em",
                   wordBreak: "break-all",
                 }}
               >
                 {setupSecret}
               </code>
+              <FieldHint>Shown once. Confirm below with the first generated code.</FieldHint>
             </div>
-            <div className="grid gap-1">
-              <Label>otpauth URI</Label>
+            <details className="grid gap-1">
+              <summary
+                className="cursor-pointer text-xs transition-opacity duration-100 hover:opacity-70"
+                style={{ color: "var(--m-text-muted)" }}
+              >
+                Advanced — otpauth URI (paste into your app)
+              </summary>
               <code
-                className="rounded-[2px] px-2 py-1 text-xs"
+                className="rounded-lg px-2.5 py-1.5 text-xs"
                 style={{
                   background: "var(--m-surface-raised)",
+                  border: "1px solid var(--m-border)",
+                  fontFamily: "var(--font-mono)",
                   wordBreak: "break-all",
                 }}
               >
                 {setupUrl}
               </code>
-              <FieldHint>
-                Shown once. Confirm below with the first generated code.
-              </FieldHint>
-            </div>
+            </details>
             <label className="grid gap-1">
               <Label>Confirmation code</Label>
               <Input
@@ -349,9 +357,18 @@ export default function SecuritySettingsPage() {
             Shown once — store them somewhere safe. Each code works exactly
             once.
           </p>
-          <ul className="grid grid-cols-2 gap-1 font-mono text-xs">
+          <ul className="gap-1.5 grid sm:grid-cols-2 font-mono text-xs">
             {recoveryCodes.map((c) => (
-              <li key={c}>{c}</li>
+              <li
+                key={c}
+                className="rounded-lg px-2.5 py-1.5"
+                style={{
+                  background: "var(--m-surface-raised)",
+                  border: "1px solid var(--m-border)",
+                }}
+              >
+                {c}
+              </li>
             ))}
           </ul>
           <Button
@@ -515,21 +532,22 @@ export default function SecuritySettingsPage() {
                 key={p.id}
                 className="flex items-center justify-between gap-2"
               >
-                <span>
+                <span className="truncate">
                   {p.display_name}{" "}
-                  <span style={{ color: "var(--m-text-muted)" }}>
+                  <span className="font-mono" style={{ color: "var(--m-text-muted)" }}>
                     ({p.issuer})
                   </span>
                 </span>
                 <span
                   aria-label={`${p.display_name} ${p.enabled ? "enabled" : "disabled"}`}
-                  style={{
-                    color: p.enabled
-                      ? "var(--m-status-success-fg)"
-                      : "var(--m-text-muted)",
-                  }}
+                  className="ml-auto shrink-0"
                 >
-                  {p.enabled ? "enabled" : "disabled"}
+                  <Tag
+                    tone={p.enabled ? "success" : "outline"}
+                    style={p.enabled ? undefined : { border: "1px solid var(--m-border)" }}
+                  >
+                    {p.enabled ? "enabled" : "disabled"}
+                  </Tag>
                 </span>
               </li>
             ))}

@@ -8,6 +8,11 @@
 // expired tokens are ALL a bare 404 server-side and render one friendly
 // state here. Lives OUTSIDE the authed shell (headerless route).
 // Non-purpose: no staff surfaces, no branding beyond Workbench tokens.
+//
+// Wave 17 lane 9 UX pass: Tangerine brand header, show/hide password
+// affordances on both fields, icon'd error row, spinner submit, success
+// check state. Security copy and testids unchanged; forced light theme
+// preserved on the shared device.
 "use client";
 
 import type { components } from "@meridian/sdk";
@@ -16,9 +21,45 @@ import { applyTheme } from "@meridian/ui";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
 
+import { AuthBrand } from "../../components/auth/auth-brand";
 import { saveTokens } from "../../lib/api";
 import { api } from "../../lib/api";
 import { OFFLINE_RETRY_COPY } from "../../lib/error-copy";
+
+/** Show/hide affordance shared by both password fields. */
+function ToggleShowPassword({
+  on,
+  onClick,
+}: {
+  on: boolean;
+  onClick: () => void;
+}): ReactNode {
+  return (
+    <button
+      type="button"
+      aria-label={on ? "Hide password" : "Show password"}
+      aria-pressed={on}
+      onClick={onClick}
+      className="absolute inset-y-0 right-0 flex w-9 items-center justify-center transition-opacity duration-100 hover:opacity-70"
+      style={{ color: "var(--m-text-muted)" }}
+    >
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+        {on ? (
+          <>
+            <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" strokeLinejoin="round" />
+            <circle cx="12" cy="12" r="2.5" />
+            <path d="M4 4l16 16" strokeLinecap="round" />
+          </>
+        ) : (
+          <>
+            <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" strokeLinejoin="round" />
+            <circle cx="12" cy="12" r="2.5" />
+          </>
+        )}
+      </svg>
+    </button>
+  );
+}
 
 function AcceptInviteInner(): ReactNode {
   const router = useRouter();
@@ -26,7 +67,9 @@ function AcceptInviteInner(): ReactNode {
   const token = params.get("token") ?? "";
 
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [confirm, setConfirm] = useState("");
+  const [showConfirm, setShowConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
@@ -78,16 +121,10 @@ function AcceptInviteInner(): ReactNode {
 
   if (token === "") {
     return (
-      <main
-        className="m-rise flex min-h-full items-center justify-center p-6"
-        style={{ background: "var(--m-canvas)" }}
-      >
-        <Card className="w-full max-w-sm p-6">
-          <div className="mb-3 text-center">
-            <span className="font-heading text-lg font-semibold tracking-tight">Meridian</span>
-          </div>
-          <h1 className="text-base font-semibold">Accept invite</h1>
-          <p className="mt-2 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+      <main className="flex min-h-full items-center justify-center p-4 md:p-6" style={{ background: "var(--m-canvas)" }}>
+        <Card className="m-rise w-full max-w-sm rounded-xl p-6">
+          <AuthBrand subtitle="Accept invite" />
+          <p className="mt-3 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
             This page needs the setup link your administrator sent you (it should look like
             {" "}
             <code className="font-mono text-[12px]">…/accept-invite?token=…</code>).
@@ -101,44 +138,59 @@ function AcceptInviteInner(): ReactNode {
   }
 
   return (
-    <main
-      className="m-rise flex min-h-full items-center justify-center p-6"
-      style={{ background: "var(--m-canvas)" }}
-    >
-      <Card className="w-full max-w-sm p-6" data-testid="accept-invite-card">
-        <div className="mb-3 text-center">
-          <span className="font-heading text-lg font-semibold tracking-tight">Meridian</span>
-        </div>
-        <h1 className="text-base font-semibold">Set your password</h1>
+    <main className="flex min-h-full items-center justify-center p-4 md:p-6" style={{ background: "var(--m-canvas)" }}>
+      <Card className="m-rise w-full max-w-sm rounded-xl p-6 md:p-7" data-testid="accept-invite-card">
+        <AuthBrand />
+        <h1 className="mt-4 font-heading text-base font-semibold tracking-tight" style={{ color: "var(--m-text)" }}>
+          Set your password
+        </h1>
         <p className="mt-1 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
           Finish setting up your Meridian account. You will land signed in.
         </p>
-        <form className="mt-4 grid gap-3" onSubmit={redeem}>
-          <div>
+        <form className="m-rise mt-4 grid gap-3" onSubmit={redeem} style={{ animationDelay: "40ms" }}>
+          <div className="grid gap-1">
             <Label htmlFor="invite-password">New password</Label>
-            <Input
-              id="invite-password"
-              type="password"
-              autoComplete="new-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              minLength={10}
-            />
+            <div className="relative">
+              <Input
+                id="invite-password"
+                type={showPassword ? "text" : "password"}
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="pr-12"
+                required
+                minLength={10}
+              />
+              <ToggleShowPassword on={showPassword} onClick={() => setShowPassword((v) => !v)} />
+            </div>
           </div>
-          <div>
+          <div className="grid gap-1">
             <Label htmlFor="invite-password-confirm">Confirm password</Label>
-            <Input
-              id="invite-password-confirm"
-              type="password"
-              autoComplete="new-password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              required
-            />
+            <div className="relative">
+              <Input
+                id="invite-password-confirm"
+                type={showConfirm ? "text" : "password"}
+                autoComplete="new-password"
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                className="pr-12"
+                required
+              />
+              <ToggleShowPassword on={showConfirm} onClick={() => setShowConfirm((v) => !v)} />
+            </div>
           </div>
           {error !== null ? (
-            <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }} data-testid="accept-invite-error">
+            <p
+              role="alert"
+              className="flex items-start gap-1.5 text-[13px]"
+              style={{ color: "var(--m-status-danger-fg)" }}
+              data-testid="accept-invite-error"
+            >
+              <svg aria-hidden="true" className="mt-0.5 shrink-0" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M12 3 2 21h20L12 3z" strokeLinejoin="round" />
+                <path d="M12 10v5" strokeLinecap="round" />
+                <circle cx="12" cy="18" r="0.5" fill="currentColor" />
+              </svg>
               {error}
             </p>
           ) : null}

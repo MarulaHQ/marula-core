@@ -5,12 +5,19 @@
 // endpoints via @meridian/sdk; routes MFA-gated logins to /mfa; renders
 // config-driven SSO buttons from the enabled OIDC providers.
 // Non-purpose: no enrollment/management UI here (see /settings/security).
+//
+// Wave 17 lane 9 UX pass: Tangerine brand header (§7 mark), morphing
+// segmented control, show/hide password affordance, icon'd error row,
+// staggered entrance motion (transform/opacity ≤120ms, reduced-motion
+// collapses). Security copy and all wired APIs unchanged.
 "use client";
 
+import { FieldError, FieldHint } from "@meridian/ui";
 import { friendlyMutationText } from "../../lib/error-copy";
-import { Button, Card, FieldHint, Input, Label } from "@meridian/ui";
+import { Button, Card, Input, Label, Spinner } from "@meridian/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { AuthBrand } from "../../components/auth/auth-brand";
 import { api, resolveApiBaseUrl, saveTokens, useAuth } from "../../lib/api";
 
 const API_BASE = resolveApiBaseUrl();
@@ -36,6 +43,7 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [orgName, setOrgName] = useState("");
   const [orgSlug, setOrgSlug] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -123,18 +131,16 @@ export default function LoginPage() {
 
   return (
     <main
-      className="flex min-h-screen items-center justify-center p-6"
+      className="flex min-h-screen items-center justify-center p-4 md:p-6"
       style={{ background: "var(--m-canvas)" }}
     >
-      <Card className="w-full max-w-sm p-6">
-        <div className="mb-4">
-          <span className="text-base font-semibold">Meridian</span>
-          <p className="mt-1 text-xs" style={{ color: "var(--m-text-secondary)" }}>
-            Sign in to your service desk, or create your organization.
-          </p>
-        </div>
+      <Card
+        className="m-rise w-full max-w-sm rounded-xl p-6 md:p-7"
+        data-testid="login-card"
+      >
+        <AuthBrand subtitle="Sign in to your service desk, or create your organization." />
         <div
-          className="mb-4 grid grid-cols-2 gap-1 rounded-[2px] p-1"
+          className="relative mt-5 grid grid-cols-2 gap-1 rounded-xl p-1 transition-colors duration-100"
           style={{ background: "var(--m-status-neutral-bg)" }}
           role="tablist"
         >
@@ -144,10 +150,14 @@ export default function LoginPage() {
               role="tab"
               aria-selected={mode === m.id}
               onClick={() => setMode(m.id)}
-              className="rounded-[2px] px-3 py-1.5 text-xs font-medium"
+              className="rounded-lg px-3 py-1.5 text-xs font-medium transition-[background-color,opacity] duration-100"
               style={
                 mode === m.id
-                  ? { background: "var(--m-surface)", color: "var(--m-text)" }
+                  ? {
+                      background: "var(--m-surface)",
+                      color: "var(--m-text)",
+                      boxShadow: "0 1px 2px rgba(0, 0, 0, 0.1)",
+                    }
                   : { color: "var(--m-text-secondary)" }
               }
             >
@@ -155,7 +165,7 @@ export default function LoginPage() {
             </button>
           ))}
         </div>
-        <form onSubmit={submit} className="grid gap-3">
+        <form key={mode} onSubmit={submit} className="m-rise mt-5 grid gap-3">
           {mode === "register" && (
             <>
               <label className="grid gap-1">
@@ -191,27 +201,57 @@ export default function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@company.com"
+              autoComplete="email"
               required
             />
           </label>
           <label className="grid gap-1">
             <Label>Password</Label>
-            <Input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              minLength={10}
-              required
-            />
-            <FieldHint>10+ characters</FieldHint>
+            <div className="relative">
+              <Input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                minLength={10}
+                autoComplete={mode === "signin" ? "current-password" : "new-password"}
+                className="pr-12"
+                required
+              />
+              <button
+                type="button"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-pressed={showPassword}
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute inset-y-0 right-0 flex w-9 items-center justify-center transition-opacity duration-100 hover:opacity-70"
+                style={{ color: "var(--m-text-muted)" }}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  {showPassword ? (
+                    <>
+                      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" strokeLinejoin="round" />
+                      <circle cx="12" cy="12" r="2.5" />
+                      <path d="M4 4l16 16" strokeLinecap="round" />
+                    </>
+                  ) : (
+                    <>
+                      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" strokeLinejoin="round" />
+                      <circle cx="12" cy="12" r="2.5" />
+                    </>
+                  )}
+                </svg>
+              </button>
+            </div>
+            {mode === "register" && <FieldHint>10+ characters</FieldHint>}
           </label>
           {error !== null && (
-            <p className="text-xs" style={{ color: "var(--m-status-danger-fg)" }} role="alert">
-              {error}
-            </p>
+            <FieldError data-testid="login-error">{error}</FieldError>
           )}
           {slugSuggestion !== null && (
-            <div className="flex items-center gap-2 text-xs" role="status">
+            <div
+              className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs"
+              role="status"
+              style={{ background: "var(--m-accent-soft)" }}
+            >
               <span style={{ color: "var(--m-text-secondary)" }}>
                 Available: <strong>{slugSuggestion}</strong>
               </span>
@@ -226,6 +266,7 @@ export default function LoginPage() {
             </div>
           )}
           <Button type="submit" variant="primary" disabled={busy}>
+            {busy && <Spinner />}
             {busy ? "Working…" : mode === "signin" ? "Sign in" : "Create organization"}
           </Button>
         </form>
@@ -240,12 +281,14 @@ export default function LoginPage() {
               <span className="h-px flex-1" style={{ background: "var(--m-border)" }} />
             </div>
             <div className="grid gap-2">
-              {providers.map((p) => (
-                <a key={p.name} href={ssoHref(p.name)} className="block">
-                  <Button type="button" variant="secondary" className="w-full">
-                    {p.display_name}
-                  </Button>
-                </a>
+              {providers.map((p, i) => (
+                <div key={p.name} className="m-rise" style={{ animationDelay: `${Math.min(i, 3) * 40}ms` }}>
+                  <a href={ssoHref(p.name)} className="block">
+                    <Button type="button" variant="secondary" className="w-full">
+                      {p.display_name}
+                    </Button>
+                  </a>
+                </div>
               ))}
             </div>
           </>
