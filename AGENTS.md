@@ -12,6 +12,15 @@ paths: fixtures/, .sqlx/, dist/, evidence dirs). Full routing detail lives in
 "graft vs graphify" below. Record graft token savings in the lane landing
 record ("🌱 graft saved ~N tokens").
 
+**Worktree lanes: build your own graph at lane start (2026-09-18).** Every
+worktree lane runs `graft build` ONCE at lane start in its worktree (deterministic
+AST-only, free) so its indexes reflect the lane's branch, then re-runs it after
+big changes — instead of sharing the main repo's graph via symlink (the old
+setup-script symlink is retired; stale shared spans caused wrong file:line hits
+after merges). `graft/` is GITIGNORED (`.gitignore /graft/`) — never commit,
+symlink, or force-add it; if a lane ever sees `graft/` in `git status`, fail the
+check and re-ignore rather than committing the graph.
+
 ## UI skills (vendored design-engineering skills)
 
 `/skills` on ui-skills.com, vendored to `.kilo/skills/` (ui-skills-root, improve-ui,
