@@ -414,10 +414,7 @@ pub async fn set_auth_policy(
 }
 /// Wave 19 lane 5: reads `require_email_verification` (deny-by-default
 /// column from 0088) for the login gate.
-pub async fn require_email_verification<'e, E>(
-    executor: E,
-    org_id: Uuid,
-) -> DbResult<bool>
+pub async fn require_email_verification<'e, E>(executor: E, org_id: Uuid) -> DbResult<bool>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {

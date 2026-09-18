@@ -12,13 +12,19 @@
 
 use crate::auth::handlers::{audit_best_effort, issue_tokens};
 use crate::auth::hardening::{enforce_gate, record_failure, record_success, GateSubject};
-use crate::auth::{jwt, password, totp_service,
+use crate::auth::{
+    jwt, password, totp_service,
     webauthn_service::{self, CeremonyContext},
-    AuthedUser};
+    AuthedUser,
+};
 use crate::error::{ApiError, ApiResult};
 use crate::routes::openapi::TokenPair;
 use crate::state::AppState;
-use axum::{extract::State, http::{Extensions, HeaderMap}, Json};
+use axum::{
+    extract::State,
+    http::{Extensions, HeaderMap},
+    Json,
+};
 use core_domain::entities::{Actor, AuditEvent};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;

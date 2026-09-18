@@ -761,7 +761,8 @@ pub async fn set_email_verified(
         .await
         .map_err(|e| ApiError::Internal(e.into()))?;
     core_db::set_org(&mut tx, org_id).await?;
-    let target = core_db::users::get_user(&mut *tx, org_id, id).await
+    let target = core_db::users::get_user(&mut *tx, org_id, id)
+        .await
         .map_err(|_| ApiError::NotFound)?;
     if req.verified {
         core_db::users::mark_email_verified(&mut *tx, id).await?;
@@ -783,6 +784,11 @@ pub async fn set_email_verified(
         },
     )
     .await?;
-    tx.commit().await.map_err(|e| ApiError::Internal(e.into()))?;
-    Ok(Json(EmailVerifiedResponse { id, email_verified: req.verified }))
+    tx.commit()
+        .await
+        .map_err(|e| ApiError::Internal(e.into()))?;
+    Ok(Json(EmailVerifiedResponse {
+        id,
+        email_verified: req.verified,
+    }))
 }

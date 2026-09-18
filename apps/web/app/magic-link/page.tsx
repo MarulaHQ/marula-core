@@ -20,7 +20,7 @@ import { Suspense, useEffect, useState, type ReactNode } from "react";
 
 import { AuthBrand } from "../../components/auth/auth-brand";
 import { friendlyMutationText } from "../../lib/error-copy";
-import { resolveApiBaseUrl, saveTokens } from "../../lib/api";
+import { api, resolveApiBaseUrl, saveTokens } from "../../lib/api";
 
 const API_BASE = resolveApiBaseUrl();
 
@@ -107,13 +107,11 @@ function MagicLinkInner(): ReactNode {
     setBusy(true);
     setError(null);
     try {
-      const { error: apiError } = await apiCall:
-      // typed path call
-      const res = await api.api.POST("/api/v1/auth/magic-link/request", {
+      const { error: apiError } = await api.api.POST("/api/v1/auth/magic-link/request", {
         body: { email: email.trim() },
       });
-      if (res.error !== undefined) {
-        setError(friendlyMutationText(res.error));
+      if (apiError !== undefined) {
+        setError(friendlyMutationText(apiError));
         return;
       }
       setSentOnce(true);

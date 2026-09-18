@@ -93,17 +93,23 @@ function setupApi(): MockApi {
   mock.on("GET", "/api/v1/me", () => ({ json: ME_FIXTURE }));
   mock.on("GET", "/api/v1/calendar/week", () => ({ json: calendarView() }));
   mock.on("GET", "/api/v1/calendar/team", () => ({ json: calendarView() }));
-  mock.on("GET", "/api/v1/tickets", () => ({
-    json: [
-      {
-        id: TICKET_ID,
-        number: "MER-42",
-        title: "Mail server rejecting inbound",
-        due_at: at(TODAY, 12, 0),
-        category: "open",
-        merged_into_ticket_id: null,
-      },
-    ],
+  mock.on("GET", "/api/v1/calendar/deadlines", () => ({
+    json: {
+      from: "",
+      to: "",
+      deadlines: [
+        {
+          ticket_id: TICKET_ID,
+          board_id: "00000000-0000-4000-8000-0000000000b1",
+          number: "MER-42",
+          title: "Mail server rejecting inbound",
+          due_at: at(TODAY, 12, 0),
+          category: "open",
+          assignee_id: null,
+          client_id: null,
+        },
+      ],
+    },
   }));
   mock.on("POST", `/api/v1/appointments/${APPT_ID}/move`, () => ({
     json: { id: APPT_ID, title: "Site visit" },

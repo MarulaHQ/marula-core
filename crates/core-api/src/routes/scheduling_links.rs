@@ -647,6 +647,93 @@ pub async fn update_meeting_type(
     Ok(Json(outcome.into_response()?))
 }
 
+#[derive(Debug, Serialize, ToSchema)]
+pub struct MeetingTypeDeleted {
+    pub deleted: bool,
+}
+
+/// DELETE /api/meeting-types/{id} — HARD delete with audit (Wave 17 lane
+/// 13): unlike the Pause toggle (PATCH `is_active`), this removes the
+/// template outright. A scheduling link still referencing the row refuses
+/// with a typed conflict (the FK RESTRICT surfaces) — pause the links
+/// FIRST or re-target them; history rows (bookings) are untouched by the
+/// template's deletion.
+#[utoipa::path(operation_id = "meeting_types_delete", delete, path = "/api/meeting-types/{id}", tag = "scheduling", security(("bearer" = [])),
+    params(("id" = uuid::Uuid, Path)),
+    responses((status = 200, body = MeetingTypeDeleted),
+              (status = 404, description = "meeting type not visible in scope"),
+              (status = 409, description = "a scheduling link still references this meeting type")))]
+pub async fn delete_meeting_type(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<MeetingTypeDeleted>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, admin(Action::Delete))?;
+    let org_id = authed.principal.user.org_id;
+    let actor = authed.principal.user.id;
+    let outcome = org_tx::with_org_tx(&state, org_id, actor, |mut tx| async move {
+        // Load first so 404 is visible-from-scope and the audit + event
+        // carry the exact record that went away.
+        let existing =
+            core_db::scheduling_links::get_meeting_type(&mut *tx.tx, org_id, id).await?;
+        let deleted =
+            core_db::scheduling_links::delete_meeting_type(&mut *tx.tx, org_id, id)
+                .await
+                .map_err(|e| match &e {
+                    // FK RESTRICT: scheduling_links.meeting_type_id — the
+                    // proof of "in use", surfaced honestly instead of a 500.
+                    core_db::DbError::Sql(sqlx::Error::Database(db))
+                        if db.constraint()
+                            == Some("scheduling_links_meeting_type_id_fkey") =>
+                    {
+                        ApiError::Conflict(
+                            "this meeting type still has scheduling links pointing at it — pause or re-target those links first"
+                                .into(),
+                        )
+                    }
+                    _ => ApiError::from(e),
+                })?;
+        if !deleted {
+            return Err(ApiError::NotFound);
+        }
+        core_db::audit::insert(
+            &mut *tx.tx,
+            &core_domain::entities::AuditEvent {
+                id: Uuid::now_v7(),
+                org_id,
+                actor: core_domain::entities::Actor::Human(actor),
+                action: "meeting_type.deleted".into(),
+                entity_type: Some("meeting_type".into()),
+                entity_id: Some(id.to_string()),
+                detail: serde_json::json!({
+                    "name": existing.name,
+                    "is_active": existing.is_active,
+                }),
+                ip: None,
+                occurred_at: chrono::Utc::now(),
+            },
+        )
+        .await?;
+        tx.emit(
+            core_domain::events::types::MEETING_TYPE_DELETED,
+            "meeting_type",
+            Some(id.to_string().as_str()),
+            &serde_json::to_value(core_domain::events::MeetingTypeDeleted {
+                meeting_type_id: id,
+                name: existing.name.clone(),
+                deleted_by: actor,
+                deleted_at: chrono::Utc::now(),
+            })
+            .unwrap_or_default(),
+        )
+        .await?;
+        Ok((tx, MeetingTypeDeleted { deleted: true }))
+    })
+    .await?;
+    Ok(Json(outcome))
+}
+
 // --- links --------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize, Serialize, ToSchema)]

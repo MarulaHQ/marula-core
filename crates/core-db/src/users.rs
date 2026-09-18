@@ -502,12 +502,10 @@ pub async fn clear_email_verified<'e, E>(executor: E, user_id: Uuid) -> DbResult
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
-    sqlx::query(
-        "UPDATE users SET email_verified = false, email_verified_at = NULL WHERE id = $1",
-    )
-    .bind(user_id)
-    .execute(executor)
-    .await?;
+    sqlx::query("UPDATE users SET email_verified = false, email_verified_at = NULL WHERE id = $1")
+        .bind(user_id)
+        .execute(executor)
+        .await?;
     Ok(())
 }
 /// Wave 19 lane 5: replaces one user's password hash (password-reset
@@ -521,12 +519,10 @@ pub async fn set_password_hash<'e, E>(
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
-    sqlx::query(
-        "UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1",
-    )
-    .bind(user_id)
-    .bind(password_hash)
-    .execute(executor)
-    .await?;
+    sqlx::query("UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1")
+        .bind(user_id)
+        .bind(password_hash)
+        .execute(executor)
+        .await?;
     Ok(())
 }

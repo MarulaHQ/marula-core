@@ -6,8 +6,8 @@
 // render as human-readable sentences with typed editors and client-side
 // validation (shape errors surface before the wire); the user picker
 // reads the real org directory; enable/disable is optimistic; delete is
-// two-step. No test-run endpoint exists in the pins, so the surface
-// never fakes one.
+// two-step. "Test run" samples the org's recent tickets through the rule
+// WITHOUT executing anything — the result renders as a dry-run proposal.
 //
 // Non-purpose: no canvas builder (no drag-drop), no new action types
 // beyond the SDK's closed `AutomationAction` vocabulary.
@@ -32,7 +32,8 @@ import {
   Tag,
 } from "@meridian/ui";
 import type { components } from "@meridian/sdk";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, useRequireAuth } from "../../lib/api";
 import { rejectionText } from "../../lib/error-copy";
 
@@ -43,6 +44,7 @@ type AutomationAction = components["schemas"]["AutomationAction"];
 type BoardNavEntry = components["schemas"]["BoardNavEntry"];
 type OrgUser = components["schemas"]["OrgUser"];
 type NotificationKind = components["schemas"]["NotificationKind"];
+type AutomationTestRunResponse = components["schemas"]["AutomationTestRunResponse"];
 
 interface AutomationRuleView {
   id: string;
@@ -167,6 +169,31 @@ export default function AutomationsPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleteArm, setDeleteArm] = useState<string | null>(null);
+
+  // Dry-run test-run state, one rule at a time (requestId guards races).
+  const [testRun, setTestRun] = useState<AutomationTestRunResponse | null>(null);
+  const [testingId, setTestingId] = useState<string | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [testedId, setTestedId] = useState<string | null>(null);
+  const testRunSeqRef = useRef(0);
+
+  const handleTestRun = async (rule: AutomationRuleView) => {
+    const seq = ++testRunSeqRef.current;
+    setTestingId(rule.id);
+    setTestError(null);
+    const { data, error } = await api.api.POST("/api/v1/automation-rules/{id}/test-run", {
+      params: { path: { id: rule.id } },
+    });
+    if (seq !== testRunSeqRef.current) return;
+    setTestingId(null);
+    setTestedId(rule.id);
+    if (error !== undefined || data === undefined) {
+      setTestError(rejectionText(error as never, "The test run failed. Verify the rule still exists."));
+      setTestRun(null);
+      return;
+    }
+    setTestRun(data);
+  };
 
   const refreshUsers = useCallback(async () => {
     const { data } = await api.api.GET("/api/v1/org/users", {
@@ -396,6 +423,14 @@ export default function AutomationsPage() {
                   </p>
                 </div>
                 <div className="flex gap-1">
+                  <Button
+                    data-testid={`automation-test-run-${r.id}`}
+                    variant="ghost"
+                    disabled={testingId !== null && testingId !== r.id}
+                    onClick={() => void handleTestRun(r)}
+                  >
+                    {testingId === r.id ? <Spinner /> : null} Test run
+                  </Button>
                   <Button variant="ghost" onClick={() => void handleToggleRule(r)}>
                     {r.enabled ? "Disable" : "Enable"}
                   </Button>
@@ -426,6 +461,21 @@ export default function AutomationsPage() {
                   userName={userName}
                 />
               </div>
+              {testError !== null && testedId === r.id ? (
+                <p role="alert" className="mt-2 text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
+                  {testError}
+                </p>
+              ) : null}
+              {testRun !== null && testRun.rule_id === r.id ? (
+                <TestRunResult
+                  result={testRun}
+                  userName={userName}
+                  onClose={() => {
+                    setTestRun(null);
+                    setTestError(null);
+                  }}
+                />
+              ) : null}
             </Card>
           ))}
           {rowError !== null ? (
@@ -733,6 +783,77 @@ function idempotencyKey(): string {
   return typeof crypto !== "undefined" && crypto.randomUUID !== undefined
     ? crypto.randomUUID()
     : `auto-${Date.now()}`;
+}
+
+/** The honest dry-run rendering: sampled vs matched counts, the matched
+ * tickets as they exist right now, and the rule's CURRENT action documents
+ * shown verbatim as the proposal — nothing was executed. */
+function TestRunResult({
+  result,
+  userName,
+  onClose,
+}: {
+  result: AutomationTestRunResponse;
+  userName(id: string): string;
+  onClose(): void;
+}) {
+  const previewActions = Array.isArray(result.actions_preview)
+    ? (result.actions_preview as AutomationAction[])
+    : [];
+  return (
+    <div
+      className="mt-3 grid gap-2 rounded-md border p-3"
+      style={{ borderColor: "var(--m-border)" }}
+      data-testid="automation-test-run-result"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2 text-[12px]">
+          <StepMark tone="when">DRY RUN</StepMark>
+          <span className="tabular-nums">
+            sampled {result.sampled_count} · matched {result.matched_count} ·{" "}
+            {result.matched_count === 0
+              ? "no tickets would fire this rule"
+              : `${result.matched_count} ticket${result.matched_count === 1 ? "" : "s"} would match`}
+          </span>
+        </div>
+        <button
+          className="text-[11px] underline-offset-2 hover:underline"
+          style={{ color: "var(--m-text-muted)" }}
+          onClick={onClose}
+        >
+          Dismiss
+        </button>
+      </div>
+      {result.matched_count > 0 ? (
+        <ul className="grid gap-0.5">
+          {result.matches.map((m) => (
+            <li key={m.ticket_id} className="flex items-center gap-2 text-[12px]">
+              <Link
+                href={`/tickets/${m.ticket_id}`}
+                className="font-medium underline decoration-[var(--m-border)] underline-offset-2 hover:text-[var(--m-accent)]"
+              >
+                #{m.number}
+              </Link>
+              <span className="min-w-0 truncate">{m.title}</span>
+              <span className="shrink-0 text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+                {m.assignee_id === null || m.assignee_id === undefined ? "unassigned" : userName(m.assignee_id)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <div className="grid gap-1">
+        {previewActions.map((a, i) => (
+          <div key={i} className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+            {i + 1}. {actionText(a, userName)}
+          </div>
+        ))}
+      </div>
+      <p className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+        Proposal only — actions are previewed, never executed, by a test run.
+      </p>
+    </div>
+  );
 }
 
 function RuleChips({

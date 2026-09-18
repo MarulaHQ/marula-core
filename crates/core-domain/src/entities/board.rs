@@ -40,6 +40,9 @@ pub struct BoardStatus {
     /// Whether tickets may enter this status directly from New.
     pub is_entry: bool,
     pub color: Option<String>,
+    /// Per-column WIP cap (0089): occupancy of this column is enforced
+    /// server-side at ticket status change. `None` = no limit.
+    pub wip_limit: Option<i32>,
 }
 
 /// A user's favorite marking of a board (drives board groups + my-work).

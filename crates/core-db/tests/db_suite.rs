@@ -1657,6 +1657,7 @@ async fn transition_edge_with_foreign_status_is_rejected_by_fk() {
         TicketStatusCategory::Open,
         0,
         true,
+        None,
     )
     .await
     .expect("foreign status")
@@ -1690,6 +1691,7 @@ async fn status_patch_updates_binding_metadata() {
             category: Some(TicketStatusCategory::InProgress),
             sort_order: Some(42),
             is_entry: None,
+            wip_limit: None,
         },
     )
     .await
@@ -1752,6 +1754,7 @@ async fn status_delete_rejects_when_tickets_reference_it() {
         TicketStatusCategory::Waiting,
         25,
         false,
+        None,
     )
     .await
     .expect("custom");
@@ -5153,9 +5156,11 @@ async fn idx_upsert(
     title: &str,
     body: &str,
 ) {
-    search::upsert_row(&mut *conn, org, kind, entity_id, parent_id, title, body)
-        .await
-        .expect("search upsert");
+    search::upsert_row(
+        &mut *conn, org, kind, entity_id, parent_id, title, body, None,
+    )
+    .await
+    .expect("search upsert");
 }
 
 #[tokio::test]
@@ -5200,6 +5205,7 @@ async fn search_upsert_is_exactly_once_and_updates_in_place() {
         &["ticket".to_string()],
         "relay",
         false,
+        None,
         10,
         0,
     )
@@ -5287,6 +5293,7 @@ async fn search_websearch_phrases_exclusions_and_prefix_tokens() {
         &["ticket".to_string()],
         "\"firmware update\"",
         false,
+        None,
         10,
         0,
     )
@@ -5302,6 +5309,7 @@ async fn search_websearch_phrases_exclusions_and_prefix_tokens() {
         &["ticket".to_string()],
         "printer -offline",
         false,
+        None,
         10,
         0,
     )
@@ -5311,9 +5319,18 @@ async fn search_websearch_phrases_exclusions_and_prefix_tokens() {
     assert!(excluded[0].title.contains("queue"));
 
     // Partial token via the trigram leg: no lexeme "net" exists anywhere.
-    let prefix = search::search_page(&mut *tx, s.org, &["ticket".to_string()], "net", true, 10, 0)
-        .await
-        .expect("prefix query");
+    let prefix = search::search_page(
+        &mut *tx,
+        s.org,
+        &["ticket".to_string()],
+        "net",
+        true,
+        None,
+        10,
+        0,
+    )
+    .await
+    .expect("prefix query");
     assert_eq!(prefix.len(), 2, "'net' finds 'network' rows");
     // With the trigram leg off, the same query is a no-op (FTS-only).
     let fts_only = search::search_page(
@@ -5322,6 +5339,7 @@ async fn search_websearch_phrases_exclusions_and_prefix_tokens() {
         &["ticket".to_string()],
         "net",
         false,
+        None,
         10,
         0,
     )
@@ -5363,6 +5381,7 @@ async fn search_ranking_prefers_title_matches_over_body_mentions() {
         &["ticket".to_string()],
         "backup",
         false,
+        None,
         10,
         0,
     )
@@ -5405,10 +5424,16 @@ async fn search_kind_filter_and_pagination() {
     )
     .await;
 
-    let tickets_only =
-        search::search_count(&mut *tx, s.org, &["ticket".to_string()], "alpha", false)
-            .await
-            .expect("kind-filtered count");
+    let tickets_only = search::search_count(
+        &mut *tx,
+        s.org,
+        &["ticket".to_string()],
+        "alpha",
+        false,
+        None,
+    )
+    .await
+    .expect("kind-filtered count");
     assert_eq!(tickets_only, 3);
 
     let all_kinds = search::search_count(
@@ -5417,6 +5442,7 @@ async fn search_kind_filter_and_pagination() {
         &["ticket".to_string(), "client".to_string()],
         "alpha",
         false,
+        None,
     )
     .await
     .expect("all-kind count");
@@ -5428,6 +5454,7 @@ async fn search_kind_filter_and_pagination() {
         &["ticket".to_string()],
         "alpha",
         false,
+        None,
         2,
         0,
     )
@@ -5439,6 +5466,7 @@ async fn search_kind_filter_and_pagination() {
         &["ticket".to_string()],
         "alpha",
         false,
+        None,
         2,
         2,
     )
@@ -5484,6 +5512,7 @@ async fn search_rls_blocks_cross_org_hits_and_unscoped_writes() {
         &["ticket".to_string()],
         "firewall",
         false,
+        None,
         10,
         0,
     )
@@ -5502,6 +5531,7 @@ async fn tx_commit_org_check(mut tx: Transaction<'_, Postgres>, other_org: Uuid,
         &["ticket".to_string()],
         q,
         false,
+        None,
         10,
         0,
     )
@@ -5538,6 +5568,7 @@ async fn search_unscoped_app_role_cannot_read_or_write() {
         &["ticket".to_string()],
         "projector",
         false,
+        None,
         10,
         0,
     )
@@ -5556,6 +5587,7 @@ async fn search_unscoped_app_role_cannot_read_or_write() {
         None,
         "should not land",
         "",
+        None,
     )
     .await;
     match result {
@@ -7365,6 +7397,7 @@ async fn search_hybrid_fuses_fts_and_vector_legs_by_rrf() {
         &["ticket".to_string()],
         "relay",
         false,
+        None,
         &near,
         10,
         0,
@@ -7390,6 +7423,7 @@ async fn search_hybrid_fuses_fts_and_vector_legs_by_rrf() {
         &["ticket".to_string()],
         "relay",
         false,
+        None,
         10,
         0,
     )
@@ -7404,10 +7438,16 @@ async fn search_hybrid_fuses_fts_and_vector_legs_by_rrf() {
     );
 
     // The union count powers hybrid pagination metadata.
-    let total =
-        search::search_hybrid_count(&mut *tx, s.org, &["ticket".to_string()], "relay", false)
-            .await
-            .expect("hybrid count");
+    let total = search::search_hybrid_count(
+        &mut *tx,
+        s.org,
+        &["ticket".to_string()],
+        "relay",
+        false,
+        None,
+    )
+    .await
+    .expect("hybrid count");
     assert_eq!(total, 3, "lexical matches ∪ embedded rows of the kind");
     tx.commit().await.expect("commit");
 }
@@ -7468,6 +7508,7 @@ async fn search_hybrid_vector_leg_respects_kind_allow_list() {
         &["ticket".to_string()],
         "unmatched-token",
         false,
+        None,
         &embedding(0.3),
         10,
         0,
@@ -7483,6 +7524,7 @@ async fn search_hybrid_vector_leg_respects_kind_allow_list() {
         &["ticket".to_string()],
         "unmatched-token",
         false,
+        None,
     )
     .await
     .expect("count");

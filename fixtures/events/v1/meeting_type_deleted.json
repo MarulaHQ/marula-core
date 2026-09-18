@@ -1,0 +1,13 @@
+{
+  "event_type": "meeting_type.deleted",
+  "entity": "meeting_type",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "deleted_at": "2023-11-14T22:13:37Z",
+    "deleted_by": "00000000-0000-0000-0000-000000000005",
+    "meeting_type_id": "00000000-0000-0000-0000-00000000002e",
+    "name": "On-site assessment"
+  }
+}

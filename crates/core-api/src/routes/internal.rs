@@ -848,6 +848,11 @@ pub struct UpsertEntry {
     pub title: String,
     #[serde(default)]
     pub body: String,
+    /// The document's client scoping (0089): set ONLY for the `document`
+    /// kind; every other kind indexes org-global. Absent in legacy
+    /// callers — purely additive.
+    #[serde(default)]
+    pub client_scope: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -910,6 +915,7 @@ pub async fn upsert(
                 entry.parent_id,
                 &entry.title,
                 &entry.body,
+                entry.client_scope,
             )
             .await?;
             if let Some(vectors) = &embeddings {

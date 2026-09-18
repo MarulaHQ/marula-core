@@ -7,9 +7,9 @@
 // consistent with the sync panel's overlap counters. Appointments drag
 // to reschedule (15-minute snap) or reschedule via dialog — both ride
 // POST /appointments/{id}/move, whose 409 keeps the atomic conflict
-// rejection. Ticket deadlines come from a bounded GET /tickets page
-// (assignee-scoped in personal mode) filtered to the visible window —
-// documented scope, never invented data.
+// rejection. Ticket deadlines come from the org-wide deadline read
+// model (GET /calendar/deadlines, server-windowed; assignee-scoped in
+// personal mode) — documented scope, never invented data.
 // Non-purpose: no availability editing, no dispatch-board moves (that
 // surface owns its own board), the sync panel owns connection admin.
 "use client";
@@ -156,8 +156,11 @@ export default function CalendarPage() {
   const slot5 = useMonthSlot(scope, mode, monthWeekRows[5]?.[0] ?? null);
   const monthSlotViews = [slot0, slot1, slot2, slot3, slot4, slot5];
 
-  // Ticket deadlines overlay: bounded page (nearest-due ranked), filtered
-  // to the visible window and live categories client-side.
+  // Ticket deadlines overlay: the org-wide deadline read model
+  // (GET /calendar/deadlines, server-filtered to the visible window,
+  // capped at 62 days) — org-wide in team mode, assignee-scoped in
+  // personal mode (same endpoint, assignee_id param keeps the personal
+  // scope identical to the old bounded ticket fetch).
   const [deadlines, setDeadlines] = useState<CalendarEntry[]>([]);
   useEffect(() => {
     if (auth.status !== "authed") return;
@@ -168,32 +171,30 @@ export default function CalendarPage() {
     const rangeEnd = viewMode === "month"
       ? new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1)
       : weekEnd;
-    const assignee = mode === "personal" && auth.me ? { assignee_id: auth.me.user_id } : {};
     void api.api
-      .GET("/api/v1/tickets", { params: { query: { ...assignee, limit: 100 } } })
+      .GET("/api/v1/calendar/deadlines", {
+        params: {
+          query: {
+            from: rangeStart.toISOString(),
+            to: rangeEnd.toISOString(),
+            assignee_id: (mode === "personal" && auth.me) ? auth.me.user_id : null,
+          },
+        },
+      })
       .then((res) => {
-        if (cancelled || res.data === undefined) return;
-        const rows = res.data
-          .filter(
-            (t) =>
-              t.merged_into_ticket_id === null &&
-              t.due_at !== null &&
-              t.category !== "closed",
-          )
-          .map((t) =>
-            entryFromTicketDeadline({
-              id: t.id,
-              number: t.number,
-              title: t.title ?? "",
-              due_at: t.due_at ?? null,
-            }),
-          )
-          .filter((e): e is CalendarEntry => e !== null)
-          .filter((e) => {
-            const at = new Date(e.startsAt).getTime();
-            return at >= rangeStart.getTime() && at < rangeEnd.getTime();
-          });
-        setDeadlines(rows);
+        if (cancelled || res.error !== undefined || res.data === undefined) return;
+        setDeadlines(
+          res.data.deadlines
+            .map((d) =>
+              entryFromTicketDeadline({
+                id: d.ticket_id,
+                number: d.number,
+                title: d.title,
+                due_at: d.due_at,
+              }),
+            )
+            .filter((e): e is CalendarEntry => e !== null),
+        );
       });
     return () => {
       cancelled = true;

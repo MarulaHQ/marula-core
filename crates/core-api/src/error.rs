@@ -365,6 +365,13 @@ fn map_unique_constraint(constraint: &str) -> Option<(&'static str, &'static str
             "agent_skill_version_taken",
             "this version of the skill was just published; republish to append fresh",
         )),
+        // Wave 17 lane 13 (backend gaps): the pinned-results identity
+        // only ever refuses a genuine concurrent upsert race — the
+        // handler answers the stored pin on the idempotent path.
+        "uq_search_pins_result" => Some((
+            "search_pin_conflict",
+            "this result was just pinned elsewhere; reload your pins and retry",
+        )),
         _ => None,
     }
 }
@@ -598,7 +605,9 @@ impl IntoResponse for ApiError {
             }
         }
         let mut response = (status, Json(json!({ "error": error }))).into_response();
-        if let ApiError::RateLimited { retry_after_secs } | ApiError::AuthThrottled { retry_after_secs } = &self {
+        if let ApiError::RateLimited { retry_after_secs }
+        | ApiError::AuthThrottled { retry_after_secs } = &self
+        {
             if let Ok(value) = retry_after_secs.to_string().parse() {
                 response
                     .headers_mut()

@@ -112,6 +112,10 @@ pub enum IndexOp {
         parent_id: Option<Uuid>,
         title: String,
         body: String,
+        /// The document's client scoping (0089): documents index with the
+        /// scope they carry; every other kind indexes org-global (None).
+        #[serde(default)]
+        client_scope: Option<Uuid>,
     },
     Delete {
         entity_kind: String,
@@ -125,6 +129,7 @@ fn upsert_op(
     parent: Option<Uuid>,
     title: String,
     body: String,
+    client_scope: Option<Uuid>,
 ) -> IndexOp {
     IndexOp::Upsert {
         entity_kind: kind.as_str().to_string(),
@@ -132,6 +137,7 @@ fn upsert_op(
         parent_id: parent,
         title,
         body,
+        client_scope,
     }
 }
 
@@ -176,6 +182,7 @@ pub async fn resolve_target(
                     None,
                     t.title,
                     t.body.unwrap_or_default(),
+                    None,
                 )),
             }
         }
@@ -188,6 +195,7 @@ pub async fn resolve_target(
                     Some(c.ticket_id),
                     truncate(&c.body, 80),
                     c.body,
+                    None,
                 )),
             }
         }
@@ -200,6 +208,7 @@ pub async fn resolve_target(
                     None,
                     c.name,
                     c.notes.unwrap_or_default(),
+                    None,
                 )),
             }
         }
@@ -223,6 +232,7 @@ pub async fn resolve_target(
                         Some(s.client_id),
                         s.name,
                         body,
+                        None,
                     ))
                 }
             }
@@ -242,6 +252,7 @@ pub async fn resolve_target(
                         Some(c.client_id),
                         c.name,
                         body,
+                        None,
                     ))
                 }
             }
@@ -265,6 +276,7 @@ pub async fn resolve_target(
                     a.category_id,
                     a.title,
                     a.body,
+                    None,
                 )),
                 Some(_) => None,
             }
@@ -284,6 +296,7 @@ pub async fn resolve_target(
                         None,
                         head.title,
                         head.body,
+                        d.client_id,
                     ))
                 }
             }

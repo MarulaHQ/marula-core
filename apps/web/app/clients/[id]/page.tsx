@@ -2,9 +2,9 @@
 //
 // Purpose: CRM-grade account detail: identity header with monogram +
 // visibility hint, a two-pane layout (tab panes + an At-a-glance rail)
-// carrying the documentation-completeness score with gap hints (pure
-// client-side metadata scoring — the backend scoring API does not exist
-// and is filed back UNCHECKED), tabs for Sites, Contacts, Assets,
+// carrying the documentation-completeness score with gap hints (scored
+// server-side via GET /clients/{id}/completeness; the page renders the
+// backend view verbatim and stays honest when scoring is out of scope), tabs for Sites, Contacts, Assets,
 // Documents, Portal users, and Workflow, contact cards with mailto/tel
 // affordances, and related-item quick links. Child-entity creates call
 // the existing plain POST endpoints (they carry no envelope); the
@@ -44,7 +44,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { api, useAuth, useRequireAuth } from "../../../lib/api";
-import { clientCompleteness, scoreTone } from "../../../lib/docs-completeness";
+import { scoreTone } from "../../../lib/docs-completeness";
 import AssetsTab from "./AssetsTab";
 import WorkflowOverridesTab from "./WorkflowOverridesTab";
 
@@ -56,6 +56,7 @@ type PortalRole = components["schemas"]["PortalRole"];
 type DeviceAsset = components["schemas"]["DeviceAsset"];
 type Document = components["schemas"]["Document"];
 type DocumentLayout = components["schemas"]["DocumentLayout"];
+type ClientCompletenessView = components["schemas"]["ClientCompletenessView"];
 
 type Tab = "sites" | "contacts" | "assets" | "documents" | "portal" | "workflow";
 
@@ -114,6 +115,8 @@ export default function ClientDetailPage() {
   const [assets, setAssets] = useState<DeviceAsset[] | null>(null);
   const [documents, setDocuments] = useState<Document[] | null>(null);
   const [layouts, setLayouts] = useState<DocumentLayout[] | null>(null);
+  const [completeness, setCompleteness] = useState<ClientCompletenessView | null>(null);
+  const [completenessUnavailable, setCompletenessUnavailable] = useState(false);
 
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -165,9 +168,26 @@ export default function ClientDetailPage() {
     }
   }, [clientId]);
 
+  const loadCompleteness = useCallback(async () => {
+    const res = await api.api.GET("/api/v1/clients/{id}/completeness", {
+      params: { path: { id: clientId } },
+    });
+    if (res.error !== undefined || res.data === undefined) {
+      setCompleteness(null);
+      setCompletenessUnavailable(true);
+      return;
+    }
+    setCompleteness(res.data);
+    setCompletenessUnavailable(false);
+  }, [clientId]);
+
   useEffect(() => {
     if (auth.status === "authed") void refreshClient();
   }, [auth.status, refreshClient]);
+
+  useEffect(() => {
+    if (auth.status === "authed" && clientId !== "") void loadCompleteness();
+  }, [auth.status, clientId, loadCompleteness]);
 
   useEffect(() => {
     if (auth.status === "authed") void refreshAll();
@@ -243,6 +263,7 @@ export default function ClientDetailPage() {
     resetCreateForm();
     void refreshAll();
     void refreshClient();
+    void loadCompleteness();
   };
 
   const setPortalStatus = async (user: PortalUser, disabled: boolean) => {
@@ -281,15 +302,7 @@ export default function ClientDetailPage() {
   }
 
   const restricted = client.restricted_to !== null && client.restricted_to.length > 0;
-  const completeness = clientCompleteness({
-    sites,
-    contacts,
-    assets,
-    documents,
-    layouts,
-    portalUsers,
-  });
-  const tone = scoreTone(completeness.score);
+  const tone = completeness !== null ? scoreTone(completeness.score) : "neutral";
 
   return (
     <div className="mx-auto grid w-full grid-cols-1 max-w-[1400px] gap-6 p-4 md:p-6">
@@ -654,58 +667,68 @@ export default function ClientDetailPage() {
           <Card className="m-entity-rise" style={{ "--stagger-i": 2 } as React.CSSProperties}>
             <h2 className="p-4 pb-0 text-sm font-semibold">Documentation completeness</h2>
             <p className="px-4 pb-2 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-              Scored from the records visible to your role — a working summary, not a synced backend score.
+              Scored server-side over this client's records — the backend owns the weights.
             </p>
-            <div className="px-4 pb-1">
-              <div
-                aria-hidden="true"
-                className="h-2 w-full overflow-hidden rounded-full"
-                style={{ background: "var(--m-bg-subtle, var(--m-border))" }}
-              >
-                <div
-                  className="h-full rounded-full transition-[width] duration-[120ms]"
-                  style={{
-                    width: `${completeness.score}%`,
-                    background: completeness.score >= 75
-                      ? "var(--m-status-success-fg)"
-                      : completeness.score >= 40
-                        ? "var(--m-status-warning-fg)"
-                        : "var(--m-status-danger-fg)",
-                  }}
-                />
+            {completenessUnavailable ? (
+              <div className="p-4 pt-0">
+                <EmptyState message="Completeness scoring is not available for this client in your scope." />
               </div>
-              <p className="mt-2 flex items-center gap-2">
-                <span className="text-2xl font-semibold tabular-nums" data-testid="completeness-score">
-                  {completeness.score}
-                </span>
-                <Tag tone={tone}>{completeness.score >= 75 ? "complete" : completeness.score >= 40 ? "in progress" : "thin"}</Tag>
-              </p>
-              <p className="mt-1 text-[11px]" style={{ color: "var(--m-text-muted)" }}>
-                {completeness.basis}
-              </p>
-            </div>
-            {completeness.gaps.length > 0 ? (
-              <ul className="grid gap-2 px-4 pb-4 pt-2">
-                {completeness.gaps.map((g, i) => (
-                  <li
-                    key={g.key}
-                    className="m-entity-rise rounded-[0.5rem] border px-3 py-2"
-                    style={{ borderColor: "var(--m-border)", "--stagger-i": i } as React.CSSProperties}
-                    data-testid={`gap-${g.key}`}
-                  >
-                    <p className="text-[12px] font-semibold" style={{ color: "var(--m-text)" }}>
-                      {g.label}
-                    </p>
-                    <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-                      {g.hint}
-                    </p>
-                  </li>
-                ))}
-              </ul>
+            ) : completeness === null ? (
+              <div className="px-4 pb-4"><Spinner /></div>
             ) : (
-              <p className="px-4 pb-4 pt-1 text-[12px]" style={{ color: "var(--m-status-success-fg)" }}>
-                No gaps in the visible records.
-              </p>
+              <>
+                <div className="px-4 pb-1">
+                  <div
+                    aria-hidden="true"
+                    className="h-2 w-full overflow-hidden rounded-full"
+                    style={{ background: "var(--m-bg-subtle, var(--m-border))" }}
+                  >
+                    <div
+                      className="h-full rounded-full transition-[width] duration-[120ms]"
+                      style={{
+                        width: `${completeness.score}%`,
+                        background: completeness.score >= 75
+                          ? "var(--m-status-success-fg)"
+                          : completeness.score >= 40
+                            ? "var(--m-status-warning-fg)"
+                            : "var(--m-status-danger-fg)",
+                      }}
+                    />
+                  </div>
+                  <p className="mt-2 flex items-center gap-2">
+                    <span className="text-2xl font-semibold tabular-nums" data-testid="completeness-score">
+                      {completeness.score}
+                    </span>
+                    <Tag tone={tone}>{completeness.score >= 75 ? "complete" : completeness.score >= 40 ? "in progress" : "thin"}</Tag>
+                  </p>
+                  <p className="mt-1 text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+                    {completeness.basis}
+                  </p>
+                </div>
+                {completeness.gaps.length > 0 ? (
+                  <ul className="grid gap-2 px-4 pb-4 pt-2">
+                    {completeness.gaps.map((g, i) => (
+                      <li
+                        key={g.key}
+                        className="m-entity-rise rounded-[0.5rem] border px-3 py-2"
+                        style={{ borderColor: "var(--m-border)", "--stagger-i": i } as React.CSSProperties}
+                        data-testid={`gap-${g.key}`}
+                      >
+                        <p className="text-[12px] font-semibold" style={{ color: "var(--m-text)" }}>
+                          {g.label}
+                        </p>
+                        <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+                          {g.hint}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="px-4 pb-4 pt-1 text-[12px]" style={{ color: "var(--m-status-success-fg)" }}>
+                    No gaps in the visible records.
+                  </p>
+                )}
+              </>
             )}
           </Card>
         </div>

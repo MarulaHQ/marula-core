@@ -297,6 +297,22 @@ where
         .and_then(|row| row_to_meeting_type(&row))
 }
 
+/// Hard-deletes one meeting type. `Ok(true)` when the row went away;
+/// `Ok(false)` = already gone. A scheduling link still referencing the
+/// row raises the FK RESTRICT (`23503`) — the route surfaces that as a
+/// typed conflict.
+pub async fn delete_meeting_type<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<bool>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let result = sqlx::query("DELETE FROM meeting_types WHERE org_id = $1 AND id = $2")
+        .bind(org_id)
+        .bind(id)
+        .execute(executor)
+        .await?;
+    Ok(result.rows_affected() > 0)
+}
+
 /// Full update; the caller loaded the row first (404 semantics live there).
 pub async fn update_meeting_type<'e, E>(executor: E, m: &MeetingType) -> DbResult<()>
 where

@@ -532,3 +532,56 @@ pub async fn delete_calendar_exclusion(
     }
     Ok(())
 }
+
+// --- calendar deadline read model (Wave 17 lane 13, migration 0089) ------------
+
+/// One ticket deadline in the org-wide read model. Org-scoped, windowed,
+/// alive-only (not closed, due date present); hydration stays in the row
+/// itself so the calendar overlay never issues N+1 follow-ups.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct TicketDeadlineRow {
+    pub ticket_id: Uuid,
+    pub number: String,
+    pub title: String,
+    pub due_at: chrono::DateTime<chrono::Utc>,
+    pub category: String,
+    pub assignee_id: Option<Uuid>,
+    pub board_id: Uuid,
+    pub client_id: Option<Uuid>,
+}
+
+/// Org-wide ticket deadlines within [from, to] — the /calendar team-mode
+/// overlay replaces the bounded page-1 tickets fetch with THIS read model.
+/// Closed tickets drop (a deadline on a closed ticket is not work);
+/// `assignee` narrows to one person (the personal mode walks the same
+/// model). Capped defensively; a window is small by construction.
+pub async fn list_ticket_deadlines_between<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    from: chrono::DateTime<chrono::Utc>,
+    to: chrono::DateTime<chrono::Utc>,
+    assignee: Option<Uuid>,
+) -> DbResult<Vec<TicketDeadlineRow>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let rows = sqlx::query_as::<_, TicketDeadlineRow>(
+        r#"SELECT id AS ticket_id, number, title, due_at, category, assignee_id, board_id, client_id
+           FROM tickets
+           WHERE org_id = $1
+             AND due_at IS NOT NULL
+             AND due_at >= $2
+             AND due_at < $3
+             AND ($4::uuid IS NULL OR assignee_id = $4)
+             AND category <> 'closed'
+           ORDER BY due_at, id
+           LIMIT 500"#,
+    )
+    .bind(org_id)
+    .bind(from)
+    .bind(to)
+    .bind(assignee)
+    .fetch_all(executor)
+    .await?;
+    Ok(rows)
+}

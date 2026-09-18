@@ -401,6 +401,7 @@ async fn unified_search_accepts_kb_and_document_kinds() {
         None,
         "Wifi password rotation",
         "Rotate the guest wifi password quarterly.",
+        None,
     )
     .await
     .expect("kb_article index row");
@@ -412,6 +413,7 @@ async fn unified_search_accepts_kb_and_document_kinds() {
         None,
         "Escalation policy",
         "P1 incidents page the on-call immediately.",
+        None,
     )
     .await
     .expect("document index row");
@@ -422,6 +424,7 @@ async fn unified_search_accepts_kb_and_document_kinds() {
         &["kb_article".to_string(), "document".to_string()],
         "wifi password",
         false,
+        None,
         10,
         0,
     )

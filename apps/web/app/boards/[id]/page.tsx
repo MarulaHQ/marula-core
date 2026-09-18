@@ -30,6 +30,7 @@ import {
   SelectValue,
   Spinner,
   StatusTag,
+  Tag,
   Textarea,
 } from "@meridian/ui";
 import { useParams, useRouter } from "next/navigation";
@@ -457,12 +458,21 @@ function KanbanColumn({
   const tone = categoryTone(status.category);
   const toneFg = `var(--m-status-${tone === "success" ? "success" : tone === "warning" ? "warning" : "neutral"}-fg)`;
   const toneBg = `var(--m-status-${tone === "success" ? "success" : tone === "warning" ? "warning" : "neutral"}-bg)`;
-  const signal =
-    status.category === "in_progress" && tickets.length > 0
+  const wipLimit = status.wip_limit ?? null;
+  const signal = wipLimit !== null
+    ? `WIP ${tickets.length}/${wipLimit}`
+    : status.category === "in_progress" && tickets.length > 0
       ? `WIP ${tickets.length}`
       : status.category === "waiting" && tickets.length > 0
         ? `Queue ${tickets.length}`
         : null;
+  const signalTone = wipLimit !== null
+    ? tickets.length >= wipLimit
+      ? ("danger" as const)
+      : tickets.length * 4 >= wipLimit * 3
+        ? ("warning" as const)
+        : tone
+    : tone;
 
   if (collapsed) {
     return (
@@ -521,7 +531,9 @@ function KanbanColumn({
           {tickets.length}
         </span>
         {signal !== null && (
-          <StatusTag tone={tone}>{signal}</StatusTag>
+          <Tag tone={signalTone} data-testid={`kanban-wip-${status.name}`}>
+            {signal}
+          </Tag>
         )}
         <span className="ml-auto" />
         <button

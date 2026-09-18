@@ -17,8 +17,8 @@
 use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
 use axum::http::HeaderMap;
-use core_db::hardening::{gate_check, gate_clear, gate_fail};
 pub use core_db::hardening::gate_kind as kinds;
+use core_db::hardening::{gate_check, gate_clear, gate_fail};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -142,6 +142,3 @@ pub async fn record_success(
         .await
         .map_err(ApiError::from)
 }
-
-
-

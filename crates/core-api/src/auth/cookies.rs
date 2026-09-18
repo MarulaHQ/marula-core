@@ -24,7 +24,7 @@
 //! versa (parity with the localStorage families they replace). Both
 //! scoped `Path=/api` because the API mounts every generation under it.
 
-use axum::http::{HeaderMap, header};
+use axum::http::{header, HeaderMap};
 
 pub const SESSION_COOKIE: &str = "meridian_session";
 pub const PORTAL_COOKIE: &str = "meridian_portal";
@@ -135,9 +135,7 @@ pub fn double_submit_ok(headers: &HeaderMap) -> bool {
     }
     let (Some(cookie), Some(presented)) = (
         cookie_from(headers, CSRF_COOKIE),
-        headers
-            .get(CSRF_HEADER)
-            .and_then(|v| v.to_str().ok()),
+        headers.get(CSRF_HEADER).and_then(|v| v.to_str().ok()),
     ) else {
         return false;
     };

@@ -1,0 +1,13 @@
+{
+  "event_type": "alert.acknowledged",
+  "entity": "alert",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "acknowledged_at": "2023-11-14T22:13:24Z",
+    "acknowledged_by": "00000000-0000-0000-0000-000000000005",
+    "alert_id": "00000000-0000-0000-0000-00000000001e",
+    "org_id": "00000000-0000-0000-0000-000000000002"
+  }
+}

@@ -436,24 +436,25 @@ use core_domain::entities::{
     TicketComment, TicketCostLine, TicketExpense, TicketLinkType, TimeEntry,
 };
 use core_domain::events::{
-    types, AgentSkillEnabledPayload, AlertIngested, AppointmentCancelled, AppointmentCreated,
-    AppointmentRequestApproved, AppointmentRequestCancelled, AppointmentRequestCreated,
-    AppointmentRequestDeclined, AppointmentUpdated, AttachmentAdded, AttachmentDeleted,
-    AttachmentLinked, AvailabilityChanged, BoardFavoriteToggled, BoardGroupCreated,
-    BoardGroupRemoved, BoardGroupUpdated, BoardMembershipRemoved, BoardMembershipUpdated,
-    BoardStatusAdded, BoardStatusRemoved, BoardStatusUpdated, BoardTransitionsUpdated,
-    CalendarExclusionChanged, CalendarSyncCompleted, CalendarSyncConnectionUpdated,
-    CatalogItemArchived, CatalogItemCreated, CatalogItemUpdated, ClientCreated, ClientUpdated,
-    ClientWorkflowOverrideCleared, ClientWorkflowOverrideSet, ConfigItemCreated,
-    ConfigItemMergeUndone, ConfigItemMerged, ConfigItemUpdated, ContactCreated, ContactUpdated,
-    ContractCreated, ContractRemoved, ContractUpdated, CreditNoteApplied, CreditNoteIssued,
-    CreditNoteRefunded, DispatchQueueUpdated, DispatchStatusUpdated, FxBaseCurrencyChanged,
-    FxRateRecorded, ImportBatchFinished, ImportBatchStarted, InvoiceCreated, InvoiceDunningChanged,
-    InvoicePaymentRecorded, InvoiceRunCompleted, InvoiceVoided, MigrationPushSessionFinished,
-    MigrationPushSessionStarted, NotificationCreated, OnCallChanged, PipelineDealCreated,
-    PipelineDealStageChanged, PipelineDealUpdated, PipelineStageCreated, PipelineStageUpdated,
-    PluginCatalogEntryCreated, PluginInstallRevoked, PluginInstallUpdated, PluginInstalled,
-    PluginSettingsUpdated, PluginStagedImportApproved, PluginStagedImportCreated,
+    types, AgentSkillEnabledPayload, AlertAcknowledged, AlertIngested, AlertResolved,
+    AppointmentCancelled, AppointmentCreated, AppointmentRequestApproved,
+    AppointmentRequestCancelled, AppointmentRequestCreated, AppointmentRequestDeclined,
+    AppointmentUpdated, AttachmentAdded, AttachmentDeleted, AttachmentLinked, AvailabilityChanged,
+    BoardFavoriteToggled, BoardGroupCreated, BoardGroupRemoved, BoardGroupUpdated,
+    BoardMembershipRemoved, BoardMembershipUpdated, BoardStatusAdded, BoardStatusRemoved,
+    BoardStatusUpdated, BoardTransitionsUpdated, CalendarExclusionChanged, CalendarSyncCompleted,
+    CalendarSyncConnectionUpdated, CatalogItemArchived, CatalogItemCreated, CatalogItemUpdated,
+    ClientCreated, ClientUpdated, ClientWorkflowOverrideCleared, ClientWorkflowOverrideSet,
+    ConfigItemCreated, ConfigItemMergeUndone, ConfigItemMerged, ConfigItemUpdated, ContactCreated,
+    ContactUpdated, ContractCreated, ContractRemoved, ContractUpdated, CreditNoteApplied,
+    CreditNoteIssued, CreditNoteRefunded, DispatchQueueUpdated, DispatchStatusUpdated,
+    DocumentAttachmentAdded, DocumentAttachmentDeleted, FxBaseCurrencyChanged, FxRateRecorded,
+    ImportBatchFinished, ImportBatchStarted, InvoiceCreated, InvoiceDunningChanged,
+    InvoicePaymentRecorded, InvoiceRunCompleted, InvoiceVoided, MeetingTypeDeleted,
+    MigrationPushSessionFinished, MigrationPushSessionStarted, NotificationCreated, OnCallChanged,
+    PipelineDealCreated, PipelineDealStageChanged, PipelineDealUpdated, PipelineStageCreated,
+    PipelineStageUpdated, PluginCatalogEntryCreated, PluginInstallRevoked, PluginInstallUpdated,
+    PluginInstalled, PluginSettingsUpdated, PluginStagedImportApproved, PluginStagedImportCreated,
     PluginStagedImportRefused, PluginUpdatePending, PmScheduleChanged, PmScheduleDeleted,
     PodVisibilityUpdated, ProjectCreated, ProjectMilestoneCompleted, ProjectPhaseCompleted,
     ProjectPhaseCreated, ProjectPhaseUpdated, ProjectTaskCompleted, ProjectTaskCreated,
@@ -1831,6 +1832,21 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             }
         ),
     },
+    // -- meeting-type hard delete (Wave 17 lane 13) ---------------------------
+    PublishedEvent {
+        event_type: types::MEETING_TYPE_DELETED,
+        entity: "meeting_type",
+        variant: "default",
+        shape: typed_shape!(
+            MeetingTypeDeleted,
+            MeetingTypeDeleted {
+                meeting_type_id: su(46),
+                name: "On-site assessment".into(),
+                deleted_by: su(5),
+                deleted_at: st(17),
+            }
+        ),
+    },
     PublishedEvent {
         event_type: types::AVAILABILITY_UPDATED,
         entity: "availability",
@@ -2104,6 +2120,38 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
                 attachment_id: su(20),
                 ticket_id: Some(su(1)),
                 object_removed: false,
+            }
+        ),
+    },
+    // -- documents attachments (Wave 17 lane 13, migration 0089) --------------
+    PublishedEvent {
+        event_type: types::DOCUMENT_ATTACHMENT_ADDED,
+        entity: "document_attachment",
+        variant: "default",
+        shape: typed_shape!(
+            DocumentAttachmentAdded,
+            DocumentAttachmentAdded {
+                attachment_id: su(21),
+                org_id: su(2),
+                document_id: su(22),
+                filename: "network-diagram.png".into(),
+                content_type: "image/png".into(),
+                size_bytes: 12_345,
+                sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".into(),
+                uploaded_by: Some(su(5)),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::DOCUMENT_ATTACHMENT_DELETED,
+        entity: "document_attachment",
+        variant: "default",
+        shape: typed_shape!(
+            DocumentAttachmentDeleted,
+            DocumentAttachmentDeleted {
+                attachment_id: su(21),
+                document_id: su(22),
+                object_removed: true,
             }
         ),
     },
@@ -3676,6 +3724,35 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             }
         ),
     },
+    // -- alert triage (Wave 17 lane 13, migration 0089) -----------------------
+    PublishedEvent {
+        event_type: types::ALERT_ACKNOWLEDGED,
+        entity: "alert",
+        variant: "default",
+        shape: typed_shape!(
+            AlertAcknowledged,
+            AlertAcknowledged {
+                alert_id: su(30),
+                org_id: su(2),
+                acknowledged_by: su(5),
+                acknowledged_at: st(4),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::ALERT_RESOLVED,
+        entity: "alert",
+        variant: "default",
+        shape: typed_shape!(
+            AlertResolved,
+            AlertResolved {
+                alert_id: su(30),
+                org_id: su(2),
+                resolved_by: su(5),
+                resolved_at: st(5),
+            }
+        ),
+    },
 ];
 
 /// Representative catalog item for catalog samples (Wave 12 lane 2).
@@ -3774,6 +3851,7 @@ fn sample_status(name: &str) -> BoardStatus {
         sort_order: 3,
         is_entry: false,
         color: Some("#3b82f6".into()),
+        wip_limit: None,
     }
 }
 
