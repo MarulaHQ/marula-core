@@ -6,6 +6,8 @@
 // the always-side-rail row clipped page content at 768/480), pages render
 // to its right. Nav items whose backends land in later waves render a
 // disabled "coming from another wave" state instead of dead links.
+// Wave 17 lane 7: sections are grouped into labeled bands so 19 sections
+// scan as five IAs instead of one long list; groups flatten on mobile.
 //
 // Non-purpose: no settings logic here — pages own their data; this file
 // never reads or writes configuration.
@@ -23,25 +25,97 @@ interface NavItem {
   pending?: boolean;
 }
 
-const SECTIONS: NavItem[] = [
-  { href: "/settings/general", label: "General" },
-  { href: "/settings/team", label: "Team" },
-  { href: "/settings/preferences", label: "Preferences" },
-  { href: "/settings/notifications", label: "Notifications" },
-  { href: "/settings/security", label: "Security" },
-  { href: "/settings/workflow", label: "Workflow" },
-  { href: "/settings/taxonomy", label: "Taxonomy" },
-  { href: "/settings/tags", label: "Tags" },
-  { href: "/settings/pm-schedules", label: "PM schedules" },
-  { href: "/settings/sla", label: "SLA" },
-  { href: "/settings/portal", label: "Portal" },
-  { href: "/settings/mail", label: "Mail", pending: true },
-  { href: "/settings/integrations", label: "Integrations" },
-  { href: "/settings/plugins", label: "Plugins" },
-  { href: "/settings/api-keys", label: "API keys" },
-  { href: "/settings/agent-platform", label: "Agent platform" },
-  { href: "/settings/ai", label: "AI & connectors" },
+interface NavGroup {
+  label: string;
+  items: NavItem[];
+}
+
+const GROUPS: NavGroup[] = [
+  {
+    label: "Workspace",
+    items: [
+      { href: "/settings/general", label: "General" },
+      { href: "/settings/preferences", label: "Preferences" },
+      { href: "/settings/notifications", label: "Notifications" },
+    ],
+  },
+  {
+    label: "People & access",
+    items: [
+      { href: "/settings/team", label: "Team" },
+      { href: "/settings/security", label: "Security" },
+      { href: "/settings/api-keys", label: "API keys" },
+    ],
+  },
+  {
+    label: "Delivery",
+    items: [
+      { href: "/settings/boards", label: "Boards" },
+      { href: "/settings/taxonomy", label: "Taxonomy" },
+      { href: "/settings/tags", label: "Tags" },
+      { href: "/settings/workflow", label: "Workflow" },
+      { href: "/settings/sla", label: "SLA" },
+      { href: "/settings/portal", label: "Portal" },
+      { href: "/settings/pm-schedules", label: "PM schedules" },
+    ],
+  },
+  {
+    label: "Systems",
+    items: [
+      { href: "/settings/mail", label: "Mail", pending: true },
+      { href: "/settings/integrations", label: "Integrations" },
+      { href: "/settings/plugins", label: "Plugins" },
+      { href: "/settings/agent-platform", label: "Agent platform" },
+      { href: "/settings/ai", label: "AI & connectors" },
+    ],
+  },
+  {
+    label: "Data",
+    items: [{ href: "/settings/export", label: "Export" }],
+  },
 ];
+
+function NavLink({
+  href,
+  label,
+  pending,
+  active,
+}: NavItem & { active: boolean }) {
+  if (pending) {
+    return (
+      <span
+        aria-disabled="true"
+        title="Coming from another wave"
+        className="block rounded px-2 py-1.5 text-[13px] cursor-not-allowed whitespace-nowrap lg:whitespace-normal"
+        style={{ color: "var(--m-text-muted)" }}
+      >
+        {label}
+        <span className="ml-1 text-[10px] uppercase tracking-wide">soon</span>
+      </span>
+    );
+  }
+  const activeStyle = active
+    ? {
+        background: "var(--m-surface)",
+        fontWeight: 600,
+        color: "var(--m-text)",
+        boxShadow: "inset 2px 0 0 0 var(--m-accent)",
+      }
+    : { color: "var(--m-text-secondary)" };
+  return (
+    <Link
+      href={href}
+      aria-current={active ? "page" : undefined}
+      className="block rounded px-2 py-1.5 text-[13px] whitespace-nowrap lg:whitespace-normal"
+      style={{
+        transition: "background-color 100ms ease, opacity 100ms ease",
+        ...activeStyle,
+      }}
+    >
+      {label}
+    </Link>
+  );
+}
 
 export default function SettingsLayout({ children }: { children: ReactNode }) {
   const auth = useRequireAuth();
@@ -58,53 +132,39 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
           clipped content at 768/480 on EVERY settings page (pane
           scrollWidth == viewport, content unreachable). Wide viewports
           keep the side rail unchanged. */}
-      <div className="flex-1 w-full max-w-5xl mx-auto flex flex-col lg:flex-row gap-4 lg:gap-8 px-4 py-6 lg:px-6 lg:py-8">
+      <div className="flex-1 w-full max-w-6xl mx-auto flex flex-col lg:flex-row gap-4 lg:gap-8 px-4 py-6 lg:px-6 lg:py-8">
         <nav
           aria-label="Settings sections"
           className="lg:w-44 shrink-0 overflow-x-auto"
         >
-          <ul className="flex lg:grid flex-row gap-1 lg:gap-1 w-max lg:w-auto">
-            {SECTIONS.map((section) => {
-              const active = pathname.startsWith(section.href);
-              if (section.pending) {
-                return (
-                  <li
-                    key={section.href}
-                    aria-disabled="true"
-                    title="Coming from another wave"
-                    className="rounded-[2px] px-2 py-1.5 text-[13px] cursor-not-allowed whitespace-nowrap lg:whitespace-normal"
-                    style={{ color: "var(--m-text-muted)" }}
-                  >
-                    {section.label}
-                    <span className="ml-1 text-[10px] uppercase tracking-wide">
-                      soon
-                    </span>
-                  </li>
-                );
-              }
-              return (
-                <li key={section.href}>
-                  <Link
-                    href={section.href}
-                    aria-current={active ? "page" : undefined}
-                    className="block rounded-[2px] px-2 py-1.5 text-[13px] whitespace-nowrap lg:whitespace-normal"
-                    style={{
-                      color: active
-                        ? "var(--m-text)"
-                        : "var(--m-text-secondary)",
-                      background: active ? "var(--m-surface)" : "transparent",
-                      fontWeight: active ? 600 : 400,
-                      borderLeft: active
-                        ? "2px solid var(--m-accent)"
-                        : "2px solid transparent",
-                    }}
-                  >
-                    {section.label}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
+          <div className="flex flex-row lg:flex-col gap-4 lg:gap-5 w-max lg:w-auto">
+            {GROUPS.map((group) => (
+              <div
+                key={group.label}
+                data-testid={`settings-nav-group-${group.label.toLowerCase().replace(/[^a-z]+/g, "-")}`}
+                className="flex flex-row lg:flex-col gap-1"
+              >
+                <p
+                  className="text-[10px] uppercase tracking-wider pt-1 lg:pb-0 pb-1 pr-2 shrink-0 self-center lg:self-auto"
+                  style={{ color: "var(--m-text-muted)" }}
+                >
+                  {group.label}
+                </p>
+                <ul className="flex flex-row lg:grid flex-row gap-1 w-max lg:w-auto">
+                  {group.items.map((section) => (
+                    <li key={section.href}>
+                      <NavLink
+                        href={section.href}
+                        label={section.label}
+                        pending={section.pending}
+                        active={pathname.startsWith(section.href)}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
         </nav>
         <main className="flex-1 min-w-0">
           {auth.status === "authed" ? children : null}

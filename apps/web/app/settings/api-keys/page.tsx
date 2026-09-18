@@ -27,6 +27,7 @@ import {
 import type { components } from "@meridian/sdk";
 import { useEffect, useMemo, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
+import { SettingsHeader } from "../../../components/settings/settings-shell";
 
 type ApiKeyView = components["schemas"]["ApiKeyView"];
 
@@ -129,15 +130,10 @@ export default function ApiKeysSettingsPage() {
 
   return (
     <div className="grid gap-6 max-w-3xl">
-      <header>
-        <h1 className="text-lg font-semibold" style={{ color: "var(--m-text)" }}>
-          API keys
-        </h1>
-        <p className="mt-1 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-          Bearer credentials for machine integrations. Secrets are shown once at creation; to rotate,
-          create a replacement key then revoke this one.
-        </p>
-      </header>
+      <SettingsHeader
+        title="API keys"
+        description="Bearer credentials for machine integrations. Secrets are shown once at creation; to rotate, create a replacement key then revoke this one."
+      />
 
       <Card>
         <form

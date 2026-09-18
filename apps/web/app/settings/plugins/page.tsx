@@ -16,6 +16,7 @@ import type { components } from "@meridian/sdk";
 import { Button, Card, EmptyState, Spinner, Tag } from "@meridian/ui";
 import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
+import { SettingsHeader } from "../../../components/settings/settings-shell";
 import { GithubImportDrawer, ZipImportDrawer } from "./import-drawers";
 import { InstallDetail } from "./install-detail";
 import { AgentSkillsTab } from "./agent-skills-tab";
@@ -84,20 +85,16 @@ export default function PluginsSettingsPage() {
 
   return (
     <div className="grid gap-6">
-      <div>
-        <h1 className="text-lg font-semibold">Plugins &amp; agent skills</h1>
-        <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-          Nothing executes that did not arrive digest-verified with provenance and pass
-          admin consent. Installs start DISABLED; updates pin the old version until the
-          consent diff is approved.
-        </p>
+      <SettingsHeader
+        title="Plugins & agent skills"
+        description="Nothing executes that did not arrive digest-verified with provenance and pass admin consent. Installs start DISABLED; updates pin the old version until the consent diff is approved."
+      />
         {canManage ? null : (
-          <p className="mt-1 text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+          <p className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
             Lifecycle controls (consent, enable, settings, removal) are owner/admin — you can
             still stage imports and follow your own queue rows.
           </p>
         )}
-      </div>
 
       {loadError !== null ? (
         <p role="alert" className="text-[13px]">{loadError}</p>

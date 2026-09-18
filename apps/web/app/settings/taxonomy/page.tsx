@@ -33,6 +33,7 @@ import type { components } from "@meridian/sdk";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
+import { SettingsHeader } from "../../../components/settings/settings-shell";
 
 type TaxonomyNodeView = components["schemas"]["TaxonomyNodeView"];
 type TaxonomyMutationResponse = components["schemas"]["TaxonomyMutationResponse"];
@@ -305,14 +306,10 @@ export default function TaxonomySettingsPage() {
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold">Taxonomy</h1>
-          <p className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
-            Ticket types and the category / subcategory tree. Classification only — SLA, workflow,
-            automations and billing stay bound to the four semantic status categories, so renaming
-            or retiring a node never changes behavior.
-          </p>
-        </div>
+        <SettingsHeader
+          title="Taxonomy"
+          description="Ticket types and the category / subcategory tree. Classification only — SLA, workflow, automations and billing stay bound to the four semantic status categories, so renaming or retiring a node never changes behavior."
+        />
         {canManage ? (
           <div className="flex gap-2">
             <Button variant="secondary" data-testid="new-type" onClick={() => openCreate("type", null)}>

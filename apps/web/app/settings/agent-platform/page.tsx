@@ -33,6 +33,7 @@ import {
 import type { components } from "@meridian/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
+import { SettingsHeader } from "../../../components/settings/settings-shell";
 
 type CapabilityGrantView = components["schemas"]["CapabilityGrantView"];
 type CapabilityMode = components["schemas"]["CapabilityMode"];
@@ -167,14 +168,10 @@ export default function AgentPlatformPage() {
 
   return (
     <div className="grid gap-6">
-      <div>
-        <h1 className="text-lg font-semibold">Agent platform</h1>
-        <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-          Capability grants are deny-by-default: nothing granted here means no
-          agent can call the tool. Proposals apply nothing until a person
-          approves them.
-        </p>
-      </div>
+      <SettingsHeader
+        title="Agent platform"
+        description="Capability grants are deny-by-default: nothing granted here means no agent can call the tool. Proposals apply nothing until a person approves them."
+      />
 
       {actionError !== null ? (
         <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>

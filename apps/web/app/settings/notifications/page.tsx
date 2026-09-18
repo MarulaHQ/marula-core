@@ -24,6 +24,7 @@ import {
 import type { components } from "@meridian/sdk";
 import { useEffect, useMemo, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
+import { SettingsHeader } from "../../../components/settings/settings-shell";
 import { kindLabel } from "../../../lib/use-notifications";
 
 type PreferenceRow = components["schemas"]["PreferenceView"];
@@ -170,25 +171,10 @@ export default function NotificationPreferencesPage() {
 
   return (
     <div className="grid gap-4">
-      <div className="flex items-baseline justify-between gap-4 mb-1">
-        <h1
-          className="text-lg font-semibold"
-          style={{ color: "var(--m-text)" }}
-        >
-          Notification settings
-        </h1>
-        <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
-          Times shown in each row&apos;s timezone
-        </span>
-      </div>
-      <p
-        className="text-[13px] mb-6"
-        style={{ color: "var(--m-text-secondary)" }}
-      >
-        Quiet hours hold non-critical email during the window; SLA breaches and
-        escalations always break through. Rows without your override follow the
-        org default or the built-in.
-      </p>
+      <SettingsHeader
+        title="Notifications"
+        description="Times shown in each row's timezone. Quiet hours hold non-critical email during the window; SLA breaches and escalations always break through. Rows without your override follow the org default or the built-in."
+      />
 
       <div
         className="rounded-md border overflow-hidden"

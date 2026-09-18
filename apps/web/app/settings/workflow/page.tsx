@@ -36,6 +36,7 @@ import {
 import type { components } from "@meridian/sdk";
 import { useEffect, useMemo, useReducer, useState } from "react";
 import { api, useAuth, useRequireAuth } from "../../../lib/api";
+import { SettingsHeader } from "../../../components/settings/settings-shell";
 import {
   checklistIsDirty,
   checklistPayload,
@@ -301,15 +302,10 @@ export default function WorkflowSettingsPage() {
 
   return (
     <div className="grid gap-6 max-w-3xl">
-      <header>
-        <h1 className="text-lg font-semibold" style={{ color: "var(--m-text)" }}>
-          Workflow
-        </h1>
-        <p className="mt-1 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-          Per-board states, allowed moves, and the pre-close checklist. Behavior binds to a
-          status&apos;s semantic category, never its label.
-        </p>
-      </header>
+      <SettingsHeader
+        title="Workflow"
+        description="Per-board states, allowed moves, and the pre-close checklist. Behavior binds to a status's semantic category, never its label."
+      />
 
       <Card className="p-4">
         <Label htmlFor="wf-board">Board</Label>

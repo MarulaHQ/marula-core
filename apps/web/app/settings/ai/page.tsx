@@ -22,6 +22,7 @@ import {
 import type { components } from "@meridian/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
+import { SettingsHeader } from "../../../components/settings/settings-shell";
 import { rejectionText } from "../../../lib/error-copy";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 
@@ -215,13 +216,10 @@ export default function AiSettingsPage() {
 
   return (
     <div className="grid gap-6">
-      <div>
-        <h1 className="text-lg font-semibold">AI &amp; connectors (BYOK)</h1>
-        <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-          Keys are sealed at rest and never sent back to the browser — this
-          screen shows presence only. Removing a key takes effect immediately.
-        </p>
-      </div>
+      <SettingsHeader
+        title="AI & connectors (BYOK)"
+        description="Keys are sealed at rest and never sent back to the browser — this screen shows presence only. Removing a key takes effect immediately."
+      />
 
       {loadError !== null ? (
         <p role="alert" className="text-[13px]">{loadError}</p>

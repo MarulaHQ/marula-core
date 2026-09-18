@@ -39,6 +39,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { api, useRequireAuth } from "../../../lib/api";
+import { ConfirmDestructive, SettingsHeader } from "../../../components/settings/settings-shell";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 
 type PmSchedule = components["schemas"]["PmSchedule"];
@@ -221,6 +222,8 @@ export default function PmSchedulesSettingsPage() {
     if (auth.status === "authed") void refresh();
   }, [auth.status, refresh]);
 
+  const [pendingDelete, setPendingDelete] = useState<PmSchedule | null>(null);
+
   const openCreate = () => {
     setEditing(null);
     setForm({ name: "", title: "", body: "", board_id: boards[0]?.id ?? "", client_id: "", assignee_id: "", priority: "p3" });
@@ -351,7 +354,6 @@ export default function PmSchedulesSettingsPage() {
   };
 
   const remove = async (schedule: PmSchedule) => {
-    if (!window.confirm(`Delete PM schedule “${schedule.name}”? Generated tickets stay; future runs stop.`)) return;
     const before = schedules ?? [];
     const result = await runEnvelopeMutation<
       components["schemas"]["MutationParams"],
@@ -392,12 +394,10 @@ export default function PmSchedulesSettingsPage() {
   return (
     <div className="grid gap-4">
       <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold">PM schedules</h1>
-          <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Recurring ticket templates: the worker claims due slots and generates ordinary tickets (audited on their timeline).
-          </p>
-        </div>
+        <SettingsHeader
+          title="PM schedules"
+          description="Recurring ticket templates: the worker claims due slots and generates ordinary tickets (audited on their timeline)."
+        />
         <Button onClick={openCreate} data-testid="create-pm-schedule">
           New schedule
         </Button>
@@ -473,7 +473,7 @@ export default function PmSchedulesSettingsPage() {
                       <Button size="sm" variant="ghost" onClick={() => openEdit(s)}>
                         Edit
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => void remove(s)}>
+                      <Button size="sm" variant="ghost" onClick={() => setPendingDelete(s)}>
                         Delete
                       </Button>
                     </div>
@@ -645,6 +645,22 @@ export default function PmSchedulesSettingsPage() {
           </DialogActions>
         </DialogContent>
       </Dialog>
+
+<ConfirmDestructive
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+        title={`Delete PM schedule "${pendingDelete?.name ?? ""}"?`}
+        body="Generated tickets stay. Future runs of this schedule stop permanently."
+        confirmLabel="Delete schedule"
+        onConfirm={() => {
+          if (pendingDelete === null) return;
+          const schedule = pendingDelete;
+          setPendingDelete(null);
+          void remove(schedule);
+        }}
+      />
     </div>
   );
 }
