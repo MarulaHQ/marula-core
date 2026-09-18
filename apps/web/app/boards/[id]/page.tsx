@@ -762,6 +762,12 @@ export default function BoardPage() {
             >
               Unassigned
             </button>
+            <AssigneeFilter
+              value={filters.assigneeId}
+              onChange={(userId) =>
+                setFilters((f) => ({ ...f, assigneeId: userId === "" ? null : userId }))
+              }
+            />
             <span className="ml-auto" />
             <button
               type="button"
@@ -837,5 +843,70 @@ export default function BoardPage() {
         </main>
       </div>
     </div>
+  );
+}
+
+// --- assignee filter (Wave 17 lane 12) -----------------------------------------
+
+type OrgUser = components["schemas"]["OrgUser"];
+
+/** Per-user assignee filter, directory-driven: options come from
+ * GET /api/v1/org/users (the same paged directory the team/boards admins
+ * use); the selected user renders with the active-chip tone so it reads as
+ * a filter in the toolbar. No client matrix invented — every id shown is a
+ * directory row the server returned. */
+function AssigneeFilter({
+  value,
+  onChange,
+}: {
+  value: string | null;
+  onChange: (userId: string) => void;
+}) {
+  const [directory, setDirectory] = useState<OrgUser[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void api.api
+      .GET("/api/v1/org/users", { params: { query: { limit: 200 } } })
+      .then(({ data }) => {
+        if (!cancelled && data !== undefined) setDirectory(data.users);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const active = value !== null && directory?.some((u) => u.id === value);
+  return (
+    <label
+      className="flex items-center gap-1 rounded-full border px-2 py-0 text-[11px]"
+      style={{
+        borderColor: active ? "var(--m-accent)" : "var(--m-border)",
+        color: active ? "var(--m-accent)" : "var(--m-text-secondary)",
+        boxShadow: active ? "0 0 0 1px var(--m-accent)" : undefined,
+      }}
+    >
+      Assignee
+      <select
+        aria-label="Filter by assignee"
+        data-testid="board-filter-assignee"
+        value={value ?? ""}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-[22px] cursor-pointer bg-transparent text-[11px] outline-none"
+        style={{ color: active ? "var(--m-accent)" : "var(--m-text-secondary)" }}
+      >
+        <option value="">All</option>
+        {(directory ?? []).map((u) => (
+          <option key={u.id} value={u.id}>
+            {u.display_name}
+          </option>
+        ))}
+      </select>
+      {directory === null && (
+        <span aria-hidden="true" style={{ color: "var(--m-text-muted)" }}>
+          …
+        </span>
+      )}
+    </label>
   );
 }

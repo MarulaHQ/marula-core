@@ -54,6 +54,7 @@ import {
   type MoveBoardOutcome,
 } from "../../../components/ticket-workspace/move-board";
 import { TasksPanel } from "../../../components/ticket-workspace/tasks-panel";
+import { SchedulingPod } from "../../../components/ticket-workspace/scheduling-pod";
 import { TicketStatusBar, transitionAllowed } from "../../../components/ticket-status-bar";
 import { keywordsOf } from "../../../components/workbench-v2/agent-panel";
 import { WbTimeline } from "../../../components/workbench-v2/timeline";
@@ -1015,6 +1016,10 @@ async function changeStatus(statusId: string): Promise<void> {
                 onSetState={setChecklistItemState}
                 onAdd={addChecklistItem}
               />
+              {/* Staged run (workbench-v2 plan): the scheduling pod mounts in
+                  the Details tab — it is read/send-only (no note surface), so
+                  it cannot conflict with the floating composer. */}
+              <SchedulingPod ticketId={ticket.id} ticketTitle={ticket.title} />
               <p className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
                 Custom fields, tags, links and undo live in the{" "}
                 <Link href={`/tickets/classic/${ticket.id}`} className="underline" style={{ color: "var(--m-accent)" }}>

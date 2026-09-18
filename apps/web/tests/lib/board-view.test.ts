@@ -96,15 +96,22 @@ describe("filterTickets", () => {
     ticket({ id: "b", title: "Ship docs", number: "MER-2", priority: "P3" }),
   ];
   it("matches query against title and number case-insensitively", () => {
-    expect(filterTickets(tickets, { query: "mer-2", priorities: [], unassignedOnly: false })).toHaveLength(1);
-    expect(filterTickets(tickets, { query: "LOGIN", priorities: [], unassignedOnly: false })).toHaveLength(1);
+    expect(filterTickets(tickets, { query: "mer-2", priorities: [], unassignedOnly: false, assigneeId: null })).toHaveLength(1);
+    expect(filterTickets(tickets, { query: "LOGIN", priorities: [], unassignedOnly: false, assigneeId: null })).toHaveLength(1);
   });
   it("filters by priority case-insensitively", () => {
-    expect(filterTickets(tickets, { query: "", priorities: ["p3"], unassignedOnly: false })).toHaveLength(1);
+    expect(filterTickets(tickets, { query: "", priorities: ["p3"], unassignedOnly: false, assigneeId: null })).toHaveLength(1);
   });
   it("unassigned-only drops assigned rows", () => {
-    const out = filterTickets(tickets, { query: "", priorities: [], unassignedOnly: true });
+    const out = filterTickets(tickets, { query: "", priorities: [], unassignedOnly: true, assigneeId: null });
     expect(out.map((t) => t.id)).toEqual(["b"]);
+  });
+  it("assignee filter (directory id) narrows to that user; mismatch drops both", () => {
+    // note: fixture "b" derives the typed default assignee_id (null) —
+    // a directory id never matches unassigned rows.
+    expect(filterTickets(tickets, { query: "", priorities: [], unassignedOnly: false, assigneeId: "u1" }).map((t) => t.id)).toEqual(["a"]);
+    expect(filterTickets(tickets, { query: "", priorities: [], unassignedOnly: false, assigneeId: "u9" })).toHaveLength(0);
+    expect(filterTickets(tickets, { query: "", priorities: [], unassignedOnly: false, assigneeId: null })).toHaveLength(2);
   });
 });
 

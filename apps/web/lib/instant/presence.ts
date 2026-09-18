@@ -28,6 +28,10 @@ export function rosterView(
   viewers: PresenceViewerJson[],
   nowMs: number,
 ): RosterEntry[] {
+  // Pre-guard: the roster read model can emit undefined before the
+  // ephemeral snapshot resolves (same crash family as the notification
+  // dock's pre-guard race) — render as nobody viewing, not a crash.
+  if (!Array.isArray(viewers)) return [];
   return viewers.map((v) => {
     const atMs = Date.parse(v.at);
     const ageMs = Number.isFinite(atMs) ? Math.max(0, nowMs - atMs) : 0;

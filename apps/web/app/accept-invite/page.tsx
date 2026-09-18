@@ -141,7 +141,7 @@ function AcceptInviteInner(): ReactNode {
     <main className="flex min-h-full items-center justify-center p-4 md:p-6" style={{ background: "var(--m-canvas)" }}>
       <Card className="m-rise w-full max-w-sm rounded-xl p-6 md:p-7" data-testid="accept-invite-card">
         <AuthBrand />
-        <h1 className="mt-4 font-heading text-base font-semibold tracking-tight" style={{ color: "var(--m-text)" }}>
+        <h1 className="mt-4 text-base font-semibold tracking-tight" style={{ color: "var(--m-text)" }}>
           Set your password
         </h1>
         <p className="mt-1 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>

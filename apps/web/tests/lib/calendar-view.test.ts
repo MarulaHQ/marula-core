@@ -11,6 +11,7 @@ import {
   entriesOnDay,
   isSyncFedExclusion,
   mergeEntries,
+  monthFocusMove,
   monthWeeks,
   sameLocalDay,
   snapMinutes,
@@ -157,5 +158,30 @@ describe("grids + snapping", () => {
     expect(byId.get("a")).toMatchObject({ lane: 0, laneCount: 2 });
     expect(byId.get("b")).toMatchObject({ lane: 1, laneCount: 2 });
     expect(byId.get("c")).toMatchObject({ lane: 0, laneCount: 1 });
+  });
+});
+
+describe("monthFocusMove", () => {
+  const ROWS = 6;
+  it("moves left/right within a row and stops at the edges", () => {
+    expect(monthFocusMove(10, "ArrowLeft", ROWS)).toBe(9);
+    expect(monthFocusMove(7, "ArrowLeft", ROWS)).toBeNull();
+    expect(monthFocusMove(7, "ArrowRight", ROWS)).toBe(8);
+    expect(monthFocusMove(13, "ArrowRight", ROWS)).toBeNull();
+  });
+  it("moves up/down by a full week and clamps at the grid boundary", () => {
+    expect(monthFocusMove(10, "ArrowUp", ROWS)).toBe(3);
+    expect(monthFocusMove(2, "ArrowUp", ROWS)).toBeNull();
+    expect(monthFocusMove(10, "ArrowDown", ROWS)).toBe(17);
+    expect(monthFocusMove(38, "ArrowDown", ROWS)).toBeNull();
+  });
+  it("Home/End jump to the start/end of the week row", () => {
+    expect(monthFocusMove(10, "Home", ROWS)).toBe(7);
+    expect(monthFocusMove(9, "End", ROWS)).toBe(13);
+  });
+  it("activation keys keep focus in place; other keys move nothing", () => {
+    expect(monthFocusMove(5, "Enter", ROWS)).toBe(5);
+    expect(monthFocusMove(5, " ", ROWS)).toBe(5);
+    expect(monthFocusMove(5, "Tab", ROWS)).toBeNull();
   });
 });

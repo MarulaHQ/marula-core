@@ -164,7 +164,10 @@ export default function TodayPage() {
     );
   }
 
-  const day = gap?.days.find((d) => d.has_gap) ?? gap?.days[0];
+  // Pre-guard the read model: `gap` can be a truthy-but-partial payload
+  // (empty array fixture, in-flight read model) — never crash on it.
+  const gapDay = Array.isArray(gap?.days) ? gap.days.find((d) => d.has_gap) ?? gap.days[0] : undefined;
+  const day = gapDay;
   const all = items ?? [];
   const grouped: Record<(typeof BUCKETS)[number]["key"], MyWorkItem[]> = {
     overdue: [],

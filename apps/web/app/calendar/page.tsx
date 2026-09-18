@@ -17,7 +17,7 @@
 import { friendlyMutationText } from "../../lib/error-copy";
 import { Button, Card, Dialog, DialogActions, DialogContent, FieldHint, Input, Label, Spinner, Tag } from "@meridian/ui";
 import CalendarSyncPanel from "../../components/calendar-sync-panel";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { api, useRequireAuth } from "../../lib/api";
 import {
   calendarModelKey,
@@ -38,6 +38,7 @@ import {
   isoDay,
   mergeEntries,
   mondayOf,
+  monthFocusMove,
   monthWeeks,
   sameLocalDay,
   snapMinutes,
@@ -722,6 +723,20 @@ function MonthGrid({
   onOpenWeek: (weekStart: Date) => void;
 }) {
   const todayIso = isoDay(new Date());
+  // Roving day focus (arrow keys): one grid focus stop, highlight follows
+  // the roving index exactly like a native month picker. Keyboard actives
+  // still open the week (Enter/Space on the focused button).
+  const [focusIndex, setFocusIndex] = useState(0);
+  const cellRefs = useRef<Record<number, HTMLButtonElement | null>>({});
+  const rowCount = weeks.filter((w) => w[0] !== undefined).length;
+  const onKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const next = monthFocusMove(index, e.key, rowCount);
+    if (next === null) return;
+    e.preventDefault();
+    setFocusIndex(next);
+    cellRefs.current[next]?.focus();
+  };
+  let cellIndex = -1;
   return (
     <Card className="min-w-0 overflow-x-auto p-0" data-testid="month-grid">
       <div className="min-w-[640px]">
@@ -742,22 +757,32 @@ function MonthGrid({
             style={{ gridTemplateColumns: "repeat(7, 1fr)", borderColor: "var(--m-border)", animationDelay: `${Math.min(wi * 40, 160)}ms` }}
           >
             {week.map((d) => {
+              cellIndex += 1;
+              const index = cellIndex;
               const inMonth = d.getMonth() === monthIndex;
               const dayEntries = entriesOnDay(entries, d);
               const visible = dayEntries.slice(0, 3);
               const hidden = dayEntries.length - visible.length;
+              const focused = index === focusIndex;
               return (
                 <button
                   key={d.toISOString()}
                   type="button"
+                  ref={(el) => {
+                    cellRefs.current[index] = el;
+                  }}
+                  tabIndex={focused ? 0 : -1}
                   onClick={() => onOpenWeek(d)}
-                  className="min-h-[84px] p-1.5 text-left align-top transition-colors"
+                  onKeyDown={(e) => onKeyDown(e, index)}
+                  className="min-h-[84px] p-1.5 text-left align-top transition-colors outline-offset-[-2px] focus-visible:outline-[2px] focus-visible:outline-[var(--m-accent)]"
                   style={{
                     background: inMonth ? undefined : "var(--m-bg-subtle)",
                     borderRight: "1px solid var(--m-border)",
                     opacity: inMonth ? 1 : 0.6,
                   }}
                   aria-label={`${d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}, ${dayEntries.length} entries — open week`}
+                  data-testid={"month-day"}
+                  data-month-day={isoDay(d)}
                 >
                   <div
                     className="mb-1 inline-flex items-center gap-1 text-[11px] font-semibold tabular-nums"

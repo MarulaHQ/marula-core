@@ -101,6 +101,9 @@ export default function SecuritySettingsPage() {
   const [setupUrl, setSetupUrl] = useState<string | null>(null);
   const [confirmCode, setConfirmCode] = useState("");
   const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
+  // Copy-once feedback flags (secret + otpauth URI show once per enrollment)
+  const [secretCopied, setSecretCopied] = useState(false);
+  const [setupUrlCopied, setUrlCopied] = useState(false);
 
   // disable / regenerate forms
   const [password, setPassword] = useState("");
@@ -291,7 +294,7 @@ export default function SecuritySettingsPage() {
             <div className="grid gap-1">
               <Label>Secret (enter manually in your app)</Label>
               <code
-                className="m-rise rounded-lg px-2.5 py-1.5 text-xs"
+                className="m-rise cursor-pointer rounded-lg px-2.5 py-1.5 text-xs"
                 style={{
                   background: "var(--m-surface-raised)",
                   border: "1px solid var(--m-border)",
@@ -299,10 +302,21 @@ export default function SecuritySettingsPage() {
                   letterSpacing: "0.08em",
                   wordBreak: "break-all",
                 }}
+                title="Click to copy the secret"
+                data-testid="totp-secret-copy"
+                onClick={() => {
+                  if (setupSecret === null) return;
+                  void navigator.clipboard?.writeText(setupSecret);
+                  setSecretCopied(true);
+                  window.setTimeout(() => setSecretCopied(false), 1500);
+                }}
               >
                 {setupSecret}
               </code>
-              <FieldHint>Shown once. Confirm below with the first generated code.</FieldHint>
+              <FieldHint>
+                {secretCopied ? "Copied. " : ""}Shown once — click the code to copy it{" "}
+                <span aria-hidden="true">·</span> confirm below with the first generated code.
+              </FieldHint>
             </div>
             <details className="grid gap-1">
               <summary
@@ -312,16 +326,26 @@ export default function SecuritySettingsPage() {
                 Advanced — otpauth URI (paste into your app)
               </summary>
               <code
-                className="rounded-lg px-2.5 py-1.5 text-xs"
+                className="cursor-pointer rounded-lg px-2.5 py-1.5 text-xs"
                 style={{
                   background: "var(--m-surface-raised)",
                   border: "1px solid var(--m-border)",
                   fontFamily: "var(--font-mono)",
                   wordBreak: "break-all",
                 }}
+                title="Click to copy the otpauth URI"
+                onClick={() => {
+                  if (setupUrl === null) return;
+                  void navigator.clipboard?.writeText(setupUrl);
+                  setUrlCopied(true);
+                  window.setTimeout(() => setUrlCopied(false), 1500);
+                }}
               >
                 {setupUrl}
               </code>
+              <FieldHint>
+                {setupUrlCopied ? "Copied. " : ""}Paste into your authenticator app; the URI contains the secret.
+              </FieldHint>
             </details>
             <label className="grid gap-1">
               <Label>Confirmation code</Label>

@@ -53,16 +53,22 @@ export interface BoardFilters {
   query: string;
   priorities: Priority[];
   unassignedOnly: boolean;
+  /** Per-user assignee filter (Wave 17 lane 12): a directory user id from
+   * the org directory picker, or null for no assignee filter. Server-gated:
+   * the picker feeds only ids GET /api/v1/org/users returned — no client
+   * matrix is invented. */
+  assigneeId: string | null;
 }
 
 export const EMPTY_FILTERS: BoardFilters = {
   query: "",
   priorities: [],
   unassignedOnly: false,
+  assigneeId: null,
 };
 
 export function filtersActive(f: BoardFilters): boolean {
-  return f.query.trim() !== "" || f.priorities.length > 0 || f.unassignedOnly;
+  return f.query.trim() !== "" || f.priorities.length > 0 || f.unassignedOnly || (f.assigneeId ?? null) !== null;
 }
 
 /** Case-insensitive priority (wire is lowercase; some fixtures uppercase). */
@@ -76,6 +82,9 @@ export function filterTickets(tickets: BoardTicket[], f: BoardFilters): BoardTic
       return false;
     }
     if (f.unassignedOnly && t.assignee_id !== null && t.assignee_id !== undefined) {
+      return false;
+    }
+    if ((f.assigneeId ?? null) !== null && t.assignee_id !== f.assigneeId) {
       return false;
     }
     return true;
