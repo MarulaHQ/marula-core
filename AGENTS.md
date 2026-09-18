@@ -1,3 +1,17 @@
+## Repo lookups must go through graft first (BINDING, top-of-file)
+
+Before ANY Grep/Glob/Read search of this codebase: run graft first —
+`graft ask "<q>" --source` / `graft grep "<literal>"` / `graft callers <sym>` /
+`graft skeleton <file>` (CLI, always available) or the `graft_*` MCP tools.
+If graft MCP tools appear deferred (names listed, schemas withheld), load ALL
+of them in ONE ToolSearch lookup (`select:mcp__graft__graft_find_code,mcp__graft__graft_find_all,mcp__graft__graft_trace_calls,mcp__graft__graft_file_api,mcp__graft__graft_repo_map`)
+before your first lookup — grep-first is WRONG by default: a graft hit carries
+exact file:line spans for ~3% of the tokens reading or grepping the same code
+costs. Use plain grep only AFTER a graft attempt missed the file (unindexed
+paths: fixtures/, .sqlx/, dist/, evidence dirs). Full routing detail lives in
+"graft vs graphify" below. Record graft token savings in the lane landing
+record ("🌱 graft saved ~N tokens").
+
 ## UI skills (vendored design-engineering skills)
 
 `/skills` on ui-skills.com, vendored to `.kilo/skills/` (ui-skills-root, improve-ui,
