@@ -145,8 +145,7 @@ system and carry exact file:line spans, kept in sync with the code through git.
 
 For ANY task here — understanding how something works, finding where code lives,
 or scoping a change — get context from the graph before grepping or opening
-source files (see the "graft vs graphify (routing rule)" section above for when
-to use graphify instead). Re-ask freely (it's cheap) and reuse literal identifiers you
+source files. Re-ask freely (it's cheap) and reuse literal identifiers you
 already have (symbol, error string, file name) as the query. New to this repo?
 Run `graft map` first — a token-budgeted orientation (dir clusters, hubs,
 hotspots), no LLM, no key.
