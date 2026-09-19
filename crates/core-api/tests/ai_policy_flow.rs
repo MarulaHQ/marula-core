@@ -170,6 +170,7 @@ async fn record_usage_row(db: &PgPool, org_id: Uuid, user_id: Uuid, tokens: i32)
             model: "gpt-4.1".into(),
             prompt_tokens: tokens,
             completion_tokens: 0,
+            cost_weight: 1,
             request_id: Some(Uuid::now_v7().to_string()),
         },
     )
@@ -251,7 +252,7 @@ async fn ai_policy_deny_by_default_grant_cap_edge_flow() {
             "provider": "openai",
             "model": "gpt-4.1",
             "label": "GPT-4.1",
-            "capabilities": ["chat", "tools"],
+            "capabilities": ["chat", "completion", "tools"],
             "cost_weight": 2,
             "idempotency_key": format!("cat-{hex}"),
         })),
@@ -369,9 +370,8 @@ async fn ai_policy_deny_by_default_grant_cap_edge_flow() {
         Some(json!({ "surface_key": "general_chat" })),
     )
     .await;
-    assert_eq!(response.status(), 200);
     let authorized = body_json(response).await;
-    assert_eq!(authorized["provider"], "openai");
+    assert_eq!(authorized["provider"], "openai", "body: {authorized:?}");
     assert_eq!(authorized["model"], "gpt-4.1");
     assert_eq!(authorized["resolution"], "catalog_first");
     assert_eq!(authorized["credential"]["kind"], "api_key");
@@ -406,6 +406,7 @@ async fn ai_policy_deny_by_default_grant_cap_edge_flow() {
             "provider": "openai",
             "model": "gpt-4.1-mini",
             "label": "GPT-4.1 mini",
+            "capabilities": ["completion"],
             "idempotency_key": format!("cat-mini-{hex}"),
         })),
     )
@@ -621,6 +622,7 @@ async fn ai_policy_personal_credential_preferred_and_cap_edge() {
         Some(json!({
             "provider": "openai",
             "model": "gpt-4.1",
+            "capabilities": ["completion"],
             "idempotency_key": format!("cat-{hex}"),
         })),
     )

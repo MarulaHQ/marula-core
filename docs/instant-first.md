@@ -17,6 +17,7 @@ The dominant path has no Save clicks, no full-page reloads, and no waiting on th
 - **Snapshot + delta read model.** Each collection (board, ticket detail, list, calendar) exposes a cheap snapshot; clients hydrate fully from it and treat subsequent events as deltas. This is what lets a client know it already has the truth and skip refetches.
 - **Typed error/conflict envelope.** Not-found, authz, RLS-sparse, and `conflict/version-mismatch` come back as typed codes a client branches on, not prose to parse.
 - **Offline replay.** Reconnected clients replay buffered writes in order and get a per-op `accepted`/`rejected` result they can surface.
+- **The one envelope exception: the AI turn route.** `POST /api/ai/chat/sessions/{session_id}/turns` (Wave 18 lane 2's ChatRunner) responds as an SSE stream, not an instant-first mutation envelope. This is deliberate and stays the ONLY such route: a chat turn is not a write being persisted but a bounded model loop streaming its frames (model deltas, tool results, proposals, the honest outcome) while it runs — there is no entity snapshot to return, no seq to reconcile, and the loop's side-effects (usage ledger, audit, IF8 proposals, contract events) all commit through the normal instant-first paths on their own. Clients must not try to fit turn frames into the mutation/envelope machinery; they render the stream and let the emitted events arrive through the ordinary event stream. Any FUTURE streaming route needs the same justification written here before it ships.
 
 ## Undo is the escape hatch
 

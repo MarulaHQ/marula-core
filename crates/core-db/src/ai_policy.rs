@@ -123,6 +123,55 @@ pub async fn upsert_org_plugin_surface(
     Ok((id, true))
 }
 
+/// Every org-scoped plugin surface registration (kind = 'plugin'),
+/// newest first — the admin list behind the plugin-surface HTTP routes.
+pub async fn list_org_plugin_surfaces<'e, E>(executor: E, org_id: Uuid) -> DbResult<Vec<AiSurface>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let rows = sqlx::query(
+        r#"SELECT id, org_id, key, label, kind, description, enabled, created_at, updated_at
+           FROM ai_surfaces WHERE org_id = $1 AND kind = 'plugin'
+           ORDER BY created_at DESC"#,
+    )
+    .bind(org_id)
+    .fetch_all(executor)
+    .await?;
+    rows.into_iter().map(surface_from).collect()
+}
+
+/// Enable/disable one org-scoped surface. Returns the post-update row,
+/// or None when the id is not an org-scoped surface of this org (the
+/// globally seeded native/plugin keys are NOT administrable here).
+pub async fn set_surface_enabled(
+    tx: &mut PgConnection,
+    org_id: Uuid,
+    surface_id: Uuid,
+    enabled: bool,
+) -> DbResult<Option<AiSurface>> {
+    let updated = sqlx::query(
+        r#"UPDATE ai_surfaces SET enabled = $3, updated_at = now()
+           WHERE id = $2 AND org_id = $1"#,
+    )
+    .bind(org_id)
+    .bind(surface_id)
+    .bind(enabled)
+    .execute(&mut *tx)
+    .await?;
+    if updated.rows_affected() == 0 {
+        return Ok(None);
+    }
+    let row = sqlx::query(
+        r#"SELECT id, org_id, key, label, kind, description, enabled, created_at, updated_at
+           FROM ai_surfaces WHERE id = $1 AND org_id = $2"#,
+    )
+    .bind(surface_id)
+    .bind(org_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    surface_from(row).map(Some)
+}
+
 fn surface_from(row: sqlx::postgres::PgRow) -> DbResult<AiSurface> {
     use sqlx::Row;
     Ok(AiSurface {
@@ -136,6 +185,27 @@ fn surface_from(row: sqlx::postgres::PgRow) -> DbResult<AiSurface> {
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     })
+}
+
+/// One surface by id within the org (global rows surface through their
+/// org visibility; org rows only their own).
+pub async fn get_surface_by_id<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    surface_id: Uuid,
+) -> DbResult<Option<AiSurface>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let row = sqlx::query(
+        r#"SELECT id, org_id, key, label, kind, description, enabled, created_at, updated_at
+           FROM ai_surfaces WHERE id = $2 AND (org_id = $1 OR org_id IS NULL)"#,
+    )
+    .bind(org_id)
+    .bind(surface_id)
+    .fetch_optional(executor)
+    .await?;
+    row.map(surface_from).transpose()
 }
 
 // ---------------------------------------------------------------------------
@@ -699,15 +769,26 @@ pub struct AiUsageNew {
     pub model: String,
     pub prompt_tokens: i32,
     pub completion_tokens: i32,
+    /// The catalog `cost_weight` snapshotted at call time (1 when the
+    /// resolved pair is outside the catalog — legacy fallback). Caps and
+    /// progress read models consume the WEIGHTED total; the raw token
+    /// columns stay authoritative for reconstruction.
+    pub cost_weight: i32,
     pub request_id: Option<String>,
 }
 
+/// Append one usage row. Idempotent at the edge (Wave 18 lane 2b): a
+/// repeated write carrying the SAME (org, surface, request_id) hits the
+/// `uq_ai_usage_ledger_edge_request` partial unique index and is silently
+/// dropped — dedupe lives in the database, not in runner discipline.
 pub async fn record_usage(tx: &mut PgConnection, usage: &AiUsageNew) -> DbResult<()> {
     sqlx::query(
         r#"INSERT INTO ai_usage_ledger
              (id, org_id, user_id, surface, provider, model,
-              prompt_tokens, completion_tokens, request_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#,
+              prompt_tokens, completion_tokens, cost_weight, request_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           ON CONFLICT (org_id, surface, request_id) WHERE request_id IS NOT NULL
+           DO NOTHING"#,
     )
     .bind(usage.id)
     .bind(usage.org_id)
@@ -717,13 +798,16 @@ pub async fn record_usage(tx: &mut PgConnection, usage: &AiUsageNew) -> DbResult
     .bind(&usage.model)
     .bind(usage.prompt_tokens)
     .bind(usage.completion_tokens)
+    .bind(usage.cost_weight)
     .bind(&usage.request_id)
     .execute(&mut *tx)
     .await?;
     Ok(())
 }
 
-/// Total tokens (prompt + completion) for one user since a timestamp.
+/// Total COST-WEIGHTED tokens for one user since a timestamp (Wave 18
+/// lane 2b: caps consume `weighted_tokens`, not raw tokens; raw columns
+/// remain the reconstruction source of truth).
 pub async fn user_usage_since<'e, E>(
     executor: E,
     org_id: Uuid,
@@ -734,7 +818,7 @@ where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
     let total: Option<i64> = sqlx::query_scalar(
-        r#"SELECT COALESCE(SUM(prompt_tokens::bigint + completion_tokens::bigint), 0)::bigint
+        r#"SELECT COALESCE(SUM(weighted_tokens), 0)::bigint
            FROM ai_usage_ledger
            WHERE org_id = $1 AND user_id = $2 AND created_at >= $3"#,
     )
@@ -746,7 +830,7 @@ where
     Ok(total.unwrap_or(0))
 }
 
-/// Total tokens for the whole org since a timestamp.
+/// Total COST-WEIGHTED tokens for the whole org since a timestamp.
 pub async fn org_usage_since<'e, E>(
     executor: E,
     org_id: Uuid,
@@ -756,7 +840,7 @@ where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
     let total: Option<i64> = sqlx::query_scalar(
-        r#"SELECT COALESCE(SUM(prompt_tokens::bigint + completion_tokens::bigint), 0)::bigint
+        r#"SELECT COALESCE(SUM(weighted_tokens), 0)::bigint
            FROM ai_usage_ledger
            WHERE org_id = $1 AND created_at >= $2"#,
     )
@@ -765,6 +849,67 @@ where
     .fetch_one(executor)
     .await?;
     Ok(total.unwrap_or(0))
+}
+
+/// The cap periods the schema admits (migration 0091 widened the CHECK
+/// from 'month'-only to this superset).
+pub const VALID_PERIODS: [&str; 4] = ["week", "month", "quarter", "year"];
+
+/// One cap binding, with the usage ALREADY measured over THAT cap's own
+/// period window (a 'week' cap is checked against week-to-date usage, not
+/// month-to-date). Per-user rows shadow the org-wide row of the same
+/// period.
+#[derive(Debug, Clone)]
+pub struct BindingCap {
+    pub period: String,
+    pub soft_token_limit: Option<i64>,
+    pub hard_token_limit: Option<i64>,
+    pub used_weighted: i64,
+}
+
+type CapRow = (String, Option<i64>, Option<i64>, Option<Uuid>, i64);
+
+/// Every cap that binds this (org, user) right now — one entry per
+/// configured period, per-user row winning over the org-wide row. Caps of
+/// ALL periods bind at admission (Wave 18 lane 2b item 3): a weekly hard
+/// cap is enforced exactly like the monthly one.
+pub async fn binding_caps(
+    executor: &mut PgConnection,
+    org_id: Uuid,
+    user_id: Uuid,
+) -> DbResult<Vec<BindingCap>> {
+    let rows: Vec<CapRow> = sqlx::query_as(
+        r#"SELECT c.period, c.soft_token_limit, c.hard_token_limit,
+                  c.user_id,
+                  COALESCE((
+                    SELECT SUM(l.weighted_tokens)
+                    FROM ai_usage_ledger l
+                    WHERE l.org_id = c.org_id
+                      AND (c.user_id IS NULL OR l.user_id = c.user_id)
+                      AND l.created_at >= date_trunc(c.period, now())
+                  ), 0)::bigint AS used_weighted
+           FROM ai_caps c
+           WHERE c.org_id = $1 AND (c.user_id = $2 OR c.user_id IS NULL)
+           ORDER BY c.period, (c.user_id IS NULL)"#,
+    )
+    .bind(org_id)
+    .bind(user_id)
+    .fetch_all(&mut *executor)
+    .await?;
+    // Per period: keep the first row (per-user sorts before org-wide).
+    let mut out: Vec<BindingCap> = Vec::new();
+    for (period, soft, hard, _user, used) in rows {
+        if out.iter().any(|c| c.period == period) {
+            continue;
+        }
+        out.push(BindingCap {
+            period,
+            soft_token_limit: soft,
+            hard_token_limit: hard,
+            used_weighted: used,
+        });
+    }
+    Ok(out)
 }
 
 // ---------------------------------------------------------------------------

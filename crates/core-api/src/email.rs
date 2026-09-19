@@ -335,13 +335,15 @@ pub async fn process_inbound(
             | InboundOutcome::AttachByToken { ticket_id } => {
                 let comment = core_db::tickets::insert_comment(
                     &mut *tx,
-                    Uuid::now_v7(),
-                    org_id,
-                    ticket_id,
-                    None,
-                    NoteKind::ClientVisible,
-                    body_text.as_deref().unwrap_or("(empty body)"),
-                    None,
+                    core_db::tickets::NewTicketComment {
+                        id: Uuid::now_v7(),
+                        org_id,
+                        ticket_id,
+                        author_id: None,
+                        kind: NoteKind::ClientVisible,
+                        body: body_text.as_deref().unwrap_or("(empty body)"),
+                        workflow_meta: None,
+                    },
                 )
                 .await?;
                 emit_event(

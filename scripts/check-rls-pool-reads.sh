@@ -64,7 +64,17 @@ allowlist=(
   'dev.rs:core_db::demo::seed(&state.pool'
   'dev.rs:core_db::demo::time_travel(&state.pool'
   'dev.rs:core_db::demo::recent_events(&state.pool'
-)
+  # Pre-auth Cloudflare Access edge exchange (0072): the source
+  # (org_id, issuer, audience, jwks_url) resolves through the
+  # app_resolve_edge_source SECURITY DEFINER bridge before any session
+  # exists; every read after the exchange rides an org-bound tx.
+  'edge.rs:resolve_enabled_source(&state.pool'
+  # Presence heartbeat cross-replica relay: publish_heartbeat_notify is
+  # `SELECT pg_notify($1, $2)` — a channel notification, NOT a tenant
+  # read; nothing here touches an RLS-gated table. Fire-and-forget after
+  # the in-process upsert; failure only delays cross-replica convergence.
+  'presence.rs:publish_heartbeat_notify(&state.pool'
+ )
 
 rc=0
 total=0
@@ -76,7 +86,7 @@ for f in "$routes_dir"/*.rs; do
   count=$(printf '%s\n' "$file_hits" | wc -l | tr -d ' ')
   total=$((total + count))
   residual="$file_hits"
-  for entry in $allowlist; do
+  for entry in "${allowlist[@]}"; do
     ef="${entry%%:*}"
     es="${entry#*:}"
     if [[ "$base" == "$ef" ]]; then

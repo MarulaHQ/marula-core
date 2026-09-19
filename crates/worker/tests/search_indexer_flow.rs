@@ -287,13 +287,15 @@ async fn flush_dedupes_repeats_groups_orgs_and_indexes_comment_parentage() {
         let mut tx = org_tx(&pool, s.org).await;
         core_db::tickets::insert_comment(
             &mut *tx,
-            comment,
-            s.org,
-            ticket,
-            None,
-            core_domain::status::NoteKind::Internal,
-            "customer confirmed router rebooted cleanly overnight",
-            None,
+            core_db::tickets::NewTicketComment {
+                id: comment,
+                org_id: s.org,
+                ticket_id: ticket,
+                author_id: None,
+                kind: core_domain::status::NoteKind::Internal,
+                body: "customer confirmed router rebooted cleanly overnight",
+                workflow_meta: None,
+            },
         )
         .await
         .expect("comment insert");

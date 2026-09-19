@@ -7075,8 +7075,10 @@ export interface paths {
         /**
          * POST /api/search/pins — pins one stored result. The entity must EXIST
          *     in the index (a pin is a stored result, never invented) and kind sits
-         *     behind the same permission gate the query ran behind. Idempotent:
-         *     re-pinning the same (kind, id) answers the stored pin.
+         *     behind the same permission gate the query ran behind. One pin per
+         *     (kind, id): re-pinning is idempotent AND refreshes the stored
+         *     snapshot (query + title + parent) to current — the created_at stays
+         *     the original pin time (Wave 23 lane 1, item 6).
          */
         post: operations["search_pins_create"];
         delete?: never;
@@ -7533,6 +7535,66 @@ export interface paths {
          */
         put: operations["settings_ai_org_pick_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/ai/plugin-surfaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Org-scoped plugin surfaces registered by THIS org (kind = 'plugin'),
+         *     for the admin plugin-surface management view. Globally seeded
+         *     native/internal keys are administrable through the matrix, not here.
+         */
+        get: operations["settings_ai_plugin_surfaces_get"];
+        /**
+         * PUT /settings/ai/plugin-surfaces — register (or update) one org-scoped
+         *     plugin surface (audited, instant-first write path). The registered key
+         *     is deny-by-default until the grant flow covers it.
+         */
+        put: operations["settings_ai_plugin_surface_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/ai/plugin-surfaces/{surface_id}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /settings/ai/plugin-surfaces/{surface_id}/disable. */
+        post: operations["settings_ai_plugin_surface_disable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/ai/plugin-surfaces/{surface_id}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /settings/ai/plugin-surfaces/{surface_id}/enable. */
+        post: operations["settings_ai_plugin_surface_enable"];
         delete?: never;
         options?: never;
         head?: never;
@@ -9459,6 +9521,13 @@ export interface components {
             /** @description `user` | `org`. */
             scope: string;
             surface_key: string;
+        };
+        AiPluginSurfaceMutationResponse: {
+            mutation: components["schemas"]["MutationMeta"];
+            status: components["schemas"]["AiSurfaceDto"];
+        };
+        AiPluginSurfacesResponse: {
+            surfaces: components["schemas"]["AiSurfaceDto"][];
         };
         AiSurfaceAccessDto: {
             granted: boolean;
@@ -16612,7 +16681,12 @@ export interface components {
             user_id?: string | null;
         };
         PutAiCatalogRequest: components["schemas"]["MutationParams"] & {
-            capabilities?: string[];
+            /**
+             * @description OMITTED (vs explicit empty) keeps the existing row's tags — a
+             *     re-seal without a capabilities payload must not silently wipe the
+             *     capability enforcement data (Wave 18 lane 2b, item 4).
+             */
+            capabilities?: string[] | null;
             /** Format: int32 */
             cost_weight?: number;
             enabled?: boolean;
@@ -16641,6 +16715,15 @@ export interface components {
         PutAiPickRequest: components["schemas"]["MutationParams"] & {
             model: string;
             provider: string;
+        };
+        PutAiPluginSurfaceRequest: components["schemas"]["MutationParams"] & {
+            description?: string;
+            /**
+             * @description The org-unique plugin surface key (lowercase snake). Re-PUT with
+             *     the same key UPDATES the registration and re-enables it.
+             */
+            key: string;
+            label?: string;
         };
         /** @description Request to store or update a sealed BYOK API key. */
         PutByokSecretRequest: components["schemas"]["MutationParams"] & {
@@ -20270,7 +20353,7 @@ export interface operations {
                     "application/json": components["schemas"]["AiAuthorizeResponse"];
                 };
             };
-            /** @description typed refusal: ai_surface_not_granted | ai_surface_disabled | ai_surface_internal | ai_model_not_allowed | ai_no_models_configured | ai_hard_cap_reached | ai_no_credential */
+            /** @description typed refusal: ai_surface_not_granted | ai_surface_disabled | ai_surface_internal | ai_model_not_allowed | ai_model_not_capable | ai_no_models_configured | ai_hard_cap_reached | ai_no_credential */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -35006,6 +35089,133 @@ export interface operations {
             };
             /** @description model not in the admin allowlist */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    settings_ai_plugin_surfaces_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiPluginSurfacesResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    settings_ai_plugin_surface_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutAiPluginSurfaceRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiPluginSurfaceMutationResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description surface key validation */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    settings_ai_plugin_surface_disable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                surface_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiSurfaceDto"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    settings_ai_plugin_surface_enable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                surface_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiSurfaceDto"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

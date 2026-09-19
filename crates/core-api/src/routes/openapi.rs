@@ -271,6 +271,11 @@ use utoipa::OpenApi;
         crate::routes::ai_policy::put_cap,
         crate::routes::ai_policy::delete_cap,
         crate::routes::ai_policy::get_org_usage,
+        // Plugin-surface HTTP registration (Wave 18 lane 2b)
+        crate::routes::ai_policy::get_plugin_surfaces,
+        crate::routes::ai_policy::put_plugin_surface,
+        crate::routes::ai_policy::enable_plugin_surface,
+        crate::routes::ai_policy::disable_plugin_surface,
         crate::routes::ai_policy::get_my_surfaces,
         crate::routes::ai_policy::authorize,
         crate::routes::ai_policy::put_my_credential,
@@ -966,6 +971,10 @@ use utoipa::OpenApi;
         crate::routes::ai_policy::AiCapState,
         crate::routes::ai_policy::AiAuthorizeResponse,
         crate::routes::ai_policy::AiMyUsageResponse,
+        // Plugin-surface HTTP registration (Wave 18 lane 2b)
+        crate::routes::ai_policy::AiPluginSurfacesResponse,
+        crate::routes::ai_policy::PutAiPluginSurfaceRequest,
+        crate::routes::ai_policy::AiPluginSurfaceMutationResponse,
         // ChatRunner (Wave 18 lane 2)
         crate::routes::chat_runner::ChatTurnRequest,
         crate::routes::chat_runner::LoopMessage,

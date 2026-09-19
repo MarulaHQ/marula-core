@@ -213,7 +213,7 @@ async fn seed_admit_kit(app: &Router, owner: &str, member_id: Uuid, surface_key:
             "provider": "openai",
             "model": "meridian-test-chat",
             "label": "Chat Runner Test",
-            "capabilities": ["chat", "tools"],
+            "capabilities": ["chat", "completion", "tools"],
             "cost_weight": 1,
             "idempotency_key": format!("cat-{hex}"),
         })),
@@ -476,6 +476,7 @@ async fn hard_cap_refuses_typed_at_the_edge_and_rate_limit_answers_429() {
                 model: "meridian-test-chat".into(),
                 prompt_tokens: 10,
                 completion_tokens: 0,
+                cost_weight: 1,
                 request_id: Some(Uuid::now_v7().to_string()),
             },
         )

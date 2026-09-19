@@ -1224,6 +1224,22 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             put(ai_policy::put_org_pick),
         )
         .route(&rp("/ai/me/usage"), get(ai_policy::get_my_usage))
+        // Plugin-surface HTTP registration (Wave 18 lane 2b): admin
+        // routes over upsert_org_plugin_surface — list/create/enable/
+        // disable, audited, instant-first. The grant flow renders the
+        // registered plugin surfaces.
+        .route(
+            &rp("/settings/ai/plugin-surfaces"),
+            get(ai_policy::get_plugin_surfaces).put(ai_policy::put_plugin_surface),
+        )
+        .route(
+            &rp("/settings/ai/plugin-surfaces/{surface_id}/enable"),
+            post(ai_policy::enable_plugin_surface),
+        )
+        .route(
+            &rp("/settings/ai/plugin-surfaces/{surface_id}/disable"),
+            post(ai_policy::disable_plugin_surface),
+        )
         // ChatRunner (ADR 0008 §3, Wave 18 lane 2): the bounded model
         // loop over SSE. Authorization refusals ride lane 1's edge.
         .route(
