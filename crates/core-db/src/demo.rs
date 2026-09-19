@@ -117,6 +117,19 @@ pub struct DemoSeedReport {
     pub alert_incidents: usize,
     pub report_schedules: usize,
     pub webhooks: usize,
+    /// Counts for the second wave of surfaces (2026-09 seed expansion).
+    pub assets: usize,
+    pub catalog_items: usize,
+    pub quotes: usize,
+    pub pipeline_deals: usize,
+    pub credit_notes: usize,
+    pub tags: usize,
+    pub api_keys: usize,
+    pub vault_entries: usize,
+    pub notifications: usize,
+    pub pm_schedules: usize,
+    pub automation_rules: usize,
+    pub plugin_installs: usize,
     /// (email, role) login pairs, in summary-table order.
     pub logins: Vec<(&'static str, &'static str)>,
     pub password: &'static str,
@@ -244,6 +257,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     set_org(&mut tx, DEMO_ORG_ID).await?;
 
     let now = Utc::now();
+    let today = now.date_naive();
 
     // --- org -------------------------------------------------------------
     crate::orgs::insert_org(
@@ -1960,6 +1974,912 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     )
     .await?;
 
+    // --- taxonomy: classify a slice of tickets with the org's standard
+    // taxonomy (org creation seeds STANDARD_TYPES/CATEGORIES; classify by
+    // name so the seed never duplicates the baseline) ------------------------
+    for (ticket, type_name, category_name) in [
+        ("VPN drops every hour", "Incident", "Network"),
+        (
+            "License renewal question",
+            "Service Request",
+            "Line-of-Business Applications",
+        ),
+        ("Ransomware alert on file server", "Incident", "Security"),
+        ("Monitor flicker on dock", "Incident", "End-User Computing"),
+        ("Quarterly maintenance visit", "Change", "Network"),
+    ] {
+        sqlx::query(
+            "UPDATE tickets SET type_id = (SELECT id FROM ticket_types WHERE org_id = $2 AND name = $3),
+                             category_id = (SELECT id FROM ticket_categories WHERE org_id = $2 AND name = $4)
+             WHERE id = $1 AND org_id = $2",
+        )
+        .bind(demo_uuid(
+            100 + ticket_specs
+                .iter()
+                .find(|spec| spec.title == ticket)
+                .map(|spec| spec.index)
+                .unwrap_or(1),
+        ))
+        .bind(DEMO_ORG_ID)
+        .bind(type_name)
+        .bind(category_name)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // --- tags + applied ticket tags ----------------------------------------
+    let tag_specs: [(&str, &str, u64); 4] = [
+        ("urgent", "#d64545", 720),
+        ("network", "#3b7dd8", 721),
+        ("security", "#d8912b", 722),
+        ("warranty", "#4c9a57", 723),
+    ];
+    for (name, color, off) in tag_specs {
+        sqlx::query(
+            "INSERT INTO tags (id, org_id, name, color, created_by) VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(demo_uuid(off))
+        .bind(DEMO_ORG_ID)
+        .bind(name)
+        .bind(color)
+        .bind(owner)
+        .execute(&mut *tx)
+        .await?;
+    }
+    for (ticket, tag_off) in [
+        (101u64, 720u64),
+        (101, 722),
+        (104, 720),
+        (104, 722),
+        (108, 721),
+        (111, 721),
+        (107, 723),
+    ] {
+        sqlx::query(
+            "INSERT INTO ticket_tags (org_id, ticket_id, tag_id, applied_by)
+             VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+        )
+        .bind(DEMO_ORG_ID)
+        .bind(demo_uuid(ticket))
+        .bind(demo_uuid(tag_off))
+        .bind(owner)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // --- device assets (assets page) ----------------------------------------
+    type AssetSpec = (
+        u64,
+        Uuid,
+        Option<Uuid>,
+        &'static str,
+        &'static str,
+        &'static str,
+        &'static str,
+    );
+    let asset_specs: [AssetSpec; 6] = [
+        (
+            730,
+            acme,
+            Some(demo_uuid(30)),
+            "ACME-LT-0142",
+            "Dell Latitude 5540 — Dana Reeve",
+            "laptop",
+            "active",
+        ),
+        (
+            731,
+            acme,
+            Some(demo_uuid(30)),
+            "ACME-FW-01",
+            "FortiGate 100F edge firewall",
+            "network",
+            "active",
+        ),
+        (
+            732,
+            acme,
+            None,
+            "ACME-SW-RENT-03",
+            "Rented 48-port PoE switch (comms room)",
+            "network",
+            "rented",
+        ),
+        (
+            733,
+            northwind,
+            Some(demo_uuid(31)),
+            "NW-SRV-EX-01",
+            "Exchange migration target host",
+            "server",
+            "active",
+        ),
+        (
+            734,
+            northwind,
+            None,
+            "NW-LT-0031",
+            "MacBook Pro 14 — Priya Natarajan",
+            "laptop",
+            "active",
+        ),
+        (
+            735,
+            globex,
+            None,
+            "GLX-PRN-WH-02",
+            "Zebra warehouse label printer",
+            "printer",
+            "retired",
+        ),
+    ];
+    for (off, client, site, tag, name, kind, status) in asset_specs {
+        sqlx::query(
+            "INSERT INTO device_assets (id, org_id, client_id, site_id, tag, name, kind, status,
+                                        purchase_date, purchase_cost_minor, purchase_currency,
+                                        depreciation_method)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'USD', $11)",
+        )
+        .bind(demo_uuid(off))
+        .bind(DEMO_ORG_ID)
+        .bind(client)
+        .bind(site)
+        .bind(tag)
+        .bind(name)
+        .bind(kind)
+        .bind(status)
+        .bind(last_month_window(today).0) // stable recent-ish purchase date
+        .bind(120_000_i64)
+        .bind("straight_line")
+        .execute(&mut *tx)
+        .await?;
+        trail_system_write(
+            &mut tx,
+            "device_asset",
+            demo_uuid(off),
+            serde_json::json!({ "tag": tag }),
+        )
+        .await?;
+    }
+
+    // --- sales catalog (sales/catalog) --------------------------------------
+    let catalog_specs: [(&str, &str, &str, i64, i64, &str, &str); 6] = [
+        (
+            "Managed workstation",
+            "MGD-WS",
+            "Per-seat endpoint management + patching",
+            4_500,
+            1_200,
+            "service",
+            "Managed IT",
+        ),
+        (
+            "Server monitoring",
+            "MGD-SRV",
+            "24/7 monitoring and alert triage",
+            9_900,
+            3_000,
+            "service",
+            "Managed IT",
+        ),
+        (
+            "Firewall appliance (FortiGate 100F)",
+            "HW-FG100F",
+            "Shipped + racked + configured",
+            320_000,
+            210_000,
+            "product",
+            "Hardware",
+        ),
+        (
+            "48-port PoE switch",
+            "HW-SW48P",
+            "Deployed switch with config backup",
+            180_000,
+            120_000,
+            "product",
+            "Hardware",
+        ),
+        (
+            "Onsite labor",
+            "SRV-ONSITE",
+            "Technician hour, on-site",
+            14_500,
+            8_200,
+            "service",
+            "Labor",
+        ),
+        (
+            "Offsite backup (per TB)",
+            "SRV-BKP",
+            "Encrypted offsite backup storage",
+            5_000,
+            1_800,
+            "service",
+            "Backup",
+        ),
+    ];
+    for (i, (name, sku, description, price, cost, category, group_name)) in
+        catalog_specs.iter().enumerate()
+    {
+        sqlx::query(
+            "INSERT INTO catalog_items (id, org_id, name, sku, description, unit, currency,
+                                        unit_price_minor, cost_minor, taxable, category, group_name, created_by)
+             VALUES ($1, $2, $3, $4, $5, 'each', 'USD', $6, $7, true, $8, $9, $10)",
+        )
+        .bind(demo_uuid(740 + i as u64))
+        .bind(DEMO_ORG_ID)
+        .bind(name)
+        .bind(sku)
+        .bind(description)
+        .bind(price)
+        .bind(cost)
+        .bind(category)
+        .bind(group_name)
+        .bind(owner)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // --- quotes + lines (sales/quotes) --------------------------------------
+    struct DemoQuote {
+        off: u64,
+        client: Uuid,
+        status: &'static str,
+        days_issued: i64,
+        valid_days: i64,
+        lines: &'static [(u64, i64, i64)], // (catalog off, qty_milli, unit_amount_minor)
+        converted: Option<Uuid>,
+    }
+    let quote_specs: [DemoQuote; 3] = [
+        DemoQuote {
+            off: 750,
+            client: acme,
+            status: "sent",
+            days_issued: 4,
+            valid_days: 26,
+            lines: &[(742, 1_000, 320_000), (744, 2_000, 180_000)],
+            converted: None,
+        },
+        DemoQuote {
+            off: 753,
+            client: northwind,
+            status: "accepted",
+            days_issued: 21,
+            valid_days: -1, // already decided
+            lines: &[(740, 25_000, 4_500), (745, 3_000, 5_000)],
+            converted: Some(contract_recurring),
+        },
+        DemoQuote {
+            off: 755,
+            client: globex,
+            status: "draft",
+            days_issued: 0,
+            valid_days: 30,
+            lines: &[(741, 1_000, 9_900)],
+            converted: None,
+        },
+    ];
+    for spec in &quote_specs {
+        let subtotal: i64 = spec
+            .lines
+            .iter()
+            .map(|(_, qty, unit)| (qty / 1_000) * unit)
+            .sum();
+        let tax = subtotal * 750 / 10_000; // 7.5%
+        let sent_at = if spec.status == "draft" {
+            None
+        } else {
+            Some(at(today - Duration::days(spec.days_issued), 10, 0))
+        };
+        let decided_at = if spec.status == "accepted" {
+            Some(at(today - Duration::days(2), 15, 30))
+        } else {
+            None
+        };
+        sqlx::query(
+            "INSERT INTO quotes (id, org_id, number, client_id, status, currency, issued_on,
+                                 valid_until, notes, subtotal_minor, tax_rate_bps, tax_minor,
+                                 total_minor, sent_at, decided_at, converted_contract_id)
+             VALUES ($1, $2, $3, $4, $5, 'USD', $6, $7, $8, $9, 750, $10, $11, $12, $13, $14)",
+        )
+        .bind(demo_uuid(spec.off))
+        .bind(DEMO_ORG_ID)
+        .bind(format!("QT-{}", spec.off - 749))
+        .bind(spec.client)
+        .bind(spec.status)
+        .bind(today - Duration::days(spec.days_issued))
+        .bind(today + Duration::days(spec.valid_days))
+        .bind("Demo quote generated by the seed.")
+        .bind(subtotal)
+        .bind(tax)
+        .bind(subtotal + tax)
+        .bind(sent_at)
+        .bind(decided_at)
+        .bind(spec.converted)
+        .execute(&mut *tx)
+        .await?;
+        for (pos, (catalog_off, qty, unit)) in spec.lines.iter().enumerate() {
+            sqlx::query(
+                "INSERT INTO quote_lines (id, org_id, quote_id, catalog_item_id, description,
+                                          unit, quantity_milli, unit_amount_minor, taxable,
+                                          amount_minor, position)
+                 VALUES ($1, $2, $3, $4, $5, 'each', $6, $7, true, $8, $9)",
+            )
+            .bind(demo_uuid(spec.off + 1 + pos as u64))
+            .bind(DEMO_ORG_ID)
+            .bind(demo_uuid(spec.off))
+            .bind(demo_uuid(*catalog_off))
+            .bind(catalog_specs[(catalog_off - 740) as usize].0)
+            .bind(qty)
+            .bind(unit)
+            .bind((qty / 1_000) * unit)
+            .bind(pos as i32)
+            .execute(&mut *tx)
+            .await?;
+        }
+        trail_system_write(
+            &mut tx,
+            "quote",
+            demo_uuid(spec.off),
+            serde_json::json!({ "status": spec.status }),
+        )
+        .await?;
+    }
+
+    // --- pipeline stages + deals (sales/pipeline) ----------------------------
+    let stage_specs: [(&str, i32, &str); 5] = [
+        ("Lead", 0, "open"),
+        ("Qualified", 1, "open"),
+        ("Proposal Sent", 2, "open"),
+        ("Won", 3, "won"),
+        ("Lost", 4, "lost"),
+    ];
+    for (name, pos, kind) in stage_specs {
+        sqlx::query(
+            "INSERT INTO pipeline_stages (id, org_id, name, position, stage_type)
+             VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(demo_uuid(760 + pos as u64))
+        .bind(DEMO_ORG_ID)
+        .bind(name)
+        .bind(pos)
+        .bind(kind)
+        .execute(&mut *tx)
+        .await?;
+    }
+    let deal_specs: [(u64, Uuid, u64, &str, i64, &str, i64); 4] = [
+        (
+            765,
+            acme,
+            762,
+            "Acme comms-room refresh",
+            1_800_000,
+            "open",
+            30,
+        ),
+        (
+            766,
+            globex,
+            761,
+            "Globex backup consolidation",
+            950_000,
+            "open",
+            45,
+        ),
+        (
+            767,
+            northwind,
+            763,
+            "Northwind managed workstations (25 seats)",
+            2_400_000,
+            "won",
+            -3,
+        ),
+        (
+            768,
+            globex,
+            764,
+            "Globex printer fleet RFP",
+            400_000,
+            "lost",
+            -10,
+        ),
+    ];
+    for (off, client, stage, name, amount, status, close_days) in deal_specs {
+        sqlx::query(
+            "INSERT INTO pipeline_deals (id, org_id, client_id, stage_id, name, amount_minor,
+                                         currency, status, expected_close_on, owner_user_id,
+                                         closed_at, created_by)
+             VALUES ($1, $2, $3, $4, $5, $6, 'USD', $7, $8, $9, $10, $9)",
+        )
+        .bind(demo_uuid(off))
+        .bind(DEMO_ORG_ID)
+        .bind(client)
+        .bind(demo_uuid(stage))
+        .bind(name)
+        .bind(amount)
+        .bind(status)
+        .bind(today + Duration::days(close_days))
+        .bind(owner)
+        .bind(if status == "open" {
+            None
+        } else {
+            Some(at(today - Duration::days(close_days.abs()), 16, 0))
+        })
+        .execute(&mut *tx)
+        .await?;
+        trail_system_write(
+            &mut tx,
+            "pipeline_deal",
+            demo_uuid(off),
+            serde_json::json!({ "name": name }),
+        )
+        .await?;
+    }
+    // One transition each: created → current stage (won/lost deals get 2 hops).
+    for (deal_off, from_off, to_off, days_ago) in [
+        (765u64, 760u64, 762u64, 12i64),
+        (766, 760, 761, 9),
+        (767, 762, 763, 3),
+        (768, 761, 764, 10),
+    ] {
+        sqlx::query(
+            "INSERT INTO pipeline_deal_transitions (id, org_id, deal_id, from_stage_id, to_stage_id, actor_id, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        )
+        .bind(demo_uuid(770 + deal_off - 765))
+        .bind(DEMO_ORG_ID)
+        .bind(demo_uuid(deal_off))
+        .bind(demo_uuid(from_off))
+        .bind(demo_uuid(to_off))
+        .bind(owner)
+        .bind(at(today - Duration::days(days_ago), 11, 15))
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // --- credit note (billing/credit-notes) ----------------------------------
+    let credit_note_id = demo_uuid(780);
+    sqlx::query(
+        "INSERT INTO credit_notes (id, org_id, number, client_id, issued_against_invoice_id,
+                                   status, currency, total_minor, applied_minor, reason, created_by)
+         VALUES ($1, $2, 'CN-0001', $3, $4, 'issued', 'USD', 50_000, 50_000,
+                 'Duplicate seat billed on the dunning run', $5)",
+    )
+    .bind(credit_note_id)
+    .bind(DEMO_ORG_ID)
+    .bind(acme)
+    .bind(invoice_dunning_id)
+    .bind(bookkeeper)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "INSERT INTO credit_note_applications (id, org_id, credit_note_id, invoice_id, amount_minor, created_by)
+         VALUES ($1, $2, $3, $4, 50_000, $5)",
+    )
+    .bind(demo_uuid(781))
+    .bind(DEMO_ORG_ID)
+    .bind(credit_note_id)
+    .bind(invoice_dunning_id)
+    .bind(bookkeeper)
+    .execute(&mut *tx)
+    .await?;
+
+    // NOTE: fx_rates is deliberately NOT seeded — migration 0066 makes the
+    // table INSERT-only (UPDATE/DELETE raise, cascade included), so demo
+    // rows could never be wiped by `reset`. FX surfaces still demo through
+    // the ticket cost lines' fx_rate_used snapshots below.
+
+    // --- password vault entries (passwords page; sealed at rest) --------------
+    type VaultSpec = (
+        u64,
+        Option<Uuid>,
+        &'static str,
+        &'static str,
+        &'static str,
+        &'static str,
+    );
+    let vault_specs: [VaultSpec; 3] = [
+        (
+            790,
+            Some(acme),
+            "Acme firewall admin",
+            "admin",
+            "https://fw.acme.demo",
+            "demo-vault-secret-acme-firewall",
+        ),
+        (
+            791,
+            Some(northwind),
+            "Northwind DNS registrar",
+            "dns-admin",
+            "https://registrar.demo",
+            "demo-vault-secret-nw-dns",
+        ),
+        (
+            792,
+            None,
+            "Shared break-glass credential",
+            "svc-breakglass",
+            "",
+            "demo-vault-secret-breakglass",
+        ),
+    ];
+    for (off, client, title, username, url, secret) in vault_specs {
+        sqlx::query(
+            "INSERT INTO passwords (id, org_id, client_id, title, username, url, secret_ciphertext,
+                                    expires_at, created_by, updated_by)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)",
+        )
+        .bind(demo_uuid(off))
+        .bind(DEMO_ORG_ID)
+        .bind(client)
+        .bind(title)
+        .bind(username)
+        .bind(url)
+        .bind(seal(&opts.seal_key, secret.as_bytes())?)
+        .bind::<Option<chrono::DateTime<Utc>>>(None)
+        .bind(owner)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // --- org API key (settings/api-keys; hash keyed by the at-rest secret) ----
+    let demo_api_raw = "mrd_demo0000000000000000000000000000000000000000000000000000key";
+    use hmac::Mac;
+    let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(&opts.seal_key)
+        .map_err(|e| DemoError::Crypto(e.to_string()))?;
+    mac.update(demo_api_raw.as_bytes());
+    let api_key_id = demo_uuid(795);
+    sqlx::query(
+        "INSERT INTO api_keys (id, org_id, name, key_hash, prefix, scopes, created_by)
+         VALUES ($1, $2, 'Demo connector', $3, 'mrd_demo0000', $4, $5)",
+    )
+    .bind(api_key_id)
+    .bind(DEMO_ORG_ID)
+    .bind(hex::encode(mac.finalize().into_bytes()))
+    .bind(serde_json::json!(["tickets:read", "clients:read"]))
+    .bind(owner)
+    .execute(&mut *tx)
+    .await?;
+    trail_system_write(
+        &mut tx,
+        "api_key",
+        api_key_id,
+        serde_json::json!({ "name": "Demo connector" }),
+    )
+    .await?;
+
+    // --- notifications (bell menu) --------------------------------------------
+    type NotifSpec = (
+        u64,
+        Uuid,
+        &'static str,
+        Option<u64>,
+        &'static str,
+        &'static str,
+    );
+    let notif_specs: [NotifSpec; 5] = [
+        (
+            800,
+            owner,
+            "mention",
+            Some(101),
+            "Dana mentioned this ticket",
+            "Portal contact replied on VPN drops every hour",
+        ),
+        (
+            801,
+            owner,
+            "sla_risk",
+            Some(102),
+            "SLA at risk",
+            "License renewal question approaches its first-response target",
+        ),
+        (
+            802,
+            tech,
+            "assignment",
+            Some(108),
+            "Assigned to you",
+            "Monitor flicker on dock was assigned to you",
+        ),
+        (
+            803,
+            tech,
+            "escalation",
+            Some(104),
+            "Escalated",
+            "Ransomware alert on file server escalated to P1 bridge",
+        ),
+        (
+            804,
+            owner,
+            "missing_time",
+            None,
+            "Missing time",
+            "Yesterday has unlogged time for 2 technicians",
+        ),
+    ];
+    for (off, user, kind, ticket, title, body) in notif_specs {
+        sqlx::query(
+            "INSERT INTO notifications (id, org_id, user_id, kind, ticket_id, title, body, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        )
+        .bind(demo_uuid(off))
+        .bind(DEMO_ORG_ID)
+        .bind(user)
+        .bind(kind)
+        .bind(ticket.map(demo_uuid))
+        .bind(title)
+        .bind(body)
+        .bind(now - Duration::hours((off - 799) as i64))
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // --- availability windows (scheduling base grid) ---------------------------
+    for user in [tech, dispatcher] {
+        for weekday in 0..5 {
+            sqlx::query(
+                "INSERT INTO availability_windows (id, org_id, user_id, weekday, start_local, end_local, timezone)
+                 VALUES ($1, $2, $3, $4, $5, $6, 'UTC')",
+            )
+            .bind(demo_uuid(810 + weekday as u64 + if user == tech { 0 } else { 5 }))
+            .bind(DEMO_ORG_ID)
+            .bind(user)
+            .bind(weekday as i16)
+            .bind(NaiveTime::from_hms_opt(9, 0, 0).expect("valid time"))
+            .bind(NaiveTime::from_hms_opt(17, 0, 0).expect("valid time"))
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
+    // --- ticket costs + expenses (ticket cost rollups, FX-aware) ---------------
+    let cost_specs: [(u64, u64, &str, &str, i64, bool, bool); 3] = [
+        (
+            820,
+            101,
+            "parts",
+            "Replacement firewall power supply",
+            42_000,
+            false,
+            false,
+        ),
+        (
+            821,
+            109,
+            "other",
+            "Warehouse LTE failover (monthly)",
+            8_500,
+            false,
+            true,
+        ),
+        (
+            822,
+            101,
+            "flat",
+            "Firewall management retainer",
+            12_000,
+            false,
+            true,
+        ),
+    ];
+    for (off, ticket, kind, description, unit_cost, has_fx, billable) in cost_specs {
+        sqlx::query(
+            "INSERT INTO ticket_cost_lines (id, org_id, ticket_id, kind, description, quantity,
+                                            unit_cost_minor, currency, billable, created_by,
+                                            fx_rate_used, fx_rate_date, fx_source, base_amount_minor)
+             VALUES ($1, $2, $3, $4, $5, 1, $6, $7, $8, $9, $10::numeric, $11, $12, $13)",
+        )
+        .bind(demo_uuid(off))
+        .bind(DEMO_ORG_ID)
+        .bind(demo_uuid(ticket))
+        .bind(kind)
+        .bind(description)
+        .bind(unit_cost)
+        .bind("EUR")
+        .bind(billable)
+        .bind(bookkeeper)
+        .bind(has_fx.then_some("0.92"))
+        .bind(has_fx.then_some(today - Duration::days(1)))
+        .bind(has_fx.then_some("demo-static"))
+        .bind(has_fx.then_some(unit_cost * 92 / 100))
+        .execute(&mut *tx)
+        .await?;
+    }
+    let expense_specs: [(u64, u64, &str, i64, bool, Uuid); 2] = [
+        (
+            825,
+            110,
+            "Mileage — quarterly walkthrough",
+            4_800,
+            true,
+            tech,
+        ),
+        (
+            826,
+            112,
+            "Courier — failed UPS unit return",
+            3_200,
+            false,
+            tech,
+        ),
+    ];
+    for (off, ticket, description, amount, billable, by) in expense_specs {
+        sqlx::query(
+            "INSERT INTO ticket_expenses (id, org_id, ticket_id, description, amount_minor, currency,
+                                          billable, incurred_by, incurred_at)
+             VALUES ($1, $2, $3, $4, $5, 'USD', $6, $7, $8)",
+        )
+        .bind(demo_uuid(off))
+        .bind(DEMO_ORG_ID)
+        .bind(demo_uuid(ticket))
+        .bind(description)
+        .bind(amount)
+        .bind(billable)
+        .bind(by)
+        .bind(now - Duration::days(3))
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // --- PM schedules + runs (recurring preventive maintenance) ----------------
+    sqlx::query(
+        "INSERT INTO pm_schedules (id, org_id, name, board_id, title, body, priority, client_id,
+                                   site_id, assignee_id, cadence, time_of_day, day_of_month,
+                                   timezone, enabled, next_run_at, last_run_at, created_by)
+         VALUES ($1, $2, 'Quarterly Acme walkthrough', $3, 'Quarterly maintenance visit',
+                 'Scheduled walkthrough of Acme HQ.', 'p2', $4, $5, $6,
+                 'monthly', $7, 1, 'UTC', true, $8, $9, $10)",
+    )
+    .bind(demo_uuid(830))
+    .bind(DEMO_ORG_ID)
+    .bind(demo_uuid(61)) // field-service board
+    .bind(acme)
+    .bind(demo_uuid(30))
+    .bind(tech)
+    .bind(NaiveTime::from_hms_opt(8, 0, 0).expect("valid time"))
+    .bind(now + Duration::days(45))
+    .bind(now - Duration::days(40))
+    .bind(owner)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "INSERT INTO pm_schedules (id, org_id, name, board_id, title, body, priority, client_id,
+                                   assignee_id, cadence, time_of_day, day_of_week,
+                                   timezone, enabled, next_run_at, created_by)
+         VALUES ($1, $2, 'Weekly Globex backup check', $3, 'Backup restore spot-check',
+                 'Verify the latest offsite backup completed and restore-test one file.', 'p3',
+                 $4, $5, 'weekly', $6, 0, 'UTC', true, $7, $8)",
+    )
+    .bind(demo_uuid(831))
+    .bind(DEMO_ORG_ID)
+    .bind(demo_uuid(60)) // service desk board
+    .bind(globex)
+    .bind(tech)
+    .bind(NaiveTime::from_hms_opt(7, 30, 0).expect("valid time"))
+    .bind(now + Duration::days(6))
+    .bind(owner)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "INSERT INTO pm_runs (id, org_id, schedule_id, slot_at, status, ticket_id, detail)
+         VALUES ($1, $2, $3, $4, 'generated', $5, '{}'),
+                ($6, $2, $3, $7, 'skipped', NULL, $8)",
+    )
+    .bind(demo_uuid(835))
+    .bind(DEMO_ORG_ID)
+    .bind(demo_uuid(830))
+    .bind(now - Duration::days(85))
+    .bind(demo_uuid(110)) // the ticket the last run generated
+    .bind(demo_uuid(836))
+    .bind(now - Duration::days(10))
+    .bind(serde_json::json!({ "reason": "no_enabled_schedules" }))
+    .execute(&mut *tx)
+    .await?;
+
+    // --- meeting type + scheduling link (scheduling links; token sha256) ------
+    sqlx::query(
+        "INSERT INTO meeting_types (id, org_id, name, description, duration_minutes, buffer_minutes,
+                                    booking_window_days, parameters, assignee_scope, assignee_user_id,
+                                    auto_email_enabled)
+         VALUES ($1, $2, 'Service triage call', 'Quick scoping call for a new issue.', 15, 5, 14,
+                 '{}', 'user', $3, false)",
+    )
+    .bind(demo_uuid(840))
+    .bind(DEMO_ORG_ID)
+    .bind(tech)
+    .execute(&mut *tx)
+    .await?;
+    let link_token = "demo-scheduling-link-token-not-a-real-secret";
+    let link_token_hash: String = {
+        use sha2::Digest;
+        let digest = sha2::Sha256::digest(link_token.as_bytes());
+        digest.iter().map(|b| format!("{b:02x}")).collect()
+    };
+    sqlx::query(
+        "INSERT INTO scheduling_links (id, org_id, meeting_type_id, token_hash, label, ticket_id,
+                                       status, view_count, created_by, created_at)
+         VALUES ($1, $2, $3, $4, 'Triage link — Acme VPN issue', $5, 'active', 2, $6, $7)",
+    )
+    .bind(demo_uuid(845))
+    .bind(DEMO_ORG_ID)
+    .bind(demo_uuid(840))
+    .bind(link_token_hash)
+    .bind(demo_uuid(101))
+    .bind(dispatcher)
+    .bind(now - Duration::days(2))
+    .execute(&mut *tx)
+    .await?;
+
+    // --- automation rules (automations page) -----------------------------------
+    sqlx::query(
+        "INSERT INTO automation_rules (id, org_id, board_id, name, trigger_event, conditions, actions, enabled)
+         VALUES ($1, $2, $3, 'Tag security alerts urgent', 'ticket.created',
+                 $4, $5, true),
+                ($6, $2, $3, 'Notify dispatcher on P1', 'ticket.updated',
+                 $7, $8, true)",
+    )
+    .bind(demo_uuid(850))
+    .bind(DEMO_ORG_ID)
+    .bind(demo_uuid(60)) // service desk board
+    .bind(serde_json::json!([{ "field": "category", "op": "eq", "value": "Security" }]))
+    .bind(serde_json::json!([{ "type": "add_tag", "tag_id": demo_uuid(722).to_string() }]))
+    .bind(demo_uuid(851))
+    .bind(serde_json::json!([{ "field": "priority", "op": "eq", "value": "p1" }]))
+    .bind(serde_json::json!([{ "type": "notify", "user_id": demo_uuid(11).to_string(), "template": "p1_new" }]))
+    .execute(&mut *tx)
+    .await?;
+
+    // --- time-entry approval trail (approvals page) -----------------------------
+    // A bulk time entry gets submitted→approved hops so the approvals
+    // timeline has history to show.
+    for (seq, action) in [(0i32, "submitted"), (1, "approved")] {
+        sqlx::query(
+            "INSERT INTO time_entry_approvals (id, org_id, time_entry_id, seq, action, actor_id, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        )
+        .bind(demo_uuid(860 + seq as u64))
+        .bind(DEMO_ORG_ID)
+        .bind(demo_uuid(600))
+        .bind(seq)
+        .bind(action)
+        .bind(if action == "submitted" { tech } else { owner })
+        .bind(at(today - Duration::days(1), 9 + seq as u32, 0))
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // --- plugin install (settings/plugins) --------------------------------------
+    // plugin_catalog is GLOBAL (no org_id, no cascade): upsert by slug and
+    // reuse the existing catalog row so reset→reseed converges.
+    sqlx::query(
+        "INSERT INTO plugin_catalog (id, slug, name, description, publisher, latest_version, interface_version)
+         VALUES ($1, 'sample-stock-ticker', 'Sample stock ticker', 'Demo plugin: ticker side panel.', 'meridian-demo', '1.0.0', 1)
+         ON CONFLICT (slug) DO NOTHING",
+    )
+    .bind(demo_uuid(870))
+    .execute(&mut *tx)
+    .await?;
+    let plugin_catalog_id: Uuid =
+        sqlx::query_scalar("SELECT id FROM plugin_catalog WHERE slug = 'sample-stock-ticker'")
+            .fetch_one(&mut *tx)
+            .await?;
+    sqlx::query(
+        "INSERT INTO plugin_installs (id, org_id, catalog_id, version, status, granted_capabilities, installed_by)
+         VALUES ($1, $2, $3, '1.0.0', 'enabled', $4, $5)",
+    )
+    .bind(demo_uuid(875))
+    .bind(DEMO_ORG_ID)
+    .bind(plugin_catalog_id)
+    .bind(serde_json::json!(["panel:stock"]))
+    .bind(owner)
+    .execute(&mut *tx)
+    .await?;
+
     // --- audit trail: the seed itself, as the system actor -----------------
     crate::audit::insert(
         &mut *tx,
@@ -2002,6 +2922,18 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         alert_incidents: 2,
         report_schedules: 1,
         webhooks: 1,
+        assets: asset_specs.len(),
+        catalog_items: catalog_specs.len(),
+        quotes: quote_specs.len(),
+        pipeline_deals: deal_specs.len(),
+        credit_notes: 1,
+        tags: tag_specs.len(),
+        api_keys: 1,
+        vault_entries: vault_specs.len(),
+        notifications: notif_specs.len(),
+        pm_schedules: 2,
+        automation_rules: 2,
+        plugin_installs: 1,
         logins: vec![
             ("owner@demo.local", "owner"),
             ("dispatcher@demo.local", "dispatcher"),

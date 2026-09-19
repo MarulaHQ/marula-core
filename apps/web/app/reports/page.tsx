@@ -13,6 +13,8 @@
 // Workbench tokens, light+dark, ≤120ms transitions, responsive.
 "use client";
 
+export const dynamic = 'force-dynamic';
+
 import {
   Button,
   Card,
@@ -37,7 +39,7 @@ import {
   Tr,
 } from "@meridian/ui";
 import type { components } from "@meridian/sdk";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api, useRequireAuth } from "../../lib/api";
 import { friendlyMutationText } from "../../lib/error-copy";
@@ -56,6 +58,14 @@ type ScheduleCadence = components["schemas"]["ScheduleCadence"];
 type Tab = "builder" | "saved" | "schedules";
 
 export default function ReportsPage() {
+  return (
+    <Suspense fallback={null}>
+      <ReportsInner />
+    </Suspense>
+  );
+}
+
+function ReportsInner() {
   const auth = useRequireAuth();
   const canPublish =
     auth.status === "authed" && isManagerPermissions(auth.me?.permissions ?? []);
