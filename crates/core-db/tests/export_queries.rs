@@ -175,25 +175,29 @@ async fn seed_full_org(db: &common::TestDb, n: u64) -> (Uuid, Uuid, Uuid, Vec<Uu
     }
     core_db::tickets::insert_comment(
         &mut *tx,
-        Uuid::now_v7(),
-        org,
-        ticket_ids[0],
-        Some(user),
-        NoteKind::Internal,
-        "first comment",
-        None,
+        core_db::tickets::NewTicketComment {
+            id: Uuid::now_v7(),
+            org_id: org,
+            ticket_id: ticket_ids[0],
+            author_id: Some(user),
+            kind: NoteKind::Internal,
+            body: "first comment",
+            workflow_meta: None,
+        },
     )
     .await
     .expect("comment");
     core_db::tickets::insert_comment(
         &mut *tx,
-        Uuid::now_v7(),
-        org,
-        ticket_ids[0],
-        None,
-        NoteKind::ClientVisible,
-        "second comment",
-        None,
+        core_db::tickets::NewTicketComment {
+            id: Uuid::now_v7(),
+            org_id: org,
+            ticket_id: ticket_ids[0],
+            author_id: None,
+            kind: NoteKind::ClientVisible,
+            body: "second comment",
+            workflow_meta: None,
+        },
     )
     .await
     .expect("comment 2");

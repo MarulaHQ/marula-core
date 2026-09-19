@@ -620,13 +620,15 @@ pub async fn reply(
             core_db::portal::get_client_ticket(&mut *ctx.tx, org_id, client_id, id).await?;
         let comment = core_db::tickets::insert_comment(
             &mut *ctx.tx,
-            Uuid::now_v7(),
-            org_id,
-            id,
-            None,
-            NoteKind::ClientVisible,
-            req.body.trim(),
-            None,
+            core_db::tickets::NewTicketComment {
+                id: Uuid::now_v7(),
+                org_id,
+                ticket_id: id,
+                author_id: None,
+                kind: NoteKind::ClientVisible,
+                body: req.body.trim(),
+                workflow_meta: None,
+            },
         )
         .await?;
 

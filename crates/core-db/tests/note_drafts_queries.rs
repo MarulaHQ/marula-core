@@ -232,13 +232,15 @@ async fn workflow_meta_round_trips_on_the_row() {
     // User-written note: meta NULL.
     let plain = tickets::insert_comment(
         &mut *tx,
-        Uuid::now_v7(),
-        s.org,
-        s.ticket,
-        Some(s.user),
-        NoteKind::Internal,
-        "- Checked the port",
-        None,
+        tickets::NewTicketComment {
+            id: Uuid::now_v7(),
+            org_id: s.org,
+            ticket_id: s.ticket,
+            author_id: Some(s.user),
+            kind: NoteKind::Internal,
+            body: "- Checked the port",
+            workflow_meta: None,
+        },
     )
     .await
     .expect("insert plain");
@@ -252,13 +254,15 @@ async fn workflow_meta_round_trips_on_the_row() {
     });
     let machine = tickets::insert_comment(
         &mut *tx,
-        Uuid::now_v7(),
-        s.org,
-        s.ticket,
-        Some(s.user),
-        NoteKind::Internal,
-        "- **Completed:** Patch firewall",
-        Some(&meta),
+        tickets::NewTicketComment {
+            id: Uuid::now_v7(),
+            org_id: s.org,
+            ticket_id: s.ticket,
+            author_id: Some(s.user),
+            kind: NoteKind::Internal,
+            body: "- **Completed:** Patch firewall",
+            workflow_meta: Some(&meta),
+        },
     )
     .await
     .expect("insert machine");

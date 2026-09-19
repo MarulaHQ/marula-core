@@ -40,6 +40,15 @@
 //! Honest gap (landing record): the wardrobe's path rules
 //! (`capability_ns`/`is_excluded`) are reviewed twins of the mcp-server
 //! adapter's, not shared code — until a shared crate extracts them.
+//!
+//! Review items SETTLED in lane 2b (postures documented where they live,
+//! not left in landing notes): provider-side token streaming stays off
+//! (posture above); OAuth/subscription chat transport keeps its typed
+//! degradation with the generic OAuth flow on ADR 0008 §2's trigger; the
+//! wardrobe twin extraction point is pinned at [`derive_wardrobe`]; the
+//! transport-override/router seam carries a production review gate (see
+//! `resolve_transport`); the turn limiter's single-node posture is stated
+//! at [`turn_rate_check`].
 
 use crate::auth::middleware::authed;
 use crate::error::{ApiError, ApiResult};
@@ -109,6 +118,11 @@ pub struct WardrobeTool {
 
 /// Derives the READ wardrobe from the pinned spec, mirroring the
 /// mcp-server catalog adapter's rules. Pure, unit-tested.
+/// EXTRACTION POINT (Wave 18 lane 2b): the path-rule twins with the
+/// mcp-server adapter (`capability_ns`, `is_excluded`, and the
+/// GET/deny logic below) get their shared crate home HERE — when the
+/// second consumer appears, lift these rules into a shared crate and
+/// point both call sites at it; re-check the ADR re-eval triggers then.
 pub fn derive_wardrobe() -> Vec<WardrobeTool> {
     let Ok(spec) = serde_json::from_str::<serde_json::Value>(OPENAPI_SNAPSHOT) else {
         return Vec::new();
@@ -500,6 +514,16 @@ impl ChatModelTransport for OpenAiChatCompat {
 /// Transport resolution: the test override wins; otherwise the real
 /// OpenAI-compatible adapter built from the authorized credential.
 /// Credential kinds with no adapter degrade typed instead of guessing.
+///
+/// PRODUCTION REVIEW GATE (Wave 18 lane 2b, review item settled): this
+/// function IS the transport-override/router seam — `TRANSPORT_OVERRIDES`
+/// (org-keyed, test-only injection) sits in front of the credential-built
+/// adapter, and `current_router`/`set_runner_router` hands the loop a
+/// CLONED router so tool calls re-enter the same HTTP stack as clients.
+/// Before any GA multi-instance deployment, this seam must be re-reviewed
+/// for: override registration being test-only (no admin path may write
+/// TRANSPORT_OVERRIDES), router stamping happening on every worker, and
+/// the env-var base URLs (`OPENAI_BASE_URL`) being pinned per deployment.
 fn resolve_transport(org_id: Uuid, call: &AuthorizedAiCall) -> Arc<dyn ChatModelTransport> {
     if let Some(seeded) = TRANSPORT_OVERRIDES
         .lock()
@@ -564,6 +588,13 @@ static TURN_RATE: std::sync::LazyLock<Mutex<TurnWindow>> =
 
 /// `Ok(())` under [`TURN_RATE_LIMIT`], `Err(retry_after_secs)` otherwise.
 pub fn turn_rate_check(org_id: Uuid, user_id: Uuid) -> Result<(), u64> {
+    // POSTURE (Wave 18 lane 2b, review item settled): this limiter is a
+    // per-PROCESS sliding window — the honest SINGLE-NODE alpha posture.
+    // Multi-node deployments need a shared store (Postgres or Redis) for
+    // the same (org, user) window, or the effective limit multiplies by
+    // replica count. Re-evaluate together with the runner's router
+    // stamping seam (see `resolve_transport`'s review gate) and the ADR
+    // 0010 posture review; do not silently rely on this bound at scale.
     let mut map = TURN_RATE.lock().expect("turn rate lock poisoned");
     let window = map.entry((org_id, user_id)).or_default();
     let now = std::time::Instant::now();
@@ -666,7 +697,15 @@ pub async fn post_turn(
     }
 
     // THE lane-1 authorization edge — surface grant → model → caps →
-    // sealed credential, once, typed.
+    // sealed credential, once, typed. Capability enforcement is
+    // load-bearing (lane 2b): the resolved model must carry `completion`,
+    // plus `tools` whenever the wardrobe is non-empty (a model that
+    // cannot call tools never enters the tool loop).
+    let wardrobe = derive_wardrobe();
+    let mut required_edges = vec![crate::routes::ai_policy::AiEdge::Completion];
+    if !wardrobe.is_empty() {
+        required_edges.push(crate::routes::ai_policy::AiEdge::ToolCall);
+    }
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     core_db::set_org_and_user(&mut tx, org_id, user_id)
         .await
@@ -679,11 +718,14 @@ pub async fn post_turn(
     let call = authorize_surface_call(
         &state,
         &mut tx,
-        org_id,
-        user_id,
-        &surface_key,
-        req.provider.as_deref(),
-        req.model.as_deref(),
+        crate::routes::ai_policy::AiAdmissionAsk {
+            org_id,
+            user_id,
+            surface_key: &surface_key,
+            provider_ask: req.provider.as_deref(),
+            model_ask: req.model.as_deref(),
+            required_capabilities: &required_edges,
+        },
     )
     .await?;
 
@@ -722,7 +764,6 @@ pub async fn post_turn(
     tx.commit().await.map_err(ApiError::from)?;
 
     let transport = resolve_transport(org_id, &call);
-    let wardrobe = derive_wardrobe();
     let Some(router) = current_router() else {
         return Err(ApiError::Internal(anyhow::anyhow!(
             "the runner router was never stamped; build_router must call set_runner_router"
@@ -1212,6 +1253,7 @@ async fn record_call(
             model: st.call.model.clone(),
             prompt_tokens: prompt_tokens as i32,
             completion_tokens: completion_tokens as i32,
+            cost_weight: st.call.cost_weight,
             request_id: Some(request_id.to_string()),
         },
     )

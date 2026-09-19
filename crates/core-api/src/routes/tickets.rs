@@ -1361,13 +1361,15 @@ pub async fn add_comment(
         .await?;
         let comment = core_db::tickets::insert_comment(
             &mut *ctx.tx,
-            Uuid::now_v7(),
-            org_id,
-            id,
-            Some(user_id),
-            req.kind,
-            req.body.trim(),
-            None,
+            core_db::tickets::NewTicketComment {
+                id: Uuid::now_v7(),
+                org_id,
+                ticket_id: id,
+                author_id: Some(user_id),
+                kind: req.kind,
+                body: req.body.trim(),
+                workflow_meta: None,
+            },
         )
         .await?;
 
@@ -1618,18 +1620,33 @@ fn validate_reason(reason: &Option<String>) -> ApiResult<String> {
 /// duplicate-proof. `workflow_meta` marks machine origin at the row level
 /// (never a body-text sentinel). Returns the inserted comment.
 #[allow(clippy::too_many_arguments)]
-async fn compose_task_append(
-    ctx: &mut crate::org_tx::OrgTx<'_>,
-    key: Option<&str>,
+/// One server-composed task-ledger append (Wave 18 lane 2b: the
+/// `too_many_arguments` clippy fix — callers name their fields).
+struct TaskAppendParams<'a> {
+    key: Option<&'a str>,
     item_id: Uuid,
     ticket_id: Uuid,
     org_id: Uuid,
     user_id: Uuid,
     kind: core_domain::notes::TaskNoteKind,
-    detail: &str,
+    detail: &'a str,
+}
+
+async fn compose_task_append(
+    ctx: &mut crate::org_tx::OrgTx<'_>,
+    p: TaskAppendParams<'_>,
 ) -> ApiResult<core_domain::entities::TicketComment> {
     use core_domain::events::TicketCommentAdded;
     use core_domain::status::NoteKind;
+    let TaskAppendParams {
+        key,
+        item_id,
+        ticket_id,
+        org_id,
+        user_id,
+        kind,
+        detail,
+    } = p;
     let body = core_domain::notes::compose_task_note(kind, detail);
     let meta = serde_json::json!({
         "kind": kind.as_str(),
@@ -1639,13 +1656,15 @@ async fn compose_task_append(
     let note_key = key.map(|k| format!("{k}:{}", kind.key_tag()));
     let comment = core_db::tickets::insert_comment(
         &mut *ctx.tx,
-        Uuid::now_v7(),
-        org_id,
-        ticket_id,
-        Some(user_id),
-        NoteKind::Internal,
-        &body,
-        Some(&meta),
+        core_db::tickets::NewTicketComment {
+            id: Uuid::now_v7(),
+            org_id,
+            ticket_id,
+            author_id: Some(user_id),
+            kind: NoteKind::Internal,
+            body: &body,
+            workflow_meta: Some(&meta),
+        },
     )
     .await?;
     ctx.emit(
@@ -1962,13 +1981,15 @@ pub async fn set_checklist_item(
                 Some(kind @ core_domain::notes::TaskNoteKind::Completed) => Some(
                     compose_task_append(
                         &mut ctx,
-                        key.as_deref(),
-                        item_id,
-                        id,
-                        org_id,
-                        user_id,
-                        kind,
-                        &before.text,
+                        TaskAppendParams {
+                            key: key.as_deref(),
+                            item_id,
+                            ticket_id: id,
+                            org_id,
+                            user_id,
+                            kind,
+                            detail: &before.text,
+                        },
                     )
                     .await?,
                 ),
@@ -1980,13 +2001,15 @@ pub async fn set_checklist_item(
                     Some(
                         compose_task_append(
                             &mut ctx,
-                            key.as_deref(),
-                            item_id,
-                            id,
-                            org_id,
-                            user_id,
-                            kind,
-                            &reason,
+                            TaskAppendParams {
+                                key: key.as_deref(),
+                                item_id,
+                                ticket_id: id,
+                                org_id,
+                                user_id,
+                                kind,
+                                detail: &reason,
+                            },
                         )
                         .await?,
                     )
@@ -2182,15 +2205,18 @@ pub async fn complete_all_checklist(
             .await?;
             let note = compose_task_append(
                 &mut ctx,
-                key.as_deref()
-                    .map(|k| format!("{k}:complete-all:{task_id}"))
-                    .as_deref(),
-                *task_id,
-                id,
-                org_id,
-                user_id,
-                TaskNoteKind::CloseAll,
-                &item.text,
+                TaskAppendParams {
+                    key: key
+                        .as_deref()
+                        .map(|k| format!("{k}:complete-all:{task_id}"))
+                        .as_deref(),
+                    item_id: *task_id,
+                    ticket_id: id,
+                    org_id,
+                    user_id,
+                    kind: TaskNoteKind::CloseAll,
+                    detail: &item.text,
+                },
             )
             .await?;
             appended_notes.push(note);

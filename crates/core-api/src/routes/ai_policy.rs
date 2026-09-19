@@ -212,8 +212,11 @@ pub struct PutAiCatalogRequest {
     pub model: String,
     #[serde(default)]
     pub label: String,
-    #[serde(default)]
-    pub capabilities: Vec<String>,
+    /// OMITTED (vs explicit empty) keeps the existing row's tags — a
+    /// re-seal without a capabilities payload must not silently wipe the
+    /// capability enforcement data (Wave 18 lane 2b, item 4).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<Vec<String>>,
     #[serde(default = "default_cost_weight")]
     pub cost_weight: i32,
     #[serde(default = "default_true")]
@@ -615,8 +618,10 @@ pub async fn put_catalog(
             "cost_weight must be between 1 and 5".into(),
         ));
     }
-    let capabilities =
-        serde_json::to_value(&req.capabilities).unwrap_or_else(|_| serde_json::json!([]));
+    let capabilities: Value = match &req.capabilities {
+        Some(c) => serde_json::to_value(c).unwrap_or_else(|_| serde_json::json!([])),
+        None => serde_json::Value::Null, // resolved in-tx against the row
+    };
 
     let org_id = authed.principal.user.org_id;
     let actor_id = authed.principal.user.id;
@@ -639,6 +644,18 @@ pub async fn put_catalog(
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
 
+        // Omitted capabilities keep the row's existing tags (merge, not
+        // wipe) — resolved in-tx against the row being upserted.
+        let capabilities = if capabilities.is_null() {
+            match core_db::ai_policy::get_catalog_entry(&mut *ctx.tx, ctx.org_id, &provider, &model)
+                .await?
+            {
+                Some(existing) => existing.capabilities,
+                None => serde_json::json!([]),
+            }
+        } else {
+            capabilities
+        };
         let (entry_id, inserted) = core_db::ai_policy::upsert_catalog_entry(
             &mut ctx.tx,
             new_id,
@@ -1158,6 +1175,12 @@ pub async fn put_cap(
     }
     if req.soft_token_limit.unwrap_or(1) <= 0 || req.hard_token_limit.unwrap_or(1) <= 0 {
         return Err(ApiError::Validation("cap limits must be positive".into()));
+    }
+    if !core_db::ai_policy::VALID_PERIODS.contains(&req.period.as_str()) {
+        return Err(ApiError::Validation(format!(
+            "cap period must be one of {:?}",
+            core_db::ai_policy::VALID_PERIODS
+        )));
     }
 
     let org_id = authed.principal.user.org_id;
@@ -2341,6 +2364,283 @@ pub async fn delete_my_pick(
     Ok(Json(outcome.into_response()?))
 }
 
+// --- plugin surfaces (Wave 18 lane 2b item 5) ---------------------------------------
+
+const PLUGIN_SURFACE_ENTITY: &str = "ai_plugin_surface";
+
+/// Org-scoped plugin surfaces registered by THIS org (kind = 'plugin'),
+/// for the admin plugin-surface management view. Globally seeded
+/// native/internal keys are administrable through the matrix, not here.
+#[utoipa::path(
+    operation_id = "settings_ai_plugin_surfaces_get",
+    get,
+    path = "/api/settings/ai/plugin-surfaces",
+    tag = "settings",
+    security(("bearer" = [])),
+    responses((status = 200, body = AiPluginSurfacesResponse), (status = 403))
+)]
+pub async fn get_plugin_surfaces(
+    State(state): State<AppState>,
+    extensions: Extensions,
+) -> ApiResult<Json<AiPluginSurfacesResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_ai_admin(&authed.principal, Action::View)?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+
+    let mut tx = org_bound_tx(&state, org_id, user_id).await?;
+    let surfaces = core_db::ai_policy::list_org_plugin_surfaces(&mut *tx, org_id)
+        .await
+        .map_err(ApiError::from)?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(AiPluginSurfacesResponse {
+        surfaces: surfaces.into_iter().map(surface_dto).collect(),
+    }))
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AiPluginSurfacesResponse {
+    pub surfaces: Vec<AiSurfaceDto>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct PutAiPluginSurfaceRequest {
+    /// The org-unique plugin surface key (lowercase snake). Re-PUT with
+    /// the same key UPDATES the registration and re-enables it.
+    pub key: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(flatten, default)]
+    pub instant: MutationParams,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AiPluginSurfaceMutationResponse {
+    pub status: AiSurfaceDto,
+    pub mutation: instant::MutationMeta,
+}
+
+/// PUT /settings/ai/plugin-surfaces — register (or update) one org-scoped
+/// plugin surface (audited, instant-first write path). The registered key
+/// is deny-by-default until the grant flow covers it.
+#[utoipa::path(
+    operation_id = "settings_ai_plugin_surface_put",
+    put,
+    path = "/api/settings/ai/plugin-surfaces",
+    tag = "settings",
+    security(("bearer" = [])),
+    request_body = PutAiPluginSurfaceRequest,
+    responses(
+        (status = 200, body = AiPluginSurfaceMutationResponse),
+        (status = 403),
+        (status = 422, description = "surface key validation")
+    )
+)]
+pub async fn put_plugin_surface(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Json(req): Json<PutAiPluginSurfaceRequest>,
+) -> ApiResult<Json<AiPluginSurfaceMutationResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_ai_admin(&authed.principal, Action::Edit)?;
+
+    let key = req.key.trim().to_lowercase();
+    if key.is_empty() || key.len() > 64 {
+        return Err(ApiError::Validation(
+            "key is required (max 64 characters)".into(),
+        ));
+    }
+    let label = if req.label.trim().is_empty() {
+        key.clone()
+    } else {
+        req.label.trim().to_string()
+    };
+
+    let org_id = authed.principal.user.org_id;
+    let actor_id = authed.principal.user.id;
+    let new_id = Uuid::now_v7();
+    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    let idem = req.instant.idempotency_key.clone();
+
+    let outcome = org_tx::with_org_tx(&state, org_id, actor_id, |mut ctx| async move {
+        if let InstantClaim::Replay(stored) = instant::claim(
+            &mut ctx,
+            instant::ClaimSpec {
+                entity: PLUGIN_SURFACE_ENTITY,
+                entity_id: None,
+                key: idem.as_deref(),
+                fingerprint: &fingerprint,
+            },
+        )
+        .await?
+        {
+            return Ok((ctx, MutationOutcome::Replayed(stored)));
+        }
+
+        let (surface_id, inserted) = core_db::ai_policy::upsert_org_plugin_surface(
+            &mut ctx.tx,
+            new_id,
+            ctx.org_id,
+            &key,
+            &label,
+            &req.description,
+            Some(actor_id),
+        )
+        .await?;
+        let surface = core_db::ai_policy::get_surface_by_id(&mut *ctx.tx, ctx.org_id, surface_id)
+            .await
+            .map_err(ApiError::from)?
+            .ok_or(ApiError::RlsSparse)?;
+        let write_seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: PLUGIN_SURFACE_ENTITY,
+                entity_id: surface_id,
+                version: req.instant.version,
+            },
+        )
+        .await?;
+
+        let updated_at = chrono::Utc::now();
+        let status = surface_dto(surface.clone());
+        ctx.emit(
+            types::AI_PLUGIN_SURFACE_UPDATED,
+            PLUGIN_SURFACE_ENTITY,
+            Some(surface_id.to_string().as_str()),
+            &serde_json::json!({
+                "key": key, "label": label, "enabled": surface.enabled,
+                "inserted": inserted,
+            }),
+        )
+        .await?;
+        audit_row(
+            &mut ctx.tx,
+            ctx.org_id,
+            actor_id,
+            "settings.ai_plugin_surface_updated",
+            PLUGIN_SURFACE_ENTITY,
+            surface_id,
+            serde_json::json!({
+                "key": key, "label": label, "enabled": surface.enabled,
+                "inserted": inserted,
+            }),
+        )
+        .await?;
+
+        let snapshot = serde_json::json!({
+            "key": key, "label": label, "enabled": surface.enabled,
+        });
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: PLUGIN_SURFACE_ENTITY,
+                entity_id: surface_id,
+                op: if inserted { "create" } else { "update" },
+                seq: write_seq,
+                before: if inserted {
+                    None
+                } else {
+                    Some(snapshot.clone())
+                },
+                after: snapshot,
+                provenance: Default::default(),
+                updated_at,
+                key: idem.as_deref(),
+                payload: &status,
+            },
+        )
+        .await?;
+
+        Ok((
+            ctx,
+            MutationOutcome::Applied(AiPluginSurfaceMutationResponse { status, mutation }),
+        ))
+    })
+    .await?;
+    Ok(Json(outcome.into_response()?))
+}
+
+/// POST /settings/ai/plugin-surfaces/{surface_id}/enable|disable — flip
+/// one org-scoped surface's enabled state (audited). Returns 404 for ids
+/// that are not org-scoped surfaces of this org.
+async fn toggle_plugin_surface(
+    state: &AppState,
+    extensions: Extensions,
+    surface_id: Uuid,
+    enabled: bool,
+) -> ApiResult<Json<AiSurfaceDto>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_ai_admin(&authed.principal, Action::Edit)?;
+    let org_id = authed.principal.user.org_id;
+    let actor_id = authed.principal.user.id;
+
+    let outcome = org_tx::with_org_tx(state, org_id, actor_id, |mut ctx| async move {
+        let surface =
+            core_db::ai_policy::set_surface_enabled(&mut ctx.tx, ctx.org_id, surface_id, enabled)
+                .await
+                .map_err(ApiError::from)?
+                .ok_or(ApiError::RlsSparse)?;
+        ctx.emit(
+            types::AI_PLUGIN_SURFACE_UPDATED,
+            PLUGIN_SURFACE_ENTITY,
+            Some(surface_id.to_string().as_str()),
+            &serde_json::json!({"key": surface.key, "enabled": surface.enabled}),
+        )
+        .await?;
+        audit_row(
+            &mut ctx.tx,
+            ctx.org_id,
+            actor_id,
+            "settings.ai_plugin_surface_enabled_toggled",
+            PLUGIN_SURFACE_ENTITY,
+            surface_id,
+            serde_json::json!({"key": surface.key, "enabled": surface.enabled}),
+        )
+        .await?;
+        Ok((ctx, surface))
+    })
+    .await?;
+    Ok(Json(surface_dto(outcome)))
+}
+
+/// POST /settings/ai/plugin-surfaces/{surface_id}/enable.
+#[utoipa::path(
+    operation_id = "settings_ai_plugin_surface_enable",
+    post,
+    path = "/api/settings/ai/plugin-surfaces/{surface_id}/enable",
+    tag = "settings",
+    security(("bearer" = [])),
+    params(("surface_id" = Uuid, Path)),
+    responses((status = 200, body = AiSurfaceDto), (status = 403), (status = 404))
+)]
+pub async fn enable_plugin_surface(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(surface_id): Path<Uuid>,
+) -> ApiResult<Json<AiSurfaceDto>> {
+    toggle_plugin_surface(&state, extensions, surface_id, true).await
+}
+
+/// POST /settings/ai/plugin-surfaces/{surface_id}/disable.
+#[utoipa::path(
+    operation_id = "settings_ai_plugin_surface_disable",
+    post,
+    path = "/api/settings/ai/plugin-surfaces/{surface_id}/disable",
+    tag = "settings",
+    security(("bearer" = [])),
+    params(("surface_id" = Uuid, Path)),
+    responses((status = 200, body = AiSurfaceDto), (status = 403), (status = 404))
+)]
+pub async fn disable_plugin_surface(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(surface_id): Path<Uuid>,
+) -> ApiResult<Json<AiSurfaceDto>> {
+    toggle_plugin_surface(&state, extensions, surface_id, false).await
+}
+
 // --- usage ---------------------------------------------------------------------------
 
 /// GET /ai/me/usage — personal progress against caps.
@@ -2465,15 +2765,56 @@ pub async fn get_org_usage(
 ///
 /// Caller owns the tx lifecycle: the soft-cap warn path writes a
 /// notification into `tx` — commit AFTER consuming the result.
+/// The resolution EDGES capabilities are enforced on (Wave 18 lane 2b,
+/// item 4: `ai_model_catalog.capabilities` stops being display-only).
+/// Each edge demands its tag from the resolved catalog entry at
+/// admission; an entry without the tag is refused typed, never guessed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AiEdge {
+    /// LLM generation lanes (chat loop model turns, drafting assists).
+    Completion,
+    /// The runner's tool wardrobe (model must support tool calling for
+    /// the offered tools to be admission-legal).
+    ToolCall,
+    /// The Wave 23 decision-model edge (composed-state decisions).
+    Decision,
+}
+
+impl AiEdge {
+    /// The catalog capability tag this edge requires.
+    pub fn tag(self) -> &'static str {
+        match self {
+            AiEdge::Completion => "completion",
+            AiEdge::ToolCall => "tools",
+            AiEdge::Decision => "decision",
+        }
+    }
+}
+
+/// One admission ask (Wave 18 lane 2b: param object keeping the shared
+/// edge under clippy's argument limit and every caller naming fields).
+pub(super) struct AiAdmissionAsk<'a> {
+    pub org_id: Uuid,
+    pub user_id: Uuid,
+    pub surface_key: &'a str,
+    pub provider_ask: Option<&'a str>,
+    pub model_ask: Option<&'a str>,
+    pub required_capabilities: &'a [AiEdge],
+}
+
 pub(super) async fn authorize_surface_call(
     state: &AppState,
     tx: &mut sqlx::PgConnection,
-    org_id: Uuid,
-    user_id: Uuid,
-    surface_key: &str,
-    provider_ask: Option<&str>,
-    model_ask: Option<&str>,
+    ask: AiAdmissionAsk<'_>,
 ) -> ApiResult<AuthorizedAiCall> {
+    let AiAdmissionAsk {
+        org_id,
+        user_id,
+        surface_key,
+        provider_ask,
+        model_ask,
+        required_capabilities,
+    } = ask;
     let surface = core_db::ai_policy::get_surface_by_key(&mut *tx, org_id, surface_key)
         .await
         .map_err(ApiError::from)?
@@ -2541,26 +2882,72 @@ pub(super) async fn authorize_surface_call(
         _ => resolve_pick(tx, org_id, user_id, surface.id, surface_key, &allowlist).await?,
     };
 
-    // Caps: per-user cap when present, else org-wide; hard bound BEFORE
-    // dispatch (typed refusal; degrade-never-5xx).
-    let (soft_limit, hard_limit) =
-        core_db::ai_policy::effective_cap(&mut *tx, org_id, user_id, PERIOD)
-            .await
-            .map_err(ApiError::from)?
-            .unwrap_or((None, None));
+    // Capability enforcement (load-bearing, per-surface at admission):
+    // the resolved pair's catalog entry must carry every required edge
+    // tag. Legacy fallback pairs (resolved outside the catalog) are
+    // implicitly `completion`-capable only — they can never serve tools
+    // or decisions until an admin catalogs them honestly.
+    let entry = catalog
+        .iter()
+        .find(|c| c.enabled && c.provider == provider && c.model == model);
+    let (cost_weight, model_capabilities): (i32, Vec<String>) = match entry {
+        Some(e) => (
+            e.cost_weight,
+            e.capabilities
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default(),
+        ),
+        None => (1, vec![AiEdge::Completion.tag().to_string()]),
+    };
+    let missing: Vec<&str> = required_capabilities
+        .iter()
+        .map(|e| e.tag())
+        .filter(|tag| !model_capabilities.iter().any(|c| c == tag))
+        .collect();
+    if !missing.is_empty() {
+        return Err(ApiError::AiCallRefused {
+            reason: "ai_model_not_capable",
+            message: format!(
+                "the resolved model '{provider}/{model}' does not carry the required \
+                 capabilities ({})",
+                missing.join(", ")
+            ),
+            surface: surface_key.to_string(),
+        });
+    }
+
+    // Caps: EVERY configured period binds at admission (a weekly hard cap
+    // is enforced exactly like the monthly one); per-user rows shadow the
+    // org-wide row of the same period. Usage is COST-WEIGHTED.
+    let bindings = core_db::ai_policy::binding_caps(&mut *tx, org_id, user_id)
+        .await
+        .map_err(ApiError::from)?;
+    let month_binding = bindings.iter().find(|c| c.period == PERIOD);
+    let (soft_limit, hard_limit) = month_binding
+        .map(|c| (c.soft_token_limit, c.hard_token_limit))
+        .unwrap_or((None, None));
     let since = month_start(chrono::Utc::now());
     let used = core_db::ai_policy::user_usage_since(&mut *tx, org_id, user_id, since)
         .await
         .map_err(ApiError::from)?;
-    if let Some(hard) = hard_limit {
-        if used >= hard {
-            return Err(ApiError::AiCallRefused {
-                reason: "ai_hard_cap_reached",
-                message: format!(
-                    "your '{surface_key}' usage hit the hard cap for this period ({used}/{hard} tokens)"
-                ),
-                surface: surface_key.to_string(),
-            });
+    for cap in &bindings {
+        if let Some(hard) = cap.hard_token_limit {
+            if cap.used_weighted >= hard {
+                return Err(ApiError::AiCallRefused {
+                    reason: "ai_hard_cap_reached",
+                    message: format!(
+                        "your '{surface_key}' usage hit the hard cap for this {} \
+                         ({}/{} weighted tokens)",
+                        cap.period, cap.used_weighted, hard
+                    ),
+                    surface: surface_key.to_string(),
+                });
+            }
         }
     }
 
@@ -2624,28 +3011,33 @@ pub(super) async fn authorize_surface_call(
         }
     })?;
 
-    // Soft cap: warn + notify IN THE CALLER'S TX (the call proceeds).
+    // Soft cap: warn + notify IN THE CALLER'S TX (the call proceeds) —
+    // one notification per crossed soft period.
     let mut warnings = Vec::new();
-    if let Some(soft) = soft_limit {
-        if used >= soft {
-            warnings.push("ai_soft_cap_reached".to_string());
-            core_db::notifications::insert(
-                tx,
-                Uuid::now_v7(),
-                org_id,
-                user_id,
-                "ai_cap_warn",
-                None,
-                "Approaching your AI usage cap",
-                Some(
-                    format!(
-                        "You used {used} of {soft} tokens this period; the hard cap stays binding."
-                    )
-                    .as_str(),
-                ),
-            )
-            .await
-            .map_err(ApiError::from)?;
+    for cap in &bindings {
+        if let Some(soft) = cap.soft_token_limit {
+            if cap.used_weighted >= soft {
+                warnings.push("ai_soft_cap_reached".to_string());
+                core_db::notifications::insert(
+                    &mut *tx,
+                    Uuid::now_v7(),
+                    org_id,
+                    user_id,
+                    "ai_cap_warn",
+                    None,
+                    "Approaching your AI usage cap",
+                    Some(
+                        format!(
+                            "You used {} of {soft} weighted tokens this {} period; \
+                             the hard cap stays binding.",
+                            cap.used_weighted, cap.period
+                        )
+                        .as_str(),
+                    ),
+                )
+                .await
+                .map_err(ApiError::from)?;
+            }
         }
     }
 
@@ -2654,6 +3046,7 @@ pub(super) async fn authorize_surface_call(
         provider,
         model,
         resolution,
+        cost_weight,
         credential_id,
         credential_kind: kind,
         credential_personal: personal_selected,
@@ -2677,6 +3070,9 @@ pub struct AuthorizedAiCall {
     /// `requested` | `user_pick` | `org_pick` | `legacy_org_default` |
     /// `catalog_first`.
     pub resolution: &'static str,
+    /// The resolved pair's catalog cost_weight (1 for legacy fallback) —
+    /// snapshot into every usage-ledger row this call produces.
+    pub cost_weight: i32,
     pub credential_id: Uuid,
     pub credential_kind: String,
     pub credential_personal: bool,
@@ -2699,7 +3095,7 @@ pub struct AuthorizedAiCall {
     request_body = AiAuthorizeRequest,
     responses(
         (status = 200, body = AiAuthorizeResponse),
-        (status = 403, description = "typed refusal: ai_surface_not_granted | ai_surface_disabled | ai_surface_internal | ai_model_not_allowed | ai_no_models_configured | ai_hard_cap_reached | ai_no_credential"),
+        (status = 403, description = "typed refusal: ai_surface_not_granted | ai_surface_disabled | ai_surface_internal | ai_model_not_allowed | ai_model_not_capable | ai_no_models_configured | ai_hard_cap_reached | ai_no_credential"),
         (status = 404, description = "rls_sparse")
     )
 )]
@@ -2717,14 +3113,20 @@ pub async fn authorize(
     }
 
     let mut tx = org_bound_tx(&state, org_id, user_id).await?;
+    // Admission PREVIEW for the completion edge (the runner passes its own
+    // edge set — completion plus tools when the wardrobe is non-empty;
+    // the Wave 23 decision edge will pass [AiEdge::Decision]).
     let call = authorize_surface_call(
         &state,
         &mut tx,
-        org_id,
-        user_id,
-        &surface_key,
-        req.provider.as_deref(),
-        req.model.as_deref(),
+        AiAdmissionAsk {
+            org_id,
+            user_id,
+            surface_key: &surface_key,
+            provider_ask: req.provider.as_deref(),
+            model_ask: req.model.as_deref(),
+            required_capabilities: &[AiEdge::Completion],
+        },
     )
     .await?;
     tx.commit().await.map_err(ApiError::from)?;

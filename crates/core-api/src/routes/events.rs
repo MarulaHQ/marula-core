@@ -104,14 +104,25 @@ pub async fn stream(
     // resumes. The subscriber is registered first, so anything committed
     // during the replay query is already queued in the live buffer — no
     // gap, only harmless at-least-once duplication (ledger dedupes by
-    // seq). A past-the-buffer or unknown cursor replays nothing.
+    // seq). A past-the-buffer or unknown cursor replays nothing. The
+    // replay rides an ORG-BOUND tx (Wave 18 lane 2b): outbox_events /
+    // entity_write_seqs are RLS-gated and the raw pool carries no GUC.
     let mut replay = Vec::new();
     let mut cutoff = false;
     if let Some(last_event_id) = headers.get("last-event-id").and_then(|v| v.to_str().ok()) {
+        let mut tx = match state.pool.begin().await {
+            Ok(tx) => tx,
+            Err(e) => return Err(ApiError::from(e)),
+        };
+        if let Err(e) = core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id).await {
+            return Err(ApiError::from(e));
+        }
         let (frames, past_buffer) =
-            realtime::replay_after(&state.pool, org_id, scope.clone(), last_event_id).await;
+            realtime::replay_after(&mut tx, org_id, scope.clone(), last_event_id).await;
         replay = frames;
         cutoff = past_buffer;
+        // Frames are already materialized; the tx only scopes the reads.
+        let _ = tx.rollback().await;
     }
 
     let replay_stream = futures_util::stream::iter(replay.into_iter().map(|frame| {

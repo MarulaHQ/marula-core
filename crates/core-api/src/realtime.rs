@@ -629,8 +629,14 @@ struct ReplayRow {
 /// be streamed as SSE events with the `id:` field set, plus whether the
 /// cursor fell PAST the replay buffer (so the endpoint can tell the
 /// client apart from a plain "nothing missed").
+///
+/// RLS scope (Wave 18 lane 2b): `outbox_events` and `entity_write_seqs`
+/// are RLS-gated, so the replay MUST ride an org-bound tx — the caller
+/// opens it and runs `set_org_and_user` first. The old raw-pool read was
+/// silently RLS-filtered to empty (the exact unscoped-pool-read class
+/// `check-rls-pool-reads.sh` exists for).
 pub async fn replay_after(
-    pool: &sqlx::PgPool,
+    tx: &mut sqlx::PgConnection,
     org_id: Uuid,
     scope: Option<(String, String)>,
     last_event_id: &str,
@@ -645,7 +651,7 @@ pub async fn replay_after(
         sqlx::query_scalar("SELECT occurred_at FROM outbox_events WHERE id = $1 AND org_id = $2")
             .bind(cursor)
             .bind(org_id)
-            .fetch_optional(pool)
+            .fetch_optional(&mut *tx)
             .await
             .ok()
             .flatten();
@@ -676,7 +682,7 @@ pub async fn replay_after(
             .bind(entity)
             .bind(entity_id)
             .bind(limit)
-            .fetch_all(pool)
+            .fetch_all(&mut *tx)
             .await
         }
         None => {
@@ -693,7 +699,7 @@ pub async fn replay_after(
             .bind(org_id)
             .bind(cursor_at)
             .bind(limit)
-            .fetch_all(pool)
+            .fetch_all(&mut *tx)
             .await
         }
     };

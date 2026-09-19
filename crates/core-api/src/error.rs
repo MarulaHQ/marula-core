@@ -416,6 +416,13 @@ fn map_unique_constraint(constraint: &str) -> Option<(&'static str, &'static str
             "ai_surface_key_taken",
             "this surface key is already registered",
         )),
+        // Wave 18 lane 2b: per-edge ledger idempotence. The write path
+        // dedupes via ON CONFLICT DO NOTHING, so this surfaces only when
+        // a caller bypasses record_usage — still typed, never generic.
+        "uq_ai_usage_ledger_edge_request" => Some((
+            "ai_request_duplicate",
+            "this request was already recorded on this surface",
+        )),
         _ => None,
     }
 }
@@ -875,6 +882,7 @@ mod tests {
             "uq_ai_caps_scope",
             "uq_ai_model_picks_surface",
             "uq_ai_surfaces_key",
+            "uq_ai_usage_ledger_edge_request",
         ];
         let mut seen = std::collections::HashSet::new();
         for constraint in known {
@@ -886,8 +894,8 @@ mod tests {
         }
         // The two taxonomy constraints deliberately SHARE one reason code
         // (`category_name_taken` — root-name and child-name collisions are
-        // the same UX problem), so 21 constraints map to 20 distinct codes.
-        assert_eq!(seen.len(), 20, "unexpected reason-code fan-out: {seen:?}");
+        // the same UX problem), so 22 constraints map to 21 distinct codes.
+        assert_eq!(seen.len(), 21, "unexpected reason-code fan-out: {seen:?}");
         assert_eq!(
             map_unique_constraint("uq_ticket_categories_root_name").map(|(k, _)| k),
             map_unique_constraint("uq_ticket_categories_child_name").map(|(k, _)| k)

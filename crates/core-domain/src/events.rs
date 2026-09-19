@@ -203,6 +203,11 @@ pub mod types {
     pub const AI_MODEL_CREDENTIAL_REVOKED: &str = "ai.model_credential_revoked";
     pub const AI_CAP_UPDATED: &str = "ai.cap_updated";
     pub const AI_MODEL_PICK_UPDATED: &str = "ai.model_pick_updated";
+    /// Wave 18 lane 2b: an org admin registered, updated, enabled or
+    /// disabled an org-scoped PLUGIN surface (`ai_surfaces` row,
+    /// kind='plugin') through the settings/ai plugin-surface routes.
+    /// Payload carries the surface key/label/enabled state only.
+    pub const AI_PLUGIN_SURFACE_UPDATED: &str = "ai.plugin_surface_updated";
     /// ADR 0008 §3 chat-loop lifecycle (Wave 18 lane 2): the ChatRunner's
     /// contract events. `ai.chat_session_started` records a client-borne
     /// chat/assist session opening on a granted surface;

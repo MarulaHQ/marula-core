@@ -690,37 +690,43 @@ async fn comments_support_kind_filtered_listing() {
     .await;
     let c1 = tickets::insert_comment(
         &mut *tx,
-        fixed_uuid(802),
-        s.org,
-        t.id,
-        Some(u),
-        NoteKind::Internal,
-        "internal diagnosis",
-        None,
+        tickets::NewTicketComment {
+            id: fixed_uuid(802),
+            org_id: s.org,
+            ticket_id: t.id,
+            author_id: Some(u),
+            kind: NoteKind::Internal,
+            body: "internal diagnosis",
+            workflow_meta: None,
+        },
     )
     .await
     .expect("comment 1");
     let c2 = tickets::insert_comment(
         &mut *tx,
-        fixed_uuid(803),
-        s.org,
-        t.id,
-        None,
-        NoteKind::ClientVisible,
-        "client update",
-        None,
+        tickets::NewTicketComment {
+            id: fixed_uuid(803),
+            org_id: s.org,
+            ticket_id: t.id,
+            author_id: None,
+            kind: NoteKind::ClientVisible,
+            body: "client update",
+            workflow_meta: None,
+        },
     )
     .await
     .expect("comment 2");
     let c3 = tickets::insert_comment(
         &mut *tx,
-        fixed_uuid(804),
-        s.org,
-        t.id,
-        None,
-        NoteKind::InHouseUpdate,
-        "handover",
-        None,
+        tickets::NewTicketComment {
+            id: fixed_uuid(804),
+            org_id: s.org,
+            ticket_id: t.id,
+            author_id: None,
+            kind: NoteKind::InHouseUpdate,
+            body: "handover",
+            workflow_meta: None,
+        },
     )
     .await
     .expect("comment 3");
@@ -1895,13 +1901,15 @@ async fn note_kind_backfill_is_idempotent_and_preserves_taxonomy() {
     ] {
         tickets::insert_comment(
             &mut *tx,
-            fixed_uuid(n),
-            s.org,
-            t.id,
-            Some(u),
-            kind,
-            "body",
-            None,
+            tickets::NewTicketComment {
+                id: fixed_uuid(n),
+                org_id: s.org,
+                ticket_id: t.id,
+                author_id: Some(u),
+                kind,
+                body: "body",
+                workflow_meta: None,
+            },
         )
         .await
         .expect("comment");
@@ -1956,37 +1964,43 @@ async fn client_visible_read_path_returns_only_client_visible() {
     .await;
     let visible = tickets::insert_comment(
         &mut *tx,
-        fixed_uuid(5102),
-        s.org,
-        t.id,
-        Some(u),
-        NoteKind::ClientVisible,
-        "client-safe update",
-        None,
+        tickets::NewTicketComment {
+            id: fixed_uuid(5102),
+            org_id: s.org,
+            ticket_id: t.id,
+            author_id: Some(u),
+            kind: NoteKind::ClientVisible,
+            body: "client-safe update",
+            workflow_meta: None,
+        },
     )
     .await
     .expect("visible");
     tickets::insert_comment(
         &mut *tx,
-        fixed_uuid(5103),
-        s.org,
-        t.id,
-        None,
-        NoteKind::Internal,
-        "password reset root cause",
-        None,
+        tickets::NewTicketComment {
+            id: fixed_uuid(5103),
+            org_id: s.org,
+            ticket_id: t.id,
+            author_id: None,
+            kind: NoteKind::Internal,
+            body: "password reset root cause",
+            workflow_meta: None,
+        },
     )
     .await
     .expect("internal");
     tickets::insert_comment(
         &mut *tx,
-        fixed_uuid(5104),
-        s.org,
-        t.id,
-        None,
-        NoteKind::InHouseUpdate,
-        "shift handover",
-        None,
+        tickets::NewTicketComment {
+            id: fixed_uuid(5104),
+            org_id: s.org,
+            ticket_id: t.id,
+            author_id: None,
+            kind: NoteKind::InHouseUpdate,
+            body: "shift handover",
+            workflow_meta: None,
+        },
     )
     .await
     .expect("in-house");
@@ -3188,13 +3202,15 @@ async fn day_activity_detects_comments_and_overlapping_timer_sessions() {
         .await;
         tickets::insert_comment(
             &mut *tx,
-            fixed_uuid(6202),
-            s.org,
-            t.id,
-            Some(u),
-            NoteKind::Internal,
-            "worked on this",
-            None,
+            tickets::NewTicketComment {
+                id: fixed_uuid(6202),
+                org_id: s.org,
+                ticket_id: t.id,
+                author_id: Some(u),
+                kind: NoteKind::Internal,
+                body: "worked on this",
+                workflow_meta: None,
+            },
         )
         .await
         .expect("comment");
@@ -5656,13 +5672,15 @@ async fn attachments_dedup_link_and_refcounted_delete() {
     .await;
     let c1 = tickets::insert_comment(
         &mut *tx,
-        fixed_uuid(13002),
-        sa.org,
-        t1.id,
-        Some(ua),
-        NoteKind::Internal,
-        "with file",
-        None,
+        tickets::NewTicketComment {
+            id: fixed_uuid(13002),
+            org_id: sa.org,
+            ticket_id: t1.id,
+            author_id: Some(ua),
+            kind: NoteKind::Internal,
+            body: "with file",
+            workflow_meta: None,
+        },
     )
     .await
     .expect("comment");

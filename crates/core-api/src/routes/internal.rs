@@ -623,13 +623,15 @@ pub async fn effects(
                 core_domain::automations::AutomationAction::AddInternalComment { body } => {
                     let comment = core_db::tickets::insert_comment(
                         &mut *ctx.tx,
-                        Uuid::now_v7(),
-                        req.org_id,
-                        req.ticket_id,
-                        None,
-                        core_domain::status::NoteKind::Internal,
-                        body.trim(),
-                        None,
+                        core_db::tickets::NewTicketComment {
+                            id: Uuid::now_v7(),
+                            org_id: req.org_id,
+                            ticket_id: req.ticket_id,
+                            author_id: None,
+                            kind: core_domain::status::NoteKind::Internal,
+                            body: body.trim(),
+                            workflow_meta: None,
+                        },
                     )
                     .await?;
                     let mut payload =

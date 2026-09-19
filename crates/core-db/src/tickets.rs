@@ -562,19 +562,31 @@ where
 /// payload for server-composed workflow appends (migration 0080) — None
 /// for user-written notes.
 #[allow(clippy::too_many_arguments)]
-pub async fn insert_comment<'e, E>(
-    executor: E,
-    id: Uuid,
-    org_id: Uuid,
-    ticket_id: Uuid,
-    author_id: Option<Uuid>,
-    kind: NoteKind,
-    body: &str,
-    workflow_meta: Option<&serde_json::Value>,
-) -> DbResult<TicketComment>
+/// The comment write, as ONE parameter object (Wave 18 lane 2b: the
+/// `too_many_arguments` clippy fix — every caller names its fields).
+pub struct NewTicketComment<'a> {
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub ticket_id: Uuid,
+    pub author_id: Option<Uuid>,
+    pub kind: NoteKind,
+    pub body: &'a str,
+    pub workflow_meta: Option<&'a serde_json::Value>,
+}
+
+pub async fn insert_comment<'e, E>(executor: E, c: NewTicketComment<'_>) -> DbResult<TicketComment>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
+    let NewTicketComment {
+        id,
+        org_id,
+        ticket_id,
+        author_id,
+        kind,
+        body,
+        workflow_meta,
+    } = c;
     let row = sqlx::query!(
         r#"INSERT INTO ticket_comments (id, org_id, ticket_id, author_id, kind, body, workflow_meta)
            VALUES ($1, $2, $3, $4, $5, $6, $7)
