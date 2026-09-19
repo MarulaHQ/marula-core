@@ -34,6 +34,7 @@ import {
   timeRollupSummary,
 } from "../../lib/reports";
 import type { ReportPage } from "../../lib/reports";
+import { buildWidgetDeepLink, buildWidgetRowLink, attainmentRowSpec, rollupRowSpec, throughputRowSpec } from "../../lib/report-spec-codec";
 import {
   AgingBarChart,
   AttainmentBarChart,
@@ -141,6 +142,15 @@ export function ReportWidget({ def, meUserId, entranceDelay = 0, onRemove }: Pro
           </Tag>
         </div>
         <div className="flex items-center gap-1 opacity-0 transition-opacity duration-100 group-focus-within:opacity-100 group-hover:opacity-100">
+          <a
+            href={buildWidgetDeepLink(def)}
+            data-testid={`widget-drill-${def.id}`}
+            className="rounded-[var(--m-radius-control)] px-2 py-1 text-[11px] hover:underline"
+            style={{ color: "var(--m-accent)" }}
+            aria-label={`Open ${def.title} in the report builder`}
+          >
+            Builder
+          </a>
           {tableAvailable && (
             <Button
               variant="ghost"
@@ -404,7 +414,17 @@ function RollupDataTable({
       <tbody>
         {rows.map((r) => (
           <Tr key={r.group_id}>
-            <Td>{r.label !== "" ? r.label : r.group_id.slice(0, 8)}</Td>
+            <Td>
+              <a
+                href={buildWidgetRowLink(rollupRowSpec(r.group_id))}
+                data-testid={`widget-row-link-${r.group_id}`}
+                className={r.group_id !== "" ? "hover:underline" : undefined}
+                style={{ color: "var(--m-text)" }}
+                aria-label={`Open ${r.label !== "" ? r.label : "ungrouped"} time entries in the report builder`}
+              >
+                {r.label !== "" ? r.label : r.group_id.slice(0, 8)}
+              </a>
+            </Td>
             <Td className="text-right font-mono tabular-nums">{formatMinutes(r.metric)}</Td>
             <Td className="text-right font-mono tabular-nums">{formatMinutes(r.billable_minutes)}</Td>
             <Td className="text-right font-mono tabular-nums">{r.entry_count}</Td>
@@ -432,7 +452,17 @@ function ThroughputDataTable({
       <tbody>
         {rows.map((r) => (
           <Tr key={r.day}>
-            <Td>{r.day}</Td>
+            <Td>
+              <a
+                href={buildWidgetRowLink(throughputRowSpec(r.day))}
+                data-testid={`widget-row-link-${r.day}`}
+                className="hover:underline"
+                style={{ color: "var(--m-text)" }}
+                aria-label={`Open ${r.day.slice(0, 10)} time entries in the report builder`}
+              >
+                {r.day}
+              </a>
+            </Td>
             <Td className="text-right font-mono tabular-nums">{r.created_count}</Td>
             <Td className="text-right font-mono tabular-nums">{r.resolved_count}</Td>
           </Tr>
@@ -490,7 +520,18 @@ function AttainmentDataTable({
       <tbody>
         {rows.map((r) => (
           <Tr key={r.group_id}>
-            <Td>{r.label !== "" ? r.label : r.group_id.slice(0, 8)}</Td>
+            <Td>
+              <a
+                href={buildWidgetRowLink(attainmentRowSpec(r.group_id))
+                }
+                data-testid={`widget-row-link-${r.group_id}`}
+                className={r.group_id !== "" ? "hover:underline" : undefined}
+                style={{ color: "var(--m-text)" }}
+                aria-label={`Open ${r.label !== "" ? r.label : "ungrouped"} policy outcomes in the report builder`}
+              >
+                {r.label !== "" ? r.label : r.group_id.slice(0, 8)}
+              </a>
+            </Td>
             <Td className="text-right font-mono tabular-nums">{r.attainment_pct}%</Td>
             <Td className="text-right font-mono tabular-nums">{r.resolutions_met}</Td>
           </Tr>

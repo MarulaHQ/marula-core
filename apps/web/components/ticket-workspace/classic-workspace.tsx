@@ -1000,6 +1000,9 @@ export function TicketWorkspaceClassic(): ReactNode {
         <PanelLayout
           controller={controller}
           label="Ticket workspace"
+          // Item 11: stack (column) below ~768px viewport so the three-pane
+          // row never squeezes into overlapping panes on narrow screens.
+          collapseBelowPx={768}
           renderPaneContent={({ pane }) => {
             if (pane.id === PANE_LIST) {
               return (

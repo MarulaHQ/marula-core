@@ -6,6 +6,7 @@ import { describe, expect, it, beforeEach, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AuthProvider } from "../../lib/api";
 import DashboardsPage from "../../app/dashboards/page";
+import { decodeSpecFromQuery } from "../../lib/report-spec-codec";
 import { ME_FIXTURE, MockApi, seedAuthTokens } from "../helpers/mock-api";
 
 vi.mock("next/navigation", () => ({
@@ -128,6 +129,11 @@ describe("/dashboards integration", () => {
 
     // Widget charts rendered from report fixtures.
     expect(await screen.findByText("Alice", {}, { timeout: 5000 })).toBeInTheDocument();
+    // Every widget carries the Builder deep link (items 2+3) with a decodable spec.
+    const drill = screen.getByTestId("widget-drill-time_by_user:self");
+    expect(drill).toHaveAttribute("href", expect.stringContaining("/reports?spec="));
+    const specParams = new URLSearchParams(drill.getAttribute("href")!.split("?")[1]!);
+    expect(decodeSpecFromQuery(specParams.get("spec"))?.spec.view).toBe("time_entries");
     expect(screen.getByText("3h 30m total · 2h 30m billable")).toBeInTheDocument();
     expect(screen.getByText("4m 20s")).toBeInTheDocument();
     expect(screen.getByText("15m")).toBeInTheDocument();

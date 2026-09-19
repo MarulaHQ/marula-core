@@ -123,7 +123,8 @@ export function useTimer() {
   }, [auth.status, auth.me, refresh]);
 
   // Display ticker: only while something is running.
-  const running = sessions?.find((s) => s.stopped_at === null) ?? null;
+  const sessionList = Array.isArray(sessions) ? sessions : [];
+  const running = sessionList.find((s) => s.stopped_at === null) ?? null;
   useEffect(() => {
     if (running === null) return;
     const t = setInterval(() => setNowMs(Date.now()), 1000);
@@ -131,7 +132,7 @@ export function useTimer() {
   }, [running !== null]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return {
-    sessions: sessions ?? [],
+    sessions: sessionList,
     active: running,
     nowMs,
     refresh,

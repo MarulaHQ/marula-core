@@ -578,17 +578,51 @@ async fn search_pins_crud_flow() {
     assert!(pin["query"].as_str().is_some());
     let _pin_id_first = pin["id"].as_str().unwrap().to_string();
 
-    // Re-pin = idempotent: the SAME pin id answers (no dup row).
+    // Re-pin = idempotent refresh (Wave 23 lane 1): the SAME pin id
+    // answers, and the snapshot goes current — RETITLE the index row
+    // first via the same upsert path the indexer would drive (update the
+    // stored title), then re-pin from that state and observe the fresh
+    // title + the new query riding the SAME pin id (created_at stable).
+    sqlx::query(
+        "UPDATE search_index SET title = 'Mail relay down (renamed)' \
+         WHERE entity_kind = 'ticket' AND entity_id = $1",
+    )
+    .bind(ticket_id)
+    .execute(&pool)
+    .await
+    .expect("retitle index row");
     let response = send(
         &app,
         axum::http::Method::POST,
         "/api/v1/search/pins",
         &[auth(&token)],
-        Some(json!({ "query": "mail relay", "entity_kind": "ticket", "entity_id": ticket_id })),
+        Some(json!({ "query": "mail relayed", "entity_kind": "ticket", "entity_id": ticket_id })),
     )
     .await;
     assert_eq!(response.status(), 200);
-    assert_eq!(body_json(response).await["id"], _pin_id_first);
+    let repin = body_json(response).await;
+    assert_eq!(repin["id"], _pin_id_first);
+    assert_eq!(
+        repin["title"], "Mail relay down (renamed)",
+        "re-pin refreshes the stale title snapshot"
+    );
+    assert_eq!(
+        repin["query"], "mail relayed",
+        "re-pin refreshes the stored query snapshot"
+    );
+    // The list reflects the refreshed snapshot (one pin still).
+    let response = send(
+        &app,
+        axum::http::Method::GET,
+        "/api/v1/search/pins",
+        &[auth(&token)],
+        None,
+    )
+    .await;
+    let pins = body_json(response).await;
+    let rows = pins["pins"].as_array().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["title"], "Mail relay down (renamed)");
 
     // Pinning a result that does not exist in the index: typed 404.
     let response = send(
@@ -614,7 +648,7 @@ async fn search_pins_crud_flow() {
     assert_eq!(pins["pins"].as_array().unwrap().len(), 1);
 
     // Unpin; a second unpin is the caller's-not-theirs 404.
-    let pin_id = pin["id"].as_str().unwrap().to_string();
+    let pin_id = repin["id"].as_str().unwrap().to_string();
     let response = send(
         &app,
         axum::http::Method::DELETE,

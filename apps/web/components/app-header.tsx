@@ -90,10 +90,16 @@ function SearchLauncher() {
         <path d="m10.5 10.5 3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
       </svg>
       <span
-        className="min-w-0 flex-1 truncate text-[12.5px]"
+        className="min-w-0 flex-1 truncate text-[12.5px] max-md:hidden"
         style={{ color: "var(--m-text-muted)" }}
       >
         Search tickets, clients, devices…
+      </span>
+      <span
+        className="md:hidden min-w-0 flex-1 truncate text-[12.5px]"
+        style={{ color: "var(--m-text-muted)" }}
+      >
+        Search
       </span>
       <span className="hidden shrink-0 md:inline">
         <Kbd>⌘K</Kbd>
@@ -231,12 +237,17 @@ export function AppHeader() {
     >
       <div className="flex shrink-0 items-center gap-2">
         <BrandMark size={24} />
-        <span className="text-sm font-semibold tracking-tight" style={{ color: "var(--m-text)" }}>
+        {/* Item 11: the wordmark collides with the right dock cluster at
+            ~480px — icon-only below the md breakpoint. */}
+        <span
+          className="text-sm font-semibold tracking-tight max-md:hidden"
+          style={{ color: "var(--m-text)" }}
+        >
           Meridian
         </span>
       </div>
 
-      <div className="mx-auto flex min-w-0 max-w-[520px] flex-1 justify-center px-1 md:px-4">
+      <div className="flex min-w-0 flex-1 justify-center px-1 md:mx-auto md:max-w-[520px] md:px-4">
         <SearchLauncher />
       </div>
 

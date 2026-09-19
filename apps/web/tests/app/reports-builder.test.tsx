@@ -7,11 +7,24 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { AuthProvider } from "../../lib/api";
 import ReportsPage from "../../app/reports/page";
 import { ME_FIXTURE, MockApi, seedAuthTokens } from "../helpers/mock-api";
+import { encodeSpecToQuery } from "../../lib/report-spec-codec";
 
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
-  usePathname: () => "/reports",
-}));
+vi.mock("next/navigation", () => {
+  let lastSearch: string | null = null;
+  let lastParams: URLSearchParams | null = null;
+  return {
+    useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+    usePathname: () => "/reports",
+    useSearchParams: () => {
+      const s = window.location.search;
+      if (lastSearch !== s) {
+        lastSearch = s;
+        lastParams = new URLSearchParams(s);
+      }
+      return lastParams;
+    },
+  };
+});
 
 const DEF_ID = "00000000-0000-4000-8000-00000000d001";
 
@@ -223,6 +236,51 @@ describe("/reports builder integration", () => {
       },
       { timeout: 5000 },
     );
+    cleanup();
+  });
+});
+describe("/reports deep link (Wave 23 lane 1, items 2+3)", () => {
+  it("seeds and auto-runs a builder preview from ?spec=", async () => {
+    const mock = new MockApi();
+    mock.on("GET", "/api/v1/me", () => ({ json: ME_FIXTURE }));
+    mock.on("GET", "/api/v1/report-catalog", () => ({ json: CATALOG }));
+    mock.on("GET", "/api/v1/report-definitions", () => ({ json: DEFINITIONS }));
+    mock.on("GET", "/api/v1/report-schedules", () => ({ json: SCHEDULES }));
+    mock.on("POST", "/api/v1/reports/run-spec", () => ({ json: RUN_PAGE }));
+    mock.install();
+
+    const specQuery = encodeSpecToQuery({
+      view: "tickets",
+      filters: [{ column: "priority", op: "eq", value: { text: "p1" } }],
+      group_by: ["priority"],
+      measures: [{ agg: "count" }],
+      viz: "bar",
+    } as never);
+    window.history.replaceState(null, "", `/reports?spec=${specQuery}`);
+
+    render(
+      <AuthProvider>
+        <ReportsPage />
+      </AuthProvider>,
+    );
+
+    // The linked spec auto-runs once, without anyone pressing Run preview.
+    await waitFor(
+      () => expect(mock.callsTo("POST", "/api/v1/reports/run-spec").length).toBe(1),
+      { timeout: 5000 },
+    );
+    const body = mock.lastBody<{ spec: { filters: { column: string }[]; group_by: string[] } }>(
+      "POST",
+      "/api/v1/reports/run-spec",
+    );
+    expect(body.spec.group_by).toEqual(["priority"]);
+    expect(body.spec.filters?.[0]).toMatchObject({ column: "priority" });
+    // Rows from the linked spec render in the preview table.
+    expect(await screen.findByText("P1", {}, { timeout: 5000 })).toBeInTheDocument();
+
+    // A second navigation without the param does NOT re-run anything new.
+    window.history.replaceState(null, "", "/reports");
+    expect(mock.callsTo("POST", "/api/v1/reports/run-spec").length).toBe(1);
     cleanup();
   });
 });

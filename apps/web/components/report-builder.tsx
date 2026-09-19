@@ -32,7 +32,7 @@ import {
   Tr,
 } from "@meridian/ui";
 import type { components } from "@meridian/sdk";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, apiBaseUrl, loadTokens } from "../lib/api";
 import { friendlyMutationText } from "../lib/error-copy";
 import { downloadBuilderCsv } from "../lib/report-builder-csv";
@@ -87,6 +87,7 @@ export function ReportBuilder({
   onSaved,
   onCancelEdit,
   runToken,
+  seedSpec,
 }: {
   catalog: CatalogView[] | null;
   editingDef: ReportDefinitionView | null;
@@ -95,11 +96,15 @@ export function ReportBuilder({
   onCancelEdit: () => void;
   /** Bumped by the page when a saved definition should run now. */
   runToken: { def: ReportDefinitionView; nonce: number } | null;
+  /** Ad-hoc spec deep link (Wave 23 lane 1 items 2+3): /reports?spec=… */
+  seedSpec: { spec: components["schemas"]["ReportSpec"]; from?: string; to?: string; nonce: number } | null;
 }) {
   const [draft, setDraft] = useState<BuilderDraft>(() => emptyDraft());
   const [page, setPage] = useState<ReportPage | null>(null);
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
+  const [autoRun, setAutoRun] = useState<{ nonce: number } | null>(null);
+  const ranNonceRef = useRef<number>(-1);
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [saveDescription, setSaveDescription] = useState("");
@@ -133,6 +138,27 @@ export function ReportBuilder({
     setSaveDescription(editingDef.description ?? "");
     setSaveScope(editingDef.scope === "org" ? "org" : "self");
   }, [editingDef]);
+
+  // Deep-link seeding (items 2+3): a ?spec= payload loads as an ad-hoc draft
+  // and runs once — the builder stays fully editable after landing.
+  useEffect(() => {
+    if (seedSpec === null) return;
+    const d = seedSpec.spec;
+    setDraft({
+      view: d.view,
+      filters: (d.filters ?? []).map((f) => ({
+        column: f.column,
+        op: f.op,
+        rawValue: filterRawValue(f.value),
+      })),
+      groupBy: [...(d.group_by ?? [])],
+      measures: d.measures.map((m) => ({ agg: m.agg, column: m.column ?? null })),
+      viz: d.viz,
+      from: seedSpec.from ?? "",
+      to: seedSpec.to ?? "",
+    });
+    setAutoRun({ nonce: seedSpec.nonce });
+  }, [seedSpec]);
 
   const buildSpec = useCallback(
     () => draftToSpec(draft, viewCatalog),
@@ -178,6 +204,17 @@ export function ReportBuilder({
     void runPreview();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runToken?.nonce]);
+
+  // Deep-link auto-run (items 2+3): fires once per nonce AFTER the seeded
+  // draft has committed, so the preview runs the linked spec verbatim.
+  useEffect(() => {
+    if (autoRun === null || editingDef !== null) return;
+    if (ranNonceRef.current === autoRun.nonce) return;
+    ranNonceRef.current = autoRun.nonce;
+    void runPreview();
+    setAutoRun(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRun?.nonce, draft.from, draft.to, draft.view]);
 
   const problem = draftProblem(draft, viewCatalog);
 

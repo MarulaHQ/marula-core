@@ -230,6 +230,33 @@ button.m-workbar-wrapup:focus-visible {
   .m-rail-item-wrap {
     opacity: 1;
   }
+
+  /* Drawer entrance collapses to visible immediately, no slide. */
+  [data-testid="board-nav-drawer"] {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---- BoardNav mobile drawer (Wave 23 lane 1, item 1) ----------------------
+   Workbench drawer grammar: scrim + slide-in panel, transform/opacity only,
+   ≤120ms, prefers-reduced-motion collapses to opacity-only 1ms. */
+
+@keyframes m-drawer-in {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.board-nav-drawer-scrim {
+  opacity: 0;
+  animation: workbar-instant 1ms forwards;
 }
 
 /* ---- Workbar Notes & Tasks panel (Wave 17 lane 11) ------------------------

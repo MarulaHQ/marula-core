@@ -37,13 +37,17 @@ import {
   Tr,
 } from "@meridian/ui";
 import type { components } from "@meridian/sdk";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { api, useRequireAuth } from "../../lib/api";
 import { friendlyMutationText } from "../../lib/error-copy";
 import { ReportDeliveryHistory } from "../../components/report-delivery-history";
 import { ReportBuilder } from "../../components/report-builder";
 import { VIEW_LABELS } from "../../lib/report-builder";
 import { isManagerPermissions } from "../../lib/dashboards";
+import { decodeSpecFromQuery } from "../../lib/report-spec-codec";
+
+type DeepLinkSeed = { spec: components["schemas"]["ReportSpec"]; from?: string; to?: string; nonce: number } | null;
 
 type ReportDefinitionView = components["schemas"]["ReportDefinitionView"];
 type ReportScheduleView = components["schemas"]["ReportScheduleView"];
@@ -57,6 +61,23 @@ export default function ReportsPage() {
     auth.status === "authed" && isManagerPermissions(auth.me?.permissions ?? []);
 
   const [tab, setTab] = useState<Tab>("builder");
+
+  // Deep link: /reports?spec=<encoded> lands on the Builder tab with the
+  // linked spec seeded and auto-run once (Wave 23 lane 1, items 2+3).
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [seedSpec, setSeedSpec] = useState<DeepLinkSeed>(null);
+  const landedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const raw = searchParams.get("spec");
+    if (raw === null || landedRef.current === raw) return;
+    const decoded = decodeSpecFromQuery(raw);
+    if (decoded === null) return;
+    landedRef.current = raw;
+    setSeedSpec({ ...decoded, nonce: Date.now() });
+    setTab("builder");
+    router.replace("/reports", { unstable_noScroll: true } as never);
+  }, [router, searchParams]);
 
   // Catalog (R6 builder field lists — served from the Rust catalog).
   const [catalog, setCatalog] = useState<components["schemas"]["CatalogView"][] | null>(null);
@@ -253,6 +274,7 @@ export default function ReportsPage() {
             editingDef={editingDef}
             canPublish={canPublish}
             runToken={runToken}
+            seedSpec={seedSpec}
             onSaved={() => {
               setEditingDef(null);
               void refreshDefinitions();
