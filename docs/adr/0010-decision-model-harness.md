@@ -88,6 +88,17 @@ Two binding user directives shape the decision:
   rubric updates ride migrations/settings bumps) while org-customized sets
   stay pinned to the version their admin accepted; lanes 2–3 build their
   fan-outs ON these schemas, never ad-hoc.
+- **Customization is fork-on-first-edit, stored as org-owned versioned
+  config.** An untouched surface's config *references* the starter set
+  (`starter@v1`); the first org edit copies the set into an org-owned
+  versioned config and marks it customized, pinning provenance. If Meridian
+  later curates `starter@v2` (better rubric wording), the org sees "v2
+  available" with an honest diff — adoption is opt-in, and a customized schema
+  is NEVER silently overwritten by an upstream bump (the fork is what keeps
+  their thresholds calibrated against wording they accepted). The worker and
+  automation engine read the org's active config at decision time; the org's
+  custom question map is exactly the caller-supplied `questions` input — the
+  starter is only the default sent when an org hasn't customized.
 
 ### 3. Nine decision surfaces ship in wave 1 of the harness (priority-ordered)
 
