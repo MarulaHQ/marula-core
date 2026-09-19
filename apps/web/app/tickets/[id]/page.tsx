@@ -544,7 +544,7 @@ async function changeStatus(statusId: string): Promise<void> {
               : {
                   ...m.checklist,
                   items: [
-                    ...m.checklist.items,
+                    ...(Array.isArray(m.checklist.items) ? m.checklist.items : []),
                     {
                       id: tempId,
                       text,
@@ -552,7 +552,7 @@ async function changeStatus(statusId: string): Promise<void> {
                       checked_at: null,
                       checked_by: null,
                       org_id: m.ticket?.org_id ?? "",
-                      sort_order: m.checklist.items.length,
+                      sort_order: (Array.isArray(m.checklist.items) ? m.checklist.items : []).length,
                       template_item_id: null,
                       ticket_id: ticketId,
                     },
@@ -567,7 +567,12 @@ async function changeStatus(statusId: string): Promise<void> {
           checklist:
             m.checklist === null
               ? m.checklist
-              : { ...m.checklist, items: m.checklist.items.filter((i) => i.id !== tempId) },
+              : {
+                  ...m.checklist,
+                  items: (Array.isArray(m.checklist.items) ? m.checklist.items : []).filter(
+                    (i) => i.id !== tempId,
+                  ),
+                },
         }));
       },
     });
@@ -586,7 +591,7 @@ async function changeStatus(statusId: string): Promise<void> {
               ? m.checklist
               : {
                   ...m.checklist,
-                  items: m.checklist.items.map((i) =>
+                  items: (Array.isArray(m.checklist.items) ? m.checklist.items : []).map((i) =>
                     i.id === tempId ? (after as components["schemas"]["ChecklistItem"]) : i,
                   ),
                 },
@@ -617,14 +622,14 @@ async function changeStatus(statusId: string): Promise<void> {
               ? m.checklist
               : {
                   ...m.checklist,
-                  items: m.checklist.items.map((i) =>
+                  items: (Array.isArray(m.checklist.items) ? m.checklist.items : []).map((i) =>
                     i.id === itemId ? { ...i, checked: state.checked, na: state.na } : i,
                   ),
                 },
         }));
       },
       captureBefore: () => {
-        const item = model?.checklist?.items.find((i) => i.id === itemId) ?? null;
+        const item = (Array.isArray(model?.checklist?.items) ? model?.checklist?.items : []).find((i) => i.id === itemId) ?? null;
         if (item !== null) prior = { checked: item.checked, na: item.na ?? false };
         return prior;
       },
@@ -638,7 +643,7 @@ async function changeStatus(statusId: string): Promise<void> {
               ? m.checklist
               : {
                   ...m.checklist,
-                  items: m.checklist.items.map((i) =>
+                  items: (Array.isArray(m.checklist.items) ? m.checklist.items : []).map((i) =>
                     i.id === itemId ? { ...i, checked: snapshot.checked, na: snapshot.na } : i,
                   ),
                 },
@@ -660,7 +665,7 @@ async function changeStatus(statusId: string): Promise<void> {
               ? m.checklist
               : {
                   ...m.checklist,
-                  items: m.checklist.items.map((i) =>
+                  items: (Array.isArray(m.checklist.items) ? m.checklist.items : []).map((i) =>
                     i.id === itemId ? (after as components["schemas"]["ChecklistItem"]) : i,
                   ),
                 },
@@ -1010,9 +1015,9 @@ async function changeStatus(statusId: string): Promise<void> {
               </dl>
               <TasksPanel
                 testPrefix="tab-"
-                items={model?.checklist?.items ?? []}
+                items={Array.isArray(model?.checklist?.items) ? model.checklist.items : []}
                 enforcementActive={model?.checklist?.enforcement_active ?? false}
-                blockingCount={model?.checklist?.blocking.length ?? 0}
+                blockingCount={(Array.isArray(model?.checklist?.blocking) ? model?.checklist?.blocking : []).length ?? 0}
                 onSetState={setChecklistItemState}
                 onAdd={addChecklistItem}
               />

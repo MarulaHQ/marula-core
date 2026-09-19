@@ -691,7 +691,12 @@ export function TicketLinksPanel({
                   <>
                     <div className="rounded-[var(--m-radius-container)] border p-2 text-[12px]" style={{ borderColor: "var(--m-accent)" }} data-testid="merge-survivor">
                       Survivor: <strong>{survivor.number} {survivor.title}</strong>{" "}
-                      <StatusTag tone={survivor.category === "closed" ? "danger" : "neutral"}>{survivor.category}</StatusTag>
+                      <StatusTag tone={survivor.category === "closed" ? "danger" : "neutral"}>
+                        {survivor.category === "in_progress"
+                          ? "In progress"
+                          : survivor.category.charAt(0).toUpperCase() + survivor.category.slice(1)
+                        }
+                      </StatusTag>
                       <Button variant="ghost" size="sm" onClick={() => setSurvivor(null)}>Change</Button>
                     </div>
                     {boardMismatch ? (

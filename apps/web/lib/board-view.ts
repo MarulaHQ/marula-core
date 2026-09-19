@@ -22,6 +22,25 @@ export function categoryTone(category: string): "success" | "warning" | "neutral
   return "neutral";
 }
 
+/** Raw category slugs → the human names the column headers carry
+ * (Wave 23 lane 1, item 5): a card with no resolvable status row renders
+ * "In progress", never the `in_progress` wire slug. Unknown slugs fall
+ * back to themselves (honest) after title-casing is skipped — the known
+ * four categories are exhaustive on the wire, so this only guards legacy
+ * or future additions. */
+const CATEGORY_LABEL: Record<string, string> = {
+  open: "Open",
+  in_progress: "In progress",
+  waiting: "Waiting",
+  closed: "Closed",
+};
+
+export function humanCategoryLabel(category: string | null | undefined): string {
+  if (category === null || category === undefined) return "No status";
+  const label = CATEGORY_LABEL[category];
+  return label ?? category;
+}
+
 /** Client mirror of the core-domain transition verdict (same as status bar). */
 export function transitionAllowed(
   statuses: BoardStatus[],

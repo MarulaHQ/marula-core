@@ -12,6 +12,17 @@
 //! Non-purpose: no client-portal comment filtering (portal users search in
 //! a later stage), no embedding generation (core-api's ai module resolves
 //! the org provider), and no writes of any kind.
+//!
+//! Settled posture (Wave 23 lane 1, item 10 — a documented DELIBERATE
+//! non-change): unified search does NOT narrow the `document` KIND below
+//! the module permission (`documents:view`). Site/contact RESTRICTED
+//! visibility governs which clients a staff member can SEE in /clients;
+//! document hits are already tenant-scoped and per-client-narrowable via
+//! the explicit `client_id` scoping param, so no additional document-kind
+//! restriction is imposed at the search layer. Escalation trigger: if a
+//! per-document sensitivity model (e.g. restricted flag on the document
+//! row) or a per-site document ACL lands, THAT feature must add its search
+//! leg here — search never invents its own visibility rule.
 
 use crate::auth::middleware::{authed, require_permission};
 use crate::error::{ApiError, ApiResult};
@@ -360,8 +371,10 @@ fn kind_permission(kind: core_db::search::SearchKind) -> Permission {
 
 /// POST /api/search/pins — pins one stored result. The entity must EXIST
 /// in the index (a pin is a stored result, never invented) and kind sits
-/// behind the same permission gate the query ran behind. Idempotent:
-/// re-pinning the same (kind, id) answers the stored pin.
+/// behind the same permission gate the query ran behind. One pin per
+/// (kind, id): re-pinning is idempotent AND refreshes the stored
+/// snapshot (query + title + parent) to current — the created_at stays
+/// the original pin time (Wave 23 lane 1, item 6).
 #[utoipa::path(operation_id = "search_pins_create", post, path = "/api/search/pins", tag = "search", security(("bearer" = [])),
     request_body = CreateSearchPinRequest,
     responses((status = 200, body = SearchPinView),
@@ -387,7 +400,9 @@ pub async fn pins_create(
     let user_id = authed.principal.user.id;
     let pin = crate::org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         // The pin snapshots the LIVE index row: no row → typed 404 (the
-        // honest "that result is not pin-able").
+        // honest "that result is not pin-able"). Re-pin (same identity)
+        // REFRESHES the stored snapshot in the same upsert — the id and
+        // created_at stay stable, query/parent/title go current.
         let indexed = core_db::search::lookup_row(&mut *ctx.tx, org_id, kind, req.entity_id)
             .await?
             .ok_or(ApiError::NotFound)?;
@@ -405,19 +420,6 @@ pub async fn pins_create(
             },
         )
         .await?;
-        let pin = match pin {
-            Some(p) => p,
-            // Idempotent re-pin: the row already exists — answer it.
-            None => core_db::search_pins::find_by_identity(
-                &mut ctx.tx,
-                org_id,
-                user_id,
-                kind.as_str(),
-                req.entity_id,
-            )
-            .await?
-            .expect("unique race: the identity row must exist"),
-        };
         Ok((ctx, pin))
     })
     .await?;

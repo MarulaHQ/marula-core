@@ -165,10 +165,14 @@ export default function TodayPage() {
   }
 
   // Pre-guard the read model: `gap` can be a truthy-but-partial payload
-  // (empty array fixture, in-flight read model) — never crash on it.
-  const gapDay = Array.isArray(gap?.days) ? gap.days.find((d) => d.has_gap) ?? gap.days[0] : undefined;
+  // (empty array fixture, in-flight read model) — never crash on it; day
+  // rows themselves can be partial objects, so field reads stay
+  // undefined-safe (truthiness checks only, no nested assumes).
+  const gapDay = Array.isArray(gap?.days)
+    ? gap.days.find((d) => d !== null && d.has_gap) ?? gap.days[0]
+    : undefined;
   const day = gapDay;
-  const all = items ?? [];
+  const all = Array.isArray(items) ? items : [];
   const grouped: Record<(typeof BUCKETS)[number]["key"], MyWorkItem[]> = {
     overdue: [],
     today: [],
@@ -178,7 +182,9 @@ export default function TodayPage() {
   for (const t of all) {
     grouped[dueBucket(t.sla_resolution_due ?? t.due_at)].push(t);
   }
-  const pausedCount = sessions.filter((s) => s.stopped_at === null && s !== active).length;
+  const pausedCount = (Array.isArray(sessions) ? sessions : []).filter(
+    (s) => s !== null && s.stopped_at === null && s !== active,
+  ).length;
 
   return (
     <div className="flex h-full flex-col">
@@ -415,7 +421,7 @@ export default function TodayPage() {
 
       {/* Quick-log dialog for closing a detected gap */}
       {logOpen && items !== null && (
-        <QuickLogDialog items={items} onClose={() => { setLogOpen(false); void refresh(); }} />
+        <QuickLogDialog items={Array.isArray(items) ? items : []} onClose={() => { setLogOpen(false); void refresh(); }} />
       )}
     </div>
   );

@@ -24,6 +24,17 @@
 //! entity filters (an org's export is one canonical bundle — the same
 //! determinism stance as the manifest), no user/credential material (the
 //! loader structurally never reads the users table).
+//!
+//! Settled event posture (Wave 23 lane 1, item 7 — a documented DELIBERATE
+//! non-change): audit-only paths emit the AuditEvent(s) they already emit
+//! and STOP. `export-create`/`export-archive` write their audit rows via
+//! core-db `audit::insert` (that IS their event record); bookmarks and
+//! search pins are deliberately event-less (a pin is a bookmark, a
+//! personal presentation state — see core-db `search_pins`). No additional
+//! DOMAIN events are minted here, and the U7 provenance sweep should treat
+//! this posture as closed. Escalation trigger: only if the provenance
+//! sweep decides provenance rows must be queryable INDEPENDENTLY of the
+//! audit table should event goldens be added for these paths.
 
 use crate::auth::middleware::authed;
 use crate::error::{ApiError, ApiResult};

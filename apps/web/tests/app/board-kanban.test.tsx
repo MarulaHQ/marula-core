@@ -194,4 +194,18 @@ describe("/boards/[id] — kanban interactions", () => {
     fireEvent.click(screen.getByTestId("board-filter-p1"));
     expect(screen.getByText("Fix the flux capacitor")).toBeInTheDocument();
   });
+
+  it("never renders a raw wire-slug status on a card tag (item 5)", async () => {
+    // Wave 23 lane 1, item 5: every card tag the page renders is either
+    // the status row's NAME or a human category label — the grouping
+    // makes `current` resolvable for every rendered card, so the raw
+    // `in_progress` slug must never appear anywhere on the board.
+    // The fallback label logic itself is unit-tested in
+    // tests/lib/board-view.test.ts (humanCategoryLabel).
+    setupApi([S_NEW, S_WORKING, S_DONE], [TICKET]);
+    render(page());
+    expect(await screen.findByText("Fix the flux capacitor")).toBeInTheDocument();
+    expect(screen.getByTestId("kanban-card-MER-7")).toHaveTextContent("New");
+    expect(document.body.textContent).not.toContain("in_progress");
+  });
 });

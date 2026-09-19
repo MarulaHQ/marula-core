@@ -6,10 +6,16 @@
 //!
 //! Purpose: upsert/list/delete of pins. A pin re-runs its query and
 //! re-resolves from the metric itself — the stored title is the snapshot
-//! taken at pin time (an honest render), never a live fake. Uniqueness:
-//! one pinned result per (user, kind, id); the API upserts so re-pinning
-//! is idempotent, and `uq_search_pins_result`'s violation maps to a
-//! typed conflict for the genuine concurrent race.
+//! taken at the pin's LAST refresh (an honest render), never a live
+//! fake. Uniqueness: one pinned result per (user, kind, id); the API
+//! upserts so re-pinning is idempotent, and `uq_search_pins_result`'s
+//! violation maps to a typed conflict for the genuine concurrent race.
+//! Re-pin refresh (Wave 23 lane 1, item 6): the upsert's conflict arm
+//! now REFRESHES query/parent_id/title from the live index row the
+//! caller just resolved (and the re-submitted query), so a re-pin is the
+//! explicit affordance to un-stale a snapshot; created_at keeps the
+//! original pin time. Between re-pins the list stays its stored
+//! snapshot — never a background rewrite.
 //!
 //! Non-purpose: no org-wide pin sharing (operator-curated = per user),
 //! no events (a pin is a bookmark, not a state change worth the wire).
@@ -42,17 +48,24 @@ pub struct NewSearchPin<'a> {
     pub title: &'a str,
 }
 
-/// Upserts one pin by its (user, kind, id) identity. `Ok(None)` = the row
-/// already existed (idempotent re-pin) — the caller answers with the
-/// stored pin instead.
-pub async fn upsert(
-    conn: &mut PgConnection,
-    p: NewSearchPin<'_>,
-) -> DbResult<Option<SearchPinRow>> {
+/// Upserts one pin by its (user, kind, id) identity and returns the
+/// resulting row.
+///
+/// Re-pin refresh (Wave 23 lane 1, item 6): the conflict arm refreshes
+/// query + parent_id + title from what the caller just resolved — the
+/// same values the INSERT arm stores, so re-pinning is exactly "make
+/// this row's snapshot current". created_at never moves (the user's
+/// original pin time) and the id stays stable (uniqueness means one pin
+/// per result), so the idempotent re-pin keeps answering the SAME pin —
+/// refreshed. One statement, no second lookup.
+pub async fn upsert(conn: &mut PgConnection, p: NewSearchPin<'_>) -> DbResult<SearchPinRow> {
     let row = sqlx::query_as::<_, SearchPinRow>(
         "INSERT INTO search_pins (id, org_id, user_id, query, entity_kind, entity_id, parent_id, title)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         ON CONFLICT (org_id, user_id, entity_kind, entity_id) DO NOTHING
+         ON CONFLICT (org_id, user_id, entity_kind, entity_id) DO UPDATE
+           SET query = $4,
+               parent_id = $7,
+               title = $8
          RETURNING id, org_id, user_id, query, entity_kind, entity_id, parent_id, title, created_at",
     )
     .bind(p.id)
@@ -63,7 +76,7 @@ pub async fn upsert(
     .bind(p.entity_id)
     .bind(p.parent_id)
     .bind(p.title)
-    .fetch_optional(&mut *conn)
+    .fetch_one(&mut *conn)
     .await?;
     Ok(row)
 }
@@ -109,29 +122,6 @@ pub async fn list_for_user(
     .fetch_all(&mut *conn)
     .await?;
     Ok(rows)
-}
-
-/// Fetches one pin by (org, owner, kind, id) — the re-pin identity
-/// resolution after an idempotent no-op upsert.
-pub async fn find_by_identity(
-    conn: &mut PgConnection,
-    org_id: Uuid,
-    user_id: Uuid,
-    entity_kind: &str,
-    entity_id: Uuid,
-) -> DbResult<Option<SearchPinRow>> {
-    let row = sqlx::query_as::<_, SearchPinRow>(
-        "SELECT id, org_id, user_id, query, entity_kind, entity_id, parent_id, title, created_at \
-         FROM search_pins \
-         WHERE org_id = $1 AND user_id = $2 AND entity_kind = $3 AND entity_id = $4",
-    )
-    .bind(org_id)
-    .bind(user_id)
-    .bind(entity_kind)
-    .bind(entity_id)
-    .fetch_optional(&mut *conn)
-    .await?;
-    Ok(row)
 }
 
 /// Deletes one SPECIFIC user's pin (a list may only unpin what it owns);

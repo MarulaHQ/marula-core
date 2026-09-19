@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   categoryTone,
   dueChip,
+  humanCategoryLabel,
   filterTickets,
   groupByStatus,
   priorityTone,
@@ -156,5 +157,19 @@ describe("dueChip", () => {
     const chip = dueChip("2026-09-20T00:00:00Z", now);
     expect(chip?.tone).toBe("neutral");
     expect(chip?.label).not.toContain("Overdue");
+  });
+});
+
+describe("humanCategoryLabel", () => {
+  it("maps the canonical wire categories to the human vocabulary", () => {
+    expect(humanCategoryLabel("open")).toBe("Open");
+    expect(humanCategoryLabel("in_progress")).toBe("In progress");
+    expect(humanCategoryLabel("waiting")).toBe("Waiting");
+    expect(humanCategoryLabel("closed")).toBe("Closed");
+  });
+  it("null/absent status says 'No status'; unknown slang falls back honestly", () => {
+    expect(humanCategoryLabel(null)).toBe("No status");
+    expect(humanCategoryLabel(undefined)).toBe("No status");
+    expect(humanCategoryLabel("weird")).toBe("weird");
   });
 });
