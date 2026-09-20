@@ -2827,10 +2827,10 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     .bind(DEMO_ORG_ID)
     .bind(demo_uuid(60)) // service desk board
     .bind(serde_json::json!([{ "field": "category", "op": "eq", "value": "Security" }]))
-    .bind(serde_json::json!([{ "type": "add_tag", "tag_id": demo_uuid(722).to_string() }]))
+    .bind(serde_json::json!([{ "type": "set_priority", "priority": "p1" }]))
     .bind(demo_uuid(851))
     .bind(serde_json::json!([{ "field": "priority", "op": "eq", "value": "p1" }]))
-    .bind(serde_json::json!([{ "type": "notify", "user_id": demo_uuid(11).to_string(), "template": "p1_new" }]))
+    .bind(serde_json::json!([{ "type": "notify_users", "user_ids": [demo_uuid(11).to_string()], "kind": "ticket_update", "title": "P1 ticket created" }]))
     .execute(&mut *tx)
     .await?;
 
