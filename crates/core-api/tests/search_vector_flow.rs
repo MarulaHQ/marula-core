@@ -143,6 +143,19 @@ async fn vector_leg_stays_dark_in_none_mode_and_backfill_is_inert() {
     let slug = format!("vector-flow-{}", Uuid::now_v7().simple());
     let (token, org_id) = register_org(&app, &slug).await;
 
+    // The org master switch gates the vector leg too (default OFF turns
+    // it dark for a different typed reason); this flow exercises none-mode
+    // behavior specifically, so the switch is turned ON up front.
+    let response = send(
+        &app,
+        axum::http::Method::PUT,
+        "/api/settings/org",
+        Some(&token),
+        Some(json!({ "key": "ai.features_enabled", "value": true })),
+    )
+    .await;
+    assert_eq!(response.status(), 200, "master switch on");
+
     // --- internal upsert in none mode: rows land, vectors stay dark --------
     let entity = Uuid::now_v7();
     let response = send_with_headers(
@@ -256,6 +269,18 @@ async fn configured_but_unreachable_provider_degrades_search_never_5xxs() {
     let app = core_api::routes::build_router(state.clone());
     let slug = format!("vector-degrade-{}", Uuid::now_v7().simple());
     let (token, org_id) = register_org(&app, &slug).await;
+
+    // The org master switch gates the vector leg too; this flow exercises
+    // provider-down degradation, so the switch is turned ON up front.
+    let response = send(
+        &app,
+        axum::http::Method::PUT,
+        "/api/settings/org",
+        Some(&token),
+        Some(json!({ "key": "ai.features_enabled", "value": true })),
+    )
+    .await;
+    assert_eq!(response.status(), 200, "master switch on");
 
     // Configure OpenAI BYOK against an unroutable gateway: provider present,
     // network dead. `OPENAI_BASE_URL` points at a closed port for this test.

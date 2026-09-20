@@ -61,6 +61,7 @@ pub mod connector;
 pub mod costs;
 pub mod credit_notes;
 pub mod custom_fields;
+pub mod decision_edge;
 pub mod dev;
 pub mod dispatch;
 pub mod dispatch_connector;

@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 core-db = { path = "../core-db" }
+core-decision = { path = "../core-decision" }
 core-domain = { path = "../core-domain" }
 core-events = { path = "../core-events" }
 core-mail = { path = "../core-mail" }

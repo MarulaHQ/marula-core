@@ -117,7 +117,7 @@ async fn audit_row(
 
 /// RLS-bound read tx for the GET surfaces (settings table policies demand
 /// app.org_id and the raw pool carries no GUC).
-async fn org_bound_tx(
+pub(super) async fn org_bound_tx(
     state: &AppState,
     org_id: Uuid,
     user_id: Uuid,
@@ -2800,6 +2800,12 @@ pub(super) struct AiAdmissionAsk<'a> {
     pub provider_ask: Option<&'a str>,
     pub model_ask: Option<&'a str>,
     pub required_capabilities: &'a [AiEdge],
+    /// Wave 23 lane 2: CORE-INITIATED calls on internal decision
+    /// surfaces (search_rerank, llm_verify, tool_routing) skip the
+    /// never-directly-callable refusal AND the grant check — there is
+    /// no user-facing surface to grant; the capability/caps/credential
+    /// pipeline still applies in full. HTTP callers must never set this.
+    pub internal_core_call: bool,
 }
 
 pub(super) async fn authorize_surface_call(
@@ -2814,12 +2820,29 @@ pub(super) async fn authorize_surface_call(
         provider_ask,
         model_ask,
         required_capabilities,
+        internal_core_call,
     } = ask;
+
+    // Org master switch (ADR 0010 §4, Wave 23 lane 2): OFF (the
+    // default) refuses every edge typed BEFORE the surface checks —
+    // the org sees exactly the pre-AI product (zero ledger rows, zero
+    // side effects). One switch for all AI edges.
+    if !core_db::ai_policy::features_enabled(&mut *tx, org_id)
+        .await
+        .map_err(ApiError::from)?
+    {
+        return Err(ApiError::AiCallRefused {
+            reason: "ai_features_disabled",
+            message: "AI features are switched off for this organization".into(),
+            surface: surface_key.to_string(),
+        });
+    }
+
     let surface = core_db::ai_policy::get_surface_by_key(&mut *tx, org_id, surface_key)
         .await
         .map_err(ApiError::from)?
         .ok_or(ApiError::RlsSparse)?;
-    if surface.kind == "internal" {
+    if surface.kind == "internal" && !internal_core_call {
         return Err(ApiError::AiCallRefused {
             reason: "ai_surface_internal",
             message: format!(
@@ -2835,9 +2858,10 @@ pub(super) async fn authorize_surface_call(
             surface: surface_key.to_string(),
         });
     }
-    if !core_db::ai_policy::user_has_surface_grant(&mut *tx, org_id, user_id, surface.id)
-        .await
-        .map_err(ApiError::from)?
+    if !internal_core_call
+        && !core_db::ai_policy::user_has_surface_grant(&mut *tx, org_id, user_id, surface.id)
+            .await
+            .map_err(ApiError::from)?
     {
         return Err(ApiError::AiCallRefused {
             reason: "ai_surface_not_granted",
@@ -3126,6 +3150,7 @@ pub async fn authorize(
             provider_ask: req.provider.as_deref(),
             model_ask: req.model.as_deref(),
             required_capabilities: &[AiEdge::Completion],
+            internal_core_call: false,
         },
     )
     .await?;

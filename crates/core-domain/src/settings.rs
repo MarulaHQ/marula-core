@@ -245,6 +245,12 @@ pub const AI_COMPLETION_MODEL: &str = "ai.completion_model";
 /// (per-user) sealed AI credentials at all. Default OFF — personal keys
 /// are opt-in per org, org credentials always work.
 pub const AI_PERSONAL_CREDENTIALS_ENABLED: &str = "ai.personal_credentials_enabled";
+
+/// The org master switch (ADR 0010 §4): when OFF (the default) the org
+/// sees exactly the pre-AI product — no decision calls, no completion
+/// calls, no suggestion cards, no AI entry points. One switch for all
+/// AI edges.
+pub const AI_FEATURES_ENABLED: &str = "ai.features_enabled";
 /// Email greeting/sign-off (Wave 12 lane 6): per-user declarations for the
 /// client-email composers (close-flow summary email, reply composer).
 /// Editable defaults live in the settings registry, so they persist as
@@ -332,7 +338,14 @@ pub const WEEK_START_OPTIONS: &[&str] = &["monday", "sunday"];
 
 pub const THEME_OPTIONS: &[&str] = &["light", "dark"];
 
-pub const AI_PROVIDER_OPTIONS: &[&str] = &["none", "openai", "anthropic", "ollama", "custom"];
+pub const AI_PROVIDER_OPTIONS: &[&str] = &[
+    "none",
+    "openai",
+    "anthropic",
+    "ollama",
+    "custom",
+    "typesafe",
+];
 
 /// Provider identifiers the generic sealed-key store (BYOK) accepts for
 /// accounting/export-sync connectors (Wave 9 adapters lane). Their OAuth
@@ -453,6 +466,20 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> =
                              (default) restricts AI to org credentials; on, a user's \
                              personal key serves only their own calls in surfaces \
                              they are granted.",
+            },
+            SettingDeclaration {
+                key: AI_FEATURES_ENABLED,
+                kind: SettingKind::Boolean,
+                default: SettingValue::Boolean(false),
+                scope: SettingScope::Org,
+                section: SettingSection::Integrations,
+                visibility: SettingVisibility::Ui,
+                label: "AI features enabled",
+                description: "The org master switch (ADR 0010 §4). Off (default) is \
+                             the old-school posture: no AI calls of any edge fire — \
+                             no decisions, no completion, no suggestions; the org \
+                             sees exactly the pre-AI product. Per-surface enabled \
+                             flags and deny-by-default grants apply on top.",
             },
             SettingDeclaration {
                 key: NOTIFICATIONS_CLIENT_EVENTS,

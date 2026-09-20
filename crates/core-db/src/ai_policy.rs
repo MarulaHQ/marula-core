@@ -777,6 +777,25 @@ pub struct AiUsageNew {
     pub request_id: Option<String>,
 }
 
+/// The org master switch (ADR 0010 §4, Wave 23 lane 2): `ai.features_enabled`,
+/// default OFF. When OFF the org sees exactly the pre-AI product — the
+/// shared admission pipeline refuses every call typed BEFORE touching
+/// the surface/catalog, and the embeddings legs degrade to their
+/// no-vector posture. One switch for all AI edges.
+pub async fn features_enabled(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    org_id: Uuid,
+) -> DbResult<bool> {
+    let row: Option<(Value,)> = sqlx::query_as(
+        r#"SELECT value FROM settings
+           WHERE org_id = $1 AND scope = 'org' AND key = 'ai.features_enabled'"#,
+    )
+    .bind(org_id)
+    .fetch_optional(executor)
+    .await?;
+    Ok(row.and_then(|(v,)| v.as_bool()).unwrap_or(false))
+}
+
 /// Append one usage row. Idempotent at the edge (Wave 18 lane 2b): a
 /// repeated write carrying the SAME (org, surface, request_id) hits the
 /// `uq_ai_usage_ledger_edge_request` partial unique index and is silently

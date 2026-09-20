@@ -196,6 +196,18 @@ async fn ai_policy_deny_by_default_grant_cap_edge_flow() {
     .await;
     let (member_id, org_id) = me_ids(&app, &member).await;
 
+    // The org master switch gates every AI edge (default OFF); this flow
+    // exercises grant/cap edges, so the switch is turned ON up front.
+    let response = send(
+        &app,
+        axum::http::Method::PUT,
+        "/api/settings/org",
+        Some(&owner),
+        Some(json!({ "key": "ai.features_enabled", "value": true })),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+
     // --- non-admin may NOT curate the owner/admin surface ------------------
     let response = send(
         &app,
@@ -671,6 +683,14 @@ async fn ai_policy_personal_credential_preferred_and_cap_edge() {
     .await;
 
     // flag on + personal credential → the personal slot is picked
+    send(
+        &app,
+        axum::http::Method::PUT,
+        "/api/settings/org",
+        Some(&owner),
+        Some(json!({ "key": "ai.features_enabled", "value": true })),
+    )
+    .await;
     send(
         &app,
         axum::http::Method::PUT,

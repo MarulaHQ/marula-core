@@ -874,6 +874,7 @@ dependencies = [
  "ci-feeders",
  "core-billing",
  "core-db",
+ "core-decision",
  "core-documents",
  "core-domain",
  "core-events",
@@ -954,6 +955,22 @@ dependencies = [
  "sqlx 0.8.6",
  "testcontainers",
  "testcontainers-modules",
+ "thiserror 2.0.20",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "core-decision"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum 0.8.9",
+ "chrono",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
  "thiserror 2.0.20",
  "tokio",
  "tracing",
@@ -8065,6 +8082,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "core-db",
+ "core-decision",
  "core-domain",
  "core-events",
  "core-mail",

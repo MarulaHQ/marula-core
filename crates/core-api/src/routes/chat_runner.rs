@@ -725,6 +725,7 @@ pub async fn post_turn(
             provider_ask: req.provider.as_deref(),
             model_ask: req.model.as_deref(),
             required_capabilities: &required_edges,
+            internal_core_call: false,
         },
     )
     .await?;
