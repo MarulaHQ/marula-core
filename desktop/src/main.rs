@@ -27,6 +27,10 @@ struct Backend {
     next_server: std::sync::Mutex<tokio::process::Child>,
 }
 
+/// Pid of the spawned Next.js standalone server, for the SIGTERM handler
+/// (see spawn_next_server). Local to this process by construction.
+static NEXT_SERVER_PID: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+
 fn data_root() -> PathBuf {
     // macOS-first (this lane targets a double-clickable .app); other
     // platforms fall back to a conventional user-data location.
@@ -90,6 +94,15 @@ async fn spawn_next_server(
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
+        // Belt-and-braces: record the pid so the SIGTERM handler (which
+        // exits without unwinding, skipping kill_on_drop) can still reap
+        // the server. A leaked next-server orphans on its preferred port
+        // and breaks later launches (orphan-window/CORS bug).
+        .inspect(|child| {
+            if let Some(pid) = child.id() {
+                let _ = NEXT_SERVER_PID.set(pid);
+            }
+        })
         .context("spawning the Next standalone server (is `node` on PATH?)")?;
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
     loop {
@@ -333,8 +346,18 @@ async fn bootstrap_backend() -> anyhow::Result<(Backend, String, String)> {
                 axum::http::Method::PUT,
                 axum::http::Method::PATCH,
                 axum::http::Method::DELETE,
+                axum::http::Method::OPTIONS,
             ])
-            .allow_headers(tower_http::cors::Any),
+            // Credentialed mode: the web app's httpOnly refresh cookie rides
+            // every app→API call, so wildcard headers and missing
+            // allow-credentials fail the browser's preflight (matches
+            // core-api main's CORS posture).
+            .allow_headers([
+                axum::http::header::CONTENT_TYPE,
+                axum::http::header::AUTHORIZATION,
+                axum::http::header::HeaderName::from_static("x-meridian-csrf"),
+            ])
+            .allow_credentials(true),
     );
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", api_port)).await?;
     tracing::info!(%api_url, "core-api mounted for the desktop app");
@@ -361,6 +384,13 @@ fn install_sigterm_handler(data_dir: PathBuf) {
     static DATA_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     let _ = DATA_DIR.set(data_dir);
     extern "C" fn handler(sig: i32) {
+        // Reap the bundled Next server first — a leaked next-server keeps
+        // its port and breaks the next launch (orphan-window/CORS bug).
+        if let Some(pid) = NEXT_SERVER_PID.get() {
+            unsafe {
+                libc::kill(*pid as libc::pid_t, libc::SIGKILL);
+            }
+        }
         // Best-effort fast shutdown of the embedded Postgres, then exit.
         if let Some(data_dir) = DATA_DIR.get() {
             let install_root = data_dir.parent().unwrap().join("pginstall");

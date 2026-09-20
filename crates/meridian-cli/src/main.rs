@@ -352,6 +352,34 @@ fn print_seed_summary(report: &core_db::demo::DemoSeedReport) {
         ),
         ("report schedules", report.report_schedules.to_string()),
         ("webhooks", report.webhooks.to_string()),
+        (
+            "assets / vault entries / api keys",
+            format!(
+                "{} / {} / {}",
+                report.assets, report.vault_entries, report.api_keys
+            ),
+        ),
+        (
+            "catalog items / quotes / pipeline deals",
+            format!(
+                "{} / {} / {}",
+                report.catalog_items, report.quotes, report.pipeline_deals
+            ),
+        ),
+        (
+            "credit notes / tags / notifications",
+            format!(
+                "{} / {} / {}",
+                report.credit_notes, report.tags, report.notifications
+            ),
+        ),
+        (
+            "pm schedules / automations / plugins",
+            format!(
+                "{} / {} / {}",
+                report.pm_schedules, report.automation_rules, report.plugin_installs
+            ),
+        ),
     ];
     println!();
     println!("demo org seeded");
