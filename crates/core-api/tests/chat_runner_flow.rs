@@ -204,6 +204,17 @@ fn turn_body(surface_key: &str, ticket_id: Option<Uuid>) -> Value {
 /// Catalog + org credential + surface grant + capability grant: the
 /// complete admit kit for one member on one surface.
 async fn seed_admit_kit(app: &Router, owner: &str, member_id: Uuid, surface_key: &str, hex: &str) {
+    // The org master switch gates every AI edge (default OFF); admit-kit
+    // consumers exercise grant/cap/edge behavior, so it is turned ON here.
+    let response = send(
+        app,
+        axum::http::Method::PUT,
+        "/api/settings/org",
+        Some(owner),
+        Some(json!({ "key": "ai.features_enabled", "value": true })),
+    )
+    .await;
+    assert_eq!(response.status(), 200, "master switch on");
     let response = send(
         app,
         axum::http::Method::PUT,
@@ -382,13 +393,19 @@ async fn deny_by_default_refuses_typed_and_outside_allowlist_model_ask() {
     .await;
     let (_member_id, _org_id) = me_ids(&app, &member).await;
 
+    // The master switch stays at its default OFF for the deny-by-default
+    // probe below; it is turned ON inside seed_admit_kit before any
+    // admitted-edge behavior is exercised.
+
     // deny-by-default: no grant → typed refusal BEFORE any stream begins
     let session = Uuid::now_v7();
     let response = post_turn(&app, session, &member, turn_body("general_chat", None)).await;
     assert_eq!(response.status(), 403);
     let refused = body_json(response).await;
-    assert_eq!(refused["error"]["reason"], "ai_surface_not_granted");
-    assert_eq!(refused["error"]["surface"], "general_chat");
+    assert_eq!(
+        refused["error"]["reason"], "ai_features_disabled",
+        "master-off refuses typed, before the grant check"
+    );
 
     // admit kit for the member (catalog + credential + grant), then an
     // OUTSIDE-allowlist model ask refuses typed too

@@ -27,6 +27,7 @@ pub mod config_identity;
 pub mod connector;
 pub mod contracts;
 pub mod custom_fields;
+pub mod decision;
 // Dev-tool surface (TASKLIST DX1–DX2): only reachable behind
 // MERIDIAN_DEV_TOOLS=1 — the CLI refuses and the API router is not mounted
 // without it.

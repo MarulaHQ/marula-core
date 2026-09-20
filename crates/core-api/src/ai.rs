@@ -368,8 +368,18 @@ pub async fn embed_batch(
 }
 
 /// Embeds the current search query, if the org has an embedding-capable
-/// provider. `None` ⇒ the caller runs the legacy lexical path unchanged.
+/// provider AND the org master switch is on (ADR 0010 §4: OFF ⇒ the org
+/// sees exactly the pre-AI product; the vector leg degrades to `None`
+/// and the caller runs the legacy lexical path unchanged).
 pub async fn embed_search_query(state: &AppState, org_id: Uuid, query: &str) -> Option<Vec<f32>> {
+    let mut conn = state.pool.acquire().await.ok()?;
+    if !core_db::ai_policy::features_enabled(conn.as_mut(), org_id)
+        .await
+        .ok()?
+    {
+        return None;
+    }
+    drop(conn);
     let provider = resolve_org_completion_provider(state, org_id).await;
     let mut vectors = embed_batch(&provider, vec![query.to_string()]).await?;
     vectors.pop()
@@ -398,6 +408,21 @@ pub async fn backfill_org_embeddings(
     org_id: Uuid,
     max_batches: i64,
 ) -> Result<BackfillReport, ApiError> {
+    let mut conn = state.pool.acquire().await.map_err(ApiError::from)?;
+    if !core_db::ai_policy::features_enabled(conn.as_mut(), org_id)
+        .await
+        .map_err(ApiError::from)?
+    {
+        return Ok(BackfillReport {
+            embedded: 0,
+            complete: true,
+            reason: Some(
+                "AI features are switched off for this organization: vector leg stays dark"
+                    .to_string(),
+            ),
+        });
+    }
+    drop(conn);
     let provider = resolve_org_completion_provider(state, org_id).await;
     let model = match &provider {
         OrgCompletionProvider::Embeddings(embeddings) => embeddings.model.clone(),
