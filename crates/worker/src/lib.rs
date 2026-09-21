@@ -24,6 +24,7 @@
 
 pub mod automations;
 pub mod config;
+pub mod decision;
 pub mod delivery;
 pub mod effects;
 pub mod email;
@@ -252,6 +253,28 @@ pub async fn run(
             alive.store(false, Ordering::Relaxed);
             tracing::error!("webhooks-out loop exited; reporting unhealthy");
         });
+    }
+
+    // Decision surfaces' stream consumer (Wave 23 lane 3): composes
+    // state from event envelopes and dispatches ONE speculative fan-out
+    // per trigger through core-api's internal decision seam. Disabled
+    // cleanly (none mode) when no bot principal is configured — surfaces
+    // act exactly as they would without a decision model.
+    if config.decision_bot_user_id.is_some() {
+        let fan_out: std::sync::Arc<dyn decision::DecisionFanOut> =
+            std::sync::Arc::new(decision::ReqwestFanOut::new(
+                config.internal_api_url.clone(),
+                config.internal_token.clone(),
+            ));
+        tokio::spawn(decision::run_decision_triage(
+            pool.clone(),
+            config.clone(),
+            fan_out,
+            shutdown.clone(),
+        ));
+        tracing::info!("decision triage enabled (dispatching through core-api)");
+    } else {
+        tracing::info!("decision triage disabled: MERIDIAN_DECISION_BOT_USER_ID not configured");
     }
 
     let health = HealthFlags {

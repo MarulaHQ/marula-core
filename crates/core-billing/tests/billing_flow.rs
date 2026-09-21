@@ -262,6 +262,39 @@ async fn add_time_entry_billable(
     )
     .await;
     assert_eq!(response.status(), 200, "time entry create must succeed");
+    // 0073 time approvals: entries start in `draft` and are only
+    // billable once SUBMITTED and APPROVED — drive the real approval
+    // flow here (the owner role carries ApproveTime).
+    let entry: Value = body_json(response).await;
+    let entry_id: Uuid = entry["id"]
+        .as_str()
+        .or(entry["entry"]["id"].as_str())
+        .expect("time entry id in response")
+        .parse()
+        .unwrap();
+    let submitted = send(
+        app,
+        axum::http::Method::POST,
+        &format!("/api/time-entries/{entry_id}/submit"),
+        Some(&org.token),
+        Some(json!({ "note": null })),
+    )
+    .await;
+    assert_eq!(submitted.status(), 200, "time entry submit must succeed");
+    let decided = send(
+        app,
+        axum::http::Method::POST,
+        "/api/time-entries/approvals/decide",
+        Some(&org.token),
+        Some(json!({
+            "entry_ids": [entry_id],
+            "decision": "approve",
+            "reason_code": null,
+            "note": null
+        })),
+    )
+    .await;
+    assert_eq!(decided.status(), 200, "time entry approve must succeed");
 }
 
 // --- CRUD + envelope ---------------------------------------------------------

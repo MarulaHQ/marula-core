@@ -9,7 +9,7 @@
  * Non-purpose: no Tiptap imports — primitives stay valid for any headless
  * editor; no palette drafts (theme.md §9) and motion beyond the 120ms law.
  */
-import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { forwardRef, type ButtonHTMLAttributes } from "react";
 import { cn } from "../lib/cn";
 
 /** One slim toolbar row; groups are separated by hairlines via CSS. */

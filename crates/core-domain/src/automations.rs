@@ -41,7 +41,12 @@ pub struct TicketSnapshot {
 }
 
 /// One predicate; a rule matches only when EVERY condition holds.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// Deterministic predicates evaluate against the ticket snapshot; the
+/// [`AutomationCondition::AiDecision`] kind is pulled out by
+/// [`split_conditions`] and evaluated by the worker against recorded
+/// decision answers (ADR 0010 #2).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AutomationCondition {
@@ -56,6 +61,100 @@ pub enum AutomationCondition {
     },
     /// Assignee is currently unset.
     Unassigned,
+    /// Semantic condition answered by the decision model (ADR 0010 §3
+    /// #2): references (surface, question, operator, threshold,
+    /// confidence-path) and is evaluated by the worker AGAINST THE
+    /// NEWEST RECORDED DECISION ANSWERS for the ticket — never by a
+    /// live per-rule fan-out (the one-fan-out-per-trigger doctrine is
+    /// owned by the worker decision subsystem). Missing/stale answers
+    /// evaluate as NO-MATCH with a warn — the exact skip-with-warn
+    /// posture a malformed deterministic rule gets today.
+    AiDecision {
+        surface: String,
+        question: String,
+        operator: AiDecisionOperator,
+        threshold: f64,
+        /// Dot-path into the answer entry overriding the default
+        /// `"confidence"` key when the rule gates on a specific path.
+        confidence_path: Option<String>,
+    },
+}
+
+/// How an `ai_decision` condition judges one recorded answer entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum AiDecisionOperator {
+    /// Noul probability ≥ threshold.
+    ProbabilityAbove,
+    /// Score rubric level ≥ threshold.
+    LevelAtLeast,
+    /// Recorded confidence ≥ threshold (any answer kind).
+    ConfidenceAbove,
+}
+
+impl AiDecisionOperator {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::ProbabilityAbove => "probability_above",
+            Self::LevelAtLeast => "level_at_least",
+            Self::ConfidenceAbove => "confidence_above",
+        }
+    }
+}
+
+/// The decision answers JSON an `ai_decision` condition reads: one entry
+/// per question id, each `{ kind, picked|level|probability,
+/// distribution, confidence }` (the audit store's shape, see 0090).
+pub fn evaluate_ai_decision(
+    answers: &serde_json::Value,
+    _surface: &str,
+    question: &str,
+    operator: AiDecisionOperator,
+    threshold: f64,
+    confidence_path: Option<&str>,
+) -> bool {
+    use serde_json::Value as V;
+    let Some(entry) = answers.get(question) else {
+        return false;
+    };
+    let numeric = |key: &str| -> Option<f64> {
+        match entry.get(key) {
+            Some(V::Number(n)) => n.as_f64(),
+            Some(V::Array(v)) => Some(v.iter().filter_map(|x| x.as_f64()).sum::<f64>()),
+            _ => None,
+        }
+    };
+    let Some(value) = (match operator {
+        AiDecisionOperator::ProbabilityAbove => numeric("probability"),
+        AiDecisionOperator::LevelAtLeast => numeric("level"),
+        AiDecisionOperator::ConfidenceAbove => numeric("confidence"),
+    }) else {
+        return false;
+    };
+    if !value.is_finite() || value < threshold {
+        return false;
+    }
+    // Confidence path (optional): when set, the referenced value gates
+    // the match too — a confident pick can still be required to ride a
+    // specific distribution slice.
+    let Some(path) = confidence_path else {
+        return true;
+    };
+    let Some(gate) = path
+        .split('.')
+        .try_fold(entry, |node, seg| {
+            // Array segments index numerically ("distribution.0").
+            match seg.parse::<usize>() {
+                Ok(index) => node.get(index),
+                Err(_) => node.get(seg),
+            }
+        })
+        .and_then(|node| node.as_f64())
+    else {
+        return false;
+    };
+    gate.is_finite() && gate >= threshold
 }
 
 impl AutomationCondition {
@@ -67,14 +166,84 @@ impl AutomationCondition {
                 needle.is_empty() || snap.title.to_lowercase().contains(&needle.to_lowercase())
             }
             Self::Unassigned => snap.assignee_id.is_none(),
+            // Deterministic snapshot matching never satisfies a semantic
+            // condition — callers MUST split first (see split_conditions);
+            // reaching here unsplit evaluates the AI condition as no-match.
+            Self::AiDecision { .. } => false,
+        }
+    }
+
+    /// The condition's ai_decision spec, when it is one.
+    pub fn as_ai_decision(&self) -> Option<AiDecisionSpec<'_>> {
+        match self {
+            Self::AiDecision {
+                surface,
+                question,
+                operator,
+                threshold,
+                confidence_path,
+            } => Some(AiDecisionSpec {
+                surface: surface.as_str(),
+                question: question.as_str(),
+                operator: *operator,
+                threshold: *threshold,
+                confidence_path: confidence_path.as_deref(),
+            }),
+            _ => None,
         }
     }
 }
 
+/// One `ai_decision` condition's reference tuple: (surface, question,
+/// operator, threshold, confidence-path) — the semantic condition shape
+/// the worker evaluates against recorded decision answers.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AiDecisionSpec<'a> {
+    pub surface: &'a str,
+    pub question: &'a str,
+    pub operator: AiDecisionOperator,
+    pub threshold: f64,
+    pub confidence_path: Option<&'a str>,
+}
+
+/// The deterministic snapshot predicates (evaluated first, cheap and
+/// pure) and the `ai_decision` specs the worker evaluates ONLY when
+/// every deterministic condition already holds — the decision answers
+/// read is the expensive leg.
+#[derive(Debug, Clone)]
+pub struct SplitConditions<'a> {
+    pub deterministic: Vec<&'a AutomationCondition>,
+    pub semantic: Vec<AiDecisionSpec<'a>>,
+}
+
+/// Partitions a rule's conditions: the deterministic snapshot predicates
+/// (evaluated first, cheap and pure) and the `ai_decision` specs (worker
+/// evaluates them ONLY when every deterministic condition already holds —
+/// the decision answers read is the expensive leg).
+pub fn split_conditions(conditions: &[AutomationCondition]) -> SplitConditions<'_> {
+    let mut deterministic = Vec::new();
+    let mut semantic = Vec::new();
+    for condition in conditions {
+        match condition.as_ai_decision() {
+            Some(spec) => semantic.push(spec),
+            None => deterministic.push(condition),
+        }
+    }
+    SplitConditions {
+        deterministic,
+        semantic,
+    }
+}
+
 /// A rule matches when all of its conditions hold (empty conditions = match
-/// everything on the trigger event).
-pub fn matches_all(conditions: &[AutomationCondition], snap: &TicketSnapshot) -> bool {
-    conditions.iter().all(|c| c.holds(snap))
+/// everything on the trigger event). Accepts owned slices or the split
+/// deterministic part (`Vec<&AutomationCondition>`) from
+/// [`split_conditions`].
+pub fn matches_all<'a, I>(conditions: I, snap: &TicketSnapshot) -> bool
+where
+    I: IntoIterator<Item = &'a AutomationCondition>,
+{
+    conditions.into_iter().all(|c| c.holds(snap))
 }
 
 /// Effects a rule may request. Every variant maps onto an existing core-api
@@ -361,5 +530,150 @@ mod tests {
             let err = AutomationRule::parse(&row).expect_err(label);
             assert!(!err.is_empty());
         }
+    }
+
+    #[test]
+    fn ai_decision_condition_round_trips_through_serde() {
+        let raw = serde_json::json!({
+            "type": "ai_decision",
+            "surface": "decision_ticket_triage",
+            "question": "actionable",
+            "operator": "probability_above",
+            "threshold": 0.8,
+            "confidence_path": null
+        });
+        let condition: AutomationCondition = serde_json::from_value(raw.clone()).unwrap();
+        match &condition {
+            AutomationCondition::AiDecision {
+                surface,
+                question,
+                operator,
+                threshold,
+                confidence_path,
+            } => {
+                assert_eq!(surface, "decision_ticket_triage");
+                assert_eq!(question, "actionable");
+                assert_eq!(*operator, AiDecisionOperator::ProbabilityAbove);
+                assert_eq!(*threshold, 0.8);
+                assert!(confidence_path.is_none());
+            }
+            other => panic!("expected AiDecision, got {other:?}"),
+        }
+        // Unknown operator is refused at the serde boundary (skip-with-warn).
+        let mut bad = raw.clone();
+        bad["operator"] = serde_json::json!("vibes_above");
+        assert!(serde_json::from_value::<AutomationCondition>(bad).is_err());
+        // Round trip.
+        assert_eq!(
+            serde_json::to_value(&condition).unwrap(),
+            serde_json::json!({
+                "type": "ai_decision",
+                "surface": "decision_ticket_triage",
+                "question": "actionable",
+                "operator": "probability_above",
+                "threshold": 0.8,
+                "confidence_path": null
+            })
+        );
+    }
+
+    #[test]
+    fn split_conditions_partitions_deterministic_from_semantic() {
+        let conditions = vec![
+            AutomationCondition::PriorityIs {
+                priority: Priority::P1,
+            },
+            AutomationCondition::AiDecision {
+                surface: "decision_ticket_triage".into(),
+                question: "actionable".into(),
+                operator: AiDecisionOperator::ProbabilityAbove,
+                threshold: 0.8,
+                confidence_path: None,
+            },
+        ];
+        let split = split_conditions(&conditions);
+        assert_eq!(split.deterministic.len(), 1);
+        assert_eq!(split.semantic.len(), 1);
+        assert!(matches_all(
+            split.deterministic.iter().copied(),
+            &snapshot()
+        ));
+    }
+
+    #[test]
+    fn evaluate_ai_decision_gates_probability_level_and_confidence() {
+        use AiDecisionOperator as Op;
+        let answers = serde_json::json!({
+            "actionable": { "kind": "noul", "probability": 0.9 },
+            "urgency": { "kind": "score", "level": 4 },
+            "board": { "kind": "choice", "picked": 0, "confidence": 0.55, "distribution": [0.8, 0.2] }
+        });
+        assert!(evaluate_ai_decision(
+            &answers,
+            "decision_ticket_triage",
+            "actionable",
+            Op::ProbabilityAbove,
+            0.8,
+            None
+        ));
+        assert!(!evaluate_ai_decision(
+            &answers,
+            "decision_ticket_triage",
+            "actionable",
+            Op::ProbabilityAbove,
+            0.95,
+            None
+        ));
+        assert!(evaluate_ai_decision(
+            &answers,
+            "decision_ticket_triage",
+            "urgency",
+            Op::LevelAtLeast,
+            4.0,
+            None
+        ));
+        assert!(!evaluate_ai_decision(
+            &answers,
+            "decision_ticket_triage",
+            "urgency",
+            Op::LevelAtLeast,
+            5.0,
+            None
+        ));
+        assert!(evaluate_ai_decision(
+            &answers,
+            "decision_ticket_triage",
+            "board",
+            Op::ConfidenceAbove,
+            0.5,
+            None
+        ));
+        // Missing question ⇒ no-match (skip-with-warn posture upstream).
+        assert!(!evaluate_ai_decision(
+            &answers,
+            "decision_ticket_triage",
+            "missing",
+            Op::ProbabilityAbove,
+            0.1,
+            None
+        ));
+        // Confidence path gate: exactly at threshold holds.
+        assert!(evaluate_ai_decision(
+            &answers,
+            "decision_ticket_triage",
+            "board",
+            Op::ConfidenceAbove,
+            0.5,
+            Some("distribution.0")
+        ));
+        // Malformed confidence path ⇒ no-match.
+        assert!(!evaluate_ai_decision(
+            &answers,
+            "decision_ticket_triage",
+            "board",
+            Op::ConfidenceAbove,
+            0.5,
+            Some("nope.deep")
+        ));
     }
 }

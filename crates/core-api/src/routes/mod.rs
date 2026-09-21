@@ -62,6 +62,7 @@ pub mod costs;
 pub mod credit_notes;
 pub mod custom_fields;
 pub mod decision_edge;
+pub mod decision_suggestions;
 pub mod dev;
 pub mod dispatch;
 pub mod dispatch_connector;
@@ -183,7 +184,15 @@ pub fn build_router(state: AppState) -> Router {
     let internal = Router::new()
         .route("/internal/search/upsert", post(internal::upsert))
         .route("/internal/search/delete", post(internal::delete))
-        .route("/internal/search/backfill", post(internal::search_backfill));
+        .route("/internal/search/backfill", post(internal::search_backfill))
+        .route(
+            "/internal/decision/fan-out",
+            post(internal::decision_fan_out),
+        )
+        .route(
+            "/internal/alerts/decision-ack",
+            post(internal::alert_decision_ack),
+        );
 
     let docs = openapi::scalar_router();
 
@@ -630,6 +639,10 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/tickets/{id}"),
             get(tickets::get_one).patch(tickets::patch),
+        )
+        .route(
+            &rp("/tickets/{id}/decision-suggestions"),
+            get(decision_suggestions::list),
         )
         .route(&rp("/tickets/{id}/status"), post(tickets::change_status))
         .route(&rp("/tickets/{id}/sla"), get(tickets::sla_status))

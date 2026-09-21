@@ -60,6 +60,7 @@ import { keywordsOf } from "../../../components/workbench-v2/agent-panel";
 import { WbTimeline } from "../../../components/workbench-v2/timeline";
 import { WbContextPanel } from "../../../components/workbench-v2/context-panel";
 import { WbAgentPanel } from "../../../components/workbench-v2/agent-panel";
+import { DecisionSuggestionsCard } from "../../../components/workbench-v2/decision-card";
 import { WbComposer } from "../../../components/workbench-v2/composer";
 import { WrapUpSheet } from "../../../components/workbench-v2/wrap-up-sheet";
 import { TasksGateDialog, type GateBlocks } from "../../../components/notes/close-gate-dialog";
@@ -949,6 +950,11 @@ async function changeStatus(statusId: string): Promise<void> {
               {(current?.name ?? "Unknown status").toUpperCase()}
             </span>
           </div>
+
+          {/* Decision workbench suggestion card (Wave 23 lane 3): inline
+              AI triage suggestions — suggestions-by-default, pending state
+              below threshold, silently absent with the decision model off. */}
+          <DecisionSuggestionsCard ticketId={ticket.id} onApplied={() => void refresh()} />
         </div>
 
         {/* Tabs */}

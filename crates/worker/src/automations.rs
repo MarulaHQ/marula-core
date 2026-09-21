@@ -140,8 +140,82 @@ pub async fn match_rules(pool: &PgPool, envelope: &Envelope) -> Vec<MatchedRule>
         if !rule.applies_to_board(snapshot.board_id) {
             continue;
         }
-        if !core_domain::automations::matches_all(&rule.conditions, &snapshot) {
+        // Deterministic conditions first (pure, cheap); semantic
+        // `ai_decision` conditions evaluate ONLY when those all hold,
+        // against the NEWEST recorded decision answers for the ticket
+        // (stored-answers evaluation — the decision subsystem owns the
+        // one-fan-out-per-trigger dispatch; missing/malformed answers
+        // are no-match-with-warn, the same skip posture as a malformed
+        // deterministic rule).
+        let split = core_domain::automations::split_conditions(&rule.conditions);
+        if !core_domain::automations::matches_all(split.deterministic.iter().copied(), &snapshot) {
             continue;
+        }
+        if !split.semantic.is_empty() {
+            // One read per distinct referenced surface, newest answers row.
+            let mut surfaces: Vec<&str> = split.semantic.iter().map(|spec| spec.surface).collect();
+            surfaces.sort_unstable();
+            surfaces.dedup();
+            let mut answers = std::collections::HashMap::new();
+            let mut answers_ok = true;
+            for surface in &surfaces {
+                match core_db::decision::latest_answers_for_entity(
+                    pool,
+                    snapshot.org_id,
+                    surface,
+                    "ticket",
+                    snapshot.ticket_id,
+                )
+                .await
+                {
+                    Ok(Some(row)) => {
+                        answers.insert(*surface, row.answers);
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        tracing::warn!(
+                            rule = %rule.id,
+                            surface,
+                            %error,
+                            "ai_decision answers read failed; rule skipped-with-warn"
+                        );
+                        answers_ok = false;
+                        break;
+                    }
+                }
+            }
+            if !answers_ok {
+                continue;
+            }
+            let mut all_hold = true;
+            for spec in &split.semantic {
+                let surface = spec.surface;
+                let question = spec.question;
+                let Some(surface_answers) = answers.get(surface) else {
+                    tracing::warn!(
+                        rule = %rule.id,
+                        surface,
+                        question,
+                        "ai_decision condition no-match: no recorded answers for surface"
+                    );
+                    all_hold = false;
+                    break;
+                };
+                if !core_domain::automations::evaluate_ai_decision(
+                    surface_answers,
+                    surface,
+                    question,
+                    spec.operator,
+                    spec.threshold,
+                    spec.confidence_path,
+                ) {
+                    all_hold = false;
+                    break;
+                }
+            }
+            if !all_hold {
+                continue;
+            }
         }
         out.push(MatchedRule {
             org_id: envelope.org_id,

@@ -646,7 +646,9 @@ mod tests {
             Some(SettingValue::Text("light".into()))
         );
         assert_eq!(declarations_for(SettingScope::User).len(), 3);
-        assert_eq!(declarations_for(SettingScope::Org).len(), 13);
+        // Tripwire count: bump deliberately when an org-scope setting is
+        // added (Wave 18 lane 2b added ai.features_enabled — 13 → 14).
+        assert_eq!(declarations_for(SettingScope::Org).len(), 14);
     }
 
     #[test]

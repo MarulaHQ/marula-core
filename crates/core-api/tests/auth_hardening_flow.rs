@@ -125,8 +125,9 @@ async fn ip_rotation_cannot_bypass_the_account_lock() {
         .expect("needs MERIDIAN_TEST_DATABASE_URL or DATABASE_URL");
     let app = core_api::router(test_state(&admin_url).await);
     let email = Uuid::now_v7().to_string();
-    let email = format!("iprot-{email}@lock-a.test");
-    register_org(&app, "lock-a").await;
+    let slug = format!("lock-a-{}", Uuid::now_v7().simple());
+    let email = format!("iprot-{email}@{slug}.test");
+    register_org(&app, &slug).await;
 
     // Re-declare an identical-shape login against the same account from
     // eight DIFFERENT forwarded IPs (each sees its own per-IP counter).
@@ -216,7 +217,8 @@ async fn refresh_reuse_after_rotation_kills_the_whole_chain() {
     let ip = format!("114.51.40.{}", Uuid::now_v7());
     let ip = ip.as_str();
     let _ip_dead = format!("114.51.41.{}", Uuid::now_v7());
-    let seeded = register_org(&app, "reuse").await;
+    let slug = format!("reuse-{}", Uuid::now_v7().simple());
+    let seeded = register_org(&app, &slug).await;
     let refresh = seeded["refresh_token"].as_str().unwrap().to_string();
     let session = Uuid::parse_str(seeded["session_id"].as_str().unwrap()).unwrap();
 
@@ -287,14 +289,24 @@ async fn magic_link_reuse_is_a_uniform_401() {
     let user = Uuid::now_v7();
     // The server stores only sha256(token); send the raw (64 hexes) and
     // seed the recorded hash with its digest (`jwt.rs` uses plain sha256).
-    let token_raw: String = "0".repeat(64);
+    // Random token — auth_one_use_tokens.token_hash is UNIQUE and a
+    // fixed raw token collided with prior runs of this binary.
+    let token_raw: String = format!(
+        "{:064x}",
+        (Uuid::now_v7().as_u128() << 64) | Uuid::now_v7().as_u128()
+    );
     use sha2::{Digest, Sha256};
     let token_hash = hex::encode(Sha256::digest(token_raw.as_bytes()));
+    // Unique slug/email — the test DB is reused across binary runs and
+    // orgs.slug / users.email are unique (fixed ids collided on reuse).
+    let ml_slug = format!("ml-{}", Uuid::now_v7().simple());
+    let ml_email = format!("{ml_slug}@test");
     sqlx::query(
         "INSERT INTO orgs (id, name, slug, ticket_prefix, ticket_sequence, base_currency, magic_link_sign_in) \
-         VALUES ($1,'Ml Co','ml','ML',1,'USD', true)",
+         VALUES ($1,'Ml Co',$2,'ML',1,'USD', true)",
     )
     .bind(org)
+    .bind(&ml_slug)
     .execute(&pool)
     .await
     .expect("org");
@@ -304,7 +316,7 @@ async fn magic_link_reuse_is_a_uniform_401() {
     )
     .bind(user)
     .bind(org)
-    .bind("ml-user@test")
+    .bind(&ml_email)
     .execute(&pool)
     .await
     .expect("user");

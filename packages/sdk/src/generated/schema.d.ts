@@ -8375,6 +8375,27 @@ export interface paths {
         patch: operations["tickets_update_cost_line"];
         trace?: never;
     };
+    "/api/v1/tickets/{id}/decision-suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/tickets/{id}/decision-suggestions — the workbench card's
+         *     read. Optimistic UI rides the instant-first envelope upstream; this
+         *     endpoint is a plain RLS'd read (nothing to undo, nothing to gate).
+         */
+        get: operations["tickets_decision_suggestions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tickets/{id}/emails": {
         parameters: {
             query?: never;
@@ -9459,6 +9480,11 @@ export interface components {
             mutation: components["schemas"]["MutationMeta"];
             status: components["schemas"]["AiCredentialDto"];
         };
+        /**
+         * @description How an `ai_decision` condition judges one recorded answer entry.
+         * @enum {string}
+         */
+        AiDecisionOperator: "probability_above" | "level_at_least" | "confidence_above";
         AiGrantDto: {
             /** @description `role` | `user`. */
             grantee_kind: string;
@@ -10007,7 +10033,14 @@ export interface components {
             type: "notify_users";
             user_ids: string[];
         };
-        /** @description One predicate; a rule matches only when EVERY condition holds. */
+        /**
+         * @description One predicate; a rule matches only when EVERY condition holds.
+         *
+         *     Deterministic predicates evaluate against the ticket snapshot; the
+         *     [`AutomationCondition::AiDecision`] kind is pulled out by
+         *     [`split_conditions`] and evaluated by the worker against recorded
+         *     decision answers (ADR 0010 #2).
+         */
         AutomationCondition: {
             priority: components["schemas"]["Priority"];
             /** @enum {string} */
@@ -10023,6 +10056,19 @@ export interface components {
         } | {
             /** @enum {string} */
             type: "unassigned";
+        } | {
+            /**
+             * @description Dot-path into the answer entry overriding the default
+             *     `"confidence"` key when the rule gates on a specific path.
+             */
+            confidence_path?: string | null;
+            operator: components["schemas"]["AiDecisionOperator"];
+            question: string;
+            surface: string;
+            /** Format: double */
+            threshold: number;
+            /** @enum {string} */
+            type: "ai_decision";
         };
         /**
          * @description POST /api/automation-rules/{id}/test-run — dry-run one rule against the
@@ -12584,6 +12630,11 @@ export interface components {
             appointment?: null | components["schemas"]["Appointment"];
             mutation: components["schemas"]["MutationMeta"];
             request: components["schemas"]["AppointmentRequest"];
+        };
+        DecisionSuggestionsResponse: {
+            suggestions: components["schemas"]["SuggestionSurface"][];
+            /** Format: uuid */
+            ticket_id: string;
         };
         /**
          * @description Wire shape of one declaration. Kinds/options are flattened so generated
@@ -18442,6 +18493,33 @@ export interface components {
         SubmitResponse: components["schemas"]["TimeEntry"];
         /** @description POST /api/dispatch/travel-drafts/{id}/submit body. */
         SubmitTravelDraftRequest: components["schemas"]["MutationParams"];
+        SuggestionAnswer: {
+            /** Format: double */
+            act?: number | null;
+            /**
+             * @description Raw answer entry: kind + picked/level/probability + the FULL
+             *     normalized distribution + confidence (no prose — none exists).
+             */
+            answer: unknown;
+            question_id: string;
+            /** Format: double */
+            review?: number | null;
+            /**
+             * @description "act" | "pending" | "ignore" — the threshold gate at read time.
+             *     `None` when no thresholds resolve (honest unconfigured state).
+             */
+            state?: string | null;
+        };
+        SuggestionSurface: {
+            answers: components["schemas"]["SuggestionAnswer"][];
+            /** @description `shadow` rows drive nothing and are labeled as such. */
+            mode: string;
+            model: string;
+            provider: string;
+            /** Format: date-time */
+            recorded_at: string;
+            surface: string;
+        };
         SyncForceQuery: {
             /** @description Force a poll even when the connection is disabled (admin repair). */
             force?: boolean;
@@ -36924,6 +37002,34 @@ export interface operations {
             };
             /** @description already billed, version conflict, or idempotency key reused */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tickets_decision_suggestions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecisionSuggestionsResponse"];
+                };
+            };
+            /** @description ticket not visible in scope (rls_sparse) */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

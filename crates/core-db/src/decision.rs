@@ -191,3 +191,75 @@ pub async fn record_decision_answers(
     .await?;
     Ok(())
 }
+
+/// Read model for consumers (Wave 23 lane 3): the newest recorded answers
+/// for one entity on one surface. Suggestion storage rides the append-only
+/// audit store itself — the newest row per (surface, entity) IS the live
+/// suggestion; mode/thresholds classify act-vs-pending at read time.
+#[derive(Debug, Clone, PartialEq, sqlx::FromRow)]
+pub struct DecisionAnswersRow {
+    pub id: Uuid,
+    pub surface: String,
+    pub entity_type: String,
+    pub entity_id: Option<Uuid>,
+    pub mode: String,
+    pub provider: String,
+    pub model: String,
+    pub answers: Value,
+    pub request_id: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Newest answers row for one entity on one surface (plain-string style
+/// matching this module; org RLS applies via the caller's tx/pool GUC).
+pub async fn latest_answers_for_entity<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    surface: &str,
+    entity_type: &str,
+    entity_id: Uuid,
+) -> DbResult<Option<DecisionAnswersRow>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    sqlx::query_as::<_, DecisionAnswersRow>(
+        r#"SELECT id, surface, entity_type, entity_id, mode, provider, model,
+                  answers, request_id, created_at
+             FROM decision_answers
+            WHERE org_id = $1 AND surface = $2 AND entity_type = $3 AND entity_id = $4
+            ORDER BY created_at DESC
+            LIMIT 1"#,
+    )
+    .bind(org_id)
+    .bind(surface)
+    .bind(entity_type)
+    .bind(entity_id)
+    .fetch_optional(executor)
+    .await
+    .map_err(Into::into)
+}
+
+/// Newest answers row per surface for one ticket — the workbench
+/// suggestion card's read (triage/workbench/dispatch fans).
+pub async fn latest_answers_for_ticket<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    ticket_id: Uuid,
+) -> DbResult<Vec<DecisionAnswersRow>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    sqlx::query_as::<_, DecisionAnswersRow>(
+        r#"SELECT DISTINCT ON (surface)
+                  id, surface, entity_type, entity_id, mode, provider, model,
+                  answers, request_id, created_at
+             FROM decision_answers
+            WHERE org_id = $1 AND entity_type = 'ticket' AND entity_id = $2
+            ORDER BY surface, created_at DESC"#,
+    )
+    .bind(org_id)
+    .bind(ticket_id)
+    .fetch_all(executor)
+    .await
+    .map_err(Into::into)
+}

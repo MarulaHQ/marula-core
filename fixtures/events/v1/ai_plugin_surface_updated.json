@@ -1,0 +1,13 @@
+{
+  "event_type": "ai.plugin_surface_updated",
+  "entity": "ai_plugin_surface",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "key": "acme-fs",
+    "label": "Acme file store",
+    "enabled": true,
+    "inserted": true
+  }
+}

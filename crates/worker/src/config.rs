@@ -135,6 +135,13 @@ pub struct WorkerConfig {
     /// (`MERIDIAN_SECRET_KEY`, 64 hex chars). Unset ⇒ webhook delivery
     /// jobs dead-letter fail-closed.
     pub webhook_secret_key: Option<AtRestKey>,
+    /// The org principal decision runs are attributed to
+    /// (`MERIDIAN_DECISION_BOT_USER_ID`). Decision answers record
+    /// `created_by` with a real-user FK, so a real member id is
+    /// required; unset ⇒ the decision subsystem stays disabled
+    /// (documented none mode — surfaces act exactly as they would
+    /// without a decision model).
+    pub decision_bot_user_id: Option<uuid::Uuid>,
 }
 
 impl WorkerConfig {
@@ -226,6 +233,8 @@ impl WorkerConfig {
             queue_stale_after_secs: lookup("QUEUE_STALE_SECS")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(300),
+            decision_bot_user_id: lookup("MERIDIAN_DECISION_BOT_USER_ID")
+                .and_then(|v| v.parse().ok()),
         }
     }
 }

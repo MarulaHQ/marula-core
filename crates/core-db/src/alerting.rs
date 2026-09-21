@@ -375,6 +375,34 @@ where
         .map_err(Into::into)
 }
 
+/// Decision-model auto-ack (Wave 23 lane 3): acknowledges an OPEN alert
+/// above the alert-triage thresholds (ADR 0010 #4). The actor is
+/// optional — the deploy's bot principal when configured, NULL
+/// otherwise; decision-model provenance rides the decision_answers row
+/// + request id, never a fabricated user.
+pub async fn decision_auto_ack_alert<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    alert_id: Uuid,
+    actor_id: Option<Uuid>,
+) -> DbResult<Option<AlertRow>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let sql = format!(
+        "UPDATE alerts SET status = 'acknowledged', acked_by = $3, acked_at = now() \
+         WHERE org_id = $1 AND id = $2 AND status = 'open' \
+         RETURNING {ALERT_COLS}"
+    );
+    sqlx::query_as::<_, AlertRow>(&sql)
+        .bind(org_id)
+        .bind(alert_id)
+        .bind(actor_id)
+        .fetch_optional(executor)
+        .await
+        .map_err(Into::into)
+}
+
 /// Resolves an alert from ANY live state (open or acknowledged).
 /// `Ok(None)` = the row exists but is already resolved — typed conflict
 /// at the route. A resolve straight from `open` leaves `acked_*` NULL

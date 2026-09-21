@@ -10,8 +10,9 @@
 //! `decision_answers` AND `ai_usage_ledger`).
 //!
 //! Non-purpose: NO state composition from entity snapshots (consumer
-//! lanes compose per the surface's `state_template`), NO UI, no
-//! HTTP routes (internal edge, like the embeddings legs).
+//! lanes compose per the surface's `state_template`), NO UI, no PUBLIC
+//! HTTP routes (internal edge, like the embeddings legs — the worker
+//! fan-out seam rides the token-guarded /api/internal surface).
 
 use crate::error::{ApiError, ApiResult};
 use crate::routes::ai_policy::{authorize_surface_call, AiAdmissionAsk, AiEdge};
@@ -25,7 +26,27 @@ use core_decision::starters::StarterSet;
 use serde_json::{json, Value};
 use sqlx::PgConnection;
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use uuid::Uuid;
+
+/// Org-keyed provider overrides — TEST support only, same doctrine as
+/// chat_runner's `seed_transport_for_org` (deterministic scripted
+/// answers, no provider keys or network in tests). Production builds
+/// never touch this map; reaching it from prod code is a review red flag.
+static PROVIDER_OVERRIDES: std::sync::LazyLock<
+    Mutex<HashMap<Uuid, Arc<dyn core_decision::provider::DecisionProvider>>>,
+> = std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Seeds a deterministic decision provider for one org (test support only).
+pub fn seed_provider_for_org(
+    org_id: Uuid,
+    provider: Arc<dyn core_decision::provider::DecisionProvider>,
+) {
+    PROVIDER_OVERRIDES
+        .lock()
+        .expect("provider overrides lock poisoned")
+        .insert(org_id, provider);
+}
 
 /// Why a decision run went quiet. Consumers (suggestion surfaces, the
 /// automation engine, the tool-routing gate) treat EVERY variant the
@@ -116,7 +137,7 @@ pub struct DecisionAsk<'a> {
 
 /// Resolve the effective question map for a surface: the org's forked
 /// config when customized, else the pinned starter set version.
-async fn effective_config(
+pub(crate) async fn effective_config(
     tx: &mut PgConnection,
     surface_key: &str,
     cfg: &core_db::decision::DecisionSurfaceConfig,
@@ -215,29 +236,48 @@ fn provider_kind(provider: &str) -> &'static str {
     }
 }
 
-/// Persistable audit shape: per-question full distribution + confidence
-/// + the question kind. No prose — the class produces no rationales.
-fn answers_to_json(config: &SurfaceConfig, response: &DecisionResponse) -> Value {
+/// Persistable audit shape: per-question full distribution + confidence +
+/// the question kind + the resolved Choice option text for the picked
+/// index (suggestion-grade readability — the workbench card renders the
+/// label, never an index). No prose — the class produces no rationales.
+pub fn answers_to_json(
+    config: &SurfaceConfig,
+    response: &DecisionResponse,
+    inventories: &HashMap<String, Vec<String>>,
+) -> Value {
     let mut out = serde_json::Map::new();
     for answer in &response.answers {
-        let kind = config
-            .questions
-            .iter()
-            .find(|q| q.id == answer.id())
+        let question = config.questions.iter().find(|q| q.id == answer.id());
+        let kind = question
             .map(|q| format!("{:?}", q.kind).to_lowercase())
             .unwrap_or_default();
+        // Resolve the Choice option labels the provider picked from
+        // (fixed options or the inventory behind FromStatePath).
+        let options: Option<Vec<String>> = match question.and_then(|q| q.options.as_ref()) {
+            Some(ChoiceOptions::Fixed { options }) => Some(options.clone()),
+            Some(ChoiceOptions::FromStatePath { path }) => inventories.get(path).cloned(),
+            _ => None,
+        };
         let entry = match answer {
             Answer::Choice {
                 picked,
                 distribution,
                 confidence,
                 ..
-            } => json!({
-                "kind": kind,
-                "picked": picked,
-                "distribution": distribution,
-                "confidence": confidence,
-            }),
+            } => {
+                let picked_label = options
+                    .as_ref()
+                    .and_then(|opts| opts.get(*picked))
+                    .cloned()
+                    .unwrap_or_default();
+                json!({
+                    "kind": kind,
+                    "picked": picked,
+                    "picked_label": picked_label,
+                    "distribution": distribution,
+                    "confidence": confidence,
+                })
+            }
             Answer::Score {
                 level,
                 distribution,
@@ -370,15 +410,26 @@ pub async fn decide(
             "ai_provider_kind_unknown".into(),
         )));
     };
-    let Some(provider) = make_provider(
-        descriptor.kind,
-        descriptor.default_base_url,
-        std::str::from_utf8(&call.plaintext_secret).unwrap_or(""),
-        reqwest::Client::new(),
-    ) else {
-        return Ok(Err(DecisionQuiet::Admission(
-            "ai_provider_kind_unknown".into(),
-        )));
+    // Test seam first (org-keyed override), then the real provider.
+    let provider: Arc<dyn core_decision::provider::DecisionProvider> = if let Some(seeded) =
+        PROVIDER_OVERRIDES
+            .lock()
+            .expect("provider overrides lock poisoned")
+            .get(&org_id)
+    {
+        Arc::clone(seeded)
+    } else {
+        let Some(provider) = make_provider(
+            descriptor.kind,
+            descriptor.default_base_url,
+            std::str::from_utf8(&call.plaintext_secret).unwrap_or(""),
+            reqwest::Client::new(),
+        ) else {
+            return Ok(Err(DecisionQuiet::Admission(
+                "ai_provider_kind_unknown".into(),
+            )));
+        };
+        Arc::from(provider)
     };
 
     let questions: Vec<Question> = config
@@ -430,7 +481,7 @@ pub async fn decide(
     )
     .await
     .map_err(ApiError::from)?;
-    let answers_json = answers_to_json(&config, &response);
+    let answers_json = answers_to_json(&config, &response, &inventories);
     core_db::decision::record_decision_answers(
         &mut tx,
         &core_db::decision::DecisionAnswersNew {
@@ -519,7 +570,7 @@ mod tests {
             }],
             usage: Default::default(),
         };
-        let json = answers_to_json(&config, &response);
+        let json = answers_to_json(&config, &response, &HashMap::new());
         let entry = &json["actionable"];
         assert_eq!(entry["kind"], "noul");
         assert_eq!(entry["probability"], 0.83);

@@ -21,7 +21,8 @@ use axum::Json;
 use core_domain::events::types;
 use core_mail::internal::{ClaimRequest, ClaimResponse, ResultsRequest};
 use core_mail::outbound::backoff_delay;
-use serde_json::json;
+use serde_json::{json, Value};
+use std::collections::HashMap;
 
 pub const INTERNAL_TOKEN_HEADER: &str = "X-Internal-Token";
 
@@ -1324,4 +1325,147 @@ pub async fn pm_generate(
     .await?;
 
     Ok(Json(result))
+}
+
+// --- Decision fan-out seam (Wave 23 lane 3) ------------------------------
+
+/// The worker decision subsystem composes state from event envelopes and
+/// dispatches ONE speculative fan-out per trigger through THIS seam. The
+/// handler is a thin wrapper over the internal decision edge: admission,
+/// provider dispatch, shadow store + ledger all live there; this route
+/// carries no policy of its own.
+#[derive(Debug, Deserialize)]
+pub struct DecisionFanOutRequest {
+    pub org_id: Uuid,
+    pub user_id: Uuid,
+    pub surface_key: String,
+    pub entity_type: String,
+    pub entity_id: Option<Uuid>,
+    /// The consumer-composed state (per the surface's `state_template` —
+    /// derived temporal fields pre-computed in code, ADR 0011 §4).
+    pub state: Value,
+    pub request_id: String,
+    #[serde(default)]
+    pub inventories: HashMap<String, Vec<String>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DecisionThreshold {
+    pub act: f64,
+    pub review: f64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DecisionFanOutResponse {
+    /// "ok" — typed answers recorded; "quiet" — degrade-never-5xx.
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub answers: Option<Value>,
+    /// Per-question act/review thresholds from the effective config —
+    /// the consumer gates application against these (act above, pending
+    /// between, ignore below; ADR 0010 §5).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thresholds: Option<HashMap<String, DecisionThreshold>>,
+}
+
+/// POST /internal/decision/fan-out — the worker's only path into the
+/// decision edge. Every quiet variant is reported as
+/// `{"status":"quiet","reason":...}` with HTTP 200: a decision model that
+/// is off, unconfigured, capped, or down must never read as an error to
+/// the consumer (the surface acts exactly as it would without a model).
+pub async fn decision_fan_out(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<DecisionFanOutRequest>,
+) -> ApiResult<Json<DecisionFanOutResponse>> {
+    guard(&state, &headers)?;
+    let ask = crate::routes::decision_edge::DecisionAsk {
+        org_id: req.org_id,
+        user_id: req.user_id,
+        surface_key: &req.surface_key,
+        entity_type: &req.entity_type,
+        entity_id: req.entity_id,
+        state: req.state,
+        request_id: req.request_id,
+        inventories: req.inventories.clone(),
+    };
+    match crate::routes::decision_edge::decide(&state, ask).await? {
+        Ok(run) => {
+            let answers = crate::routes::decision_edge::answers_to_json(
+                &run.config,
+                &run.response,
+                &req.inventories,
+            );
+            let mut thresholds = HashMap::new();
+            for question in &run.config.questions {
+                thresholds.insert(
+                    question.id.clone(),
+                    DecisionThreshold {
+                        act: question.thresholds.act,
+                        review: question.thresholds.review,
+                    },
+                );
+            }
+            Ok(Json(DecisionFanOutResponse {
+                status: "ok".into(),
+                reason: None,
+                mode: Some(run.mode),
+                answers: Some(answers),
+                thresholds: Some(thresholds),
+            }))
+        }
+        Err(quiet) => Ok(Json(DecisionFanOutResponse {
+            status: "quiet".into(),
+            reason: Some(quiet.reason()),
+            mode: None,
+            answers: None,
+            thresholds: None,
+        })),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DecisionAlertAckRequest {
+    pub org_id: Uuid,
+    pub alert_id: Uuid,
+    /// The worker's bot principal (ledger/audit provenance); None when
+    /// the deploy runs no bot user — the ack still lands (decision-model
+    /// provenance rides the decision_answers row + request id).
+    pub actor_id: Option<Uuid>,
+    pub request_id: String,
+}
+
+/// POST /internal/alerts/decision-ack — auto-ack above the alert-triage
+/// thresholds (ADR 0010 #4: "auto-ack/ignore only above high thresholds;
+/// else leaves the alert untouched"). Idempotent: an already-open-only
+/// update replaying on the same alert is a benign no-op.
+pub async fn alert_decision_ack(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<DecisionAlertAckRequest>,
+) -> ApiResult<Json<Value>> {
+    guard(&state, &headers)?;
+    let acked = org_tx::with_org_tx(&state, req.org_id, req.org_id, |mut ctx| async move {
+        let row = core_db::alerting::decision_auto_ack_alert(
+            &mut *ctx.tx,
+            req.org_id,
+            req.alert_id,
+            req.actor_id,
+        )
+        .await?;
+        Ok((ctx, row.is_some()))
+    })
+    .await?;
+    tracing::info!(
+        org = %req.org_id,
+        alert = %req.alert_id,
+        acked,
+        request_id = %req.request_id,
+        "decision auto-ack applied"
+    );
+    Ok(Json(json!({ "acked": acked })))
 }

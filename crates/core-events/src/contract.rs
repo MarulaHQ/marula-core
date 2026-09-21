@@ -1726,6 +1726,24 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
         ),
     },
     PublishedEvent {
+        // Wave 18 lane 2b (p18-ai-gaps): the plugin-surface registration
+        // leg emits this on list/register/enable/disable — the golden
+        // registration was missed at emission time (caught by the Wave 23
+        // lane 3 conformance run).
+        event_type: types::AI_PLUGIN_SURFACE_UPDATED,
+        entity: "ai_plugin_surface",
+        variant: "default",
+        shape: untyped_shape!(
+            ["key", "label", "enabled", "inserted"],
+            serde_json::json!({
+                "key": "acme-fs",
+                "label": "Acme file store",
+                "enabled": true,
+                "inserted": true,
+            })
+        ),
+    },
+    PublishedEvent {
         event_type: types::AI_CHAT_TURN_COMPLETED,
         entity: "ai_chat_turn",
         variant: "default",
