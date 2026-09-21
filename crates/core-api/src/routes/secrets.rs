@@ -49,11 +49,17 @@ use uuid::Uuid;
 // `/api/secrets/*` (plus the chunked bulk-ingestion worker path) consumes
 // one seat of its ORG'S fixed 60-second budget, so a runaway bulk
 // importer degrades only its own org and interactive vault users keep a
-// guaranteed share. In-memory fixed-window counters — per process, the
-// same posture as the migration/dispatch budgets (operators scale the
-// window capacity with ERA on multi-replica deployments; `0` disables).
-// NO migration: the budget is config-driven
-// (`MERIDIAN_VAULT_WRITE_BUDGET_PER_MIN`), not persisted state.
+// guaranteed share.
+//
+// Wave 19 lane 1 made the budget cross-replica: the Wave 16 in-memory
+// fixed-window counters remain the SINGLE-REPLICA fast path (per
+// process, same posture as the migration/dispatch budgets), but every
+// admitted write now also consumes a DURABLE seat in
+// `vault_write_budget_windows` (migration 0094) whose `FOR UPDATE`-
+// locked verdict is the authoritative decision on `ensure_vault_budget`
+// (`crate::vault_scale`). Budget config stays
+// `MERIDIAN_VAULT_WRITE_BUDGET_PER_MIN`; `0` disables everywhere. The
+// secrets-flow suites assert the durable layer end-to-end.
 
 const VAULT_BUDGET_WINDOW_SECS: u64 = 60;
 
@@ -244,7 +250,7 @@ pub async fn create_folder(
 ) -> ApiResult<Json<SecretFolder>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, secrets(Action::Create))?;
-    check_vault_budget(&state, authed.principal.user.org_id)?;
+    crate::vault_scale::ensure_vault_budget(&state, authed.principal.user.org_id).await?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     let slug = req.slug.trim().to_lowercase();
@@ -308,7 +314,7 @@ pub async fn update_folder(
 ) -> ApiResult<Json<SecretFolder>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, secrets(Action::Edit))?;
-    check_vault_budget(&state, authed.principal.user.org_id)?;
+    crate::vault_scale::ensure_vault_budget(&state, authed.principal.user.org_id).await?;
     if req.slug.as_deref() == Some("") || req.label.as_deref() == Some("") {
         return Err(ApiError::Validation("slug/label cannot be empty".into()));
     }
@@ -366,7 +372,7 @@ pub async fn delete_folder(
 ) -> ApiResult<Json<serde_json::Value>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, secrets(Action::Delete))?;
-    check_vault_budget(&state, authed.principal.user.org_id)?;
+    crate::vault_scale::ensure_vault_budget(&state, authed.principal.user.org_id).await?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
@@ -405,7 +411,7 @@ pub async fn fork_folder(
 ) -> ApiResult<Json<Vec<SecretFolder>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, secrets(Action::Create))?;
-    check_vault_budget(&state, authed.principal.user.org_id)?;
+    crate::vault_scale::ensure_vault_budget(&state, authed.principal.user.org_id).await?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     let created = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
@@ -605,7 +611,7 @@ pub async fn create_record(
 ) -> ApiResult<Json<SecretRecordMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, secrets(Action::Create))?;
-    check_vault_budget(&state, authed.principal.user.org_id)?;
+    crate::vault_scale::ensure_vault_budget(&state, authed.principal.user.org_id).await?;
     let title = req.title.trim().to_string();
     if title.is_empty() {
         return Err(ApiError::Validation("title is required".into()));
@@ -744,7 +750,7 @@ pub async fn update_record(
 ) -> ApiResult<Json<SecretRecordMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, secrets(Action::Edit))?;
-    check_vault_budget(&state, authed.principal.user.org_id)?;
+    crate::vault_scale::ensure_vault_budget(&state, authed.principal.user.org_id).await?;
     if req.title.trim().is_empty() {
         return Err(ApiError::Validation("title is required".into()));
     }
@@ -889,7 +895,7 @@ pub async fn delete_record(
 ) -> ApiResult<Json<serde_json::Value>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, secrets(Action::Delete))?;
-    check_vault_budget(&state, authed.principal.user.org_id)?;
+    crate::vault_scale::ensure_vault_budget(&state, authed.principal.user.org_id).await?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
@@ -1046,7 +1052,7 @@ pub async fn put_record_file(
 ) -> ApiResult<Json<SecretRecordMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, secrets(Action::Edit))?;
-    check_vault_budget(&state, authed.principal.user.org_id)?;
+    crate::vault_scale::ensure_vault_budget(&state, authed.principal.user.org_id).await?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     let max_bytes = state.config.max_upload_bytes;
@@ -1060,8 +1066,9 @@ pub async fn put_record_file(
         return Err(ApiError::Validation("file body must not be empty".into()));
     }
     // Seal BEFORE the tx: a crypto failure never consumes a write.
-    let ciphertext = crypto::seal_with_aad(&state.config.secret_key, &body, &file_aad(org_id, id))
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!("file sealing failed: {e}")))?;
+    let ciphertext =
+        crypto::seal_file_frame(&state.config.secret_key, &body, &file_aad(org_id, id))
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!("file sealing failed: {e}")))?;
     use sha2::Digest as _;
     let mut hasher = sha2::Sha256::new();
     hasher.update(&ciphertext);
@@ -1179,7 +1186,7 @@ pub async fn get_record_file(
     let store = std::sync::Arc::clone(&state.store);
 
     let unseal_key = state.config.secret_key;
-    let (plaintext, ct_sha256, content_len) =
+    let (body, ct_sha256, content_len) =
         org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
             let record = core_db::secret_vault::get_record(&mut ctx.tx, org_id, id)
                 .await
@@ -1189,14 +1196,11 @@ pub async fn get_record_file(
                     "file bytes belong on document-kind records".into(),
                 ));
             }
-            let (object_key, file_sha256, file_bytes) = match (
-                record.object_key.as_deref(),
-                record.file_sha256.as_deref(),
-                record.file_bytes,
-            ) {
-                (Some(k), Some(h), Some(n)) => (k.to_string(), h.to_string(), n),
-                _ => return Err(ApiError::Conflict("record has no stored file".into())),
-            };
+            let (object_key, file_sha256) =
+                match (record.object_key.as_deref(), record.file_sha256.as_deref()) {
+                    (Some(k), Some(h)) => (k.to_string(), h.to_string()),
+                    _ => return Err(ApiError::Conflict("record has no stored file".into())),
+                };
             let role_ids: Vec<Uuid> = authed.roles.iter().map(|r| r.id).collect();
             let allowed = core_db::secret_vault::folder_access(
                 &mut ctx.tx,
@@ -1222,29 +1226,196 @@ pub async fn get_record_file(
             )
             .await?;
             let obj = store.get(&object_key).await.map_err(store_error_fn)?;
-            // Ciphertext is capped by the upload gate at PUT time; buffer
-            // for authenticated decryption, then hand the plaintext body.
-            let mut ciphertext: Vec<u8> = Vec::with_capacity(obj.size_bytes as usize);
-            use futures_util::StreamExt as _;
             let mut stream = obj.stream;
-            while let Some(chunk) = stream.next().await {
-                ciphertext.extend_from_slice(&chunk.map_err(store_error_fn)?);
+
+            // Legacy Wave 16 files are single-envelope seal_with_aad
+            // buffers; new PUTs (Wave 19 lane 1) store `[MRDV2]` chunked
+            // frames. Branch on the FIRST stored chunk, letting only
+            // the framed path stream — legacy buffers wholesale
+            // (bounded by the PUT upload cap), framed streams
+            // chunk by chunk (the objective: never a full-file buffer).
+            use futures_util::StreamExt as _;
+            let first: axum::body::Bytes = stream
+                .next()
+                .await
+                .transpose()
+                .map_err(store_error_fn)?
+                .unwrap_or_default();
+            let base_aad = file_aad(org_id, id);
+            let body;
+            let plain_len;
+            if first.len() >= 5 && first[..5] == crypto::STREAM_MAGIC {
+                // Framed `[MRDV2]`: the 25-byte header is the head of
+                // `first`. Its plaintext_len is authenticated per-chunk
+                // when decryption arrives; here it only pre-sizes the
+                // Content-Length — a mismatched (forged) header fails
+                // closed at the first chunk anyway (header is AAD of
+                // every chunk), turning into a truncated response.
+                let mut leftover = first.to_vec();
+                while leftover.len() < 25 {
+                    match stream.next().await {
+                        Some(Ok(chunk)) => leftover.extend_from_slice(&chunk),
+                        Some(Err(e)) => return Err(store_error_fn(e)),
+                        None => {
+                            return Err(ApiError::Internal(anyhow::anyhow!(
+                                "framed file truncated at the header"
+                            )));
+                        }
+                    }
+                }
+                plain_len = u64::from_be_bytes(
+                    leftover[13..21]
+                        .try_into()
+                        .map_err(|_| ApiError::Validation("framed file malformed".into()))?,
+                );
+                body = FileBody::Framed {
+                    decryptor: crypto::OpenStream::new(unseal_key, base_aad),
+                    tail: leftover,
+                    stream,
+                };
+            } else {
+                // Legacy single-envelope: buffer + decrypt wholescale
+                // (the Wave 16 posture exactly, unchanged).
+                let mut ciphertext = first.to_vec();
+                while let Some(chunk) = stream.next().await {
+                    ciphertext.extend_from_slice(chunk.map_err(store_error_fn)?.as_ref());
+                }
+                let plain =
+                    crypto::open_with_aad(&unseal_key, &ciphertext, &base_aad).map_err(|e| {
+                        ApiError::Internal(anyhow::anyhow!("file unsealing failed: {e}"))
+                    })?;
+                plain_len = plain.len() as u64;
+                body = FileBody::Legacy(plain);
             }
-            let plaintext = crypto::open_with_aad(&unseal_key, &ciphertext, &file_aad(org_id, id))
-                .map_err(|e| ApiError::Internal(anyhow::anyhow!("file unsealing failed: {e}")))?;
-            let _ = file_bytes;
-            let plaintext_len = i64::try_from(plaintext.len()).unwrap_or(i64::MAX);
-            Ok((ctx, (plaintext, file_sha256, plaintext_len)))
+            let i64_len = i64::try_from(plain_len).unwrap_or(i64::MAX);
+            Ok((ctx, (body, file_sha256, i64_len)))
         })
         .await?;
-    let response = Response::builder()
-        .status(axum::http::StatusCode::OK)
-        .header(axum::http::header::CONTENT_TYPE, "application/octet-stream")
-        .header("x-file-sha256", ct_sha256)
-        .header(axum::http::header::CONTENT_LENGTH, content_len)
-        .body(axum::body::Body::from(plaintext))
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!("response build failed: {e}")))?;
+    let response = match body {
+        FileBody::Legacy(plaintext) => Response::builder()
+            .status(axum::http::StatusCode::OK)
+            .header(axum::http::header::CONTENT_TYPE, "application/octet-stream")
+            .header("x-file-sha256", ct_sha256)
+            .header(axum::http::header::CONTENT_LENGTH, content_len)
+            .body(axum::body::Body::from(plaintext))
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!("response build failed: {e}")))?,
+        FileBody::Framed {
+            decryptor,
+            tail,
+            stream,
+        } => {
+            let plaintext_stream = frame_stream(decryptor, tail, stream);
+            Response::builder()
+                .status(axum::http::StatusCode::OK)
+                .header(axum::http::header::CONTENT_TYPE, "application/octet-stream")
+                .header("x-file-sha256", ct_sha256)
+                .header(axum::http::header::CONTENT_LENGTH, content_len)
+                .body(axum::body::Body::from_stream(plaintext_stream))
+                .map_err(|e| ApiError::Internal(anyhow::anyhow!("response build failed: {e}")))?
+        }
+    };
     Ok(response)
+}
+
+/// The GET file body: legacy files decrypt wholesale (Wave 16 posture,
+/// unchanged); framed `[MRDV2]` files stream chunk by chunk.
+enum FileBody {
+    /// Legacy seal_with_aad envelope — buffered plaintext.
+    Legacy(Vec<u8>),
+    /// `[MRDV2]` frame: streaming decryptor over the store's ciphertext
+    /// stream. `tail` is the ciphertext left over in the first store
+    /// chunk beyond the header. Content-Length came from the
+    /// authenticated header; a forged header fails closed on the
+    /// first chunk (it is AAD of every chunk) — the connection breaks
+    /// rather than serving hardened body lengths.
+    Framed {
+        decryptor: crypto::OpenStream,
+        tail: Vec<u8>,
+        stream: std::pin::Pin<
+            Box<
+                dyn futures_util::Stream<Item = Result<axum::body::Bytes, core_store::StoreError>>
+                    + Send,
+            >,
+        >,
+    },
+}
+
+fn frame_stream(
+    decryptor: crypto::OpenStream,
+    tail: Vec<u8>,
+    stream: std::pin::Pin<
+        Box<
+            dyn futures_util::Stream<Item = Result<axum::body::Bytes, core_store::StoreError>>
+                + Send,
+        >,
+    >,
+) -> impl futures_util::Stream<Item = Result<axum::body::Bytes, std::io::Error>> + Send + 'static {
+    struct FrameState {
+        pending: Vec<u8>,
+        stream: std::pin::Pin<
+            Box<
+                dyn futures_util::Stream<Item = Result<axum::body::Bytes, core_store::StoreError>>
+                    + Send,
+            >,
+        >,
+        decryptor: crypto::OpenStream,
+    }
+
+    let state = FrameState {
+        pending: tail,
+        stream,
+        decryptor,
+    };
+    {
+        use futures_util::{stream, StreamExt as _};
+        stream::unfold(state, |mut st| async move {
+            loop {
+                match st.decryptor.feed(&[]) {
+                    Ok(None) => {}
+                    Ok(Some(plain)) => {
+                        return Some((Ok(axum::body::Bytes::from(plain)), st));
+                    }
+                    Err(e) => return Some((Err(stream_io_err(&e)), st)),
+                }
+                if !st.pending.is_empty() {
+                    let tail = std::mem::take(&mut st.pending);
+                    match st.decryptor.feed(&tail) {
+                        Ok(None) => {}
+                        Ok(Some(plain)) => {
+                            return Some((Ok(axum::body::Bytes::from(plain)), st));
+                        }
+                        Err(e) => return Some((Err(stream_io_err(&e)), st)),
+                    }
+                    continue;
+                }
+                match st.stream.next().await {
+                    Some(Ok(chunk)) => {
+                        if let Err(e) = st.decryptor.feed(&chunk) {
+                            return Some((Err(stream_io_err(&e)), st));
+                        }
+                    }
+                    Some(Err(e)) => {
+                        return Some((Err(std::io::Error::other(e.to_string())), st));
+                    }
+                    None => {
+                        if let Err(e) = st.decryptor.finish() {
+                            return Some((
+                                Err(std::io::Error::other(format!(
+                                    "vault file truncated or tampered at the frame tail: {e}"
+                                ))),
+                                st,
+                            ));
+                        }
+                        return None;
+                    }
+                }
+            }
+        })
+    }
+}
+
+fn stream_io_err(e: &crypto::CryptoError) -> std::io::Error {
+    std::io::Error::other(format!("vault file decrypt failed: {e}"))
 }
 
 fn store_error_fn(e: core_store::StoreError) -> ApiError {
@@ -1257,11 +1428,16 @@ fn store_error_fn(e: core_store::StoreError) -> ApiError {
 // password manager): the caller drives chunk by chunk; each ROW commits
 // in its OWN transaction (per-row atomicity — a failed row never rolls
 // back the chunk) behind a stable per-row idempotency key. The checkpoint
-// story is therefore migration-free and exact: a resumed chunk replays
-// rows whose keys already committed (byte-identical, via the IF1 gate)
-// and only APPLIES the remaining ones. Pacing rides
-// `vault_bulk_rows_per_sec` (the rows/second ceiling between commits) and
-// every row consumes one seat of the org's A1 write budget.
+// story is therefore durable and exact: the idempotency keys live in
+// Postgres, so a resumed chunk replays rows whose keys already committed
+// (byte-identical, via the IF1 gate) and only APPLIES the remaining ones.
+// Wave 19 lane 1 upgraded pacing from a fixed per-row sleep to a DURABLE
+// token bucket (`vault_bulk_pacers`, migration 0094, rate =
+// `vault_bulk_rows_per_sec`, refill & wait hints on the DB clock): a
+// restarted driver resumes its pace instead of rebounding a fresh one,
+// and replicas pace a single shared bucket. Pacing rides
+// `pace_bulk_token` (crate::vault_scale) and every row consumes one seat
+// of the org's A1 write budget.
 // ---------------------------------------------------------------------------
 
 /// Max records per bulk call — a chunk, never the whole job.
@@ -1343,7 +1519,7 @@ pub async fn bulk_ingest(
 ) -> ApiResult<Json<BulkSecretIngestResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, secrets(Action::Edit))?;
-    check_vault_budget(&state, authed.principal.user.org_id)?;
+    crate::vault_scale::ensure_vault_budget(&state, authed.principal.user.org_id).await?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     if req.records.is_empty() {
@@ -1393,19 +1569,14 @@ pub async fn bulk_ingest(
         }
     }
     let key = state.config.secret_key;
-    let pace_ms = if state.config.vault_bulk_rows_per_sec == 0 {
-        0u64
-    } else {
-        1000u64
-            .saturating_div(u64::from(state.config.vault_bulk_rows_per_sec))
-            .max(1)
-    };
     let mut results: Vec<BulkRowResult> = Vec::with_capacity(req.records.len());
-    for (idx, row) in req.records.iter().enumerate() {
-        // Pace between per-row commits (never after the last row).
-        if idx > 0 && pace_ms > 0 {
-            tokio::time::sleep(std::time::Duration::from_millis(pace_ms)).await;
-        }
+    for row in req.records.iter() {
+        // One durable token per row (Wave 19 lane 1): the token-bucket
+        // state rides `vault_bulk_pacers`, so pacing survives driver
+        // restarts and coordinates across replicas — every row INCLUDING
+        // the first consumes a seat of both the pace bucket and the A1
+        // write budget (the budget seat was consumed above).
+        crate::vault_scale::pace_bulk_token(&state, authed.principal.user.org_id).await?;
         let record_id = Uuid::now_v7();
         let title = row.title.trim().to_string();
         let entries: Vec<(String, String)> = row
@@ -1589,7 +1760,7 @@ pub async fn add_record_link(
 ) -> ApiResult<Json<Vec<ResolvedLink>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, secrets(Action::Edit))?;
-    check_vault_budget(&state, authed.principal.user.org_id)?;
+    crate::vault_scale::ensure_vault_budget(&state, authed.principal.user.org_id).await?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     let to_kind = LinkKind::parse(&req.to_kind)
@@ -1704,7 +1875,7 @@ pub async fn set_grant(
 ) -> ApiResult<Json<SecretCategoryGrant>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, secrets(Action::Edit))?;
-    check_vault_budget(&state, authed.principal.user.org_id)?;
+    crate::vault_scale::ensure_vault_budget(&state, authed.principal.user.org_id).await?;
     if !authed.principal.is_owner_or_admin() {
         return Err(ApiError::Forbidden(
             "grant administration is Owner/Admin only".into(),
@@ -1756,7 +1927,7 @@ pub async fn delete_grant(
 ) -> ApiResult<Json<serde_json::Value>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, secrets(Action::Edit))?;
-    check_vault_budget(&state, authed.principal.user.org_id)?;
+    crate::vault_scale::ensure_vault_budget(&state, authed.principal.user.org_id).await?;
     if !authed.principal.is_owner_or_admin() {
         return Err(ApiError::Forbidden(
             "grant administration is Owner/Admin only".into(),

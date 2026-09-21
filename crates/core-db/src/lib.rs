@@ -89,6 +89,7 @@ pub mod time_audit;
 pub mod timers;
 pub mod undo;
 pub mod users;
+pub mod vault_scale;
 pub mod webhooks;
 pub mod workflow_overrides;
 

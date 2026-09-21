@@ -12,6 +12,7 @@ pub mod otel_http;
 pub mod realtime;
 pub mod routes;
 pub mod state;
+pub mod vault_scale;
 
 use axum::Router;
 use state::AppState;
