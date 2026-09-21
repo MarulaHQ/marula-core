@@ -61,6 +61,7 @@ pub mod outbox;
 pub mod passwords;
 pub mod pipeline;
 pub mod plugin_distribution;
+pub mod plugin_signing_keys;
 pub mod plugins;
 pub mod portal;
 pub mod projects;

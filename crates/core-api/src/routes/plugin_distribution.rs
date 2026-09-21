@@ -84,6 +84,31 @@ fn ingest_reason_api(reason: plugin_host::distribution::IngestReason) -> ApiErro
     ApiError::Validation(format!("distribution intake refused: {reason}"))
 }
 
+/// The LIVE signing-key trust set (Wave 19 lane 2 rotation semantics):
+/// the DB registry (`plugin_signing_keys` — active + retired rows) is
+/// the source of truth; the static env bootstrap set is the fallback
+/// while the registry is empty (the operator runbook migrates env keys
+/// INTO the registry, then the env set goes away). Verified-by-named-key_id
+/// and by-trust-set semantics live in the distribution adapters.
+async fn trusted_signing_keys(
+    state: &AppState,
+    tx: &mut sqlx::PgConnection,
+) -> Vec<plugin_host::distribution::TrustedSigningKey> {
+    let from_registry = core_db::plugin_signing_keys::trusted_verification_keys(tx)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|k| plugin_host::distribution::TrustedSigningKey {
+            key_id: k.key_id,
+            public_key: k.public_key,
+        })
+        .collect::<Vec<_>>();
+    if !from_registry.is_empty() {
+        return from_registry;
+    }
+    crate::config::bootstrap_signing_keys(&state.config)
+}
+
 fn capability_or_refuse(key: &str) -> ApiResult<PluginCapability> {
     PluginCapability::parse(key).ok_or_else(|| {
         ApiError::Validation(format!(
@@ -187,6 +212,10 @@ pub struct ConsentView {
     pub artifact_digest: String,
     pub declared_capabilities: Vec<String>,
     pub settings_schema: Option<serde_json::Value>,
+    /// ADR 0009 §6 full semantics — the modeled connector governance
+    /// profile (webhook endpoints + scopes) when the manifest declared
+    /// one, for verbatim consent rendering.
+    pub connector_profile: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -457,8 +486,11 @@ pub async fn stage_from_registry(
     require_permission(&authed.principal, plugins(Action::View))?;
     let url = req.url.trim().to_string();
     let bytes = fetch_bytes(&url).await?;
-    let signing_key = state.config.plugin_signing_key.as_deref();
-    let bundle = ingest_registry_entry(&bytes, signing_key).map_err(ingest_reason_api)?;
+    let bundle = {
+        let mut conn = state.pool.acquire().await.map_err(ApiError::from)?;
+        let keys = trusted_signing_keys(&state, &mut conn).await;
+        ingest_registry_entry(&bytes, &keys).map_err(ingest_reason_api)?
+    };
     // B2: re-fetch the artifact bytes and verify the digest myself —
     // the catalog's pinned digest is a claim until these bytes agree.
     if let Some(artifact_url) = req
@@ -509,17 +541,12 @@ pub async fn stage_from_github(
     let json = serde_json::from_slice::<serde_json::Value>(&bytes)
         .map_err(|_| ApiError::Validation("the pinned manifest is not valid JSON".into()))?;
     let digest = plugin_host::distribution::sha256_hex(&bytes);
-    let signing_key = state.config.plugin_signing_key.as_deref();
-    let bundle = ingest_github_pull(
-        &owner,
-        &repo,
-        req.tag.trim(),
-        &sha,
-        json,
-        &digest,
-        signing_key,
-    )
-    .map_err(ingest_reason_api)?;
+    let bundle = {
+        let mut conn = state.pool.acquire().await.map_err(ApiError::from)?;
+        let keys = trusted_signing_keys(&state, &mut conn).await;
+        ingest_github_pull(&owner, &repo, req.tag.trim(), &sha, json, &digest, &keys)
+            .map_err(ingest_reason_api)?
+    };
     // B2: optional artifact-bytes refetch + cross-digest verification.
     if let Some(artifact_url) = req
         .artifact_url
@@ -703,6 +730,14 @@ pub async fn get_staged_consent(
         settings_schema: item
             .manifest
             .get("settings_schema")
+            .cloned()
+            .filter(|v| !v.is_null()),
+        // ADR 0009 §6 full semantics — the modeled connector governance
+        // profile renders on the consent screen verbatim (ends the era
+        // of webhook endpoints + scopes living outside the consent).
+        connector_profile: item
+            .manifest
+            .get("connector_profile")
             .cloned()
             .filter(|v| !v.is_null()),
     }))

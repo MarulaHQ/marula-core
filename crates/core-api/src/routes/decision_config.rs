@@ -93,7 +93,6 @@ async fn audit_row(
     .map_err(ApiError::from)
 }
 
-
 // ---------------------------------------------------------------------------
 // DTOs
 // ---------------------------------------------------------------------------
@@ -159,13 +158,15 @@ pub async fn get_decision_overview(
     require_ai_admin(&authed.principal, Action::View)?;
     let org_id = authed.principal.user.org_id;
 
-    let features_enabled = core_db::ai_policy::features_enabled(&state.pool, org_id)
+    let mut read_tx =
+        super::ai_policy::org_bound_tx(&state, org_id, authed.principal.user.id).await?;
+    let features_enabled = core_db::ai_policy::features_enabled(&mut *read_tx, org_id)
         .await
         .map_err(ApiError::from)?;
-    let surfaces = core_db::ai_policy::list_surfaces(&state.pool, org_id)
+    let surfaces = core_db::ai_policy::list_surfaces(&mut *read_tx, org_id)
         .await
         .map_err(ApiError::from)?;
-    let catalog = core_db::ai_policy::list_catalog(&state.pool, org_id)
+    let catalog = core_db::ai_policy::list_catalog(&mut *read_tx, org_id)
         .await
         .map_err(ApiError::from)?;
     let decision_model_curated = catalog
@@ -173,15 +174,18 @@ pub async fn get_decision_overview(
         .any(|entry| entry.enabled && entry_is_decision_capable(&entry.capabilities));
 
     let mut out = Vec::new();
-    for surface in surfaces.iter().filter(|s| s.kind == "decision" || s.kind == "internal") {
-        let cfg = core_db::decision::get_surface_config(&state.pool, org_id, &surface.key)
+    for surface in surfaces
+        .iter()
+        .filter(|s| s.kind == "decision" || s.kind == "internal")
+    {
+        let cfg = core_db::decision::get_surface_config(&mut *read_tx, org_id, &surface.key)
             .await
             .map_err(ApiError::from)?;
         let latest: Option<i32> = sqlx::query_scalar(
             "SELECT MAX(version) FROM ai_decision_question_sets WHERE surface_key = $1",
         )
         .bind(&surface.key)
-        .fetch_one(&state.pool)
+        .fetch_one(&mut *read_tx)
         .await
         .ok()
         .flatten();
@@ -201,6 +205,7 @@ pub async fn get_decision_overview(
             decision_model_curated,
         });
     }
+    read_tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(DecisionOverviewResponse {
         features_enabled,
         surfaces: out,
@@ -350,7 +355,9 @@ pub async fn put_decision_config(
 
     if let Some(mode) = req.mode.as_deref() {
         if mode != "shadow" && mode != "live" {
-            return Err(ApiError::Validation("mode must be 'shadow' or 'live'".into()));
+            return Err(ApiError::Validation(
+                "mode must be 'shadow' or 'live'".into(),
+            ));
         }
     }
 
@@ -581,7 +588,8 @@ pub async fn post_decision_preview(
         ));
     }
 
-    let cfg = core_db::decision::get_surface_config(&state.pool, org_id, &surface_key)
+    let mut tx = super::ai_policy::org_bound_tx(&state, org_id, user_id).await?;
+    let cfg = core_db::decision::get_surface_config(&mut *tx, org_id, &surface_key)
         .await
         .map_err(ApiError::from)?;
     let Some(cfg) = cfg else {
@@ -595,8 +603,8 @@ pub async fn post_decision_preview(
     };
 
     let snapshot = match req.entity_type.as_str() {
-        "ticket" => load_ticket_snapshot(&state.pool, org_id, req.entity_id).await?,
-        _ => load_alert_snapshot(&state.pool, org_id, req.entity_id).await?,
+        "ticket" => load_ticket_snapshot(&mut tx, org_id, req.entity_id).await?,
+        _ => load_alert_snapshot(&mut tx, org_id, req.entity_id).await?,
     };
     if !snapshot["ticket"].is_object() && !snapshot["alert"].is_object() {
         return Err(ApiError::Validation(
@@ -605,14 +613,13 @@ pub async fn post_decision_preview(
     }
 
     let mut tx = super::ai_policy::org_bound_tx(&state, org_id, user_id).await?;
-    let resolved: SurfaceConfig =
-        decision_edge::effective_config(&mut tx, &surface_key, &cfg)
-            .await
-            .map_err(|quiet| ApiError::AiCallRefused {
-                reason: "ai_decision_unresolved",
-                message: quiet.reason(),
-                surface: surface_key.clone(),
-            })?;
+    let resolved: SurfaceConfig = decision_edge::effective_config(&mut tx, &surface_key, &cfg)
+        .await
+        .map_err(|quiet| ApiError::AiCallRefused {
+            reason: "ai_decision_unresolved",
+            message: quiet.reason(),
+            surface: surface_key.clone(),
+        })?;
 
     // The curated starter the fork detached from (fork-provenance "v2"
     // diff) — included when the org is customized.
@@ -628,10 +635,12 @@ pub async fn post_decision_preview(
     };
 
     let composed = compose_state(&resolved, &snapshot);
-    drop(tx);
+    tx.rollback().await.map_err(ApiError::from)?;
 
     let run_json = if req.fire == Some(true) {
-        let inventories = org_inventories(&state.pool, org_id).await;
+        let mut tx = super::ai_policy::org_bound_tx(&state, org_id, user_id).await?;
+        let inventories = org_inventories(&mut tx, org_id).await;
+        tx.commit().await.map_err(ApiError::from)?;
         let ask = DecisionAsk {
             org_id,
             user_id,
@@ -678,7 +687,7 @@ pub async fn post_decision_preview(
 /// (included minutes / overage rate) + elapsed minutes — the arithmetic
 /// happens HERE, never in the model (ADR 0011 §4).
 async fn load_ticket_snapshot(
-    pool: &sqlx::PgPool,
+    tx: &mut sqlx::PgConnection,
     org_id: Uuid,
     ticket_id: Uuid,
 ) -> ApiResult<Value> {
@@ -698,7 +707,7 @@ async fn load_ticket_snapshot(
     )
     .bind(org_id)
     .bind(ticket_id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *tx)
     .await
     .map_err(ApiError::from)?;
     let Some((ticket, client, contract)) = row else {
@@ -710,29 +719,29 @@ async fn load_ticket_snapshot(
     )
     .bind(org_id)
     .bind(ticket_id)
-    .fetch_one(pool)
+    .fetch_one(&mut *tx)
     .await
     .unwrap_or(0);
     let mut snapshot = json!({
         "ticket": ticket,
         "client": client,
         "contract": contract.unwrap_or(json!({})),
-        "org": {"boards": org_board_names(pool, org_id).await},
+        "org": {"boards": org_board_names(tx, org_id).await},
     });
     snapshot["ticket"]["elapsed_sum"] = json!(elapsed);
     Ok(snapshot)
 }
 
-async fn org_board_names(pool: &sqlx::PgPool, org_id: Uuid) -> Vec<String> {
+async fn org_board_names(exec: &mut sqlx::PgConnection, org_id: Uuid) -> Vec<String> {
     sqlx::query_scalar::<_, String>("SELECT name FROM boards WHERE org_id = $1 ORDER BY name")
         .bind(org_id)
-        .fetch_all(pool)
+        .fetch_all(exec)
         .await
         .unwrap_or_default()
 }
 
 async fn load_alert_snapshot(
-    pool: &sqlx::PgPool,
+    tx: &mut sqlx::PgConnection,
     org_id: Uuid,
     alert_id: Uuid,
 ) -> ApiResult<Value> {
@@ -742,7 +751,7 @@ async fn load_alert_snapshot(
     )
     .bind(org_id)
     .bind(alert_id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *tx)
     .await
     .map_err(ApiError::from)?;
     let Some(alert) = row else {
@@ -768,16 +777,16 @@ async fn load_alert_snapshot(
 /// decision_tool_routing Choice set (the gate NARROWS the
 /// already-granted inventory — never widens it).
 async fn org_inventories(
-    pool: &sqlx::PgPool,
+    exec: &mut sqlx::PgConnection,
     org_id: Uuid,
 ) -> std::collections::HashMap<String, Vec<String>> {
     let mut inventories = std::collections::HashMap::new();
-    let boards = org_board_names(pool, org_id).await;
+    let boards = org_board_names(exec, org_id).await;
     // dispatch queues mirror the same list: in this product a dispatch
     // queue IS a board's queue (worker decision.rs posture mirrored).
     inventories.insert("org.boards".into(), boards.clone());
     inventories.insert("org.dispatch_queues".into(), boards);
-    let tools = core_db::agent_platform::list_capability_grants(pool, org_id)
+    let tools = core_db::agent_platform::list_capability_grants(&mut *exec, org_id)
         .await
         .unwrap_or_default()
         .into_iter()
@@ -817,7 +826,10 @@ fn compose_state(config: &SurfaceConfig, snapshot: &Value) -> ComposedState {
     let now = chrono::Utc::now();
     // The entity kind narrows where the temporal leaves + the elapsed
     // sum live (ticket vs alert snapshot shapes).
-    let is_ticket = snapshot.get("ticket").map(Value::is_object).unwrap_or(false);
+    let is_ticket = snapshot
+        .get("ticket")
+        .map(Value::is_object)
+        .unwrap_or(false);
     let entity_root = if is_ticket { "ticket" } else { "alert" };
     let due_at = snapshot
         .pointer("/ticket/due_at")
@@ -849,7 +861,10 @@ fn compose_state(config: &SurfaceConfig, snapshot: &Value) -> ComposedState {
                     .unwrap_or_default();
                 // 512 mirrors core-decision's DEFAULT_FIELD_MAX_CHARS.
                 let cap = max_chars.unwrap_or(512);
-                fields.insert(name.clone(), json!(raw.chars().take(cap).collect::<String>()));
+                fields.insert(
+                    name.clone(),
+                    json!(raw.chars().take(cap).collect::<String>()),
+                );
             }
             TemplateField::Literal { value } => {
                 fields.insert(

@@ -61,8 +61,8 @@ pub mod connector;
 pub mod costs;
 pub mod credit_notes;
 pub mod custom_fields;
-pub mod decision_edge;
 pub mod decision_config;
+pub mod decision_edge;
 pub mod decision_suggestions;
 pub mod dev;
 pub mod dispatch;
@@ -1228,7 +1228,10 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // Decision-harness admin config (this lane): the per-surface
         // config + master switch + shadow-preview seam the settings/ai
         // decision-harness leg rides (ADR 0010 §4 + ADR 0011 §3).
-        .route(&rp("/settings/ai/decision"), get(decision_config::get_decision_overview))
+        .route(
+            &rp("/settings/ai/decision"),
+            get(decision_config::get_decision_overview),
+        )
         .route(
             &rp("/settings/ai/decision/features"),
             put(decision_config::put_decision_features),

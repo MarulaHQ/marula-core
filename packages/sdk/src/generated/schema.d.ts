@@ -11414,6 +11414,26 @@ export interface components {
             travel_minutes: number;
         };
         /**
+         * @description ADR 0009 §6 (Wave 19 lane 2): the modeled connector governance
+         *     profile — WHERE the connector speaks (webhook endpoints) and what it
+         *     wears outward (SaaS scopes). Structured, validated DECLARATIONS, not
+         *     prose: the consent screen renders them verbatim and connectors inherit
+         *     the platform's egress posture from the declared endpoint list.
+         */
+        ConnectorProfile: {
+            /**
+             * @description The outbound scopes the connector asks the upstream SaaS for
+             *     (e.g. `graph:mail.read`); opaque strings to the core — they exist
+             *     for consent-time visibility and install-record provenance, max 32.
+             */
+            scopes?: string[];
+            /**
+             * @description The webhook URLs traffic from the platform sends toward. https-only
+             *     absolute URLs, host required, no credentials in the URL, max 8.
+             */
+            webhook_endpoints?: string[];
+        };
+        /**
          * @description GET /api/dispatch-connector/schedule query. The window is bounded at
          *     62 days so one pull cannot scan the whole calendar.
          */
@@ -11468,6 +11488,12 @@ export interface components {
         ConsentView: {
             artifact_digest: string;
             artifact_kind: string;
+            /**
+             * @description ADR 0009 §6 full semantics — the modeled connector governance
+             *     profile (webhook endpoints + scopes) when the manifest declared
+             *     one, for verbatim consent rendering.
+             */
+            connector_profile?: unknown;
             declared_capabilities: string[];
             fetched_ref?: string | null;
             settings_schema?: unknown;
@@ -15767,7 +15793,7 @@ export interface components {
          *     no key for them).
          * @enum {string}
          */
-        PluginCapability: "TicketsRead" | "TicketsWrite" | "ClientsRead" | "ClientsWrite" | "TimeRead" | "TimeWrite" | "ProjectsRead" | "ProjectsWrite" | "KbRead" | "KbWrite" | "DocumentsRead" | "DocumentsWrite" | "ReportingRead" | "FinancialRead";
+        PluginCapability: "TicketsRead" | "TicketsWrite" | "ClientsRead" | "ClientsWrite" | "TimeRead" | "TimeWrite" | "ProjectsRead" | "ProjectsWrite" | "KbRead" | "KbWrite" | "DocumentsRead" | "DocumentsWrite" | "ReportingRead" | "FinancialRead" | "VaultIngress";
         /**
          * @description Install lifecycle. Deny-by-default: `Disabled` until an explicit
          *     admin enable; `Revoked` is terminal (registry revocation or explicit
@@ -15782,6 +15808,7 @@ export interface components {
          */
         PluginManifestBody: {
             capabilities: string[];
+            connector_profile?: null | components["schemas"]["ConnectorProfile"];
             description?: string;
             /** @description ADR 0009 §4 — optional JSON-Schema for manifest-rendered settings. */
             settings_schema?: unknown;
@@ -15801,6 +15828,7 @@ export interface components {
              *     declared set is rejected.
              */
             capabilities: string[];
+            connector_profile?: null | components["schemas"]["ConnectorProfile"];
             description?: string;
             /**
              * Format: int32

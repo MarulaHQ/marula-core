@@ -351,6 +351,14 @@ fn map_unique_constraint(constraint: &str) -> Option<(&'static str, &'static str
             "plugin_already_installed",
             "this plugin is already installed for this org",
         )),
+        // Wave 19 lane 2 (signing-key rotation, migration 0095): the key_id
+        // is a permanent trust identity — a compromised id can NEVER be
+        // re-registered after its revoke.
+        "plugin_signing_keys_key_id_key" => Some((
+            "signing_key_id_taken",
+            "a signing key with this key_id is already registered \
+             (a revoked key_id stays occupied by design)",
+        )),
         // Wave 16 lane 3 (native vault, ADR 0006, migration 0078).
         "secret_folders_scope_key" => Some((
             "folder_slug_taken",
@@ -883,6 +891,8 @@ mod tests {
             "uq_ai_model_picks_surface",
             "uq_ai_surfaces_key",
             "uq_ai_usage_ledger_edge_request",
+            // Wave 19 lane 2 (signing-key rotation, migration 0095).
+            "plugin_signing_keys_key_id_key",
         ];
         let mut seen = std::collections::HashSet::new();
         for constraint in known {
@@ -894,8 +904,8 @@ mod tests {
         }
         // The two taxonomy constraints deliberately SHARE one reason code
         // (`category_name_taken` — root-name and child-name collisions are
-        // the same UX problem), so 22 constraints map to 21 distinct codes.
-        assert_eq!(seen.len(), 21, "unexpected reason-code fan-out: {seen:?}");
+        // the same UX problem), so 23 constraints map to 22 distinct codes.
+        assert_eq!(seen.len(), 22, "unexpected reason-code fan-out: {seen:?}");
         assert_eq!(
             map_unique_constraint("uq_ticket_categories_root_name").map(|(k, _)| k),
             map_unique_constraint("uq_ticket_categories_child_name").map(|(k, _)| k)

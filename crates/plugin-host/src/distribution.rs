@@ -44,6 +44,19 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 
 use ed25519_dalek::{Signature, VerifyingKey};
 
+/// One trusted operator key as the verification seam sees it. The
+/// registry (`plugin_signing_keys`, migration 0095) is the source of
+/// truth; this is the in-memory shape the signature path consumes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrustedSigningKey {
+    /// The stable trust identity the signature block names. Defaults to
+    /// the first 16 hex chars of the public key when the operator does
+    /// not name one.
+    pub key_id: String,
+    /// The ed25519 PUBLIC key (64 hex chars) — verification material.
+    pub public_key: String,
+}
+
 /// One signature verification: key + digest hex + wire signature (hex).
 /// The typed refusal is ALWAYS [`IngestReason::BadSignature`] — key
 /// material never reaches error text.
@@ -70,6 +83,94 @@ pub fn verify_artifact_signature(
         .map_err(|_| IngestReason::BadSignature)
 }
 
+/// Verifies a signature against the trusted key set by trying every key.
+/// Returns [`IngestReason::BadSignature`] when the trust set is EMPTY (a
+/// key-configured operator whose registry is unpopulated must not
+/// silently degrade to structural-only — the single-key seam's dev
+/// posture never re-enters through rotation) or when nothing verifies.
+/// With exactly one trusted key this is byte-for-byte the old
+/// single-key behavior.
+pub fn verify_artifact_signature_against_keys(
+    keys: &[TrustedSigningKey],
+    artifact_digest_hex: &str,
+    signature_hex: &str,
+) -> Result<(), IngestReason> {
+    if keys.is_empty() {
+        return Err(IngestReason::NoTrustedKeys);
+    }
+    for key in keys {
+        if verify_artifact_signature(&key.public_key, artifact_digest_hex, signature_hex).is_ok() {
+            return Ok(());
+        }
+    }
+    Err(IngestReason::BadSignature)
+}
+
+/// The signature block as carried on a registry artifact or a pinned
+/// manifest. TWO accepted shapes:
+///   * legacy bare string `"<128-hex sig>"` — verified AGAINST THE TRUST
+///     SET (any trusted key may have signed it; rotation overlap keeps
+///     retired keys in the set so old artifacts keep verifying);
+///   * the key-id block `{"key_id": "...", "signature": "<128-hex>"}` —
+///     resolution pins EXACTLY one key; an unknown key_id is a typed
+///     refusal (`distribution_signature_key_unknown`), never a fallback
+///     to a wider trust set (an attacker must not be able to steer a
+///     no-key_id artifact past a half-rotated registry).
+#[derive(Debug, Clone)]
+pub struct SignatureBlock {
+    pub key_id: Option<String>,
+    pub signature: String,
+}
+
+impl SignatureBlock {
+    /// Parses the `signature` field from the wire: a string or the
+    /// `{"key_id", "signature"}` object. Non-string signature values
+    /// refuse.
+    pub fn from_value(value: &serde_json::Value) -> Option<Self> {
+        match value {
+            serde_json::Value::String(sig) => Some(Self {
+                key_id: None,
+                signature: sig.clone(),
+            }),
+            serde_json::Value::Object(map) => {
+                let sig = map.get("signature")?.as_str()?.to_string();
+                let key_id = map
+                    .get("key_id")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(String::from);
+                Some(Self {
+                    key_id,
+                    signature: sig,
+                })
+            }
+            _ => None,
+        }
+    }
+
+    /// Verifies this block against `keys`. A named key_id MUST resolve
+    /// (narrow resolution); an unnamed block sweeps the trust set. An
+    /// EMPTY trust set refuses.
+    pub fn verify(&self, keys: &[TrustedSigningKey], digest_hex: &str) -> Result<(), IngestReason> {
+        if keys.is_empty() {
+            return Err(IngestReason::NoTrustedKeys);
+        }
+        if let Some(key_id) = &self.key_id {
+            // jotted narrow trust: block names a key, OTHER keys do not
+            // count even if their material verifies — naming is
+            // narrowing (the rotation model's tamper-evidence axis).
+            for key in keys {
+                if key.key_id == *key_id {
+                    return verify_artifact_signature(&key.public_key, digest_hex, &self.signature);
+                }
+            }
+            return Err(IngestReason::UnknownKey);
+        }
+        verify_artifact_signature_against_keys(keys, digest_hex, &self.signature)
+    }
+}
+
 /// B2 helper — cross-digest verification of RE-FETCHED artifact bytes:
 /// the sha256 over the actual bytes must equal the digest the catalog /
 /// manifest pinned. `distribution_digest_invalid` on any mismatch.
@@ -90,8 +191,13 @@ pub enum IngestReason {
     NoPin,
     /// Digest missing or not a sha256 hex string.
     BadDigest,
-    /// Registry signature block missing/empty (code-signed artifacts).
+    /// The registry signature block missing/empty (code-signed artifacts).
     BadSignature,
+    /// The signature block named a key_id that is not in the trusted set.
+    UnknownKey,
+    /// No trusted key is configured (operator registry empty AND no
+    /// legacy env key) while signature policy demands one.
+    NoTrustedKeys,
     /// The manifest is unreadable/unknown/malformed.
     BadManifest,
     /// The zip import breaches a sandbox cap.
@@ -112,6 +218,8 @@ impl IngestReason {
             IngestReason::NoPin => "distribution_source_not_pinned",
             IngestReason::BadDigest => "distribution_digest_invalid",
             IngestReason::BadSignature => "distribution_signature_invalid",
+            IngestReason::UnknownKey => "distribution_signature_key_unknown",
+            IngestReason::NoTrustedKeys => "distribution_signing_key_unconfigured",
             IngestReason::BadManifest => "distribution_manifest_invalid",
             IngestReason::ArchiveCap => "distribution_archive_cap",
             IngestReason::BadArchive => "distribution_archive_invalid",
@@ -172,7 +280,7 @@ pub const MAX_ARCHIVE_UNCOMPRESSED: usize = 8 * 1024 * 1024;
 /// still lands through the staged consent diff.
 pub fn ingest_registry_entry(
     catalog_json: &[u8],
-    signing_key: Option<&str>,
+    signing_keys: &[TrustedSigningKey],
 ) -> Result<DistributionBundle, IngestReason> {
     let Ok(value) = serde_json::from_slice::<serde_json::Value>(catalog_json) else {
         return Err(IngestReason::BadManifest);
@@ -182,17 +290,18 @@ pub fn ingest_registry_entry(
     let artifact = value.get("artifact").ok_or(IngestReason::BadManifest)?;
     let digest = required_string(artifact, "digest")?;
     require_sha256(digest)?;
-    let signature = artifact
-        .get("signature")
-        .and_then(|v| v.as_str())
-        .ok_or(IngestReason::BadManifest)?;
-    if signature.trim().is_empty() {
+    let signature =
+        SignatureBlock::from_value(artifact.get("signature").ok_or(IngestReason::BadManifest)?)
+            .ok_or(IngestReason::BadManifest)?;
+    if signature.signature.trim().is_empty() {
         return Err(IngestReason::BadSignature);
     }
-    // B1: with an operator key configured the signature is CRYPTOGRAPHICALLY
-    // verified against the digest; without one this stays structural-only.
-    if let Some(key) = signing_key {
-        verify_artifact_signature(key, digest, signature)?;
+    // B1: with a trusted key configured the signature is
+    // CRYPTOGRAPHICALLY verified against the digest by key-id block or
+    // trust set; an EMPTY slice stays the structural-only dev posture
+    // (the route layer logs that loudly at boot — never production).
+    if !signing_keys.is_empty() {
+        signature.verify(signing_keys, digest)?;
     }
     let manifest =
         validate_plugin_manifest(value.get("manifest").ok_or(IngestReason::BadManifest)?)?;
@@ -220,7 +329,7 @@ pub fn ingest_github_pull(
     commit_sha: &str,
     manifest_json: serde_json::Value,
     artifact_digest: &str,
-    signing_key: Option<&str>,
+    signing_keys: &[TrustedSigningKey],
 ) -> Result<DistributionBundle, IngestReason> {
     if owner.trim().is_empty() || repo.trim().is_empty() {
         return Err(IngestReason::BadManifest);
@@ -234,15 +343,21 @@ pub fn ingest_github_pull(
         return Err(IngestReason::NoPin);
     }
     require_sha256(artifact_digest)?;
-    // B1: when the operator key is configured the pinned manifest MUST
-    // carry a valid ed25519 signature over the digest (deny-by-default).
-    if let Some(key) = signing_key {
-        let sig = manifest_json
-            .get("signature")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.trim().is_empty())
-            .ok_or(IngestReason::BadSignature)?;
-        verify_artifact_signature(key, artifact_digest, sig)?;
+    // B1: when trusted keys are configured the pinned manifest MUST
+    // carry a valid ed25519 signature over the digest (deny-by-default);
+    // the key-id block form pins the exact key. Empty slice = dev
+    // posture (structural only), logged loudly by the route layer.
+    if !signing_keys.is_empty() {
+        let block = SignatureBlock::from_value(
+            manifest_json
+                .get("signature")
+                .ok_or(IngestReason::BadSignature)?,
+        )
+        .ok_or(IngestReason::BadSignature)?;
+        if block.signature.trim().is_empty() {
+            return Err(IngestReason::BadSignature);
+        }
+        block.verify(signing_keys, artifact_digest)?;
     }
     let manifest = validate_plugin_manifest(&manifest_json)?;
     Ok(bundle(
@@ -485,7 +600,7 @@ mod tests {
             },
             "manifest": serde_json::from_str::<serde_json::Value>(GOOD_MANIFEST).unwrap()
         });
-        let bundle = ingest_registry_entry(&serde_json::to_vec(&payload).unwrap(), None).unwrap();
+        let bundle = ingest_registry_entry(&serde_json::to_vec(&payload).unwrap(), &[]).unwrap();
         assert_eq!(bundle.fetched_ref.as_deref(), Some("v1.2.0"));
         assert_eq!(bundle.source_kind, PluginSourceKind::MarketplaceRegistry);
         assert!(is_sha256_hex(&bundle.artifact_digest));
@@ -505,22 +620,22 @@ mod tests {
             "manifest": serde_json::from_str::<serde_json::Value>(GOOD_MANIFEST).unwrap()
         });
         assert_eq!(
-            ingest_registry_entry(&serde_json::to_vec(&payload).unwrap(), None).unwrap_err(),
+            ingest_registry_entry(&serde_json::to_vec(&payload).unwrap(), &[]).unwrap_err(),
             IngestReason::BadSignature
         );
         payload["tag"] = json!("HEAD");
         assert_eq!(
-            ingest_registry_entry(&serde_json::to_vec(&payload).unwrap(), None).unwrap_err(),
+            ingest_registry_entry(&serde_json::to_vec(&payload).unwrap(), &[]).unwrap_err(),
             IngestReason::NoPin
         );
         payload["tag"] = json!("main");
         assert_eq!(
-            ingest_registry_entry(&serde_json::to_vec(&payload).unwrap(), None).unwrap_err(),
+            ingest_registry_entry(&serde_json::to_vec(&payload).unwrap(), &[]).unwrap_err(),
             IngestReason::NoPin
         );
         // TotMalformed archive (not JSON at all).
         assert_eq!(
-            ingest_registry_entry(b"not json", None).unwrap_err(),
+            ingest_registry_entry(b"not json", &[]).unwrap_err(),
             IngestReason::BadManifest
         );
     }
@@ -536,7 +651,7 @@ mod tests {
                 "",
                 manifest.clone(),
                 &digest_of("x"),
-                None
+                &[]
             )
             .unwrap_err(),
             IngestReason::NoPin
@@ -549,7 +664,7 @@ mod tests {
                 "",
                 manifest.clone(),
                 &digest_of("x"),
-                None
+                &[]
             )
             .unwrap_err(),
             IngestReason::NoPin
@@ -562,7 +677,7 @@ mod tests {
                 "short-sha",
                 manifest.clone(),
                 &digest_of("x"),
-                None,
+                &[],
             )
             .unwrap_err(),
             IngestReason::NoPin
@@ -575,7 +690,7 @@ mod tests {
                 &commit_sample(),
                 manifest.clone(),
                 "zzz",
-                None,
+                &[],
             )
             .unwrap_err(),
             IngestReason::BadDigest
@@ -587,7 +702,7 @@ mod tests {
             &commit_sample(),
             manifest,
             &digest_of("x"),
-            None,
+            &[],
         )
         .unwrap();
         assert_eq!(
@@ -713,6 +828,132 @@ mod tests {
         assert_eq!(
             verify_artifact_signature("zz", &digest, &sig_hex),
             Err(IngestReason::BadSignature)
+        );
+    }
+
+    #[test]
+    fn signature_block_should_verify_through_rotation_and_narrow_key_ids() {
+        use ed25519_dalek::Signer as _;
+        let old = ed25519_dalek::SigningKey::from_bytes(&[7u8; 32]);
+        let new = ed25519_dalek::SigningKey::from_bytes(&[11u8; 32]);
+        let old_key = TrustedSigningKey {
+            key_id: "old-key".into(),
+            public_key: hex::encode(old.verifying_key().as_bytes()),
+        };
+        let new_key = TrustedSigningKey {
+            key_id: "new-key".into(),
+            public_key: hex::encode(new.verifying_key().as_bytes()),
+        };
+        let digest = digest_of("artifact bytes");
+        let digest_bytes: [u8; 32] = hex::decode(&digest).unwrap().try_into().unwrap();
+        let old_sig = hex::encode(old.sign(&digest_bytes).to_bytes());
+        let narrow_sig = hex::encode(new.sign(&digest_bytes).to_bytes());
+
+        // Bare legacy form verifies against ANY trusted key (rotation
+        // keeps retired keys in the set so pre-rotation artifacts live).
+        let bare = SignatureBlock {
+            key_id: None,
+            signature: old_sig.clone(),
+        };
+        assert_eq!(
+            bare.verify(&[old_key.clone(), new_key.clone()], &digest),
+            Ok(())
+        );
+        // A bare FORGED signature against the whole set refuses.
+        let other = ed25519_dalek::SigningKey::from_bytes(&[9u8; 32]);
+        let digest_bytes_2: [u8; 32] = hex::decode(&digest).unwrap().try_into().unwrap();
+        let forged = SignatureBlock {
+            key_id: None,
+            signature: hex::encode(other.sign(&digest_bytes_2).to_bytes()),
+        };
+        assert_eq!(
+            forged.verify(&[old_key.clone(), new_key.clone()], &digest),
+            Err(IngestReason::BadSignature)
+        );
+
+        // The key-id block pins EXACTLY one key: an old-key-named block
+        // carrying a NEW-key signature refuses even though both keys are
+        // trusted (naming narrows; wrong material refuses).
+        let narrow = SignatureBlock {
+            key_id: Some("new-key".into()),
+            signature: old_sig.clone(),
+        };
+        assert_eq!(
+            narrow.verify(&[old_key.clone(), new_key.clone()], &digest),
+            Err(IngestReason::BadSignature)
+        );
+        let stranger_sig = narrow_sig.clone();
+        let narrow_ok = SignatureBlock {
+            key_id: Some("new-key".into()),
+            signature: narrow_sig,
+        };
+        assert_eq!(
+            narrow_ok.verify(&[old_key.clone(), new_key.clone()], &digest),
+            Ok(())
+        );
+
+        // An unknown key_id refuses TYPED — never a fallback sweep.
+        let stranger = SignatureBlock {
+            key_id: Some("stranger".into()),
+            signature: stranger_sig,
+        };
+        assert_eq!(
+            stranger.verify(&[old_key, new_key], &digest),
+            Err(IngestReason::UnknownKey)
+        );
+
+        // An empty trust set refuses outright (`distribution_signing_key_unconfigured`).
+        let any = SignatureBlock {
+            key_id: None,
+            signature: old_sig,
+        };
+        assert_eq!(any.verify(&[], &digest), Err(IngestReason::NoTrustedKeys));
+    }
+
+    #[test]
+    fn registry_entry_should_verify_the_key_id_block_through_ingestion() {
+        use ed25519_dalek::Signer as _;
+        let signing = ed25519_dalek::SigningKey::from_bytes(&[5u8; 32]);
+        let key = TrustedSigningKey {
+            key_id: "ops-2026".into(),
+            public_key: hex::encode(signing.verifying_key().as_bytes()),
+        };
+        let digest = digest_of("artifact bytes");
+        let digest_bytes: [u8; 32] = hex::decode(&digest).unwrap().try_into().unwrap();
+        let sig = hex::encode(signing.sign(&digest_bytes).to_bytes());
+        let payload = json!({
+            "slug": "ticket-summarizer",
+            "tag": "v1.2.0",
+            "artifact": {
+                "digest": &digest,
+                "signature": {"key_id": "ops-2026", "signature": &sig}
+            },
+            "manifest": serde_json::from_str::<serde_json::Value>(GOOD_MANIFEST).unwrap()
+        });
+        let bundle = ingest_registry_entry(&serde_json::to_vec(&payload).unwrap(), &[key]).unwrap();
+        assert_eq!(bundle.fetched_ref.as_deref(), Some("v1.2.0"));
+
+        // A named key_id that carries no trust refuses TYPED — named
+        // blocks cannot steer into the wider trust set.
+        let ghost_payload = json!({
+            "slug": "x",
+            "tag": "v1",
+            "artifact": {
+                "digest": &digest,
+                "signature": {"key_id": "ghost", "signature": &sig}
+            },
+            "manifest": serde_json::from_str::<serde_json::Value>(GOOD_MANIFEST).unwrap()
+        });
+        assert_eq!(
+            ingest_registry_entry(
+                &serde_json::to_vec(&ghost_payload).unwrap(),
+                &[TrustedSigningKey {
+                    key_id: "ops-2026".into(),
+                    public_key: hex::encode(signing.verifying_key().as_bytes()),
+                }]
+            )
+            .unwrap_err(),
+            IngestReason::UnknownKey
         );
     }
 

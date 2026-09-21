@@ -270,7 +270,7 @@ pub async fn create_folder(
         // the admin who just created it. Ensure the owner/admin grants
         // land in the SAME transaction (never a self-lockout window).
         if folder.restricted {
-            core_db::secret_vault::seed_admin_grants_for_restricted_folders(
+            core_db::secret_vault::seed_preset_role_grants_for_restricted_folders(
                 &mut ctx.tx,
                 org_id,
                 user_id,
@@ -330,7 +330,7 @@ pub async fn update_folder(
         // deny-by-default in the same transaction that restores owner/
         // admin access (the seeding idempotently upserts the grants).
         if !before.restricted && folder.restricted {
-            core_db::secret_vault::seed_admin_grants_for_restricted_folders(
+            core_db::secret_vault::seed_preset_role_grants_for_restricted_folders(
                 &mut ctx.tx,
                 org_id,
                 user_id,
@@ -420,7 +420,7 @@ pub async fn fork_folder(
         // chain's grant rows don't exist yet; seat owner/admin before
         // the tx commits (same deny-by-default-with-admin posture).
         if created.iter().any(|f| f.restricted) {
-            core_db::secret_vault::seed_admin_grants_for_restricted_folders(
+            core_db::secret_vault::seed_preset_role_grants_for_restricted_folders(
                 &mut ctx.tx,
                 org_id,
                 user_id,

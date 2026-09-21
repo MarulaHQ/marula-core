@@ -223,6 +223,7 @@ mod tests {
             vault_write_budget_per_min: 600,
             vault_bulk_rows_per_sec: 50,
             plugin_signing_key: None,
+            plugin_signing_keys: None,
             dev_tools: false,
             webauthn_rp_id: "localhost".into(),
             webauthn_rp_origin: "http://localhost:3000".into(),

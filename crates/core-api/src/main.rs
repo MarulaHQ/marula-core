@@ -17,6 +17,20 @@ async fn main() -> anyhow::Result<()> {
             .expect("configuration fail-closed (from_env): see the operator copy above"),
     );
     tracing::info!(addr = %config.bind_addr, "starting core-api");
+    // Plugin distribution trust posture at boot (Wave 19 lane 2, ADR 0009
+    // rotation semantics): an empty static trust set = structural
+    // signature verification only — ACCEPTABLE DEV POSTURE, never
+    // production. Operators register keys via `meridian plugin-key add`
+    // (docs/reference/plugin-signing-rotation-runbook.md); the DB
+    // registry wins over this static set at request time.
+    if core_api::config::bootstrap_signing_keys(&config).is_empty() {
+        tracing::warn!(
+            "plugin distribution signing keys UNCONFIGURED — artifact \
+             signatures degrade to structural-only checks; register an \
+             operator key (docs/reference/plugin-signing-rotation-runbook.md). \
+             Never production."
+        );
+    }
 
     let pool = core_db::connect(&config.database_url).await.context(
         "connecting to Postgres — check DATABASE_URL and that the database \
