@@ -83,6 +83,11 @@ pub struct PluginManifestBody {
     /// ADR 0009 §4 — optional JSON-Schema for manifest-rendered settings.
     #[serde(default)]
     pub settings_schema: Option<serde_json::Value>,
+    /// ADR 0009 §6 full semantics (Wave 19 lane 2) — the modeled
+    /// connector governance profile (webhook endpoints + scopes).
+    /// Valid only on http_connector manifests; wasm manifests refuse it.
+    #[serde(default)]
+    pub connector_profile: Option<core_domain::entities::ConnectorProfile>,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -239,6 +244,7 @@ fn build_manifest(
         capabilities: body.capabilities.clone(),
         settings_schema: body.settings_schema.clone(),
         artifact_kind: None,
+        connector_profile: body.connector_profile.clone(),
     };
     manifest.validate().map_err(ApiError::from)?;
     Ok(manifest)
@@ -548,6 +554,7 @@ fn fallback_manifest(install: &PluginInstall) -> PluginManifestV2 {
         capabilities: install.granted_capabilities.clone(),
         settings_schema: None,
         artifact_kind: None,
+        connector_profile: None,
     }
 }
 

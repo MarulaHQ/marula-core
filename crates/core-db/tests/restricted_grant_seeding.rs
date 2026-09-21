@@ -116,7 +116,7 @@ async fn runtime_seeding_seats_owner_and_admin_grants_on_restricted_chains() {
     // The route write boundary seeds owner/admin access in the SAME tx;
     // the store helper is the seed primitive the routes call.
     assert_eq!(
-        secret_vault::seed_admin_grants_for_restricted_folders(&mut tx, org, owner)
+        secret_vault::seed_preset_role_grants_for_restricted_folders(&mut tx, org, owner)
             .await
             .expect("seed"),
         2,
@@ -204,7 +204,7 @@ async fn backfill_is_idempotent_and_agrees_with_runtime_seeding() {
     let folder_id = make_restricted_folder(&mut tx, org, 8624, "client-keys", owner).await;
     // Runtime seeding first (org-creation twins the backfill): 2 rows.
     assert_eq!(
-        secret_vault::seed_admin_grants_for_restricted_folders(&mut tx, org, owner)
+        secret_vault::seed_preset_role_grants_for_restricted_folders(&mut tx, org, owner)
             .await
             .expect("seed"),
         2,

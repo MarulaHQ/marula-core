@@ -15,6 +15,7 @@ hex = { workspace = true }
 sha2 = { workspace = true }
 hmac = { workspace = true }
 subtle = { workspace = true }
+url = { workspace = true }
 utoipa = { workspace = true, optional = true, features = ["uuid", "chrono"] }
 
 sqlx = { workspace = true, optional = true }

@@ -42,10 +42,18 @@ pub enum PluginCapability {
     /// existing `financial:read` permission — the same gate cost rates,
     /// contract rates, and margin panels sit behind for humans.
     FinancialRead,
+    /// ADR 0006 leg (d) (Wave 19 lane 2): the CIPHERTEXT-ONLY vault-ingress
+    /// scope. A plugin holding this capability may submit ENCRYPTED
+    /// payloads (client-side E2E, key in URL fragment, wrapped to the org
+    /// key) into a scoped vault folder — nothing else. The core never
+    /// accepts PLAINTEXT secrets from plugin surfaces, so the capability
+    /// resolves onto the same `secrets:create` matrix gate a human writer
+    /// passes and every actual ingress payload is sealed bytes on arrival.
+    VaultIngress,
 }
 
 impl PluginCapability {
-    pub const ALL: [PluginCapability; 14] = [
+    pub const ALL: [PluginCapability; 15] = [
         PluginCapability::TicketsRead,
         PluginCapability::TicketsWrite,
         PluginCapability::ClientsRead,
@@ -60,6 +68,7 @@ impl PluginCapability {
         PluginCapability::DocumentsWrite,
         PluginCapability::ReportingRead,
         PluginCapability::FinancialRead,
+        PluginCapability::VaultIngress,
     ];
 
     /// The capability key as declared in a manifest / grant list.
@@ -79,6 +88,11 @@ impl PluginCapability {
             PluginCapability::DocumentsWrite => "documents.write",
             PluginCapability::ReportingRead => "reporting.read",
             PluginCapability::FinancialRead => "financial.read",
+            // ADR 0006 names this scope `vault:ingress` — the wire key
+            // carries the ADR's literal spelling (the colon token is part
+            // of the closed vocabulary; uniqueness and round-tripping are
+            // unaffected by the separator choice).
+            PluginCapability::VaultIngress => "vault:ingress",
         }
     }
 
@@ -149,6 +163,15 @@ impl PluginCapability {
                 action: Action::View,
             },
             PluginCapability::FinancialRead => Permission::ViewFinancials,
+            // Ciphertext-only ingress is still a WRITE onto the secrets
+            // module: the capability resolves onto the same matrix
+            // create-gate a human secret writer passes. A grant never
+            // invents authority — ingress plugins are authors of sealed
+            // records, nothing more.
+            PluginCapability::VaultIngress => Permission::Matrix {
+                module: Module::Secrets,
+                action: Action::Create,
+            },
         }
     }
 }
@@ -189,6 +212,18 @@ pub struct PluginManifestV2 {
     /// vocabulary).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifact_kind: Option<PluginRuntimeKind>,
+    /// ADR 0009 §6 full semantics (Wave 19 lane 2) — the connector
+    /// governance profile: webhook endpoints + outbound scopes as MODELED
+    /// manifest fields, never free text. Valid and OPTIONAL ONLY on
+    /// `http_connector` manifests (a connector may legitimately declare no
+    /// webhooks — the default posture an absent profile already encodes);
+    /// forbidden on `wasm` manifests. Declared endpoints are the
+    /// connector's egress-allowlist seed (the same posture the WASM
+    /// resource profile carries); declared scopes render on the consent
+    /// screen verbatim so an admin consents to exactly the SaaS scopes the
+    /// connector asks for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connector_profile: Option<ConnectorProfile>,
 }
 
 /// The plugin-side artifact vocabulary for the roster tabs (WASM vs HTTP
@@ -217,6 +252,98 @@ impl PluginRuntimeKind {
             "http_connector" => Some(Self::HttpConnector),
             _ => None,
         }
+    }
+}
+
+/// ADR 0009 §6 (Wave 19 lane 2): the modeled connector governance
+/// profile — WHERE the connector speaks (webhook endpoints) and what it
+/// wears outward (SaaS scopes). Structured, validated DECLARATIONS, not
+/// prose: the consent screen renders them verbatim and connectors inherit
+/// the platform's egress posture from the declared endpoint list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ConnectorProfile {
+    /// The webhook URLs traffic from the platform sends toward. https-only
+    /// absolute URLs, host required, no credentials in the URL, max 8.
+    #[serde(default)]
+    pub webhook_endpoints: Vec<String>,
+    /// The outbound scopes the connector asks the upstream SaaS for
+    /// (e.g. `graph:mail.read`); opaque strings to the core — they exist
+    /// for consent-time visibility and install-record provenance, max 32.
+    #[serde(default)]
+    pub scopes: Vec<String>,
+}
+
+/// Capacities of the modeled connector profile (deny oversized
+/// declarations at the data boundary).
+pub const MAX_CONNECTOR_ENDPOINTS: usize = 8;
+pub const MAX_CONNECTOR_SCOPES: usize = 32;
+const MAX_ENDPOINT_URL_BYTES: usize = 2048;
+const MAX_SCOPE_BYTES: usize = 64;
+
+impl ConnectorProfile {
+    /// Validates the closed profile: https-only endpoints (host present,
+    /// no userinfo, no path query beyond normal URL bounds), scope charset
+    /// `[A-Za-z0-9_.:-]+`, everything within the declared caps. Unknown
+    /// junk cannot serialize past this (deny-by-default at the boundary).
+    pub fn validate(&self) -> Result<(), crate::error::DomainError> {
+        if self.webhook_endpoints.len() > MAX_CONNECTOR_ENDPOINTS {
+            return Err(crate::error::DomainError::Validation(format!(
+                "connector profile declares {} webhook endpoints (max {MAX_CONNECTOR_ENDPOINTS})",
+                self.webhook_endpoints.len()
+            )));
+        }
+        for url in &self.webhook_endpoints {
+            Self::validate_endpoint(url)?;
+        }
+        if self.scopes.len() > MAX_CONNECTOR_SCOPES {
+            return Err(crate::error::DomainError::Validation(format!(
+                "connector profile declares {} scopes (max {MAX_CONNECTOR_SCOPES})",
+                self.scopes.len()
+            )));
+        }
+        for scope in &self.scopes {
+            if scope.is_empty()
+                || scope.len() > MAX_SCOPE_BYTES
+                || !scope
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | ':' | '-'))
+            {
+                return Err(crate::error::DomainError::Validation(format!(
+                    "connector scope {scope:?} violates the scope charset/size rules"
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_endpoint(url: &str) -> Result<(), crate::error::DomainError> {
+        if url.len() > MAX_ENDPOINT_URL_BYTES {
+            return Err(crate::error::DomainError::Validation(
+                "connector webhook endpoint exceeds the 2048-byte URL cap".into(),
+            ));
+        }
+        let parsed = url::Url::parse(url).map_err(|_| {
+            crate::error::DomainError::Validation(format!(
+                "connector webhook endpoint {url:?} is not an absolute URL"
+            ))
+        })?;
+        if parsed.scheme() != "https" {
+            return Err(crate::error::DomainError::Validation(format!(
+                "connector webhook endpoint {url:?} must be https"
+            )));
+        }
+        if !parsed.username().is_empty() {
+            return Err(crate::error::DomainError::Validation(
+                "connector webhook endpoints must not carry credentials in the URL".into(),
+            ));
+        }
+        if parsed.host_str().is_none() {
+            return Err(crate::error::DomainError::Validation(format!(
+                "connector webhook endpoint {url:?} is missing a host"
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -250,6 +377,26 @@ impl PluginManifestV2 {
         }
         if let Some(schema) = &self.settings_schema {
             SettingsSchema::new(schema.clone())?;
+        }
+        // ADR 0009 §6 full semantics: the connector profile is
+        // kind-coherent — modeled/validated for http_connector manifests
+        // (optional: a connector that declares no webhooks keeps the
+        // absent-profile default posture), forbidden on wasm manifests (a
+        // WASM executable has no webhook endpoints to govern — declaring
+        // the field refuses rather than being ignored).
+        match self.runtime_kind() {
+            PluginRuntimeKind::HttpConnector => {
+                if let Some(profile) = &self.connector_profile {
+                    profile.validate()?;
+                }
+            }
+            PluginRuntimeKind::Wasm => {
+                if self.connector_profile.is_some() {
+                    return Err(crate::error::DomainError::Validation(
+                        "wasm manifests must not declare a connector_profile".into(),
+                    ));
+                }
+            }
         }
         Ok(())
     }
@@ -804,6 +951,70 @@ impl ConsentDiff {
     }
 }
 
+/// The closed signing-key status vocabulary (migration 0095). ACTIVE =
+/// named by new publications and part of the trust set; RETIRED = past
+/// trust (no NEW publications name it) but still verifies pre-rotation
+/// artifacts; REVOKED = compromise — verifies nothing, retroactively.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum SigningKeyStatus {
+    Active,
+    Retired,
+    Revoked,
+}
+
+impl SigningKeyStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Retired => "retired",
+            Self::Revoked => "revoked",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "active" => Some(Self::Active),
+            "retired" => Some(Self::Retired),
+            "revoked" => Some(Self::Revoked),
+            _ => None,
+        }
+    }
+}
+
+/// One row of the operator signing-key trust store (`plugin_signing_keys`,
+/// migration 0095). `public_key` is verification-only material — 64 hex
+/// chars of the ed25519 PUBLIC key; private keys never cross this seam.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SigningKeyRecord {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub id: Uuid,
+    pub key_id: String,
+    pub public_key: String,
+    pub status: SigningKeyStatus,
+    pub label: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub created_at: DateTime<Utc>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>, format = "date-time"))]
+    pub retired_at: Option<DateTime<Utc>>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>, format = "date-time"))]
+    pub revoked_at: Option<DateTime<Utc>>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>))]
+    pub revoked_reason: Option<String>,
+}
+
+impl SigningKeyRecord {
+    /// A revoked key verifies nothing — denial is retroactive on purpose.
+    pub fn trust_set_member(&self) -> bool {
+        matches!(
+            self.status,
+            SigningKeyStatus::Active | SigningKeyStatus::Retired
+        )
+    }
+}
+
 /// An org's adoption of one catalog entry at one pinned version.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -960,6 +1171,7 @@ mod tests {
             capabilities: capabilities.iter().map(|s| s.to_string()).collect(),
             settings_schema: None,
             artifact_kind: None,
+            connector_profile: None,
         }
     }
 
@@ -998,6 +1210,85 @@ mod tests {
                 action: Action::Edit
             }
         );
+        // ADR 0006 leg (d): ciphertext-only ingress resolves onto the
+        // secrets create gate — the same class of write a human record
+        // author passes, never an invented authority.
+        assert_eq!(
+            PluginCapability::VaultIngress.permission(),
+            Permission::Matrix {
+                module: Module::Secrets,
+                action: Action::Create
+            }
+        );
+    }
+
+    #[test]
+    fn connector_profile_should_enforce_the_modeled_declaration_calendar() {
+        let mut m = manifest(&[]);
+        m.artifact_kind = Some(PluginRuntimeKind::HttpConnector);
+        // A connector manifest without a profile keeps the valid default
+        // (no declared webhooks); a DECLARED profile validates deeply.
+        assert!(m.validate().is_ok());
+        m.connector_profile = Some(ConnectorProfile {
+            webhook_endpoints: vec![
+                "https://hooks.example.com/m365/ingest".into(),
+                "https://relay.immybot.dev/webhook".into(),
+            ],
+            scopes: vec!["graph:mail.read".into(), "graph:calendars.readwrite".into()],
+        });
+        assert!(m.validate().is_ok());
+
+        // A wasm manifest DECLARING a connector profile refuses.
+        m.artifact_kind = Some(PluginRuntimeKind::Wasm);
+        assert!(m.validate().is_err());
+
+        // The default (absent kind = wasm baseline) refuses a profile too.
+        m.artifact_kind = None;
+        assert!(m.validate().is_err());
+    }
+
+    #[test]
+    fn connector_profile_should_refuse_http_credentials_and_oversize_declarations() {
+        let refuse = |url: &str| {
+            ConnectorProfile {
+                webhook_endpoints: vec![url.into()],
+                scopes: vec!["graph:mail.read".into()],
+            }
+            .validate()
+            .is_err()
+        };
+        assert!(refuse("http://hooks.example.com/plain")); // not https
+        assert!(refuse("https://user:pass@hooks.example.com/x")); // credentials
+        assert!(refuse("not-a-url"));
+
+        let ok = ConnectorProfile {
+            webhook_endpoints: vec!["https://hooks.example.com/x".into()],
+            scopes: vec![],
+        };
+        assert!(ok.validate().is_ok());
+        // Over-cap declarations refuse.
+        let many: Vec<String> = (0..10)
+            .map(|i| format!("https://h{i}.example.com/x"))
+            .collect();
+        assert!(ConnectorProfile {
+            webhook_endpoints: many,
+            scopes: vec![],
+        }
+        .validate()
+        .is_err());
+        let scopes: Vec<String> = (0..40).map(|i| format!("scope{i}")).collect();
+        assert!(ConnectorProfile {
+            webhook_endpoints: vec![],
+            scopes,
+        }
+        .validate()
+        .is_err());
+        assert!(ConnectorProfile {
+            webhook_endpoints: vec![],
+            scopes: vec!["bad scope with spaces".into()],
+        }
+        .validate()
+        .is_err());
     }
 
     #[test]

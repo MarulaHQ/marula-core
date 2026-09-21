@@ -82,14 +82,27 @@ pub struct Config {
     /// disables limiting). Per-process counters — one API instance, one
     /// budget (the same posture as the migration dispatch budgets).
     pub vault_write_budget_per_min: u32,
-    /// Plugin/skill artifact signing key (B1, Wave 16 lane 9, ADR 0009):
-    /// the operator's ed25519 PUBLIC key (64 hex chars). When set, every
-    /// registry/GitHub distribution artifact is cryptographically
-    /// signature-verified against it (typed
-    /// `distribution_signature_invalid` on failure); unset ⇒ structural
-    /// verification only (dev posture — loudly logged at boot).
-    /// Env `MERIDIAN_PLUGIN_SIGNING_KEY`.
+    /// Plugin/skill artifact signing keys (B1, Wave 16 lane 9 → Wave 19
+    /// lane 2 rotation full semantics, ADR 0009): the operator's trusted
+    /// ed25519 PUBLIC keys (64 hex chars each) as a TRUST SET. Env
+    /// `MERIDIAN_PLUGIN_SIGNING_KEYS` (comma-separated `key_id=hex`
+    /// entries) joins the legacy single-key `MERIDIAN_PLUGIN_SIGNING_KEY`
+    /// (merged as an implicit derived key-id). When the trust set is
+    /// non-empty, every registry/GitHub distribution artifact is
+    /// cryptographically signature-verified against it (typed refusals:
+    /// `distribution_signature_invalid`, `distribution_signature_key_unknown`);
+    /// an EMPTY trust set degrades to structural verification only (dev
+    /// posture — loudly logged at boot). The DB registry
+    /// (`plugin_signing_keys`) overrides this static set at request time.
+    /// Env `MERIDIAN_PLUGIN_SIGNING_KEYS`, `MERIDIAN_PLUGIN_SIGNING_KEY`.
     pub plugin_signing_key: Option<String>,
+    /// Wave 19 lane 2 (ADR 0009 rotation full semantics): ADDITIONAL
+    /// trusted keys in the rotation trust set, comma-separated
+    /// `key_id=public_key_hex` entries (key_id optional — `=…` entries
+    /// derive the default first-16-hex id). Merged with the legacy
+    /// `plugin_signing_key` into the static bootstrap trust set; the DB
+    /// registry wins at request time. Env `MERIDIAN_PLUGIN_SIGNING_KEYS`.
+    pub plugin_signing_keys: Option<String>,
     /// Chunked bulk-secret ingestion (A2, Wave 16 lane 9): the rows/second
     /// pacing ceiling between per-row commits on the
     /// `POST /api/secrets/records/bulk` worker path. Env
@@ -171,6 +184,7 @@ impl Config {
             vault_write_budget_per_min: 600,
             vault_bulk_rows_per_sec: 50,
             plugin_signing_key: None,
+            plugin_signing_keys: None,
             dev_tools: true,
         }
     }
@@ -344,8 +358,101 @@ impl Config {
             plugin_signing_key: std::env::var("MERIDIAN_PLUGIN_SIGNING_KEY")
                 .ok()
                 .filter(|v| !v.trim().is_empty()),
+            plugin_signing_keys: std::env::var("MERIDIAN_PLUGIN_SIGNING_KEYS")
+                .ok()
+                .filter(|v| !v.trim().is_empty()),
             dev_tools,
         })
+    }
+}
+
+/// The STATIC bootstrap signing-key trust set (Wave 19 lane 2 rotation
+/// semantics): the legacy single key merged with the `key_id=hex` list,
+/// de-duplicated by key_id; malformed entries are logged loudly and
+/// dropped (never a boot failure — an operator fixing a typo must not
+/// take the core down; the DB registry remains the live source of intent
+/// and the env set feeds resilience when the DB registry is unreachable
+/// or still empty pre-runbook). An EMPTY result disables cryptographic
+/// enforcement (the legacy dev posture, logged at boot).
+pub fn bootstrap_signing_keys(
+    config: &Config,
+) -> Vec<plugin_host::distribution::TrustedSigningKey> {
+    use plugin_host::distribution::TrustedSigningKey;
+    let mut keys: Vec<TrustedSigningKey> = Vec::new();
+    let mut push = |key_id: Option<&str>, public_key_hex: &str| {
+        let pk = public_key_hex.trim().to_lowercase();
+        if pk.len() != 64 || !pk.bytes().all(|b| b.is_ascii_hexdigit()) {
+            eprintln!(
+                "[plugins] MERIDIAN signing key dropped: public key must be 64 hex chars (got {} chars)",
+                pk.len()
+            );
+            return;
+        }
+        let key_id = key_id
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .unwrap_or_else(|| pk.chars().take(16).collect());
+        if keys.iter().any(|k| k.key_id == key_id) {
+            return;
+        }
+        keys.push(TrustedSigningKey {
+            key_id,
+            public_key: pk,
+        });
+    };
+    if let Some(legacy) = config.plugin_signing_key.as_deref() {
+        push(None, legacy);
+    }
+    if let Some(list) = config.plugin_signing_keys.as_deref() {
+        for entry in list.split(',') {
+            let entry = entry.trim();
+            if entry.is_empty() {
+                continue;
+            }
+            match entry.split_once('=') {
+                Some((key_id, pk)) => push(Some(key_id), pk),
+                // A bare hex entry rides the derived default id.
+                None => push(None, entry),
+            }
+        }
+    }
+    keys
+}
+
+#[cfg(test)]
+mod signing_keys_tests {
+    use super::*;
+
+    #[test]
+    fn empty_config_yields_an_empty_trust_set() {
+        let config = Config::test_with_secret("s");
+        assert!(bootstrap_signing_keys(&config).is_empty());
+    }
+
+    #[test]
+    fn legacy_and_list_entries_merge_deduplicated() {
+        let pk_a = "a".repeat(64);
+        let mut config = Config::test_with_secret("s");
+        config.plugin_signing_key = Some(pk_a.clone());
+        config.plugin_signing_keys = Some(format!("ops-1={pk_a},ops-2={}", "b".repeat(64)));
+        let keys = bootstrap_signing_keys(&config);
+        // Dedup is by KEY ID, not by key material: the same public key
+        // under two identities (legacy derived id + a named id) is TWO
+        // trust identities (an artifact may cite either).
+        assert_eq!(keys.len(), 3);
+        assert_eq!(keys[0].key_id, pk_a.chars().take(16).collect::<String>());
+        assert_eq!(keys[1].key_id, "ops-1");
+        assert_eq!(keys[2].key_id, "ops-2");
+    }
+
+    #[test]
+    fn malformed_entries_dropped_loudly_without_failing_boot() {
+        let mut config = Config::test_with_secret("s");
+        config.plugin_signing_keys = Some("ops-bad=zzz,ops-good=".to_string() + &"c".repeat(64));
+        let keys = bootstrap_signing_keys(&config);
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0].key_id, "ops-good");
     }
 }
 
@@ -408,6 +515,7 @@ impl Config {
             vault_write_budget_per_min: 600,
             vault_bulk_rows_per_sec: 50,
             plugin_signing_key: None,
+            plugin_signing_keys: None,
             dev_tools: false,
         }
     }

@@ -72,6 +72,58 @@ enum Command {
         #[arg(long)]
         force: bool,
     },
+    /// Operator signing-key management (Wave 19 lane 2, ADR 0009
+    /// rotation semantics, docs/reference/plugin-signing-rotation-runbook.md).
+    PluginKey {
+        #[command(subcommand)]
+        action: PluginKeyAction,
+    },
+}
+
+/// The rotation runbook, as CLI verbs (one step per rotation, never a
+/// combined command — every state change is deliberate and printed).
+#[derive(Debug, Subcommand)]
+enum PluginKeyAction {
+    /// List every registered signing key (the rotation state, with
+    /// statuses — the roster the runbook starts and ends with).
+    #[command(name = "list")]
+    List,
+    /// Register a public key as ACTIVE (a new key in the trust set).
+    /// `--public-key` is the ed25519 PUBLIC key (64 hex chars) — private
+    /// keys never enter this surface.
+    #[command(name = "add")]
+    Add {
+        /// Stable trust identity; defaults to the first 16 hex chars of
+        /// the public key.
+        #[arg(long)]
+        key_id: Option<String>,
+        /// The ed25519 public key, 64 hex chars.
+        #[arg(long)]
+        public_key: String,
+        /// Free-label for the operator's runbook trail (e.g. "HSM slot
+        /// 1, quarterly 2026Q4 key").
+        #[arg(long, default_value = "")]
+        label: String,
+    },
+    /// Rotation step: mark an ACTIVE key RETIRED. It stops being named
+    /// by new publications but KEEPS VERIFYING pre-rotation artifacts
+    /// (retired is past-trust, not distrust — revoke is different).
+    #[command(name = "retire")]
+    Retire {
+        #[arg(long)]
+        key_id: String,
+    },
+    /// COMPROMISE response: the key verifies nothing from now on
+    /// (retroactively). Requires a reason; the key_id stays occupied
+    /// forever — never re-registered.
+    #[command(name = "revoke")]
+    Revoke {
+        #[arg(long)]
+        key_id: String,
+        /// Why (recorded on the registry row forever).
+        #[arg(long)]
+        reason: String,
+    },
 }
 
 #[tokio::main]
@@ -105,6 +157,7 @@ async fn main() -> anyhow::Result<()> {
             fixture::emit_manifest(&url, org_id, out).await
         }
         Command::SeedDemo { force } => seed_demo(force).await,
+        Command::PluginKey { action } => plugin_key(action).await,
     }
 }
 
@@ -408,6 +461,77 @@ fn print_seed_summary(report: &core_db::demo::DemoSeedReport) {
     );
 }
 
+/// Operator signing-key surface (the runbook's verbs over the global
+/// trust store). Prints the resulting roster after each write so the
+/// operator's terminal log IS the rotation trail.
+async fn plugin_key(action: PluginKeyAction) -> anyhow::Result<()> {
+    let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| DEFAULT_DATABASE_URL.to_string());
+    let pool = core_db::connect(&url).await.context(
+        "connecting to Postgres — set DATABASE_URL (settings live in the \
+         database's plugin_signing_keys registry)",
+    )?;
+    let mut conn = pool
+        .acquire()
+        .await
+        .context("acquiring a database connection")?;
+    match action {
+        PluginKeyAction::List => {
+            let keys = core_db::plugin_signing_keys::list_keys(&mut conn).await?;
+            if keys.is_empty() {
+                println!("(no signing keys registered yet — see the rotation runbook)");
+            }
+            for key in keys {
+                println!(
+                    "{:<18} {:<7} {:<24} reason: {}",
+                    key.key_id,
+                    key.status.as_str(),
+                    key.label,
+                    key.revoked_reason.as_deref().unwrap_or("-")
+                );
+            }
+        }
+        PluginKeyAction::Add {
+            key_id,
+            public_key,
+            label,
+        } => {
+            let key = core_db::plugin_signing_keys::add_key(
+                &mut conn,
+                key_id.as_deref(),
+                &public_key,
+                &label,
+            )
+            .await
+            .context("registering the public key failed")?;
+            println!(
+                "registered key_id {} (active) — artifacts naming it verify from now on",
+                key.key_id
+            );
+        }
+        PluginKeyAction::Retire { key_id } => {
+            let key = core_db::plugin_signing_keys::retire_key(&mut conn, &key_id)
+                .await
+                .map_err(|e| anyhow::anyhow!("key_id {key_id:?} not found or not active: {e}"))?;
+            println!(
+                "retired key_id {} — still verifies pre-rotation artifacts; \
+                 no NEW publications reference it",
+                key.key_id
+            );
+        }
+        PluginKeyAction::Revoke { key_id, reason } => {
+            let key = core_db::plugin_signing_keys::revoke_key(&mut conn, &key_id, &reason)
+                .await
+                .context("revoking the key failed")?;
+            println!(
+                "REVOKED key_id {} — it verifies nothing (retroactively poisons \
+                 artifacts citing it; the key_id can never be re-registered)",
+                key.key_id
+            );
+        }
+    }
+    Ok(())
+}
+
 async fn serve_worker() -> anyhow::Result<()> {
     worker::run(worker::config::WorkerConfig::from_env(), shutdown_watch())
         .await
@@ -473,6 +597,38 @@ mod tests {
         assert!(matches!(
             parse(&["seed-demo", "--force"]),
             Ok(Command::SeedDemo { force: true })
+        ));
+        // The rotation runbook verbs parse (Wave 19 lane 2).
+        assert!(matches!(
+            parse(&["plugin-key", "list"]),
+            Ok(Command::PluginKey {
+                action: PluginKeyAction::List
+            })
+        ));
+        assert!(matches!(
+            parse(&["plugin-key", "add", "--public-key", &"a".repeat(64)]),
+            Ok(Command::PluginKey {
+                action: PluginKeyAction::Add { .. }
+            })
+        ));
+        assert!(matches!(
+            parse(&["plugin-key", "retire", "--key-id", "ops-1"]),
+            Ok(Command::PluginKey {
+                action: PluginKeyAction::Retire { .. }
+            })
+        ));
+        assert!(matches!(
+            parse(&[
+                "plugin-key",
+                "revoke",
+                "--key-id",
+                "ops-1",
+                "--reason",
+                "compromise"
+            ]),
+            Ok(Command::PluginKey {
+                action: PluginKeyAction::Revoke { .. }
+            })
         ));
     }
 

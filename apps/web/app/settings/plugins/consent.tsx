@@ -125,6 +125,83 @@ function CapabilityList({
 }
 
 /**
+ * ADR 0009 §6 full semantics — the modeled connector governance profile
+ * rendered VERBATIM on the consent screen: the webhook endpoints the
+ * connector declares address the platform's egress posture; the scopes
+ * are exactly the SaaS authorizations the admin is consenting to. Absent
+ * connector profiles render nothing (an absent profile is the valid
+ * default posture for connectors without webhooks).
+ */
+export function ConnectorProfileBlock({
+  connectorProfile,
+}: {
+  connectorProfile?: unknown;
+}) {
+  const profile = connectorProfile as
+    | { webhook_endpoints?: string[]; scopes?: string[] }
+    | null
+    | undefined;
+  if (!profile) return null;
+  const endpoints = profile.webhook_endpoints ?? [];
+  const scopes = profile.scopes ?? [];
+  if (endpoints.length === 0 && scopes.length === 0) return null;
+  return (
+    <div className="rounded-md border border-dashed p-3" style={{ borderColor: "var(--m-border)" }}>
+      <p
+        className="text-[11px] uppercase tracking-wide"
+        style={{ color: "var(--m-text-muted)" }}
+      >
+        Connector profile
+      </p>
+      <ul className="mt-2 grid gap-1">
+        {endpoints.map((endpoint) => (
+          <li key={endpoint} className="font-mono text-[12px]">
+            webhook → {endpoint}
+          </li>
+        ))}
+        {scopes.map((scope) => (
+          <li key={scope} className="font-mono text-[12px]">
+            scope → {scope}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+        Declared webhook endpoints seed the connector&apos;s outbound posture;
+        scopes are the upstream SaaS permissions the connector asks for.
+        Consenting approves exactly what is declared above.
+      </p>
+    </div>
+  );
+}
+
+/** ADR 0006 leg (d) — the ciphertext-only vault:ingress consent note:
+ * the ONE special warning a capability key can carry (the core never
+ * accepts plaintext secrets from plugin surfaces). */
+const CAPABILITY_NOTES: Record<string, string> = {
+  "vault:ingress":
+    "Ciphertext-only ingress — the plugin may submit ENCRYPTED payloads into a scoped vault folder. The core never accepts plaintext secrets, and the folder's existing RBAC grants still gate reads.",
+};
+
+/** The capability notes block — prints the vault:ingress posture under
+ * the capability list when the declared set carries it (minimal consent
+ * surface; no other UI work rides this lane). */
+export function CapabilityNotes({ capabilities }: { capabilities: string[] | null | undefined }) {
+  const notes = (capabilities ?? [])
+    .map((c) => CAPABILITY_NOTES[c])
+    .filter((n): n is string => n !== undefined);
+  if (notes.length === 0) return null;
+  return (
+    <div className="rounded-md border border-dashed p-3" style={{ borderColor: "var(--m-border)" }}>
+      {notes.map((note, i) => (
+        <p key={i} className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+          {note}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+/**
  * The consent surface itself: provenance chain + capability consent +
  * declared settings schema. `diff` present ⇒ renders Added / Removed /
  * Unchanged (update re-consent); otherwise the declared list for a
@@ -135,16 +212,21 @@ export function ConsentSummary({
   artifact,
   diff,
   settingsSchema,
+  connectorProfile,
   grants,
   onToggleGrant,
 }: {
   artifact: ConsentView & { uploaded_by?: string };
   diff?: ConsentDiffView | null;
   settingsSchema?: unknown;
+  connectorProfile?: unknown;
   grants?: string[] | null;
   onToggleGrant?: (capability: string) => void;
 }) {
   const hasDiff = diff !== undefined && diff !== null;
+  const noteCapabilities = hasDiff
+    ? [...diff!.added].concat(diff!.unchanged)
+    : artifact.declared_capabilities;
   return (
     <div className="grid gap-3">
       <ProvenanceSummary
@@ -185,6 +267,7 @@ export function ConsentSummary({
             tone="outline"
           />
         )}
+        <CapabilityNotes capabilities={noteCapabilities} />
         {onToggleGrant !== undefined && !hasDiff ? (
           <div>
             <p className="text-[11px] uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
@@ -214,6 +297,7 @@ export function ConsentSummary({
             tone="success"
           />
         )}
+        <ConnectorProfileBlock connectorProfile={connectorProfile} />
         <SettingsSchemaBlock schema={settingsSchema} />
       </div>
     </div>

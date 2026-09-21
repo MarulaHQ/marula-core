@@ -77,19 +77,56 @@ pub async fn seed_default_secret_folders(
         )
         .await?;
     }
-    seed_admin_grants_for_restricted_folders(conn, org_id, actor).await?;
+    seed_preset_role_grants_for_restricted_folders(conn, org_id, actor).await?;
     Ok(())
 }
 
-/// Upserts `can_read`+`can_edit` category grants on every RESTRICTED
-/// folder of the org for the org's Owner and Admin builtin roles (the
-/// lane-10 directive: deny-by-default for members, never a self-lockout
-/// for the vault's own owners). Called from the org-creation seed path
-/// AND the folder write boundary (create / restrict / fork) so a freshly
-/// restricted or forked chain immediately holds admin access. Idempotent
-/// by the `secret_grants_role_folder_key` unique — reruns no-op. Returns
-/// the number of rows newly inserted (0 on a rerun).
-pub async fn seed_admin_grants_for_restricted_folders(
+/// Upserts category grants on every RESTRICTED folder of the org from
+/// the preset-role DEFAULT GRANT posture (Wave 19 lane 2 PRODUCT
+/// DECISION, the "junior-role default grants on restricted chains"
+/// lower lane-2 clause; the seeding is DATA — grant rows, invocable and
+/// revocable exactly like any admin grant). Called from the
+/// org-creation seed path AND the folder write boundary (create /
+/// restrict / fork) so a freshly restricted or forked chain immediately
+/// carries its canonical posture. Idempotent by the
+/// `secret_grants_role_folder_key` unique — reruns no-op. Returns the
+/// number of rows newly inserted (0 on a rerun).
+///
+/// THE PRODUCT DECISION (owner-directive lane contract, resolved here —
+/// rationale recorded in the lane landing record):
+/// per-preset-role default posture on restricted chains mirrors the
+/// financial-visibility pattern (ADR 0004 RB2) — restricted chains are
+/// the vault's financial-visibility class:
+/// * `owner` / `admin`: `can_read + can_edit` (self-lockout guard for
+///   the vault's own owners — deny-by-default can never lock out the
+///   admin ability to grant access);
+/// * every JUNIOR role (`dispatcher`, `senior_tech`, `technician`,
+///   `bookkeeper`, `auditor`, `read_only`): NONE. Secrets on restricted
+///   chains are exactly the MSP-API/infrastructure class a tech must
+///   never reach by default; an explicit owner/admin grant is the ONLY
+///   path a junior role walks in (grants are keys, never vetoes);
+/// * every preset's posture is listed in
+///   `PRESET_ROLE_RESTRICTED_DEFAULTS` below. Orgs fork presets into
+///   custom roles and grant as they see fit — the defaults only ever
+///   shape a freshly restricted chain, never an existing grant ledger
+///   (insert-nothing-on-conflict semantics).
+///
+/// The per-role posture as DATA (the constant tests the SQL seeding
+/// against, keeping code and docs from drifting):
+/// `(builtin tag, can_read, can_edit)` — every preset named; absence of
+/// a row IS the junior posture (none).
+pub const PRESET_ROLE_RESTRICTED_DEFAULTS: [(&str, bool, bool); 2] =
+    [("owner", true, true), ("admin", true, true)];
+
+/// Upserts category grants on every RESTRICTED folder of the org from
+/// the preset-role DEFAULT GRANT posture (`PRESET_ROLE_RESTRICTED_
+/// DEFAULTS` above — the Wave 19 lane 2 PRODUCT DECISION: owner/admin
+/// read+edit, every junior role none). Central policy gates every route;
+/// this seam is the seeding shape of the preset-role doctrine on
+/// restricted chains. Idempotent by the `secret_grants_role_folder_key`
+/// unique — reruns no-op. Returns the number of rows newly inserted
+/// (0 on a rerun).
+pub async fn seed_preset_role_grants_for_restricted_folders(
     conn: &mut PgConnection,
     org_id: Uuid,
     actor: Uuid,
@@ -112,6 +149,16 @@ pub async fn seed_admin_grants_for_restricted_folders(
     .await
     .map_err(|e| maybe_conflict(e, "restricted-category seed rejected"))?;
     Ok(result.rows_affected())
+}
+
+/// Back-compat alias kept for the module's read shape: the seeding IS
+/// the per-role default posture (owner/admin read+edit, nobody junior).
+pub async fn seed_admin_grants_for_restricted_folders(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    actor: Uuid,
+) -> DbResult<u64> {
+    seed_preset_role_grants_for_restricted_folders(conn, org_id, actor).await
 }
 
 fn folder_row(r: sqlx::postgres::PgRow) -> SecretFolder {
@@ -945,4 +992,25 @@ pub async fn folder_access(
         .fetch_one(&mut *conn)
         .await?;
     Ok(r)
+}
+
+#[cfg(test)]
+mod restricted_defaults_tests {
+    use super::PRESET_ROLE_RESTRICTED_DEFAULTS;
+
+    /// The Wave 19 lane 2 PRODUCT DECISION, as a cheap code gate: exactly
+    /// owner/admin default into restricted chains (read+edit); every
+    /// junior preset's posture is "absent row = none". Builtin spellings
+    /// must match migration 0071's `roles.builtin` tags.
+    #[test]
+    fn preset_role_restricted_defaults_owner_admin_only() {
+        let tags: Vec<&str> = PRESET_ROLE_RESTRICTED_DEFAULTS
+            .iter()
+            .map(|(b, ..)| *b)
+            .collect();
+        assert_eq!(tags, vec!["owner", "admin"]);
+        for (_b, read, edit) in PRESET_ROLE_RESTRICTED_DEFAULTS {
+            assert!(read && edit, "owner/admin grants carry read AND edit");
+        }
+    }
 }
