@@ -78,6 +78,7 @@ pub mod internal;
 pub mod invoices;
 pub mod kb;
 pub mod kb_rich;
+pub mod loop_termination;
 pub mod manifest;
 pub mod notifications;
 pub mod oidc;
@@ -106,6 +107,7 @@ pub mod scorecards;
 pub mod search;
 pub mod secrets;
 pub mod settings;
+pub mod similar_tickets;
 pub mod sla_admin;
 pub mod tags;
 pub mod taxonomy;
@@ -643,6 +645,10 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/tickets/{id}/decision-suggestions"),
             get(decision_suggestions::list),
+        )
+        .route(
+            &rp("/tickets/{id}/similar-tickets"),
+            get(similar_tickets::similar_tickets),
         )
         .route(&rp("/tickets/{id}/status"), post(tickets::change_status))
         .route(&rp("/tickets/{id}/sla"), get(tickets::sla_status))

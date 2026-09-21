@@ -829,3 +829,196 @@ async fn unauthenticated_turns_never_reach_the_runner() {
     .await;
     assert_eq!(response.status(), 401);
 }
+
+// --- decision_llm_verify dispatch gate (Wave 23 lane 4, ADR 0010 §3 #6 +
+// ADR 0011 §1): the assist draft dispatches through the verification gate
+// when the surface is LIVE; shadow/unconfigured orgs file exactly as
+// before (the assist flow test above is that bit-identical posture). ----
+
+/// Enables decision_llm_verify LIVE on a fresh org: a `decision`-capable
+/// catalog pair, a sealed typesafe credential, and the surface config.
+async fn enable_llm_verify_live(
+    app: &Router,
+    pool: &PgPool,
+    owner: &str,
+    org_id: Uuid,
+    member_id: Uuid,
+    hex: &str,
+) {
+    let response = send(
+        app,
+        axum::http::Method::PUT,
+        "/api/settings/ai/catalog",
+        Some(owner),
+        Some(json!({
+            "provider": "typesafe",
+            "model": "jev-1.13.0",
+            "label": "Jev pinned",
+            "capabilities": ["decision"],
+            "cost_weight": 1,
+            "enabled": true,
+            "idempotency_key": format!("cat-decision-{hex}")
+        })),
+    )
+    .await;
+    assert_eq!(response.status(), 200, "decision catalog curation");
+    let response = send(
+        app,
+        axum::http::Method::PUT,
+        "/api/settings/ai/credentials",
+        Some(owner),
+        Some(json!({
+            "provider": "typesafe",
+            "kind": "api_key",
+            "secret": "ts-secret-never-surfaces-w23l4",
+            "label": "org typesafe",
+            "idempotency_key": format!("cred-decision-{hex}")
+        })),
+    )
+    .await;
+    assert_eq!(response.status(), 200, "decision credential seal");
+    let mut tx = pool.begin().await.unwrap();
+    core_db::decision::upsert_surface_config(
+        &mut tx,
+        &core_db::decision::DecisionSurfaceConfig {
+            org_id,
+            surface_key: "decision_llm_verify".into(),
+            starter_version: 1,
+            customized: false,
+            config: None,
+            mode: "live".into(),
+            model_provider: Some("typesafe".into()),
+            model_id: Some("jev-1.13.0".into()),
+            enabled: true,
+        },
+        member_id,
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+}
+
+fn verify_answers(faithful: f64, policy_safe: f64) -> Vec<core_decision::provider::Answer> {
+    vec![
+        core_decision::provider::Answer::Noul {
+            id: "faithful".into(),
+            probability: faithful,
+        },
+        core_decision::provider::Answer::Noul {
+            id: "policy_safe".into(),
+            probability: policy_safe,
+        },
+    ]
+}
+
+async fn assist_frames_with_gate(
+    faithful: f64,
+    policy_safe: f64,
+) -> (Vec<(String, Value)>, Uuid, Uuid, PgPool) {
+    let (pool, app) = test_state().await;
+    let slug = format!("chat-gate-{}", Uuid::now_v7().simple());
+    let hex = Uuid::now_v7().simple().to_string();
+    let owner = register_org(&app, &slug).await;
+    let member = invite_member(
+        &app,
+        &owner,
+        &format!("member-{}@{}.test", Uuid::now_v7().simple(), slug),
+    )
+    .await;
+    let (member_id, org_id) = me_ids(&app, &member).await;
+    seed_admit_kit(&app, &owner, member_id, "ticket_note_assist", &hex).await;
+    grant_capability(&app, &owner, "tickets:write", "proposed").await;
+    enable_llm_verify_live(&app, &pool, &owner, org_id, member_id, &hex).await;
+    core_api::routes::decision_edge::seed_provider_for_org(
+        org_id,
+        Arc::new(GateProvider {
+            answers: verify_answers(faithful, policy_safe),
+        }),
+    );
+    let board = default_board(&app, &member).await;
+    let ticket = create_ticket(&app, &member, board, "Assist gate target").await;
+    let ticket_id: Uuid = ticket["id"].as_str().unwrap().parse().unwrap();
+    ChatRunner::seed_transport_for_org(
+        org_id,
+        Arc::new(ChatRunner::ScriptedTransport::new(vec![final_turn_model(
+            40,
+            60,
+            "Assist draft text for the gate.",
+        )])),
+    );
+    let response = post_turn(
+        &app,
+        Uuid::now_v7(),
+        &member,
+        turn_body("ticket_note_assist", Some(ticket_id)),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let frames = sse_frames(&body_text(response).await);
+    (frames, org_id, member_id, pool)
+}
+
+/// Same scripted provider shape as the lane-3 flow's ScriptedProvider,
+/// scoped here so this file stays self-contained.
+struct GateProvider {
+    answers: Vec<core_decision::provider::Answer>,
+}
+
+#[async_trait::async_trait]
+impl core_decision::provider::DecisionProvider for GateProvider {
+    fn kind(&self) -> &'static str {
+        "scripted_test"
+    }
+    async fn answer(
+        &self,
+        _req: core_decision::provider::DecisionRequest,
+    ) -> Result<core_decision::provider::DecisionResponse, core_decision::provider::DecisionError>
+    {
+        use core_decision::provider::{DecisionResponse, QuestionUsage};
+        Ok(DecisionResponse {
+            answers: self.answers.clone(),
+            usage: QuestionUsage {
+                prompt_tokens: 100,
+                completion_tokens: 0,
+            },
+        })
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn assist_verification_above_threshold_dispatches() {
+    let (frames, _org_id, _member_id, _pool) = assist_frames_with_gate(0.95, 0.95).await;
+    assert!(
+        frames.iter().any(|(k, _)| k == "assist_proposed"),
+        "high verification dispatches the proposal"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn assist_verification_below_threshold_holds_dispatch() {
+    let (frames, org_id, member_id, pool) = assist_frames_with_gate(0.3, 0.95).await;
+    let _ = member_id;
+    assert!(
+        !frames.iter().any(|(k, _)| k == "assist_proposed"),
+        "unfaithful draft NEVER files a proposal"
+    );
+    assert!(
+        frames.iter().any(|(k, _)| k == "assist_held"),
+        "the held frame queues the draft for review"
+    );
+    let completed = frames
+        .iter()
+        .find(|(k, _)| k == "turn_completed")
+        .expect("turn completes")
+        .1
+        .clone();
+    assert_eq!(completed["outcome"], "verification_held");
+    let answers: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM decision_answers WHERE org_id = $1")
+            .bind(org_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(answers, 1, "the verification run is recorded");
+    let _ = member_id;
+}

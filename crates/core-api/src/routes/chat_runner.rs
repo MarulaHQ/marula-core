@@ -649,6 +649,8 @@ const FRAME_TURN_STARTED: &str = "turn_started";
 const FRAME_ASSISTANT_DELTA: &str = "assistant_delta";
 const FRAME_TOOL_INVOCATION: &str = "tool_invocation";
 const FRAME_ASSIST_PROPOSED: &str = "assist_proposed";
+const FRAME_ASSIST_VERIFICATION: &str = "assist_verification";
+const FRAME_ASSIST_HELD: &str = "assist_held";
 const FRAME_TURN_COMPLETED: &str = "turn_completed";
 
 /// POST /ai/chat/sessions/{session_id}/turns — run ONE bounded model turn
@@ -1048,31 +1050,80 @@ async fn run_turn(st: RunState, sender: tokio::sync::mpsc::Sender<Result<Event, 
     let mut proposal_id: Option<Uuid> = None;
     if outcome == "completed" && !final_answer.is_empty() {
         if let Some((ticket_id, base_version, dial_mode)) = &st.assist_target {
-            match file_ticket_note_proposal(
-                &st,
-                *ticket_id,
-                *base_version,
-                dial_mode,
-                &final_answer,
-            )
-            .await
-            {
-                Ok(id) => {
-                    proposal_id = Some(id);
+            // decision_llm_verify (ADR 0010 §3 #6): the draft is verified
+            // against its source BEFORE dispatch. Shadow/unconfigured orgs
+            // record nothing here and file exactly as before; the dispatch
+            // gate below applies ONLY to live answers (ADR 0011 §1).
+            let verify = verify_assist_draft(&st, *ticket_id, turn_id, &final_answer).await;
+            let verdict = verify.as_ref().map(assist_dispatch_verdict);
+            if let Some(run) = &verify {
+                emit(
+                    &sender,
+                    FRAME_ASSIST_VERIFICATION,
+                    serde_json::json!({
+                        "turn_id": turn_id,
+                        "mode": run.mode,
+                        "answers": decision_edge_answers_json(run),
+                        "verdict": match &verdict {
+                            Some(AssistDispatch::Dispatch) => {
+                                serde_json::json!("dispatch")
+                            }
+                            Some(AssistDispatch::Held { reasons }) => {
+                                serde_json::json!({ "held": reasons })
+                            }
+                            None => serde_json::json!("quiet"),
+                        },
+                    }),
+                )
+                .await;
+            }
+            match verdict {
+                // Live verification below threshold: dispatch HALTS. The
+                // draft stays visible in the transcript (the user sees it)
+                // but no actionable proposal is filed — it is queued for
+                // human review via the held frame, never auto-applied.
+                Some(AssistDispatch::Held { reasons }) => {
+                    outcome = "verification_held";
+                    error = serde_json::json!({ "event": "assist_verification_held", "reasons": reasons });
                     emit(
                         &sender,
-                        FRAME_ASSIST_PROPOSED,
+                        FRAME_ASSIST_HELD,
                         serde_json::json!({
                             "turn_id": turn_id,
-                            "proposal_id": id,
                             "ticket_id": ticket_id,
+                            "reasons": reasons,
                         }),
                     )
                     .await;
                 }
-                Err(e) => {
-                    outcome = "proposal_failed";
-                    error = serde_json::json!({ "event": "proposal_filing_failed", "reason": e.to_string() });
+                _ => {
+                    match file_ticket_note_proposal(
+                        &st,
+                        *ticket_id,
+                        *base_version,
+                        dial_mode,
+                        &final_answer,
+                    )
+                    .await
+                    {
+                        Ok(id) => {
+                            proposal_id = Some(id);
+                            emit(
+                                &sender,
+                                FRAME_ASSIST_PROPOSED,
+                                serde_json::json!({
+                                    "turn_id": turn_id,
+                                    "proposal_id": id,
+                                    "ticket_id": ticket_id,
+                                }),
+                            )
+                            .await;
+                        }
+                        Err(e) => {
+                            outcome = "proposal_failed";
+                            error = serde_json::json!({ "event": "proposal_filing_failed", "reason": e.to_string() });
+                        }
+                    }
                 }
             }
         }
@@ -1318,6 +1369,130 @@ async fn emit_outbox_event(
 /// `proposed`, capability + dial recorded, for_user the human, session_id
 /// the chat session, NOTHING else writes. Approval re-reads through the
 /// existing decision workbench; applying rides the IF1 instant path.
+// --- decision_llm_verify: the agent-draft dispatch gate (ADR 0010 §3 #6,
+// ADR 0011 §1) ---------------------------------------------------------------
+use crate::routes::decision_edge;
+
+/// What the verification gate tells the assist flow to do with a draft.
+#[derive(Debug, PartialEq)]
+enum AssistDispatch {
+    /// File the proposal (dispatch proceeds).
+    Dispatch,
+    /// Live verification below threshold (or an unanswered gate question):
+    /// dispatch halts, the draft queues for review.
+    Held { reasons: Vec<String> },
+}
+
+/// The dispatch gate over ONE recorded `decision_llm_verify` run.
+/// Shadow rows drive nothing (Dispatch — recorded only); live rows gate:
+/// BOTH `faithful` and `policy_safe` must sit at/above their act
+/// thresholds. A missing answer is an unverifiable draft — held, never
+/// assumed safe (the conservative reading of the dispatch guard).
+fn assist_dispatch_verdict(run: &decision_edge::DecisionRun) -> AssistDispatch {
+    if run.mode != "live" {
+        return AssistDispatch::Dispatch;
+    }
+    let mut reasons = Vec::new();
+    for question_id in ["faithful", "policy_safe"] {
+        let threshold = run
+            .config
+            .questions
+            .iter()
+            .find(|q| q.id == question_id)
+            .map(|q| q.thresholds.act);
+        let probability = run.response.answers.iter().find_map(|a| {
+            if a.id() != question_id {
+                return None;
+            }
+            match a {
+                core_decision::provider::Answer::Noul { probability, .. } => Some(*probability),
+                _ => None,
+            }
+        });
+        match (probability, threshold) {
+            (Some(p), Some(act)) if p >= act => {}
+            (Some(p), Some(act)) => reasons.push(format!("{question_id} {p:.2} < act {act}")),
+            (None, _) => reasons.push(format!("{question_id} unanswered")),
+            (Some(_), None) => reasons.push(format!("{question_id} no threshold resolved")),
+        }
+    }
+    if reasons.is_empty() {
+        AssistDispatch::Dispatch
+    } else {
+        AssistDispatch::Held { reasons }
+    }
+}
+
+/// Fires the `decision_llm_verify` surface for an assist draft: source =
+/// the conversation so far (system + user turns; the client owns the
+/// transcript, this composes it for the judge), draft = the final answer.
+/// Quiet (unconfigured/downed) → None, never an error.
+async fn verify_assist_draft(
+    st: &RunState,
+    ticket_id: Uuid,
+    turn_id: Uuid,
+    draft: &str,
+) -> Option<decision_edge::DecisionRun> {
+    let source = st
+        .initial_messages
+        .iter()
+        .map(|m| format!("{}: {}", m.role, m.content))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let ask = decision_edge::DecisionAsk {
+        org_id: st.org_id,
+        user_id: st.user_id,
+        surface_key: "decision_llm_verify",
+        entity_type: "ticket",
+        entity_id: Some(ticket_id),
+        state: serde_json::json!({
+            "source": { "text": clamp_chars(&source, 6000) },
+            "draft": { "text": clamp_chars(draft, 4000) },
+        }),
+        request_id: format!("decision-llm-verify-{turn_id}"),
+        inventories: Default::default(),
+    };
+    match decision_edge::decide(&st.state, ask).await {
+        Ok(Ok(run)) => Some(run),
+        Ok(Err(quiet)) => {
+            tracing::debug!(
+                org = %st.org_id,
+                reason = %quiet.reason(),
+                "assist draft verification went quiet (draft dispatches unverified)"
+            );
+            None
+        }
+        Err(err) => {
+            tracing::debug!(org = %st.org_id, %err, "assist draft verification failed");
+            None
+        }
+    }
+}
+
+fn clamp_chars(s: &str, max: usize) -> String {
+    s.chars().take(max).collect()
+}
+
+/// Compact per-question answer map for the verification frame.
+fn decision_edge_answers_json(run: &decision_edge::DecisionRun) -> serde_json::Value {
+    let mut map = serde_json::Map::new();
+    for answer in &run.response.answers {
+        let entry = match answer {
+            core_decision::provider::Answer::Noul { probability, .. } => {
+                serde_json::json!({ "probability": probability })
+            }
+            core_decision::provider::Answer::Score {
+                level, confidence, ..
+            } => serde_json::json!({ "level": level, "confidence": confidence }),
+            core_decision::provider::Answer::Choice {
+                picked, confidence, ..
+            } => serde_json::json!({ "picked": picked, "confidence": confidence }),
+        };
+        map.insert(answer.id().to_string(), entry);
+    }
+    serde_json::Value::Object(map)
+}
+
 async fn file_ticket_note_proposal(
     st: &RunState,
     ticket_id: Uuid,

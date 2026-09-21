@@ -372,7 +372,10 @@ pub async fn decide(
     //    core-called (no user-facing grant exists for them).
     let internal = matches!(
         surface_key,
-        "decision_search_rerank" | "decision_llm_verify" | "decision_tool_routing"
+        "decision_search_rerank"
+            | "decision_llm_verify"
+            | "decision_tool_routing"
+            | "decision_loop_termination"
     );
     let call = match authorize_surface_call(
         state,

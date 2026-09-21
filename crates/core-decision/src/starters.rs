@@ -17,10 +17,11 @@ use serde::{Deserialize, Serialize};
 
 pub const STARTER_VERSION: i32 = 1;
 
-/// The ten surface keys THIS lane seeds (ADR 0010's nine + ADR 0011's
-/// `decision_tool_routing`). `decision_contract_scope` (lane 3) and
-/// `decision_loop_termination` (lane 4) seed their own rows and starter
-/// sets when they land.
+/// The TWELVE surface keys now seeded (ADR 0010's nine + ADR 0011's
+/// `decision_tool_routing` and `decision_loop_termination`, plus lane 3's
+/// `decision_contract_scope` — whose v1 rows land with the auxiliary
+/// lane's 0092 rider; lane 3's fan-out was silently Unconfigured until
+/// its question-set row existed).
 pub const SURFACE_KEYS: &[&str] = &[
     "decision_ticket_triage",
     "decision_automation_conditions",
@@ -32,6 +33,8 @@ pub const SURFACE_KEYS: &[&str] = &[
     "decision_record_dedupe",
     "decision_dispatch",
     "decision_tool_routing",
+    "decision_contract_scope",
+    "decision_loop_termination",
 ];
 
 /// Wire shape of a stored starter set (the `schema` jsonb column).
@@ -422,7 +425,7 @@ mod tests {
 
     #[test]
     fn every_surface_has_a_valid_starter_set() {
-        assert_eq!(SURFACE_KEYS.len(), 10);
+        assert_eq!(SURFACE_KEYS.len(), 12);
         for key in SURFACE_KEYS {
             let config = starter_config(key).unwrap_or_else(|| panic!("{key} has no starter set"));
             validate_config(&config).unwrap_or_else(|e| panic!("{key} starter set refused: {e:?}"));

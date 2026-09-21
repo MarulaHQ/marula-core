@@ -219,6 +219,7 @@ pub enum Trigger {
     TicketCreated,
     TicketUpdated,
     AlertIngested,
+    TimeEntryCreated,
 }
 
 /// Maps an envelope onto its decision trigger. Automation-echo events
@@ -230,6 +231,7 @@ pub fn match_event(envelope: &Envelope) -> Option<Trigger> {
         "ticket.created" => Some(Trigger::TicketCreated),
         "ticket.updated" => Some(Trigger::TicketUpdated),
         "alert.ingested" => Some(Trigger::AlertIngested),
+        "time_entry.created" => Some(Trigger::TimeEntryCreated),
         _ => None,
     }
 }
@@ -503,9 +505,117 @@ async fn handle_entry(
         Some(Trigger::TicketCreated | Trigger::TicketUpdated) => {
             handle_ticket(pool, bot_user, fan_out, &envelope, now).await;
         }
+        Some(Trigger::TimeEntryCreated) => {
+            handle_time_entry(pool, bot_user, fan_out, &envelope).await;
+        }
         None => {}
     }
     ack(conn, entry.id.as_str()).await;
+}
+
+/// `decision_billing_audit` (ADR 0010 §3 #7): a fresh time entry gets its
+/// billable + description-matches-work Noul. Suggestion-grade — the
+/// answers ride the existing approvals flow (recorded only; no side
+/// effect here, the shadow store IS the feed). Invoice `time_materials`
+/// lines inherit the audit through `invoice_time_entries` (their work
+/// description is composed FROM audited entries at the earliest creation
+/// point; fixed-fee/recurring lines carry no free-text work description
+/// to audit).
+async fn handle_time_entry(
+    pool: &sqlx::PgPool,
+    bot_user: &Uuid,
+    fan_out: &Arc<dyn DecisionFanOut>,
+    envelope: &Envelope,
+) {
+    const BILLING_AUDIT: &str = "decision_billing_audit";
+    let org_id = envelope.org_id;
+    if !surface_configured(pool, org_id, BILLING_AUDIT).await {
+        return;
+    }
+    let Some(entity_id) = envelope
+        .entity_id
+        .as_deref()
+        .and_then(|v| Uuid::parse_str(v).ok())
+    else {
+        return;
+    };
+    // Entry description + ticket context in one owner-role read; a
+    // missing row (deleted mid-stream) is a logged no-op.
+    let Some(entry) = load_time_entry_context(pool, org_id, entity_id).await else {
+        return;
+    };
+    let elapsed_sum = elapsed_sum_minutes(pool, org_id, entry.ticket_id).await;
+    let state = time_entry_state(
+        &entry.description,
+        &entry.ticket_title,
+        &entry.ticket_body,
+        elapsed_sum,
+    );
+    let request_id = format!("decision-billing-{}", envelope.id);
+    fan_out_and_log(
+        fan_out,
+        FanOutAsk {
+            org_id,
+            user_id: *bot_user,
+            surface: BILLING_AUDIT,
+            entity_type: "time_entry",
+            entity_id: Some(entity_id),
+            state,
+            request_id: &request_id,
+            inventories: HashMap::new(),
+        },
+    )
+    .await;
+}
+
+struct TimeEntryContext {
+    ticket_id: Uuid,
+    description: String,
+    ticket_title: String,
+    ticket_body: String,
+}
+
+/// State per the `decision_billing_audit` starter template: entry
+/// description + ticket subject/body + the derived elapsed_sum (summed in
+/// code, never in the model).
+fn time_entry_state(
+    description: &str,
+    ticket_title: &str,
+    ticket_body: &str,
+    elapsed_sum: i64,
+) -> Value {
+    json!({
+        "entry": { "description": description },
+        "ticket": {
+            "subject": ticket_title,
+            "body": ticket_body,
+        },
+        "elapsed_sum": elapsed_sum,
+    })
+}
+
+async fn load_time_entry_context(
+    pool: &sqlx::PgPool,
+    org_id: Uuid,
+    entry_id: Uuid,
+) -> Option<TimeEntryContext> {
+    let row = sqlx::query_as::<_, (Uuid, Option<String>, String, Option<String>)>(
+        r#"SELECT te.ticket_id, te.notes, t.title, t.body
+             FROM time_entries te
+             JOIN tickets t ON t.id = te.ticket_id AND t.org_id = te.org_id
+            WHERE te.id = $1 AND te.org_id = $2"#,
+    )
+    .bind(entry_id)
+    .bind(org_id)
+    .fetch_optional(pool)
+    .await
+    .ok()??;
+    Some(TimeEntryContext {
+        ticket_id: row.0,
+        description: row.1.unwrap_or_default(),
+        ticket_title: row.2,
+        ticket_body: row.3.unwrap_or_default(),
+    })
 }
 
 /// One trigger → at most its mapped fan-outs. Every quiet/None outcome
@@ -822,8 +932,51 @@ mod tests {
         assert_eq!(match_event(&update), Some(Trigger::TicketUpdated));
         let alert = envelope("alert.ingested", &Uuid::now_v7().to_string());
         assert_eq!(match_event(&alert), Some(Trigger::AlertIngested));
-        let noise = envelope("time_entry.created", &Uuid::now_v7().to_string());
+        // Wave 23 lane 4: a fresh time entry triggers the billing audit.
+        let entry = envelope("time_entry.created", &Uuid::now_v7().to_string());
+        assert_eq!(match_event(&entry), Some(Trigger::TimeEntryCreated));
+        let noise = envelope("invoice.run.created", &Uuid::now_v7().to_string());
         assert_eq!(match_event(&noise), None);
+    }
+
+    #[test]
+    fn billing_audit_state_matches_the_starter_template() {
+        let state = time_entry_state("fixed printer driver", "Printer broken", "it sparks", 45);
+        assert_eq!(state["entry"]["description"], "fixed printer driver");
+        assert_eq!(state["ticket"]["subject"], "Printer broken");
+        assert_eq!(state["ticket"]["body"], "it sparks");
+        assert_eq!(state["elapsed_sum"], 45);
+    }
+
+    #[tokio::test]
+    async fn billing_audit_fan_out_rides_the_time_entry_entity() {
+        let org = Uuid::now_v7();
+        let ok = json!({
+            "status": "ok",
+            "mode": "shadow",
+            "answers": {"billable": {"kind": "noul", "probability": 0.9}},
+            "thresholds": {"billable": {"act": 0.8, "review": 0.6}}
+        });
+        let fan = Arc::new(RecordingFanOut::new(vec![ok]));
+        let run = fan_out_and_log(
+            &fan_upcast(&fan),
+            FanOutAsk {
+                org_id: org,
+                user_id: Uuid::now_v7(),
+                surface: "decision_billing_audit",
+                entity_type: "time_entry",
+                entity_id: Some(Uuid::now_v7()),
+                state: time_entry_state("desc", "subject", "body", 30),
+                request_id: "r-billing",
+                inventories: HashMap::new(),
+            },
+        )
+        .await;
+        assert!(run.is_some());
+        let body = &fan.recorded()[0];
+        assert_eq!(body["surface_key"], "decision_billing_audit");
+        assert_eq!(body["entity_type"], "time_entry");
+        assert_eq!(body["state"]["entry"]["description"], "desc");
     }
 
     #[test]
