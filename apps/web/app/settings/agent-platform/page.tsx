@@ -33,6 +33,8 @@ import {
 import type { components } from "@meridian/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
+import { runEnvelopeMutation } from "../../../lib/envelope-write";
+import { resultErrorText } from "../../../lib/error-copy";
 import { SettingsHeader } from "../../../components/settings/settings-shell";
 
 type CapabilityGrantView = components["schemas"]["CapabilityGrantView"];
@@ -369,8 +371,113 @@ export default function AgentPlatformPage() {
               </div>
             )}
           </Card>
+
+          <ToolRoutingGateCard />
         </>
       )}
     </div>
+  );
+}
+
+/** ADR 0011 §1 tool-routing gate: the runner's pre-flight Choice gate
+ over the already-granted MCP tool inventory. The gate NARROWS, never
+ widens, and — per ADR 0011 §3 — it SURFACES only when its decision
+ model is live (master switch ON + a decision-capable catalog entry +
+ a configured `decision_tool_routing` surface with a pinned model);
+ while the model is unconfigured the harness stays silently quiet and
+ this section says so instead of rendering a dead control. */
+function ToolRoutingGateCard() {
+  const [decision, setDecision] = useState<components["schemas"]["DecisionOverviewResponse"] | null>(null);
+  const [grants, setGrants] = useState<components["schemas"]["CapabilityGrantView"][]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const refresh = useCallback(async () => {
+    const [d, cap] = await Promise.all([
+      api.api.GET("/api/v1/settings/ai/decision"),
+      api.api.GET("/api/v1/mcp/capabilities"),
+    ]);
+    setDecision(d.error === undefined ? d.data ?? null : null);
+    setGrants(cap.data?.grants ?? []);
+  }, []);
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const gate = decision?.surfaces.find((s) => s.surface_key === "decision_tool_routing") ?? null;
+  const toolCap = new Set(grants.map((g) => g.capability));
+  const inventoryCount = toolCap.size;
+  const gateLive =
+    (decision?.features_enabled ?? false) &&
+    gate != null &&
+    gate.enabled &&
+    gate.model_id != null;
+
+  const toggleGate = async (enabled: boolean) => {
+    setBusy(true);
+    setError(null);
+    const result = await runEnvelopeMutation<
+      { enabled: boolean; idempotency_key: string },
+      components["schemas"]["DecisionConfigMutationResponse"]
+    >({
+      describe: "Toggle tool-routing gate",
+      entityId: "decision:decision_tool_routing",
+      optimistic: () => {},
+      revert: () => {},
+      buildBody: (base) => ({ enabled, idempotency_key: base.idempotency_key }),
+      request: (client, body) =>
+        client.PUT("/api/v1/settings/ai/decision/{surface_key}/config", {
+          params: { path: { surface_key: "decision_tool_routing" } },
+          body: body as never,
+        }),
+    });
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.friendly ?? resultErrorText(result.reason, "The change was refused."));
+      return;
+    }
+    void refresh();
+  };
+
+  return (
+    <Card>
+      <div className="p-4" data-testid="tool-routing-gate">
+        <h2 className="text-sm font-semibold">Tool-routing gate (decision_tool_routing)</h2>
+        <p className="mt-1 max-w-prose text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+          The pre-flight Choice gate over the agent runner's tool wardrobe. The gate can only
+          narrow the already-granted inventory — it never widens one, and writes still ride the
+          IF8 proposal pipeline with approval-by-default regardless.
+        </p>
+        {!gateLive ? (
+          <p className="mt-3 text-[13px]" data-testid="gate-unconfigured-note" style={{ color: "var(--m-status-warning-fg)" }}>
+            <strong>Decision model not configured.</strong> While the decision model is not live
+            (master switch + a decision-capable catalog entry + this surface configured with a
+            pinned model) the gate stays silently quiet — the inventory below is already granted
+            and the runner picks from it directly. Configure the surface under
+            <strong> Settings → AI → Decision harness</strong> to activate.
+          </p>
+        ) : (
+          <div className="mt-3 flex flex-wrap items-center gap-3" data-testid="gate-live">
+            <Button
+              size="sm"
+              variant={busy ? "secondary" : "primary"}
+              disabled={busy}
+              onClick={() => void toggleGate(false)}
+            >
+              {busy ? <Spinner /> : "Disable gate"}
+            </Button>
+            <span className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+              Gate active, pinned at <code>{gate?.model_provider}/{gate?.model_id}</code> — narrowing{" "}
+              {inventoryCount} granted capabilit{inventoryCount === 1 ? "y" : "ies"}; the runner's
+              inventory itself is beat-for-beat what /mcp/capabilities returns.
+            </span>
+          </div>
+        )}
+        {error != null && (
+          <p className="mt-2 text-[13px]" role="alert" style={{ color: "var(--m-status-danger-fg)" }}>
+            {error}
+          </p>
+        )}
+      </div>
+    </Card>
   );
 }

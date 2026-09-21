@@ -62,6 +62,7 @@ pub mod costs;
 pub mod credit_notes;
 pub mod custom_fields;
 pub mod decision_edge;
+pub mod decision_config;
 pub mod decision_suggestions;
 pub mod dev;
 pub mod dispatch;
@@ -1224,6 +1225,22 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             axum::routing::delete(ai_policy::delete_cap),
         )
         .route(&rp("/settings/ai/usage/org"), get(ai_policy::get_org_usage))
+        // Decision-harness admin config (this lane): the per-surface
+        // config + master switch + shadow-preview seam the settings/ai
+        // decision-harness leg rides (ADR 0010 §4 + ADR 0011 §3).
+        .route(&rp("/settings/ai/decision"), get(decision_config::get_decision_overview))
+        .route(
+            &rp("/settings/ai/decision/features"),
+            put(decision_config::put_decision_features),
+        )
+        .route(
+            &rp("/settings/ai/decision/{surface_key}/config"),
+            put(decision_config::put_decision_config),
+        )
+        .route(
+            &rp("/settings/ai/decision/{surface_key}/preview"),
+            post(decision_config::post_decision_preview),
+        )
         .route(&rp("/ai/me/surfaces"), get(ai_policy::get_my_surfaces))
         .route(&rp("/ai/me/authorize"), post(ai_policy::authorize))
         .route(&rp("/ai/me/credentials"), put(ai_policy::put_my_credential))

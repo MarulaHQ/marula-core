@@ -318,6 +318,22 @@ pub struct AiSurfaceAccessDto {
     pub kind: String,
     pub granted: bool,
     pub models_available: bool,
+    /// The admin allowlist this surface resolves against — enabled
+    /// catalog entries as (provider, model, label). The per-surface
+    /// model pickers list exactly these; the server still refuses an
+    /// off-list ask typed (`ai_model_not_allowed`).
+    #[schema(nullable = false)]
+    pub models: Vec<AiAllowedModelDto>,
+    /// The caller's recorded sticky pick for this surface (so the picker
+    /// displays what sticks); null = the org default still applies.
+    pub picked: Option<AiAllowedModelDto>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AiAllowedModelDto {
+    pub provider: String,
+    pub model: String,
+    pub label: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -1751,12 +1767,30 @@ pub async fn get_my_surfaces(
             core_db::ai_policy::user_has_surface_grant(&mut *tx, org_id, user_id, surface.id)
                 .await
                 .map_err(ApiError::from)?;
+        let picked = core_db::ai_policy::get_user_pick(&mut *tx, org_id, user_id, surface.id)
+            .await
+            .map_err(ApiError::from)?
+            .map(|p| AiAllowedModelDto {
+                provider: p.provider,
+                model: p.model,
+                label: String::new(),
+            });
         out.push(AiSurfaceAccessDto {
             surface_key: surface.key.clone(),
             label: surface.label.clone(),
             kind: surface.kind.clone(),
             granted,
             models_available: catalog.iter().any(|entry| entry.enabled),
+            picked,
+            models: catalog
+                .iter()
+                .filter(|entry| entry.enabled)
+                .map(|entry| AiAllowedModelDto {
+                    provider: entry.provider.clone(),
+                    model: entry.model.clone(),
+                    label: entry.label.clone(),
+                })
+                .collect(),
         });
     }
     tx.commit().await.map_err(ApiError::from)?;

@@ -208,6 +208,12 @@ pub mod types {
     /// kind='plugin') through the settings/ai plugin-surface routes.
     /// Payload carries the surface key/label/enabled state only.
     pub const AI_PLUGIN_SURFACE_UPDATED: &str = "ai.plugin_surface_updated";
+    /// Decision-harness admin config (this lane): the org master switch
+    /// `ai.features_enabled` changed OR a decision surface's config
+    /// (mode/enabled/pinned model/forked question set) changed.
+    /// Payload carries the surface key (None for the master switch) +
+    /// the changed state only — no state_template bytes ride events.
+    pub const AI_DECISION_STATE_CHANGED: &str = "ai.decision_state_changed";
     /// ADR 0008 §3 chat-loop lifecycle (Wave 18 lane 2): the ChatRunner's
     /// contract events. `ai.chat_session_started` records a client-borne
     /// chat/assist session opening on a granted surface;

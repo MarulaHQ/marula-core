@@ -23,6 +23,7 @@ import { api, uploadAttachment } from "../../lib/api";
 import { rejectionText } from "../../lib/error-copy";
 import { formatNoteBody, initialsOf } from "../../lib/note-format";
 import type { TimerSession } from "../../lib/use-timer";
+import { ModelPicker, useLazySurfacePick } from "../ai/model-picker";
 import { NoteComposer, type NoteComposerHandle } from "./note-composer";
 
 type TicketComment = components["schemas"]["TicketComment"];
@@ -458,7 +459,12 @@ export function WorkbarNotesPanel({
               placeholder="Add note — Enter for a new line, ⌘↵ to save"
               testPrefix="workbar"
               showHints
-              refineEnabled={false}
+              // Tier-2 live BYOK grammar pass (this lane): the refine
+              // proposal rides the real CompletionProvider seam; when
+              // the org has no credential the composer renders the
+              // typed "unavailable" state instead of hiding the control.
+              refineEnabled
+              pickerSlot={<WorkbarNotePicker />}
               busy={false}
             />
             <div className="flex items-center gap-3 pb-1 text-[10px]" style={{ color: "var(--m-text-muted)" }}>
@@ -580,6 +586,12 @@ interface ReasonPromptProps {
 
 /** Inline reason prompt under the task row (§3.4) — NOT a modal; the
  * shared composer carries the entry semantics (⌘↵ submits). */
+/** The ticket_note_assist sticky pick rides the shared composer slot. */
+function WorkbarNotePicker(): ReactNode {
+  const pick = useLazySurfacePick("ticket_note_assist");
+  return <ModelPicker pickState={pick} compact />;
+}
+
 function ReasonPrompt({ reasonPrompt, onChange, onCancel, onSubmit }: ReasonPromptProps): ReactNode {
   const ok = reasonPrompt.text.trim() !== "";
   return (

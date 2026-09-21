@@ -20,6 +20,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { api } from "../../lib/api";
+import { runChatTurn } from "../../lib/agent-chat";
+import { ModelPicker, useLazySurfacePick } from "../ai/model-picker";
 
 type KbArticle = components["schemas"]["KbArticle"];
 type SearchResult = components["schemas"]["SearchResult"];
@@ -162,6 +164,48 @@ export function WbAgentPanel({ ticket, comments, namesByUser, open, onClose, tak
     bumpLog();
   };
 
+  // The general_chat sticky model pick (this lane): loads once per panel
+  // open, renders its picker in the header, and rides every turn.
+  const pick = useLazySurfacePick("general_chat");
+
+  async function submitLiveTurn(text: string, history: ChatLine[]): Promise<boolean> {
+    const result = await runChatTurn(
+      // The session id is client-borne and must be a bare UUID — one
+      // continuous agent session per ticket (the transcript rides
+      // `chat`, the runner persists none of it).
+      ticket.id,
+      {
+        surface_key: "general_chat",
+        provider: pick.provider ?? undefined,
+        model: pick.model ?? undefined,
+        session_opener: history.length === 0,
+        messages: [
+          {
+            role: "system",
+            content:
+              `You assist a service desk technician on ticket ${ticket.number} — ${ticket.title} (category ${ticket.category}).`,
+          },
+          ...history.map((m) => ({
+            role: m.role === "you" ? "user" : "assistant",
+            content: m.text,
+          })),
+          { role: "user", content: text },
+        ],
+      },
+    );
+    if (result.refusal !== undefined) {
+      respond(result.refusalMessage ?? "Not available yet.");
+      return false;
+    }
+    if (result.text !== "") respond(result.text);
+    for (const frame of result.frames) {
+      if (frame.event === "tool_invocation") {
+        respond(`Ran: ${String(frame.data.capability ?? "tool")} (${String(frame.data.outcome ?? "done")}).`);
+      }
+    }
+    return result.frames.some((f) => f.event === "turn_completed");
+  }
+
   async function submitChat() {
     const text = chatDraft.trim();
     if (text === "" || busy) return;
@@ -169,6 +213,8 @@ export function WbAgentPanel({ ticket, comments, namesByUser, open, onClose, tak
     setChatDraft("");
     pushYou(text);
     try {
+      const live = await submitLiveTurn(text, chat.slice(0, -1));
+      if (live) return;
       const lower = text.toLowerCase();
       if (lower.includes("summar") || lower.includes("summary")) {
         respond(summarise());
@@ -419,7 +465,8 @@ export function WbAgentPanel({ ticket, comments, namesByUser, open, onClose, tak
               className="min-h-[33px] w-full resize-none border-0 bg-transparent text-[11px] outline-none"
               style={{ color: "var(--m-text)" }}
             />
-            <div className="flex justify-end">
+            <div className="flex items-center justify-between gap-2">
+              <ModelPicker pickState={pick} compact />
               <button
                 type="button"
                 aria-label="Send to agent"

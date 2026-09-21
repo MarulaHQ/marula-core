@@ -16,6 +16,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { uploadAttachment } from "../../lib/api";
 import { NoteComposer } from "../notes/note-composer";
+import { ModelPicker, useLazySurfacePick } from "../ai/model-picker";
 import type { NoteKindWire } from "../ticket-workspace/notes-composer";
 
 const INTENTS: { value: NoteKindWire; label: string }[] = [
@@ -33,6 +34,12 @@ interface SpeechRecognitionLike {
   onend: (() => void) | null;
   start(): void;
   stop(): void;
+}
+
+/** The ticket_note_assist sticky pick rides the shared composer slot. */
+export function WorkbenchNotePicker(): ReactNode {
+  const pick = useLazySurfacePick("ticket_note_assist");
+  return <ModelPicker pickState={pick} compact />;
 }
 
 export interface WbComposerProps {
@@ -195,6 +202,8 @@ export function WbComposer({ ticketId, disabled, busy, draftRef, onPost }: WbCom
           testPrefix="notes-composer"
           busy={busy}
           showHints={false}
+          refineEnabled
+          pickerSlot={<WorkbenchNotePicker />}
         />
         <div className="flex items-center gap-3.5 px-2.5 py-1.5">
           <label className="m-wb-tool flex cursor-pointer items-center gap-1 text-[10.5px]" style={{ color: "var(--m-text-muted)" }} title="Attach files">

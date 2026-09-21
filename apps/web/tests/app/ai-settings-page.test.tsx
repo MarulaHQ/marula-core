@@ -1,10 +1,12 @@
-// Integration test: /settings/ai — BYOK key presence (never material),
-// set/replace through the IF1 envelope, connection test result, removal.
+// Integration test: the /settings/ai BYOK card (this lane extracted the
+// legacy presence-only surface into ByokLegacyCard) — set/replace through
+// the IF1 envelope, connection test result, removal. Key material never
+// renders back.
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AuthProvider } from "../../lib/api";
-import AiSettingsPage from "../../app/settings/ai/page";
+import { ByokLegacyCard } from "../../components/settings/byok-legacy-card";
 import { ME_FIXTURE, MockApi, seedAuthTokens } from "../helpers/mock-api";
 
 vi.mock("next/navigation", () => ({
@@ -66,7 +68,7 @@ describe("/settings/ai integration", () => {
     setupApi();
     render(
       <AuthProvider>
-        <AiSettingsPage />
+        <ByokLegacyCard />
       </AuthProvider>,
     );
     await screen.findByText("anthropic");
@@ -81,7 +83,7 @@ describe("/settings/ai integration", () => {
     const user = userEvent.setup();
     render(
       <AuthProvider>
-        <AiSettingsPage />
+        <ByokLegacyCard />
       </AuthProvider>,
     );
     await screen.findByText("anthropic");
@@ -107,7 +109,7 @@ describe("/settings/ai integration", () => {
     const user = userEvent.setup();
     render(
       <AuthProvider>
-        <AiSettingsPage />
+        <ByokLegacyCard />
       </AuthProvider>,
     );
     await screen.findByText("anthropic");
@@ -122,7 +124,7 @@ describe("/settings/ai integration", () => {
     const user = userEvent.setup();
     render(
       <AuthProvider>
-        <AiSettingsPage />
+        <ByokLegacyCard />
       </AuthProvider>,
     );
     await screen.findByText("anthropic");

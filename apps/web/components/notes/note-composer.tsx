@@ -41,6 +41,9 @@ export interface NoteComposerProps {
   /** Called with the formatted body when Tidy (Tier-1) runs in place. */
   onFormatInPlace?(formatted: string): void;
   /** Tier-2 grammar pass — proposal flow, NEVER a direct write. */
+  /** Per-surface model picker slot (this lane): the assist entry points
+   * render their sticky pick inline; omitted = no picker. */
+  pickerSlot?: ReactNode;
   refineEnabled?: boolean;
   busy?: boolean;
   placeholder?: string;
@@ -64,6 +67,7 @@ export const NoteComposer = forwardRef<NoteComposerHandle, NoteComposerProps>(
       onChange,
       onSubmit,
       onFormatInPlace,
+      pickerSlot = null,
       refineEnabled = false,
       busy = false,
       placeholder = "Add note — Enter for a new line, ⌘↵ to save",
@@ -299,6 +303,7 @@ export const NoteComposer = forwardRef<NoteComposerHandle, NoteComposerProps>(
               ⌇ Refine wording
             </button>
           )}
+          {pickerSlot != null && <span className="inline-flex items-center">{pickerSlot}</span>}
           {showHints && value.length > COUNTER_AT && (
             <span aria-live="polite">
               {value.length}/{MAX_CHARS}

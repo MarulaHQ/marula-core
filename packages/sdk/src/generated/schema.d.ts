@@ -7469,6 +7469,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/settings/ai/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["settings_ai_decision_overview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/ai/decision/features": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["settings_ai_decision_features_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/ai/decision/{surface_key}/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["settings_ai_decision_config_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/ai/decision/{surface_key}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["settings_ai_decision_preview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/settings/ai/grants": {
         parameters: {
             query?: never;
@@ -9412,6 +9476,11 @@ export interface components {
          * @enum {string}
          */
         Aggregate: "count" | "sum" | "avg" | "min" | "max";
+        AiAllowedModelDto: {
+            label: string;
+            model: string;
+            provider: string;
+        };
         AiAuthorizeRequest: {
             model?: string | null;
             /**
@@ -9580,7 +9649,15 @@ export interface components {
             granted: boolean;
             kind: string;
             label: string;
+            /**
+             * @description The admin allowlist this surface resolves against — enabled
+             *     catalog entries as (provider, model, label). The per-surface
+             *     model pickers list exactly these; the server still refuses an
+             *     off-list ask typed (`ai_model_not_allowed`).
+             */
+            models: components["schemas"]["AiAllowedModelDto"][];
             models_available: boolean;
+            picked?: null | components["schemas"]["AiAllowedModelDto"];
             surface_key: string;
         };
         AiSurfaceDto: {
@@ -12652,10 +12729,62 @@ export interface components {
             mutation: components["schemas"]["MutationMeta"];
             request: components["schemas"]["AppointmentRequest"];
         };
+        DecisionConfigMutationResponse: {
+            mutation: components["schemas"]["MutationMeta"];
+            surface: components["schemas"]["DecisionSurfaceOverview"];
+        };
+        DecisionFeatureMutationResponse: {
+            features_enabled: boolean;
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        DecisionOverviewResponse: {
+            features_enabled: boolean;
+            surfaces: components["schemas"]["DecisionSurfaceOverview"][];
+        };
+        DecisionPreviewRequest: {
+            /** Format: uuid */
+            entity_id: string;
+            /** @description `ticket` | `alert` — the REAL org entity to compose from. */
+            entity_type: string;
+            /**
+             * @description When true, one shadow decision run rides the REAL edge
+             *     (admission, shadow answer store, ledger, caps, typed quiet).
+             */
+            fire?: boolean | null;
+        };
         DecisionSuggestionsResponse: {
             suggestions: components["schemas"]["SuggestionSurface"][];
             /** Format: uuid */
             ticket_id: string;
+        };
+        DecisionSurfaceOverview: {
+            /**
+             * @description False while the org never configured the surface — the ADR 0011
+             *     §3 posture: silently quiet, shown with its what-activates note.
+             */
+            configured: boolean;
+            customized: boolean;
+            decision_model_curated: boolean;
+            description: string;
+            enabled: boolean;
+            /**
+             * @description Internal decision surfaces (search_rerank / llm_verify /
+             *     tool_routing / loop_termination) are never grant targets; the UI
+             *     renders their posture note-only.
+             */
+            internal: boolean;
+            label: string;
+            /**
+             * Format: int32
+             * @description None while no curated set exists for the surface version.
+             */
+            latest_starter_version?: number | null;
+            mode: string;
+            model_id?: string | null;
+            model_provider?: string | null;
+            /** Format: int32 */
+            starter_version: number;
+            surface_key: string;
         };
         /**
          * @description Wire shape of one declaration. Kinds/options are flattened so generated
@@ -16818,6 +16947,29 @@ export interface components {
             name: string;
             /** @description Enforcement toggle (defaults-first: OFF until explicitly enabled). */
             require_checklist_close?: boolean;
+        };
+        PutDecisionConfigRequest: {
+            /**
+             * @description Full `SurfaceConfig` JSON (state_template + questions +
+             *     thresholds). Threshold editors ride this.
+             */
+            config?: unknown;
+            enabled?: boolean | null;
+            instant?: components["schemas"]["MutationParams"];
+            /** @description `shadow` (record only) | `live`. Shadow is the landing posture. */
+            mode?: string | null;
+            model_id?: string | null;
+            /**
+             * @description Pinned decision model (e.g. `typesafe` / `jev-1.13.0`, never a
+             *     floating tag — answer provenance records exactly this id).
+             */
+            model_provider?: string | null;
+            /** @description Discard the fork; re-reference the LATEST curated starter set. */
+            reset_to_starter?: boolean | null;
+        };
+        PutDecisionFeaturesRequest: {
+            enabled: boolean;
+            instant?: components["schemas"]["MutationParams"];
         };
         PutExposureRequest: {
             /** Format: uuid */
@@ -35089,6 +35241,129 @@ export interface operations {
             };
             /** @description rls_sparse */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    settings_ai_decision_overview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecisionOverviewResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    settings_ai_decision_features_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutDecisionFeaturesRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecisionFeatureMutationResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    settings_ai_decision_config_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                surface_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutDecisionConfigRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecisionConfigMutationResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unknown surface, or the config rode a typed refusal (reason rides verbatim) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    settings_ai_decision_preview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                surface_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecisionPreviewRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
