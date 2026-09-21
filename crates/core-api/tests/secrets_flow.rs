@@ -332,3 +332,172 @@ async fn bulk_ingest_rows_commit_atomically_and_replay() {
     assert_eq!(refused_body["refused"], json!(1));
     assert_eq!(refused_body["results"][0]["outcome"], json!("refused"));
 }
+
+/// Wave 19 lane 1: a BIG (multi-chunk, > 64 KiB) document PUT round-trips
+/// through the `[MRDV2]` framed seal + the streaming GET decryptor —
+/// the streamed body must be the uploaded bytes byte-identical.
+#[tokio::test]
+async fn document_file_put_get_roundtrips_streamed_multi_chunk() {
+    let (_state, app) = test_state().await;
+    let org = register_org(&app, format!("vaultfile-{}", Uuid::now_v7().simple())).await;
+    let bearer = org["access_token"].as_str().unwrap().to_string();
+    let (folder_id, _restricted) = org_folder(&app, &bearer).await;
+    let create = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/secrets/records",
+        Some(&bearer),
+        Some(json!({"folder_id": folder_id, "kind": "document", "title": "Big doc"})),
+    )
+    .await;
+    let created = body_json(create).await;
+    let record_id: Uuid = created["id"].as_str().unwrap().parse().unwrap();
+
+    // > 2 chunks: ~256KiB of pseudo-random-ish bytes.
+    let mut body_bytes = vec![0u8; 2 * 64 * 1024 * 2];
+    let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
+    for slot in body_bytes.iter_mut() {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        *slot = x as u8;
+        x = x.wrapping_add(1).rotate_right(3);
+    }
+    let request = axum::http::Request::builder()
+        .method(axum::http::Method::PUT)
+        .uri(format!("/api/secrets/records/{record_id}/file"))
+        .header("authorization", format!("Bearer {bearer}"))
+        .header("content-type", "application/octet-stream")
+        .body(axum::body::Body::from(body_bytes.clone()))
+        .unwrap();
+    let put = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(put.status(), 200, "put must seal + pin");
+    let pinned = body_json(put).await;
+    assert!(
+        pinned["file_sha256"].as_str().is_some(),
+        "the record must carry the file pointer after PUT: {pinned}"
+    );
+
+    // GET streams the plaintext back, byte-identical.
+    let get = send(
+        &app,
+        axum::http::Method::GET,
+        &format!("/api/secrets/records/{record_id}/file"),
+        Some(&bearer),
+        None,
+    )
+    .await;
+    assert_eq!(get.status(), 200);
+    assert!(get.headers().contains_key("x-file-sha256"));
+    println!(
+        "CONTENT_LEN_HDR={:?}",
+        get.headers()
+            .get(axum::http::header::CONTENT_LENGTH)
+            .map(|v| v.to_str().unwrap().to_string())
+    );
+    let mut stream_body = get.into_body();
+    let mut downloaded: Vec<u8> = Vec::new();
+    while let Some(frame) = http_body_util::BodyExt::frame(&mut stream_body).await {
+        let chip_bytes = match frame {
+            Ok(f) => f.into_data().unwrap(),
+            Err(e) => panic!("stream body error after {} bytes: {e}", downloaded.len()),
+        };
+        downloaded.extend_from_slice(&chip_bytes);
+    }
+    if downloaded != body_bytes {
+        println!("UPLOAD_LEN={}", body_bytes.len());
+        println!("DOWNLOAD_LEN={}", downloaded.len());
+        println!("UPLOAD_LEN={}", body_bytes.len());
+        panic!(
+            "streamed GET body must be byte-identical (got {} bytes, wanted {} bytes)",
+            downloaded.len(),
+            body_bytes.len()
+        );
+    }
+}
+
+/// Wave 19 lane 1 legacy compat: a record whose stored ciphertext is the
+/// Wave 16 single-envelope (seal_with_aad) buffer still decrypts on GET
+/// — the legacy branch, exercised through a handcrafted store + pointer.
+#[tokio::test]
+async fn document_file_get_still_reads_legacy_envelope() {
+    let (state, app) = test_state().await;
+    let org = register_org(&app, format!("vaultlegacy-{}", Uuid::now_v7().simple())).await;
+    let bearer = org["access_token"].as_str().unwrap().to_string();
+    let (folder_id, _restricted) = org_folder(&app, &bearer).await;
+    let create = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/secrets/records",
+        Some(&bearer),
+        Some(json!({"folder_id": folder_id, "kind": "document", "title": "Legacy doc"})),
+    )
+    .await;
+    let created = body_json(create).await;
+    let record_id: Uuid = created["id"].as_str().unwrap().parse().unwrap();
+    let org_id: Uuid = created["org_id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .expect("record carries org_id");
+
+    // Store the ciphertext with the OLD single-envelope format.
+    let plaintext = b"legacy legacy legacy bytes".repeat(10);
+    let sealed = core_api::crypto::seal_with_aad(
+        &state.config.secret_key,
+        &plaintext,
+        format!("secret_file:{org_id}:{record_id}").as_bytes(),
+    )
+    .unwrap();
+    use sha2::Digest as _;
+    let ct_sha256 = hex::encode(sha2::Sha256::digest(&sealed));
+    let storage_key = format!("org/{org_id}/secrets/{ct_sha256}");
+    state
+        .store
+        .put(
+            &storage_key,
+            "application/octet-stream",
+            sealed.clone().into(),
+        )
+        .await
+        .expect("store put");
+    let file_bytes = i64::try_from(plaintext.len()).unwrap_or(i64::MAX);
+    let mut tx = state.pool.begin().await.unwrap();
+    core_db::set_org(&mut tx, org_id).await.unwrap();
+    sqlx::query(
+        "UPDATE secret_records SET object_key = $2, file_sha256 = $3, file_bytes = $4 \
+         WHERE id = $1 AND org_id = $5",
+    )
+    .bind(record_id)
+    .bind(&storage_key)
+    .bind(&ct_sha256)
+    .bind(file_bytes)
+    .bind(org_id)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+
+    // GET decodes through the legacy branch.
+    let get = send(
+        &app,
+        axum::http::Method::GET,
+        &format!("/api/secrets/records/{record_id}/file"),
+        Some(&bearer),
+        None,
+    )
+    .await;
+    assert_eq!(get.status(), 200);
+    let header = get
+        .headers()
+        .get("x-file-sha256")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(header, ct_sha256);
+    let downloaded = axum::body::to_bytes(get.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    assert_eq!(downloaded, plaintext);
+}

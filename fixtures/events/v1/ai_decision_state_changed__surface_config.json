@@ -1,0 +1,12 @@
+{
+  "event_type": "ai.decision_state_changed",
+  "entity": "ai_decision_surface_config",
+  "variant": "surface_config",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "enabled": false,
+    "mode": "shadow",
+    "surface_key": "decision_triage"
+  }
+}

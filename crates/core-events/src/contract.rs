@@ -1787,6 +1787,34 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             })
         ),
     },
+    PublishedEvent {
+        // Wave 19 lane 3 straggler: `p19-vault-scale` conformance run —
+        // emission sites (org master switch + per-surface config) shipped
+        // in p18-ai-closeout without a registry registration.
+        event_type: types::AI_DECISION_STATE_CHANGED,
+        entity: "ai_features",
+        variant: "master_switch",
+        shape: untyped_shape!(
+            ["org_id", "features_enabled"],
+            serde_json::json!({
+                "org_id": su(2).to_string(),
+                "features_enabled": true,
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::AI_DECISION_STATE_CHANGED,
+        entity: "ai_decision_surface_config",
+        variant: "surface_config",
+        shape: untyped_shape!(
+            ["surface_key", "mode", "enabled"],
+            serde_json::json!({
+                "surface_key": "decision_triage",
+                "mode": "shadow",
+                "enabled": false,
+            })
+        ),
+    },
     // -- portal ---------------------------------------------------------------
     PublishedEvent {
         event_type: types::PORTAL_USER_CREATED,
