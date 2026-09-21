@@ -674,6 +674,8 @@ use utoipa::OpenApi;
         crate::routes::alerts::resolve,
         // decision workbench suggestion card (Wave 23 lane 3)
         crate::routes::decision_suggestions::list,
+        // decision search rerank — similar tickets (Wave 23 lane 4)
+        crate::routes::similar_tickets::similar_tickets,
         // live delivery + ephemeral presence (Wave 12 lane 12)
         crate::routes::events::stream,
         crate::routes::presence::heartbeat,
@@ -1498,6 +1500,10 @@ use utoipa::OpenApi;
         crate::routes::decision_suggestions::SuggestionAnswer,
         crate::routes::decision_suggestions::SuggestionSurface,
         crate::routes::decision_suggestions::DecisionSuggestionsResponse,
+        // decision search rerank — similar tickets (Wave 23 lane 4)
+        crate::routes::similar_tickets::SimilarTicketsQuery,
+        crate::routes::similar_tickets::SimilarTicketCandidate,
+        crate::routes::similar_tickets::SimilarTicketsResponse,
         // agent platform (TASKLIST Phase 3, IF8)
         crate::routes::agent_platform::CapabilityMode,
         crate::routes::agent_platform::ProposalClassification,

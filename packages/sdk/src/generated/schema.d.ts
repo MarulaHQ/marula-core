@@ -8675,6 +8675,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tickets/{id}/similar-tickets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/tickets/{id}/similar-tickets — retrieval top-k + per-candidate
+         *     relatedness Noul. Degrade-never-5xx: a quiet decision edge returns the
+         *     plain retrieval list, never an error.
+         */
+        get: operations["tickets_similar_tickets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tickets/{id}/sla": {
         parameters: {
             query?: never;
@@ -18194,6 +18215,47 @@ export interface components {
          *     richer structures are entities, not settings.
          */
         SettingValue: boolean | number | string;
+        SimilarTicketCandidate: {
+            /** @description `shadow` rows are recorded but drive nothing (no rerank applied). */
+            mode?: string | null;
+            /**
+             * Format: double
+             * @description The `relates` Noul probability, when the decision edge answered.
+             *     `None` = the edge went quiet (unconfigured/downed) for that
+             *     candidate.
+             */
+            relates?: number | null;
+            /**
+             * Format: double
+             * @description Blended lexical relevance from the Postgres index (higher is
+             *     better) — the retrieval rank that fed the reranker.
+             */
+            retrieval_score: number;
+            /** @description Raw retrieval excerpt (client-side snippet rendering). */
+            snippet: string;
+            /**
+             * @description Threshold classification of the live answer: "act" | "pending" |
+             *     "ignore". `None` when no answer, shadow mode, or no thresholds.
+             */
+            state?: string | null;
+            /** Format: uuid */
+            ticket_id: string;
+            title: string;
+        };
+        SimilarTicketsQuery: {
+            /**
+             * @description Override the retrieval text (defaults to the ticket's own title
+             *     plus a body excerpt). Clamped like the search surface.
+             */
+            q?: string | null;
+        };
+        SimilarTicketsResponse: {
+            candidates: components["schemas"]["SimilarTicketCandidate"][];
+            /** @description The retrieval query executed (the ticket's own title/body text). */
+            query: string;
+            /** Format: uuid */
+            ticket_id: string;
+        };
         Site: {
             address?: string | null;
             city?: string | null;
@@ -37647,6 +37709,40 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["TicketRollup"];
                 };
+            };
+        };
+    };
+    tickets_similar_tickets: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Override the retrieval text (defaults to the ticket's own title
+                 *     plus a body excerpt). Clamped like the search surface.
+                 */
+                q?: string | null;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SimilarTicketsResponse"];
+                };
+            };
+            /** @description ticket not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

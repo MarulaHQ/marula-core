@@ -579,7 +579,106 @@ pub async fn feed_upsert(
     })
     .await?;
 
+    // decision_record_dedupe (ADR 0010 §3 #8, Wave 23 lane 4): the
+    // residual pairwise Noul AFTER the deterministic identity blocks.
+    // Only candidates the deterministic rules left `pending` get a
+    // "same real-world entity?" judgment, recorded suggestion-grade —
+    // the candidate rows stay `pending` and merges remain
+    // human-approved regardless of the answer. Capped at 5 pairwise
+    // asks per upsert; every quiet outcome is a logged no-op.
+    if let MutationOutcome::Applied(response) = &outcome {
+        let candidates = response
+            .queued_candidates
+            .iter()
+            .take(5)
+            .cloned()
+            .collect::<Vec<_>>();
+        if !candidates.is_empty() {
+            record_dedupe_ask(&state, org_id, user_id, &candidates, &response.item).await;
+        }
+    }
+
     Ok(Json(outcome.into_response()?))
+}
+
+/// Fires one `decision_record_dedupe` ask per queued candidate. The
+/// state composes left (the existing/primary item) vs right (the fresh
+/// feed item) name/email per the starter template — emails read the
+/// effective `fields` map when the layout carries one, else stay empty.
+async fn record_dedupe_ask(
+    state: &AppState,
+    org_id: Uuid,
+    user_id: Uuid,
+    candidates: &[core_domain::entities::config_identity::CiMergeCandidate],
+    fresh_item: &core_domain::entities::client::DeviceAsset,
+) {
+    for candidate in candidates {
+        let mut tx = match crate::routes::ai_policy::org_bound_tx(state, org_id, user_id).await {
+            Ok(tx) => tx,
+            Err(err) => {
+                tracing::debug!(%err, org = %org_id, "dedupe context read failed; skipping");
+                continue;
+            }
+        };
+        let left =
+            match core_db::assets::get_asset(&mut *tx, org_id, candidate.primary_config_item_id)
+                .await
+            {
+                Ok(asset) => asset,
+                Err(err) => {
+                    tracing::debug!(%err, "dedupe primary read failed; skipping candidate");
+                    continue;
+                }
+            };
+        tx.commit().await.ok();
+        let ask = crate::routes::decision_edge::DecisionAsk {
+            org_id,
+            user_id,
+            surface_key: "decision_record_dedupe",
+            entity_type: "ci_merge_candidate",
+            entity_id: Some(candidate.id),
+            state: serde_json::json!({
+                "left": {
+                    "name": left.name,
+                    "email": fields_email(&left.fields),
+                },
+                "right": {
+                    "name": fresh_item.name,
+                    "email": fields_email(&fresh_item.fields),
+                },
+            }),
+            request_id: format!("decision-dedupe-{}", candidate.id),
+            inventories: Default::default(),
+        };
+        match crate::routes::decision_edge::decide(state, ask).await {
+            Ok(Ok(_run)) => {
+                tracing::info!(
+                    org = %org_id,
+                    candidate = %candidate.id,
+                    "dedupe Noul recorded (suggestion-grade; merge stays human-approved)"
+                );
+            }
+            Ok(Err(quiet)) => {
+                tracing::debug!(
+                    org = %org_id,
+                    reason = %quiet.reason(),
+                    "dedupe fan-out quiet"
+                );
+            }
+            Err(err) => {
+                tracing::debug!(org = %org_id, %err, "dedupe fan-out failed");
+            }
+        }
+    }
+}
+
+fn fields_email(fields: &Value) -> String {
+    fields
+        .get("email")
+        .or_else(|| fields.get("Email"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string()
 }
 
 /// PATCH /api/config-items/{id} — human curation (CI5): curated values are
