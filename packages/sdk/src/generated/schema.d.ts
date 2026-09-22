@@ -9410,6 +9410,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/webhooks/stripe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["stripe_webhook_receive"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/webhooks/{id}": {
         parameters: {
             query?: never;
@@ -16531,6 +16547,12 @@ export interface components {
              */
             amount_minor: number;
             notes?: string | null;
+            /**
+             * @description PSP payment-method surface (e.g. a confirmed Stripe `pm_*` id
+             *     from the embedded payment form). None = ledger-only none-mode
+             *     settlement; required when the org resolved provider is Stripe.
+             */
+            payment_method?: string | null;
         };
         /**
          * @description Instant-first mutation response (IF2) for a portal payment: the
@@ -39725,6 +39747,41 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["WebhookSecretResponse"];
                 };
+            };
+        };
+    };
+    stripe_webhook_receive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": number[];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

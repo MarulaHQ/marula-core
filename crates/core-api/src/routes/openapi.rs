@@ -384,6 +384,8 @@ use utoipa::OpenApi;
         crate::routes::plugin_distribution::revoke_publisher,
         crate::routes::plugin_distribution::list_ratings,
         crate::routes::plugin_distribution::put_rating,
+        // Stripe webhook receiver (Wave 22)
+        crate::routes::stripe_webhook::receive,
         crate::routes::portal::login,
         crate::routes::portal::refresh,
         crate::routes::portal::me,
