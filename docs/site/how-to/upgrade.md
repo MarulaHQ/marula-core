@@ -1,8 +1,16 @@
 # How to upgrade to the latest release
 
+> **Audience:** both — self-host operators run the upgrade; admins own release timing.
+
 Meridian guarantees you can always upgrade from either of the two previous
 tagged releases (the **N−2 rule**, policy §1/§3). This guide gets you there
 safely.
+
+## Prerequisites
+
+- Shell access to the deployment or the `meridian` CLI.
+- A current backup — the [backup/restore runbook](../reference/backup-restore.md) first.
+
 
 ## 1. Check your version and the support window
 

@@ -132,3 +132,17 @@ Every in-app surface carries an in-app help entry point (`p26-onboarding-flows`)
 Exit criteria for lane 2: `node docs/site/scripts/check-docs-site.mjs` green,
 this page's ❌/◐ rows re-scored, coverage re-audited against the same
 captures before landing.
+
+## 6. Lane 2 delivery note (`p27-docs-fill`, 2026-09-22)
+
+Lane 2 shipped the P0 work order: the first-ticket lesson is now the UI
+edition (API edition cross-linked; seeded-org prerequisite), five tutorials
+(inventory sync, invoice, agent run, portal onboarding), the audience-split
+how-to catalog (12 admin guides + staff + client + SSO), five new
+explanation pages, and the self-host runbook spine under `reference/`
+(local stack, observability, backup/restore, reverse proxy/TLS). The
+docs-site checker now fails on any how-to/tutorial page missing its
+**Audience:** tag. Mail remains undocumented per §2 — named only as a
+not-yet-shipped placeholder, never as configuration guidance. Full page
+inventory, checker output, and the §1 row-by-row re-scoring:
+`design/qa-p27-docs-fill/LANDING.md`.

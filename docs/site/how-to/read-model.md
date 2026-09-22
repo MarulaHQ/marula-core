@@ -1,7 +1,14 @@
 # How to report against the read model
 
+> **Audience:** both — reporting authors (staff or admin) querying the stable SQL views.
+
 Direct SQL access and external BI tools are supported — but the promise
 attaches to the views, not the physical tables.
+
+## Prerequisites
+
+- SQL access to the deployment's Postgres; note the [role split](../reference/self-host-local-stack.md) — the app role is RLS-constrained, connect with whichever role matches the read you intend.
+
 
 ## Connect
 

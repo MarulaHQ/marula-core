@@ -1,92 +1,80 @@
-# Tutorial: your first ticket
+# Tutorial: your first ticket (in the UI)
 
-This lesson walks you from an empty machine to a worked ticket with a time
-entry, using the real API. It takes about 20 minutes.
-
-## What you'll build
-
-A running Meridian stack, an organization with one client, one ticket, a
-timer that turns into a time entry, and the domain events those actions
-emitted.
+> **Audience:** both — MSP staff learning the workbench and admins learning
+> the product. No API knowledge required.
 
 ## Prerequisites
 
-- Docker (for Postgres+pgvector, Redis, MinIO)
-- Rust toolchain (see `rust-toolchain.toml`) and Node + pnpm
+- A running stack with the console reachable (see
+  [self-host reference](../reference/self-host-local-stack.md) if you
+  brought up the compose stack yourself) — or the desktop test app, which
+  seeds the demo org on first run ([ADR
+  0005](../../adr/0005-local-desktop-test-app.md)).
+- The **seeded demo org**: sign in as `owner@demo.local` with password
+  `demo-password-123`. It comes with 16 open tickets, seeded boards
+  (Service Desk, Field Service), clients, and time entries — you start in
+  a real service desk, not an empty one.
 
-## 1. Start the stack
-
-```sh
-git clone https://github.com/Marlin-Hofmeyer/meridian && cd meridian
-docker compose -f deploy/docker-compose.yml up -d
-cargo install --path crates/meridian-cli
-meridian dev
-```
-
-`meridian dev` runs migrations, starts the core API and worker, and serves
-the web console.
-
-## 2. Register an organization
-
-Registration is `POST /api/v1/register`. The org slug must be unique; if it
-is taken the API returns a typed `409` with reason `org_slug_taken` and a
-verified-available `suggestion` you can accept.
-
-## 3. Log in
-
-```sh
-curl -s -X POST localhost:8080/api/v1/auth/login \
-  -H 'content-type: application/json' \
-  -d '{"email":"you@example.com","password":"…"}'
-```
-
-The response is a token pair; send the access token as `Authorization:
-Bearer …` on every subsequent call.
-
-## 4. Create a client and a ticket
-
-```sh
-curl -s -X POST localhost:8080/api/v1/clients \
-  -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
-  -d '{"name":"Acme Corp"}'
-```
-
-Then create the ticket:
-
-```sh
-curl -s -X POST localhost:8080/api/v1/tickets \
-  -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
-  -d '{"client_id":"…","title":"Printer on fire","priority":"high"}'
-```
-
-## 5. Work it
-
-In the web console, the ticket is one screen: notes, timer, conversation,
-and calendar live together. Start the timer, add a note, stop the timer.
-The rough notes become a proper time entry — no separate time-entry screen
-hunt.
+Working a ticket is the center of the product. The console is built so a
+ticket is one screen, not three:
 
 > "A ticket should take one screen, not three. Notes, timer, conversation,
 > calendar live in the same view, because they are the same job."
 > — [MANIFESTO.md](../../../MANIFESTO.md), quoted verbatim
 
-## 6. Watch the events
+## 1. Land on the work queue
 
-Every mutation emits a domain event from the transactional outbox:
+After sign-in you are on `/today` — the shared working dashboard. It shows
+the org's live posture as stat widgets (overdue, due-today, approvals),
+"16 open", and today's rows with P1–P4 priority chips, assignee initials,
+board column, and escalation/progress status chips. A hint at the bottom
+of the page points at the work bar: "no active timer — the work bar
+tracks it". This queue is your morning, and everything below starts
+here.
 
-```sh
-curl -s "localhost:8080/api/v1/events?limit=5" \
-  -H "authorization: Bearer $TOKEN"
-```
+## 2. Open a ticket
 
-You should see `ticket.created` plus a timer/time-entry event.
+Click any row (or filter by priority chip first). The ticket opens in the
+workbench: three panes. Left is **Ticket Context** (client, board, status,
+SLA ring, contextual documentation links to relevant KB articles). Center
+is **Activity** — the conversation and the composer. Right is the **Agent**
+panel with relevant knowledge sources and a recommended next step.
+
+Header controls: status/SLA ring, Close, Escalate, Link, and the Classic
+toggle (the legacy workspace is kept side-by-side during the transition).
+
+## 3. Work it: note, timer, time entry
+
+Type an update in the composer — flip on the **Internal note** selector for
+anything the client should not read. Attach files, or use AI Assist if your
+org has granted it. Timer and composer live together: the timer you started
+from the work bar lands as a proper time entry event on the ticket's
+Activity feed (see the **Time Entries** tab) the moment you stop it — no
+separate time-entry screen, no post-hoc retype of what you did.
+
+That is the whole loop: context in, note in, timer out to a time entry.
+
+## 4. See it become billable
+
+Open **Approvals** (/approvals). Your ticket's time entry awaits in the
+queue. Approved time entries are the ones billing consumes — invoiced
+entries lock permanently. That is the path from "I worked this" to "the
+client is invoiced for it".
 
 ## What you learned
 
-- The API is the single write surface; the console and SDK are clients of it.
-- Mutations flow through the instant-first envelope (optimistic render,
-  authoritative reconcile).
-- Domain events are the audit trail — and the integration seam.
+- The work queue (`/today`) and the ticket list (`/tickets`) are the two
+  launch points. The workbench is where the work happens.
+- Notes, timer, time entries, files, and (if granted) AI assistance share
+  one composer-centered pane.
+- The board's semantic status categories govern every downstream clock
+  ([more on why](../explanation/customizations-are-data.md)).
 
-Next: [How to call the API](../how-to/call-the-api.md) for the typed client,
-or the [API reference](../reference/api.md) for the full surface.
+## Where to next
+
+- Prefer the API? This same lesson exists as an [API edition
+  (first-ticket-api.md)](first-ticket-api.md) — every step worked with
+  `curl` against the real endpoints.
+- How a board move works for a dispatcher: [Dispatch from the
+  board](../how-to/staff-dispatch.md).
+- The full task view for staff: [Work a ticket](../how-to/staff-work-a-ticket.md).
