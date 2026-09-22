@@ -736,6 +736,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/attachments/{id}/transcribe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/v1/attachments/{id}/transcribe — transcribe one stored
+         *     audio attachment through the org's granted `transcription` surface.
+         */
+        post: operations["attachments_transcribe"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/audit-events": {
         parameters: {
             query?: never;
@@ -20156,6 +20176,15 @@ export interface components {
         TotpEnrollVerifyRequest: {
             code: string;
         };
+        TranscriptionResponse: {
+            /** @description The audio duration the provider reports, when it sends one. */
+            duration?: string | null;
+            model: string;
+            provider: string;
+            /** @description The typed surface the call rode (always `transcription` here). */
+            surface: string;
+            text: string;
+        };
         /**
          * @description One directed edge in a board's explicit transition matrix. Both ids must
          *     belong to statuses of the SAME board (enforced here, and by composite FKs
@@ -22373,6 +22402,47 @@ export interface operations {
                 content: {
                     "application/octet-stream": number[];
                 };
+            };
+        };
+    };
+    attachments_transcribe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranscriptionResponse"];
+                };
+            };
+            /** @description typed AI refusals (surface/grant/credential/cap) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description not_audio or size cap */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

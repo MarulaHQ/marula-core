@@ -386,6 +386,8 @@ use utoipa::OpenApi;
         crate::routes::plugin_distribution::put_rating,
         // Stripe webhook receiver (Wave 22)
         crate::routes::stripe_webhook::receive,
+        // Transcription edge over the registered surface (Wave 22)
+        crate::routes::transcription::transcribe_attachment,
         crate::routes::portal::login,
         crate::routes::portal::refresh,
         crate::routes::portal::me,
@@ -1258,6 +1260,7 @@ use utoipa::OpenApi;
         crate::routes::plugin_distribution::RatingSummary,
         crate::routes::plugin_distribution::RatingMineView,
         crate::routes::plugin_distribution::RatingListView,
+        crate::routes::transcription::TranscriptionResponse,
         core_domain::entities::PluginPublisherVerification,
         core_domain::entities::PluginRating,
         core_domain::events::PluginPublisherVerified,

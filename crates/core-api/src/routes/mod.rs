@@ -121,6 +121,7 @@ pub mod ticket_links;
 pub mod tickets;
 pub mod time;
 pub mod timers;
+pub mod transcription;
 pub mod undo;
 pub mod webhook_admin;
 pub mod webhooks;
@@ -729,6 +730,13 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/attachments/{id}"),
             axum::routing::delete(attachments::remove),
+        )
+        // Transcription edge (Wave 22): the ADR 0008 registered
+        // `transcription` plugin surface — audio attachments only, the
+        // shared AI admission pipeline gates every call.
+        .route(
+            &rp("/attachments/{id}/transcribe"),
+            post(transcription::transcribe_attachment),
         )
         .route(
             &rp("/tickets/{id}/checklist"),
