@@ -1,8 +1,15 @@
 # How to customize without code
 
+> **Audience:** both — admins declare the customization; staff experience the result.
+
 Everything an organization configures lives as declarative rows bound to
 stable semantic primitives — customizations are data, not code. That is what
 makes them migratable and fork-safe.
+
+## Prerequisites
+
+- A signed-in admin (settings access) or an API client with the customization scopes.
+
 
 ## Add a custom field
 

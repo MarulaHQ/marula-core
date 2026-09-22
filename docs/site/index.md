@@ -26,9 +26,10 @@ one quadrant, and the quadrants stay in their lanes.
 - Architecture decision records: [`docs/adr/`](../adr/)
 - Instant-first interaction doctrine: [`docs/instant-first.md`](../instant-first.md)
 - Upgrade & compatibility policy: [`docs/upgrade-compatibility-policy.md`](../upgrade-compatibility-policy.md)
-- Operator runbooks: deploy under `deploy/runbooks/` (scaffold; authored
-  under `reference/` when filled — see the
-  [coverage audit](DOCS-COVERAGE.md))
+- Operator runbooks: canonical scaffold lives at `deploy/runbooks/`
+  (`deploy/runbooks/README.md`); authored runbook content lives in the site
+  under [reference/](reference/index.md) — see the
+  [coverage audit](DOCS-COVERAGE.md)
 - Docs coverage audit & IA plan: [`DOCS-COVERAGE.md`](DOCS-COVERAGE.md)
 - Public waitlist/marketing site: the separate `website/` package — product
   positioning is quoted there and here from `MANIFESTO.md` verbatim, never

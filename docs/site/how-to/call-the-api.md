@@ -1,7 +1,14 @@
 # How to call the API
 
+> **Audience:** both — developers and self-host operators calling the API directly.
+
 The REST API is the single write surface for Meridian: all mutations flow
 through it and emit domain events.
+
+## Prerequisites
+
+- A reachable core-api and a bearer token (the [API tutorial](../tutorials/first-ticket-api.md) obtains one); machine scopes come from [API keys](admin-api-keys.md).
+
 
 ## Authenticate
 

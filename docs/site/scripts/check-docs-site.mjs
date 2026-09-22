@@ -38,6 +38,19 @@ for (const file of files) {
   }
 }
 
+// Audience-tag check (Wave 27 lane 2): every how-to and tutorial page
+// (except index pages) states its audience up front.
+for (const file of files) {
+  const rel = relative(site, file).replaceAll("\\", "/");
+  const m = rel.match(/^(how-to|tutorials)\/([^/]+)\.md$/);
+  if (!m || m[2] === "index") continue;
+  const src = readFileSync(file, "utf8");
+  if (!src.includes("**Audience:**")) {
+    console.error(`AUDIENCE ${rel} — missing the **Audience:** tag line`);
+    failed++;
+  }
+}
+
 // Generated pages must match regeneration from the current pin/fixtures.
 const before = readFileSync(join(site, "reference/api.md"), "utf8");
 execFileSync("node", [join(site, "scripts/generate-api-reference.mjs")], {
