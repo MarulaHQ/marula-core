@@ -14,7 +14,22 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app"],
-    "icon": ["icons/icon.icns", "icons/icon.png", "icons/icon.ico"]
+    "targets": ["app", "dmg"],
+    "icon": ["icons/icon.icns", "icons/icon.png", "icons/icon.ico"],
+    "category": "Business",
+    "copyright": "AGPL-3.0 — Meridian contributors",
+    "shortDescription": "The PSA you own",
+    "longDescription": "Open-source PSA for IT teams and MSPs: tickets, timers, dispatch, and a client portal on your own Postgres. This desktop build embeds Postgres and core-api in one app (ADR 0005).",
+    "macOS": {
+      "minimumSystemVersion": "12.0",
+      "signingIdentity": null
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": ["https://updates.meridian.dev/desktop/{{target}}/{{arch}}/{{current_version}}"],
+      "pubkey": "REPLACE_AT_RELEASE_TIME: generate with `pnpm tauri signer generate ~/.tauri/meridian.key` and paste the minisign PUBLIC key here — never commit the private key"
+    }
   }
 }

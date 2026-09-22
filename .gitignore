@@ -59,3 +59,8 @@ skills-lock.json
 .kiro/skills/
 .windsurf/skills/
 .agents/skills/hallmark
+
+# Website phase 2: rendered docs bundle (generated at build time by
+# website/scripts/sync-docs.mjs via docs/site/scripts/publish.mjs — the
+# markdown under docs/site stays the only source of truth, ADR 0009)
+website/public/docs/
