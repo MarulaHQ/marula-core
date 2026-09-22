@@ -464,7 +464,8 @@ use core_domain::events::{
     SchedulingLinkCreated, SchedulingLinkRevoked, SchedulingLinkScheduled, SchedulingLinkViewed,
     ScorecardSettingsUpdated, SecretFolderCreated, SecretFolderDeleted, SecretFolderForked,
     SecretFolderUpdated, SecretGrantDeleted, SecretGrantUpdated, SecretRecordCreated,
-    SecretRecordDeleted, SecretRecordUpdated, SecretRevealed, SiteCreated, SiteUpdated, TagCreated,
+    SecretRecordDeleted, SecretRecordUpdated, SecretRevealed, SecretRotationDue,
+    SecretShareLinkClaimed, SecretShareLinkCreated, SiteCreated, SiteUpdated, TagCreated,
     TagDeleted, TagUpdated, TemplateCreated, TemplateRemoved, TemplateUpdated, TicketAssigned,
     TicketBoardMoved, TicketChecklistUpdated, TicketCommentAdded, TicketCostLineAdded,
     TicketCostLineRemoved, TicketCreated, TicketExpenseRecorded, TicketExpenseRemoved,
@@ -3886,6 +3887,51 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             SecretGrantDeleted {
                 role_id: su(6),
                 folder_id: su(72),
+            }
+        ),
+    },
+    // -- Wave 19 lane 3 (secrets product): rotation reminder + one-time
+    //    share links — ids/titles only, NEVER tokens or secret material --
+    PublishedEvent {
+        event_type: types::SECRET_ROTATION_DUE,
+        entity: "secret_record",
+        variant: "default",
+        shape: typed_shape!(
+            SecretRotationDue,
+            SecretRotationDue {
+                subject_kind: "secret_record".into(),
+                subject_id: su(73),
+                title: "PagerDuty service key".into(),
+                rotate_at: st(900).to_rfc3339(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::SECRET_SHARE_LINK_CREATED,
+        entity: "secret_share_link",
+        variant: "default",
+        shape: typed_shape!(
+            SecretShareLinkCreated,
+            SecretShareLinkCreated {
+                share_id: su(75),
+                subject_kind: "secret_record".into(),
+                subject_id: su(73),
+                title: "PagerDuty service key".into(),
+                expires_at: st(1000).to_rfc3339(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::SECRET_SHARE_LINK_CLAIMED,
+        entity: "secret_share_link",
+        variant: "default",
+        shape: typed_shape!(
+            SecretShareLinkClaimed,
+            SecretShareLinkClaimed {
+                share_id: su(75),
+                subject_kind: "secret_record".into(),
+                subject_id: su(73),
+                title: "PagerDuty service key".into(),
             }
         ),
     },

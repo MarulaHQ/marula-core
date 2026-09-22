@@ -25,11 +25,14 @@ pub enum NotificationKind {
     /// call proceeded — warn + notify only. Hard caps refuse (typed),
     /// soft caps ride here.
     AiCapWarn,
+    /// Secret rotation reminder (Wave 19 lane 3): the worker sweep
+    /// claimed a record's `rotate_at` slot (at-most-once per schedule).
+    SecretRotation,
 }
 
 impl NotificationKind {
     /// Every kind, stable order — drives preference screens and defaults.
-    pub const ALL: [NotificationKind; 9] = [
+    pub const ALL: [NotificationKind; 10] = [
         NotificationKind::Mention,
         NotificationKind::Assignment,
         NotificationKind::SlaRisk,
@@ -39,6 +42,7 @@ impl NotificationKind {
         NotificationKind::TicketUpdate,
         NotificationKind::ReportDelivery,
         NotificationKind::AiCapWarn,
+        NotificationKind::SecretRotation,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -52,6 +56,7 @@ impl NotificationKind {
             NotificationKind::TicketUpdate => "ticket_update",
             NotificationKind::ReportDelivery => "report_delivery",
             NotificationKind::AiCapWarn => "ai_cap_warn",
+            NotificationKind::SecretRotation => "secret_rotation",
         }
     }
 }
@@ -69,6 +74,7 @@ impl std::str::FromStr for NotificationKind {
             "ticket_update" => Ok(NotificationKind::TicketUpdate),
             "report_delivery" => Ok(NotificationKind::ReportDelivery),
             "ai_cap_warn" => Ok(NotificationKind::AiCapWarn),
+            "secret_rotation" => Ok(NotificationKind::SecretRotation),
             other => Err(crate::DomainError::Validation(format!(
                 "invalid notification kind: {other}"
             ))),

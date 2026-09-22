@@ -1469,3 +1469,87 @@ pub async fn alert_decision_ack(
     );
     Ok(Json(json!({ "acked": acked })))
 }
+
+// --- secret rotation reminders (Wave 19 lane 3) -------------------------------
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct SecretRotationRequest {
+    pub org_id: Uuid,
+    /// `secret_record` or `password`.
+    pub subject_kind: String,
+    pub subject_id: Uuid,
+    pub title: String,
+    /// The scheduled instant this reminder fired for (RFC 3339).
+    pub rotate_at: String,
+}
+
+/// POST /api/internal/secrets/rotation — applies ONE claimed rotation
+/// slot: the in-app `secret_rotation` notification (to the subject's
+/// creator/last writer when present) + the `secret.rotation_due` domain
+/// event on the single event stream (the automation/webhook hook).
+/// Idempotent per slot by construction: the sweep's claim already
+/// flipped `rotation_reminded_at`, so a retried job re-sends only the
+/// deliverables, never re-claims. Payloads carry ids/titles only.
+pub async fn rotation_notify(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<SecretRotationRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    require_internal_token(&state, &headers)?;
+    // Machine actor: the org itself (same posture as pm_generate).
+    org_tx::with_org_tx(&state, req.org_id, req.org_id, |mut ctx| async move {
+        let who: Option<Uuid> = if req.subject_kind == "password" {
+            core_db::passwords::get_password(&mut *ctx.tx, req.org_id, req.subject_id)
+                .await
+                .ok()
+                .and_then(|e| e.created_by)
+        } else {
+            core_db::secret_vault::get_record(&mut ctx.tx, req.org_id, req.subject_id)
+                .await
+                .ok()
+                .and_then(|r| r.created_by)
+        };
+        let kind = core_domain::entities::NotificationKind::SecretRotation;
+        let title = match req.subject_kind.as_str() {
+            "password" => "Password entry is due for rotation",
+            _ => "Secret record is due for rotation",
+        };
+        if let Some(to) = who {
+            core_db::notifications::insert(
+                &mut *ctx.tx,
+                Uuid::now_v7(),
+                req.org_id,
+                to,
+                kind.as_str(),
+                None,
+                &format!("{title}: {t}", t = req.title),
+                Some(
+                    format!(
+                        "Scheduled rotation came due {at} — rotate the credential and move its rotate_at forward.",
+                        at = req.rotate_at
+                    )
+                    .as_str(),
+                ),
+            )
+            .await?;
+        }
+        core_db::outbox::insert(
+            &mut ctx.tx,
+            Uuid::now_v7(),
+            req.org_id,
+            types::SECRET_ROTATION_DUE,
+            "secret_record",
+            Some(req.subject_id.to_string().as_str()),
+            &json!({
+                "subject_kind": req.subject_kind,
+                "subject_id": req.subject_id,
+                "title": req.title,
+                "rotate_at": req.rotate_at,
+            }),
+        )
+        .await?;
+        Ok((ctx, ()))
+    })
+    .await?;
+    Ok(Json(json!({ "reminded": true })))
+}

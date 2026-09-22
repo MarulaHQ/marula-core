@@ -263,6 +263,7 @@ async fn links_resolve_labels_and_surface_broken_targets() {
         &sealed_secret,
         None,
         None,
+        None,
         author,
     )
     .await
@@ -349,6 +350,7 @@ async fn password_updates_archive_history_and_delete_cascades() {
         b"first-secret",
         None,
         None,
+        None,
         author,
     )
     .await
@@ -365,6 +367,7 @@ async fn password_updates_archive_history_and_delete_cascades() {
         Some(rotated),
         None,
         Some(None),
+        None,
         author,
     )
     .await
@@ -412,6 +415,7 @@ async fn rls_blocks_cross_org_docs_platform_reads() {
         "",
         "",
         b"x",
+        None,
         None,
         None,
         author,

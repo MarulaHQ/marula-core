@@ -123,7 +123,7 @@ const FIELD_KEYS: [&str; 4] = ["secret", "notes", "username", "url"];
 
 /// AAD coordinate binder: ciphertext bits cannot be replayed across
 /// `(org, record, field_key)` positions; the AAD is never stored.
-fn field_aad(org_id: Uuid, record_id: Uuid, field_key: &str) -> Vec<u8> {
+pub(crate) fn field_aad(org_id: Uuid, record_id: Uuid, field_key: &str) -> Vec<u8> {
     format!("secret_field:{org_id}:{record_id}:{field_key}").into_bytes()
 }
 
@@ -498,6 +498,10 @@ pub struct CreateSecretRecordRequest {
     pub title: String,
     #[serde(default)]
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Rotation schedule (Wave 19 lane 3): the worker sweep reminds once
+    /// past this instant (at-most-once per schedule).
+    #[serde(default)]
+    pub rotate_at: Option<chrono::DateTime<chrono::Utc>>,
     /// Material fields — sealed with coordinate AAD before persistence.
     #[serde(default)]
     pub fields: Vec<SecretFieldValue>,
@@ -519,6 +523,10 @@ pub struct UpdateSecretRecordRequest {
     /// absent = keep; null = clear; value = set.
     #[serde(default)]
     pub expires_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
+    /// Rotation schedule (Wave 19 lane 3): absent = keep; null = clear;
+    /// instant = set (stamps last_rotated_at in the same write).
+    #[serde(default)]
+    pub rotate_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
     /// Matching keys rotate (sealed); `value: null` clears (A5).
     #[serde(default)]
     pub fields: Vec<SecretFieldValuePatch>,
@@ -682,6 +690,7 @@ pub async fn create_record(
             req.kind,
             &title,
             req.expires_at,
+            req.rotate_at,
             object_key.as_deref(),
             file_sha256.as_deref(),
             file_bytes,
@@ -834,6 +843,7 @@ pub async fn update_record(
             id,
             &title,
             req.expires_at,
+            req.rotate_at,
             &field_updates,
             user_id,
         )
@@ -1633,6 +1643,8 @@ pub async fn bulk_ingest(
                     kind,
                     &title,
                     expires_at,
+                    // Bulk importer rows carry no rotation schedule.
+                    None,
                     None,
                     None,
                     None,

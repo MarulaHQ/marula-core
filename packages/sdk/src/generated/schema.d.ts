@@ -4931,6 +4931,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/passwords/{id}/share-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/passwords/{id}/share-links */
+        get: operations["passwords_list_share_links"];
+        put?: never;
+        /**
+         * POST /api/passwords/{id}/share-links — one-time link for the legacy
+         *     byte-compatible entry surface (the same token posture as records).
+         */
+        post: operations["passwords_create_share_link"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/passwords/{id}/share-links/{share_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** DELETE /api/passwords/{id}/share-links/{share_id} */
+        delete: operations["passwords_delete_share_link"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/pipeline/deals": {
         parameters: {
             query?: never;
@@ -7317,6 +7355,71 @@ export interface paths {
          *     is the sole carrier of the decrypted fields.
          */
         post: operations["secrets_records_reveal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/secrets/records/{id}/share-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/secrets/records/{id}/share-links — the lifecycle ledger
+         *     (metadata only; NEVER the tokens).
+         */
+        get: operations["secrets_records_list_share_links"];
+        put?: never;
+        /**
+         * POST /api/secrets/records/{id}/share-links — mint a one-time share
+         *     link; the token is returned ONCE (re-issuing is the flow for mistakes).
+         */
+        post: operations["secrets_records_create_share_link"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/secrets/records/{id}/share-links/{share_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/secrets/records/{id}/share-links/{share_id} — revoke a
+         *     not-yet-consumed link; consumed links are immutable history.
+         */
+        delete: operations["secrets_records_delete_share_link"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/secrets/share-links/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/secrets/share-links/claim — consume a link exactly once,
+         *     unseal its subject behind the org + permission + category gates, and
+         *     stamp the audit trail + `secret.share_link_claimed` event.
+         */
+        post: operations["secrets_share_links_claim"];
         delete?: never;
         options?: never;
         head?: never;
@@ -11222,6 +11325,10 @@ export interface components {
             /** Format: double */
             auto_merge_threshold: number;
         };
+        ClaimShareLinkRequest: {
+            /** @description The one-time token, verbatim from the create response. */
+            token: string;
+        };
         Client: {
             /** Format: date-time */
             created_at: string;
@@ -12113,6 +12220,11 @@ export interface components {
             expires_at?: string | null;
             /** @description Encrypted at rest; returned only through the reveal endpoint. */
             notes?: string | null;
+            /**
+             * Format: date-time
+             * @description Rotation schedule (Wave 19 lane 3): absent/null = never remide.
+             */
+            rotate_at?: string | null;
             secret: string;
             title: string;
             url?: string;
@@ -12358,7 +12470,28 @@ export interface components {
             kind: components["schemas"]["SecretRecordKind"];
             /** @description Document-kind ciphertext-file pointer + hash (object storage). */
             object_key?: string | null;
+            /**
+             * Format: date-time
+             * @description Rotation schedule (Wave 19 lane 3): the worker sweep reminds once
+             *     past this instant (at-most-once per schedule).
+             */
+            rotate_at?: string | null;
             title: string;
+        };
+        CreateSecretShareLinkRequest: {
+            /**
+             * Format: date-time
+             * @description RFC 3339 instant; the server typed-refuses dates in the past or
+             *     absurdly far out (> 90 days — a share link is a bounded window,
+             *     not a chronic credential).
+             */
+            expires_at: string;
+            /**
+             * @description Optional provenance shown to link managers and the audit trail
+             *     ("kiosk roll-out window", …). Secrets NEVER belong here — the
+             *     audit stores detail, never material.
+             */
+            label?: string;
         };
         CreateSiteRequest: {
             address?: string | null;
@@ -15266,7 +15399,7 @@ export interface components {
             user_id: string;
         };
         /** @enum {string} */
-        NotificationKind: "mention" | "assignment" | "sla_risk" | "sla_breach" | "escalation" | "missing_time" | "ticket_update" | "report_delivery" | "ai_cap_warn";
+        NotificationKind: "mention" | "assignment" | "sla_risk" | "sla_breach" | "escalation" | "missing_time" | "ticket_update" | "report_delivery" | "ai_cap_warn" | "secret_rotation";
         /** @description One page of the inbox plus the cursor to continue with. */
         NotificationPage: {
             items: components["schemas"]["Notification"][];
@@ -15455,8 +15588,20 @@ export interface components {
             has_notes?: boolean;
             /** Format: uuid */
             id: string;
+            /**
+             * Format: date-time
+             * @description Stamped by the same update that moves `rotate_at` forward.
+             */
+            last_rotated_at?: string | null;
             /** Format: uuid */
             org_id: string;
+            /**
+             * Format: date-time
+             * @description Operator-scheduled rotation due date (Wave 19 lane 3); the worker
+             *     sweep reminds once past it (durable at-most-once marker on the
+             *     row in the DB; the entities carry no sweep housekeeping).
+             */
+            rotate_at?: string | null;
             title: string;
             /** Format: date-time */
             updated_at: string;
@@ -18206,6 +18351,11 @@ export interface components {
             id: string;
             kind: components["schemas"]["SecretRecordKind"];
             /**
+             * Format: date-time
+             * @description Stamped by the same update that moves `rotate_at` forward.
+             */
+            last_rotated_at?: string | null;
+            /**
              * @description Document-kind files ride object storage as ciphertext with
              *     pointer+hash rows — never material blobs in this table.
              */
@@ -18215,6 +18365,12 @@ export interface components {
              * @description Org-scope tenancy root; NULL on client-scope rows.
              */
             org_id?: string | null;
+            /**
+             * Format: date-time
+             * @description Operator-scheduled rotation due date (Wave 19 lane 3) — additive
+             *     on 0078's record shape; the worker sweep reminds once past it.
+             */
+            rotate_at?: string | null;
             title: string;
             /** Format: date-time */
             updated_at: string;
@@ -18250,6 +18406,71 @@ export interface components {
         SecretRevealField: {
             field_key: string;
             value: string;
+        };
+        /**
+         * @description A one-time share link row (`secret_share_links`, migration 0096).
+         *     The token NEVER round-trips here: the DB stores a SHA-256 hash and
+         *     the raw token exists exactly once, inside the create response
+         *     (`SecretShareLinkCreated`). Scoped to the org, expiring by
+         *     `expires_at`, single-use by construction (transactional claim),
+         *     audited through `audit_events` at every lifecycle step.
+         */
+        SecretShareLink: {
+            /**
+             * Format: date-time
+             * @description Consumed exactly once: the claim's stamp; `consumed_by` is the
+             *     claiming org user (the claimer must belong to the sharing org).
+             */
+            consumed_at?: string | null;
+            /** Format: uuid */
+            consumed_by?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /**
+             * Format: date-time
+             * @description Long absolute URL is composed client-side off the claim token;
+             *     responses here carry none of it.
+             */
+            expires_at: string;
+            /** Format: uuid */
+            id: string;
+            label: string;
+            /**
+             * Format: date-time
+             * @description Non-NULL only while the link is dead-by-creator (revoked links
+             *     can never have been consumed — the row CHECK keeps the pair
+             *     exclusive).
+             */
+            revoked_at?: string | null;
+            /** Format: uuid */
+            subject_id: string;
+            /**
+             * @description Which vault subject the link shares (ids/title only — never the
+             *     material).
+             */
+            subject_kind: components["schemas"]["ShareSubjectKind"];
+        };
+        /**
+         * @description The create response — the ONLY place the raw token exists on the
+         *     wire; the URL is resolved by the web app at `/{app}/share?token=…`.
+         *     (Named `Issued` because `SecretShareLinkCreated` is the domain-EVENT
+         *     payload's struct; this is the HTTP response.)
+         */
+        SecretShareLinkIssued: {
+            /** Format: date-time */
+            expires_at: string;
+            /** Format: uuid */
+            id: string;
+            label: string;
+            /** @description Composed from the token: `?token=...` for the consumer surface. */
+            link_path: string;
+            /**
+             * @description The one-time token, verbatim — never stored server-side (SHA-256
+             *     only).
+             */
+            token: string;
         };
         /**
          * @description Why a timer segment ended. Preserved forever — the pause reason is
@@ -18395,6 +18616,25 @@ export interface components {
          *     richer structures are entities, not settings.
          */
         SettingValue: boolean | number | string;
+        /**
+         * @description The unified claim response: the material exactly once (the claim
+         *     consumes the link). Mirrors `SecretReveal` / `PasswordReveal`
+         *     contents under one shape — `fields` carries `field_key` → plaintext.
+         */
+        ShareClaimMaterial: {
+            fields: components["schemas"]["SecretRevealField"][];
+            /** Format: uuid */
+            subject_id: string;
+            subject_kind: components["schemas"]["ShareSubjectKind"];
+            title: string;
+        };
+        /**
+         * @description Which vault subject a share link or rotation refers to. One-time
+         *     share links cover BOTH the native secret records and the legacy byte-
+         *     compatible password entries; rotation mirrors the same pair.
+         * @enum {string}
+         */
+        ShareSubjectKind: "secret_record" | "password";
         SimilarTicketCandidate: {
             /** @description `shadow` rows are recorded but drive nothing (no rerank applied). */
             mode?: string | null;
@@ -19900,6 +20140,12 @@ export interface components {
             /** @description absent = keep; null = clear; string = replace (encrypted at rest). */
             notes?: string | null;
             /**
+             * Format: date-time
+             * @description Rotation schedule (Wave 19 lane 3): absent = keep; null = clear;
+             *     instant = set (stamps last_rotated_at in the same write).
+             */
+            rotate_at?: string | null;
+            /**
              * @description Absent = keep the current secret; present (even empty string is
              *     rejected) = rotate and archive the previous ciphertext to history.
              */
@@ -20026,6 +20272,12 @@ export interface components {
             expires_at?: string | null;
             /** @description Matching keys rotate (sealed); `value: null` clears (A5). */
             fields?: components["schemas"]["SecretFieldValuePatch"][];
+            /**
+             * Format: date-time
+             * @description Rotation schedule (Wave 19 lane 3): absent = keep; null = clear;
+             *     instant = set (stamps last_rotated_at in the same write).
+             */
+            rotate_at?: string | null;
             title: string;
         };
         UpdateSettingRequest: {
@@ -29741,6 +29993,92 @@ export interface operations {
             };
         };
     };
+    passwords_list_share_links: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretShareLink"][];
+                };
+            };
+        };
+    };
+    passwords_create_share_link: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSecretShareLinkRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretShareLinkIssued"];
+                };
+            };
+            /** @description entry not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description expiry/label rejected */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    passwords_delete_share_link: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                share_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     pipeline_deals_list: {
         parameters: {
             query?: {
@@ -34958,6 +35296,143 @@ export interface operations {
             };
             /** @description record not visible in scope */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    secrets_records_list_share_links: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretShareLink"][];
+                };
+            };
+        };
+    };
+    secrets_records_create_share_link: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSecretShareLinkRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretShareLinkIssued"];
+                };
+            };
+            /** @description category locked to your role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description record not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description expiry/label rejected */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    secrets_records_delete_share_link: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                share_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    secrets_share_links_claim: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClaimShareLinkRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareClaimMaterial"];
+                };
+            };
+            /** @description subject not revealable in this scope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unknown token / foreign org / expired */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description already claimed once / revoked */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

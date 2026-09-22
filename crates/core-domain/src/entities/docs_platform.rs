@@ -157,6 +157,14 @@ pub struct PasswordEntry {
     #[serde(default)]
     pub url: String,
     pub expires_at: Option<DateTime<Utc>>,
+    /// Operator-scheduled rotation due date (Wave 19 lane 3); the worker
+    /// sweep reminds once past it (durable at-most-once marker on the
+    /// row in the DB; the entities carry no sweep housekeeping).
+    #[serde(default)]
+    pub rotate_at: Option<DateTime<Utc>>,
+    /// Stamped by the same update that moves `rotate_at` forward.
+    #[serde(default)]
+    pub last_rotated_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub has_notes: bool,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]

@@ -52,6 +52,7 @@ import type { ReactNode } from "react";
 import { api, useAuth, useRequireAuth } from "../../lib/api";
 import { runEnvelopeMutation, newIdempotencyKey } from "../../lib/envelope-write";
 import { EntityPicker } from "../../components/entities/entity-picker";
+import { PasswordLinksPanel, SecretSharePanel, SecretTargetPicker } from "../../components/secret-share";
 import type { LinkTarget } from "../../lib/entity-links";
 
 type SecretFolder = components["schemas"]["SecretFolder"];
@@ -99,6 +100,7 @@ const LINK_KINDS: components["schemas"]["LinkKind"][] = [
   "password",
   "document",
   "client",
+  "secret",
 ];
 
 type VaultScope = { kind: "org" } | { kind: "client"; id: string };
@@ -246,6 +248,10 @@ export default function VaultPage() {
 
   // ---- legacy handlers (unchanged behavior) ----
   const legacyExpired = (e: PasswordEntry) => e.expires_at != null && new Date(e.expires_at) < new Date();
+  // Rotation reminder honesty (Wave 19 lane 3): due means past rotate_at
+  // AND the rotation never stamped (the worker-side sweep marker lives
+  // in the DB; the client reflects the columns the entities carry).
+  const legacyRotationDue = (e: PasswordEntry) => e.rotate_at != null && new Date(e.rotate_at) < new Date() && e.last_rotated_at == null;
 
   const legacyRevealEntry = async (entry: PasswordEntry) => {
     setLegacyRevealing(entry.id);
@@ -586,6 +592,13 @@ export default function VaultPage() {
                     ) : (
                       new Date(e.expires_at).toLocaleDateString()
                     )}
+                    {e.rotate_at != null ? (
+                      <span className="ml-2 whitespace-nowrap">
+                        <Tag tone={new Date(e.rotate_at) < new Date() ? "warning" : "outline"}>
+                          {legacyRotationDue(e) ? "rotation due" : `rotate by ${new Date(e.rotate_at).toLocaleDateString()}`}
+                        </Tag>
+                      </span>
+                    ) : null}
                   </Td>
                   <Td className="text-right">
                     <div className="flex justify-end gap-1">
@@ -627,14 +640,29 @@ export default function VaultPage() {
               : "Leave the secret blank to keep the current one. Any change archives the previous secret to history."
           }
         >
-          <LegacyVaultForm
-            editing={legacyEditing}
-            clients={clients ?? []}
-            onDone={() => {
-              setLegacyEditOpen(false);
-              void refresh();
-            }}
-          />
+          <div className="grid gap-4">
+            <LegacyVaultForm
+              editing={legacyEditing}
+              clients={clients ?? []}
+              onDone={() => {
+                setLegacyEditOpen(false);
+                void refresh();
+              }}
+            />
+            {legacyEditing !== null && canManage ? (
+              <div className="grid gap-3 px-4">
+                <PasswordLinksPanel
+                  entryId={legacyEditing.id}
+                  onChanged={() => void refresh()}
+                />
+                <SecretSharePanel
+                  subjectKind="password"
+                  subjectId={legacyEditing.id}
+                  canManage={canManage}
+                />
+              </div>
+            ) : null}
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -957,6 +985,13 @@ function RecordDialog({
                     ? "expired"
                     : new Date(current.expires_at).toLocaleDateString()}
               </MetaRow>
+              <MetaRow label="Rotation">
+                {current.rotate_at == null
+                  ? "—"
+                  : new Date(current.rotate_at) < new Date()
+                    ? "rotation due"
+                    : `rotate by ${new Date(current.rotate_at).toLocaleDateString()}`}
+              </MetaRow>
             </dl>
 
             {canReveal ? null : (
@@ -1007,6 +1042,14 @@ function RecordDialog({
                 <Spinner />
               </div>
             )}
+
+            {canReveal ? (
+              <SecretSharePanel
+                subjectKind="secret_record"
+                subjectId={current.id}
+                canManage={canReveal}
+              />
+            ) : null}
           </div>
         )}
       </DialogContent>
@@ -1076,6 +1119,9 @@ function RecordMetaEditor({
   const [expiresAt, setExpiresAt] = useState(
     record.expires_at != null ? record.expires_at.slice(0, 10) : "",
   );
+  const [rotateAt, setRotateAt] = useState(
+    record.rotate_at != null ? record.rotate_at.slice(0, 10) : "",
+  );
   const [values, setValues] = useState<Record<string, string>>({});
   const [clearKeys, setClearKeys] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
@@ -1099,6 +1145,9 @@ function RecordMetaEditor({
       body: {
         title,
         expires_at: expiresAt === "" ? null : new Date(expiresAt).toISOString(),
+        // Moving the schedule stamps last_rotated_at server-side — the
+        // rotation ledger entry rides the same write (Wave 19 lane 3).
+        rotate_at: rotateAt === "" ? null : new Date(rotateAt).toISOString(),
         ...(fields.length > 0 ? { fields } : {}),
       } as components["schemas"]["UpdateSecretRecordRequest"],
     });
@@ -1123,14 +1172,26 @@ function RecordMetaEditor({
           <Label htmlFor="rec-title">Title</Label>
           <Input id="rec-title" value={title} onChange={(e) => setTitle(e.target.value)} />
         </div>
-        <div>
-          <Label htmlFor="rec-expires">Expires (optional)</Label>
-          <Input
-            id="rec-expires"
-            type="date"
-            value={expiresAt}
-            onChange={(e) => setExpiresAt(e.target.value)}
-          />
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label htmlFor="rec-expires">Expires (optional)</Label>
+            <Input
+              id="rec-expires"
+              type="date"
+              value={expiresAt}
+              onChange={(e) => setExpiresAt(e.target.value)}
+            />
+          </div>
+          <div>
+            <Label htmlFor="rec-rotate">Rotate by (optional)</Label>
+            <Input
+              id="rec-rotate"
+              type="date"
+              value={rotateAt}
+              onChange={(e) => setRotateAt(e.target.value)}
+            />
+            <FieldHint>When due, the rotation sweep reminds once — then the marker waits for you to move the date forward.</FieldHint>
+          </div>
         </div>
         {sealedKeys.map((f) => (
           <div key={f.field_key}>
@@ -1420,6 +1481,11 @@ function RecordLinksPanel({
   const [linkError, setLinkError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Secret-record targets need the vault-tree picker (the 0078 records
+  // are outside the cross-entity search seams) — closed by Wave 19
+  // lane 3.
+  const secretPicker = kind === "secret";
+
   const add = async (t: LinkTarget) => {
     setLinkError(null);
     setBusy(true);
@@ -1525,12 +1591,21 @@ function RecordLinksPanel({
           </p>
         ) : null}
       </div>
-      <EntityPicker
-        open={pickerOpen}
-        defaultKind={kind}
-        onPick={(t) => void add(t)}
-        onClose={() => setPickerOpen(false)}
-      />
+      {secretPicker ? (
+        <SecretTargetPicker
+          onPick={(recordId) => {
+            void add({ kind: "secret", id: recordId, title: recordId, meta: "vault-tree" });
+          }}
+          onClose={() => setPickerOpen(false)}
+        />
+      ) : (
+        <EntityPicker
+          open={pickerOpen}
+          defaultKind={kind}
+          onPick={(t) => void add(t)}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
     </Card>
   );
 }
@@ -1956,6 +2031,9 @@ function LegacyVaultForm({
   const [expiresAt, setExpiresAt] = useState(
     editing?.expires_at != null ? editing.expires_at.slice(0, 10) : "",
   );
+  const [rotateAt, setRotateAt] = useState(
+    editing?.rotate_at != null ? editing.rotate_at.slice(0, 10) : "",
+  );
   const [clientId, setClientId] = useState<string>(editing?.client_id ?? "global");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1979,6 +2057,7 @@ function LegacyVaultForm({
             notes: notes === "" ? null : notes,
             client_id: clientId === "global" ? null : clientId,
             expires_at: expiresAt === "" ? null : new Date(expiresAt).toISOString(),
+            rotate_at: rotateAt === "" ? null : new Date(rotateAt).toISOString(),
           }),
           optimistic: () => {},
           revert: () => {},
@@ -2001,6 +2080,7 @@ function LegacyVaultForm({
             ...(secret === "" ? {} : { secret }),
             ...(notesTouched ? { notes: notes === "" ? null : notes } : {}),
             expires_at: expiresAt === "" ? null : new Date(expiresAt).toISOString(),
+            rotate_at: rotateAt === "" ? null : new Date(rotateAt).toISOString(),
           },
         });
         if (e !== undefined) {
@@ -2076,6 +2156,13 @@ function LegacyVaultForm({
         <div>
           <Label htmlFor="pw-expires">Expires (optional)</Label>
           <Input id="pw-expires" type="date" value={expiresAt} onChange={(ev) => setExpiresAt(ev.target.value)} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="col-span-2">
+          <Label htmlFor="pw-rotate">Rotate by (optional)</Label>
+          <Input id="pw-rotate" type="date" value={rotateAt} onChange={(ev) => setRotateAt(ev.target.value)} />
+          <FieldHint>When due, the rotation sweep reminds you once in-app — move the date forward after rotating to re-arm it.</FieldHint>
         </div>
       </div>
       {error !== null ? (

@@ -65,6 +65,9 @@ pub struct CreatePasswordRequest {
     pub notes: Option<String>,
     #[serde(default)]
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Rotation schedule (Wave 19 lane 3): absent/null = never remide.
+    #[serde(default)]
+    pub rotate_at: Option<chrono::DateTime<chrono::Utc>>,
     /// Instant-first autosave parameters (IF1).
     #[serde(flatten, default)]
     pub instant: instant::MutationParams,
@@ -87,6 +90,10 @@ pub struct UpdatePasswordRequest {
     /// absent = keep; null = clear; value = set.
     #[serde(default)]
     pub expires_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
+    /// Rotation schedule (Wave 19 lane 3): absent = keep; null = clear;
+    /// instant = set (stamps last_rotated_at in the same write).
+    #[serde(default)]
+    pub rotate_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
     /// Instant-first autosave parameters (IF1).
     #[serde(flatten, default)]
     pub instant: instant::MutationParams,
@@ -212,6 +219,7 @@ pub async fn create(
             &secret_ciphertext,
             notes_ciphertext.as_deref(),
             req.expires_at,
+            req.rotate_at,
             user_id,
         )
         .await?;
@@ -325,6 +333,7 @@ pub async fn update(
             new_secret.as_deref(),
             new_notes.as_ref().map(|n| n.as_deref()),
             req.expires_at,
+            req.rotate_at,
             user_id,
         )
         .await?;
