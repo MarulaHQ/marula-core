@@ -42,6 +42,10 @@ members = [
     "connectors/m365-graph",
     "connectors/immybot",
     "connectors/app-bridges",
+    # Wave 22 lane 3 (ecosystem/SDK review): UniFi inventory connector
+    # + the 3CX agentic call-control adapter riding the VoIP seam.
+    "connectors/unifi",
+    "connectors/threecx",
 ]
 
 # Desktop lane (2026-09-13, ADR 0005): lighter release profile for the

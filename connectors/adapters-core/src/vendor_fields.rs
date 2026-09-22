@@ -89,6 +89,34 @@ pub fn observed_fields_in(payload: &Value, keys: &[&str]) -> Value {
         .unwrap_or_else(|| Value::Object(Map::new()))
 }
 
+/// [`string_list`] over a whole payload (`Value` object). A non-object
+/// payload behaves like an empty map (no strings).
+pub fn string_list_in(payload: &Value, keys: &[&str]) -> Vec<String> {
+    payload
+        .as_object()
+        .map(|fields| string_list(fields, keys))
+        .unwrap_or_default()
+}
+
+/// First candidate key carrying a non-null scalar: a string (trimmed)
+/// or a number (rendered). Some vendor fields (3CX call durations) ship
+/// either JSON type depending on build — the value is taken verbatim,
+/// stringified for numbers, never guessed from a null/absent candidate.
+pub fn scalar_in(payload: &Value, keys: &[&str]) -> Option<String> {
+    payload.as_object().and_then(|fields| {
+        for key in keys {
+            match fields.get(*key) {
+                Some(Value::String(s)) if !s.trim().is_empty() => {
+                    return Some(s.trim().to_string())
+                }
+                Some(Value::Number(n)) => return Some(n.to_string()),
+                _ => continue,
+            }
+        }
+        None
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -146,5 +174,26 @@ mod tests {
         // Non-object payloads degrade to empty semantics, not errors.
         assert_eq!(first_str_in(&json!([1, 2]), &["serial"]), None);
         assert_eq!(observed_fields_in(&json!([1, 2]), &["serial"]), json!({}));
+    }
+
+    #[test]
+    fn string_list_in_and_scalar_in_match_their_object_semantics() {
+        let macs = json!({"macAddresses": ["AA-BB-CC-DD-EE-FF"]});
+        assert_eq!(
+            string_list_in(&macs, &["macAddress", "macAddresses"]),
+            vec!["AA-BB-CC-DD-EE-FF".to_string()]
+        );
+
+        // Scalar: string OR number candidates, verbatim; null falls through.
+        let durations = json!({"duration": 45, "durationSeconds": null});
+        assert_eq!(
+            scalar_in(&durations, &["durationSeconds", "duration"]),
+            Some("45".into())
+        );
+        let spelled = json!({"duration": " 45 "});
+        assert_eq!(scalar_in(&spelled, &["duration"]), Some("45".into()));
+        assert_eq!(scalar_in(&json!({"duration": null}), &["duration"]), None);
+        // Non-object payload degrades to None, not an error.
+        assert_eq!(scalar_in(&json!([7]), &["duration"]), None);
     }
 }
