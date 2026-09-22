@@ -13,9 +13,13 @@
 //!
 //! Identity: ImmyBot's device id is the CI2 link key; the WMI/DMI
 //! serial (`serialNumber`) and hostname (`hostname` / `computerName`)
-//! carry the CI3 identity keys, so an ImmyBot record and a NinjaOne
-//! record for the same physical machine converge on one canonical item
-//! with one link per source. Patch-state fields are observed tier —
+//! carry the CI3 identity keys, and the device MAC (`MAC` /
+//! `macAddress` / `macAddresses`) joins the normalized MAC set — so an
+//! ImmyBot record and a NinjaOne record for the same physical machine
+//! converge on one canonical item with one link per source (the MAC
+//! normalization is byte-identical across connectors because every
+//! mapper rides `adapters_core::vendor_fields` +
+//! `ci_feeders::identity`). Patch-state fields are observed tier —
 //! they churn with the source and never outrank curated values.
 //!
 //! Operator toggle: the org-level `connectors.immybot` setting is the
@@ -29,7 +33,7 @@
 
 use adapters_core::client::{PageFlow, VendorClient, VendorError};
 use adapters_core::org_map::OrgMapping;
-use adapters_core::vendor_fields::{first_str_in, observed_fields_in};
+use adapters_core::vendor_fields::{first_str_in, observed_fields_in, string_list_in};
 use adapters_core::VendorAuth;
 use ci_feeders::identity::IdentityKeysBuilder;
 use ci_feeders::model::FeederRecord;
@@ -86,6 +90,17 @@ pub fn map_device(payload: &Value) -> Option<FeederRecord> {
     }
     if let Some(hostname) = first_str_in(payload, &["hostname", "computerName"]) {
         identity = identity.hostname(&hostname);
+    }
+    // MAC identity joins the key set (ADR 0003 MAC class): ImmyBot's
+    // device payload carries the WMI/DMI NIC address under `MAC` /
+    // `macAddress` (plural spellings accepted too). Without it a
+    // serial-less machine present in BOTH NinjaOne and ImmyBot would
+    // not converge on MAC — the same identity keys every other feeder
+    // carries for the same physical device.
+    let macs = string_list_in(payload, &["MAC", "macAddress", "macAddresses"]);
+    if !macs.is_empty() {
+        let refs: Vec<&str> = macs.iter().map(String::as_str).collect();
+        identity = identity.macs(refs);
     }
 
     Some(FeederRecord {

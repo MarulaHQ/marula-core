@@ -109,6 +109,78 @@ async fn mapper_carries_patch_state_as_observed_fields() {
 }
 
 #[tokio::test]
+async fn mac_identity_joins_the_key_set_normalized_like_every_connector() {
+    // ImmyBot's WMI/DMI NIC address under `MAC` (dash spelling accepted;
+    // `macAddress`/`macAddresses` too) joins the normalized MAC set.
+    let record = crate::map_device(&json!({
+        "id": 8,
+        "computerName": "WS-MacOnly",
+        "clientId": 10,
+        "MAC": "AA-BB-CC-DD-EE-FF"
+    }))
+    .unwrap();
+    assert_eq!(record.identity_keys["macs"], json!(["aa:bb:cc:dd:ee:ff"]));
+    // No MAC key → the key set stays honest (no empty macs array).
+    let record = crate::map_device(&device(9, "WS-NoMac", 10, "SN-9")).unwrap();
+    assert!(record.identity_keys.get("macs").is_none());
+}
+
+/// The cross-source determinism pin (leg C, Wave 22 lane 3): the SAME
+/// physical machine through the NinjaOne mapper and the ImmyBot mapper
+/// yields byte-identical normalized identity keys — serial, hostname,
+/// AND the MAC set — so the feed-upsert seam's deterministic identity
+/// matching converges them onto one canonical item. Divergence here
+/// would silently break cross-source convergence (Wave 12 lane 9
+/// shipped the ImmyBot mapper WITHOUT the MAC identity signal; the
+/// NinjaOne/auvik feeders carried it all along).
+#[tokio::test]
+async fn same_physical_machine_converges_across_ninjaone_and_immybot() {
+    // NinjaOne RMM view of the machine: serial with vendor separators,
+    // FQDN system name, MAC in dash form.
+    let ninja_record = ci_feeders::vendors::ninjaone::map_device(&json!({
+        "id": 4021,
+        "uid": "ninja-uuid-9",
+        "displayName": "WS-Zeta",
+        "systemName": "WS-Zeta.corp.example",
+        "serialNumber": "sn 8f/3k2-q",
+        "macAddresses": ["AA-BB-CC-DD-EE-FF"],
+        "domain": "corp.example"
+    }))
+    .unwrap();
+    // ImmyBot deployment view of the same machine: dotted MAC spelling,
+    // hostname + computerName keys, same WMI serial.
+    let immy_record = crate::map_device(&json!({
+        "id": 991,
+        "computerName": "WS-Zeta",
+        "hostname": "WS-Zeta.corp.example.",
+        "clientId": 10,
+        "serialNumber": "SN-8F-3K2-Q",
+        "MAC": "aabb.ccdd.eeff"
+    }))
+    .unwrap();
+
+    assert_eq!(ninja_record.source_system, "ninjaone");
+    assert_eq!(immy_record.source_system, "immybot");
+    // The link ids differ (per-source), the IDENTITY is identical:
+    // serial → SN8F3K2Q, hostname → ws-zeta.corp.example, MAC set →
+    // the single normalized lower-colon address.
+    assert_eq!(ninja_record.identity_keys["serial"], "SN8F3K2Q");
+    assert_eq!(immy_record.identity_keys["serial"], "SN8F3K2Q");
+    assert_eq!(
+        ninja_record.identity_keys["hostname"],
+        immy_record.identity_keys["hostname"]
+    );
+    assert_eq!(
+        ninja_record.identity_keys["macs"],
+        immy_record.identity_keys["macs"]
+    );
+    assert_eq!(
+        immy_record.identity_keys["macs"],
+        json!(["aa:bb:cc:dd:ee:ff"])
+    );
+}
+
+#[tokio::test]
 async fn sync_feeds_per_group_and_reports_unmapped_groups() {
     let feed_writes: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
     let writes = feed_writes.clone();
