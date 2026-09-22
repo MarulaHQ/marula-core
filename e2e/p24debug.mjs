@@ -1,0 +1,16 @@
+import { chromium } from "playwright";
+const BASE="http://127.0.0.1:15435"; const API="http://127.0.0.1:15433";
+const b=await chromium.launch({ args: ["--no-proxy-server"] });
+const p=await (await b.newContext()).newPage();
+p.on("console", m=>console.log("PAGE:", m.text().slice(0,200)));
+p.on("response", r=>console.log("RESP", r.status(), r.url().slice(0,90)));
+await p.goto(`${BASE}/login`, { waitUntil: "networkidle" });
+await p.locator('input[type="email"], input[name*="email" i]').first().fill("owner@demo.local");
+await p.locator('input[type="password"]').first().fill("demo-password-123");
+await p.getByRole("button", { name: /sign in/i }).click();
+await p.waitForURL(u=>!String(u).includes("/login"), {timeout:20000}).catch(()=>{});
+console.log("after login:", p.url());
+await p.goto(`${BASE}/settings/appearance`, { waitUntil: "networkidle" });
+await p.waitForTimeout(2500);
+console.log("appearance:", p.url());
+await b.close();

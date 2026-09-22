@@ -162,13 +162,26 @@ export class MeridianClient {
     return this.authCall("/api/v1/auth/mfa/verify", body);
   }
 
+  private refreshInFlight: Promise<TokenPair> | null = null;
+
   /**
    * POST /api/v1/auth/refresh — rotates the stored refresh token in place.
    * Wave 19 lane 5: when no secret is held in memory (fresh page load) the
    * httpOnly session cookie drives the rotation (credentials included);
    * the server falls back to the cookie pair and answers the same shape.
+   * Single-flight: concurrent callers share one rotation — a second
+   * parallel rotation presents an already-rotated token, fails server-side
+   * replay detection, and burns the durable per-IP refresh gate.
    */
   async refresh(): Promise<TokenPair> {
+    if (this.refreshInFlight) return this.refreshInFlight;
+    this.refreshInFlight = this.refreshInner().finally(() => {
+      this.refreshInFlight = null;
+    });
+    return this.refreshInFlight;
+  }
+
+  private async refreshInner(): Promise<TokenPair> {
     if (this.refreshToken && this.sessionId) {
       return this.authCall("/api/v1/auth/refresh", {
         refresh_token: this.refreshToken,

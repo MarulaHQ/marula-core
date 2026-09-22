@@ -12,6 +12,12 @@ import "./globals.css";
 import { AuthProvider } from "../lib/api";
 import { AppShell } from "../components/shell/app-shell";
 import { cn } from "@/lib/utils";
+import { builtinPresetCss } from "@meridian/ui/theme-tokens";
+
+// Wave 24: the theme-token schema v1 preset range ships as a head style
+// block (scoped by data-preset; the unset root stays the tokens.css
+// Tangerine baseline — zero visual change without an explicit preset).
+const presetCss = builtinPresetCss();
 
 // Tangerine typography (docs/theme.md §4): Source Serif 4 headings,
 // Inter body, JetBrains Mono code/data. next/font serves the real
@@ -51,13 +57,14 @@ export const viewport: Viewport = {
   ],
 };
 
-const themeBootstrap =`(function(){try{var t=localStorage.getItem("meridian-theme");if(t!=="light"&&t!=="dark"){t=window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";}document.documentElement.dataset.theme=t;}catch(e){}})();`;
+const themeBootstrap =`(function(){try{var t=localStorage.getItem("meridian-theme");if(t!=="light"&&t!=="dark"){t=window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";}document.documentElement.dataset.theme=t;var p=localStorage.getItem("meridian-theme-preset");if(p){document.documentElement.dataset.preset=p;}}catch(e){}})();`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning className={cn(sourceSerifHeading.variable, jetbrainsMono.variable)}>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
+        <style id="m-theme-presets" dangerouslySetInnerHTML={{ __html: presetCss }} />
       </head>
       <body className={inter.variable}>
         <AuthProvider>

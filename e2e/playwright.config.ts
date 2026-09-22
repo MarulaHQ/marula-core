@@ -53,6 +53,47 @@ export default defineConfig({
   projects: [
     { name: "light", use: { ...devices["Desktop Chrome"] } },
     { name: "dark", use: { ...devices["Desktop Chrome"] } },
+    // Wave 24 (leg C): the SHIPPED default presets ride the SAME flow
+    // set as light/dark; arbitrary custom packs stay out of the matrix
+    // (restyle-only manifests are enforced mechanically per-theme by
+    // scripts/check-theme-packs.mjs instead). testIgnore keeps their
+    // runtime scoped to the auth + settings + theme-matrix flows.
+    {
+      name: "slate-preset-light",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: [
+        "flows/01-auth.spec.ts",
+        "flows/10-settings.spec.ts",
+        "flows/theme-matrix.spec.ts",
+      ],
+    },
+    {
+      name: "slate-preset-dark",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: [
+        "flows/01-auth.spec.ts",
+        "flows/10-settings.spec.ts",
+        "flows/theme-matrix.spec.ts",
+      ],
+    },
+    {
+      name: "high-contrast-preset-light",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: [
+        "flows/01-auth.spec.ts",
+        "flows/10-settings.spec.ts",
+        "flows/theme-matrix.spec.ts",
+      ],
+    },
+    {
+      name: "high-contrast-preset-dark",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: [
+        "flows/01-auth.spec.ts",
+        "flows/10-settings.spec.ts",
+        "flows/theme-matrix.spec.ts",
+      ],
+    },
   ],
   // Production build served standalone (apps/web uses output:"standalone";
   // `next start` does NOT serve it). Build first with NEXT_PUBLIC_API_URL

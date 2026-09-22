@@ -100,6 +100,7 @@ fn staged_item(n: u64, org: Uuid, uploader: Uuid, manifest: serde_json::Value) -
         reviewed_at: None,
         adopted_install_id: None,
         adopted_skill_id: None,
+        adopted_theme_pack_id: None,
     }
 }
 
@@ -156,6 +157,7 @@ async fn staged_lifecycle_should_mint_disabled_adoption_with_provenance() {
         chrono::Utc::now(),
         Some(fixed_uuid(6902)),
         None,
+        None,
     )
     .await
     .expect("approve");
@@ -171,6 +173,7 @@ async fn staged_lifecycle_should_mint_disabled_adoption_with_provenance() {
         None,
         None,
         chrono::Utc::now(),
+        None,
         None,
         None,
     )

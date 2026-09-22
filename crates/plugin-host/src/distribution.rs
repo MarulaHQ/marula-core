@@ -303,12 +303,29 @@ pub fn ingest_registry_entry(
     if !signing_keys.is_empty() {
         signature.verify(signing_keys, digest)?;
     }
-    let manifest =
-        validate_plugin_manifest(value.get("manifest").ok_or(IngestReason::BadManifest)?)?;
+    let manifest_value = value.get("manifest").ok_or(IngestReason::BadManifest)?;
     let slug = value
         .get("slug")
         .and_then(|v| v.as_str())
-        .unwrap_or(manifest.name.as_str());
+        .unwrap_or_else(|| {
+            manifest_value
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unspecified")
+        });
+    if is_theme_manifest(manifest_value) {
+        let pack = validate_theme_manifest(manifest_value)?;
+        return Ok(bundle(
+            PluginArtifactKind::Theme,
+            PluginSourceKind::MarketplaceRegistry,
+            &format!("registry://{slug}"),
+            Some(tag),
+            digest,
+            serde_json::to_value(&pack).unwrap_or(serde_json::Value::Null),
+            Vec::new(),
+        ));
+    }
+    let manifest = validate_plugin_manifest(manifest_value)?;
     Ok(bundle(
         PluginArtifactKind::Plugin,
         PluginSourceKind::MarketplaceRegistry,
@@ -319,7 +336,6 @@ pub fn ingest_registry_entry(
         manifest.capabilities,
     ))
 }
-
 /// GitHub repo pull: tag/commit-pinned, NEVER HEAD — an unpinned pull
 /// is refused (`distribution_source_not_pinned`).
 pub fn ingest_github_pull(
@@ -358,6 +374,18 @@ pub fn ingest_github_pull(
             return Err(IngestReason::BadSignature);
         }
         block.verify(signing_keys, artifact_digest)?;
+    }
+    if is_theme_manifest(&manifest_json) {
+        let pack = validate_theme_manifest(&manifest_json)?;
+        return Ok(bundle(
+            PluginArtifactKind::Theme,
+            PluginSourceKind::GithubRepo,
+            &format!("https://github.com/{owner}/{repo}"),
+            Some(&format!("{tag}@{sha}")),
+            artifact_digest,
+            serde_json::to_value(&pack).unwrap_or(serde_json::Value::Null),
+            Vec::new(),
+        ));
     }
     let manifest = validate_plugin_manifest(&manifest_json)?;
     Ok(bundle(
@@ -420,9 +448,21 @@ pub fn ingest_local_zip(bytes: &[u8]) -> Result<DistributionBundle, IngestReason
         return Err(IngestReason::BadArchive);
     };
     let digest = sha256_hex(bytes);
-    let manifest = validate_plugin_manifest(
-        &serde_json::from_slice(&manifest_bytes).map_err(|_| IngestReason::BadManifest)?,
-    )?;
+    let manifest_value: serde_json::Value =
+        serde_json::from_slice(&manifest_bytes).map_err(|_| IngestReason::BadManifest)?;
+    if is_theme_manifest(&manifest_value) {
+        let pack = validate_theme_manifest(&manifest_value)?;
+        return Ok(bundle(
+            PluginArtifactKind::Theme,
+            PluginSourceKind::LocalZip,
+            "local://zip-import",
+            None,
+            &digest,
+            serde_json::to_value(&pack).unwrap_or(serde_json::Value::Null),
+            Vec::new(),
+        ));
+    }
+    let manifest = validate_plugin_manifest(&manifest_value)?;
     Ok(bundle(
         PluginArtifactKind::Plugin,
         PluginSourceKind::LocalZip,
@@ -479,6 +519,33 @@ pub fn update_consent_diff(old_caps: &[String], new_manifest: &PluginManifestV2)
 }
 
 // --- helpers --------------------------------------------------------------------
+
+/// Wave 24: the theme-pack dispatch. A manifest whose top-level
+/// `kind` is `"theme"` is NEVER a plugin manifest — it validates
+/// against the theme-token schema (closed role vocabulary, hex values,
+/// AA floors) and carries ZERO capabilities: themes restyle and nothing
+/// else. A RAW tweakcn / shadcn-registry cssVars export coerces too:
+/// the designer's export file IS the pack manifest (docs/theme.md pack
+/// format §), so an upload of e.g. `tangerine.json` imports directly.
+fn validate_theme_manifest(
+    manifest_value: &serde_json::Value,
+) -> Result<core_domain::theme_pack::ThemePackManifest, IngestReason> {
+    let pack = core_domain::theme_pack::ThemePackManifest::coerce_from_export(manifest_value)
+        .map_err(|_| IngestReason::BadManifest)?;
+    Ok(pack)
+}
+
+/// Whether the (already-parsed) manifest value is a theme pack — our
+/// native shape OR a raw tweakcn/shadcn cssVars export (the zip path
+/// dispatches before the plugin manifest parse, so `tangerine.json`
+/// imports with no rename, no wrapping).
+fn is_theme_manifest(manifest_value: &serde_json::Value) -> bool {
+    manifest_value.get("kind").and_then(|v| v.as_str()) == Some("theme")
+        || manifest_value
+            .get("cssVars")
+            .map(|v| v.is_object())
+            .unwrap_or(false)
+}
 
 fn bundle(
     artifact_kind: PluginArtifactKind,
@@ -569,6 +636,106 @@ mod tests {
 
     fn sha_sample() -> String {
         "0".repeat(64).replace('0', "a")
+    }
+
+    fn theme_manifest_str() -> String {
+        json!({
+            "kind": "theme",
+            "name": "Warm Ochre",
+            "version": "1.0.0",
+            "schema_version": core_domain::theme_pack::THEME_TOKEN_SCHEMA_VERSION,
+            "description": "brand-warm pack",
+            "light": {
+                "background": "#faeade",
+                "surface": "#fff8f0",
+                "text": "#333333",
+                "accent": "#8a4b1a",
+                "on_accent": "#ffffff"
+            },
+            "dark": {
+                "background": "#221810",
+                "text": "#e5e5e5"
+            }
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn theme_pack_zip_should_ingest_with_empty_capabilities() {
+        let manifest = theme_manifest_str();
+        let bytes = build_zip(&[("manifest.json", manifest.as_bytes())]);
+        let b = ingest_local_zip(&bytes).unwrap();
+        assert_eq!(b.artifact_kind, PluginArtifactKind::Theme);
+        assert_eq!(b.source_kind, PluginSourceKind::LocalZip);
+        assert!(
+            b.declared_capabilities.is_empty(),
+            "themes carry zero capabilities"
+        );
+        assert_eq!(b.manifest_name().unwrap(), "Warm Ochre");
+    }
+
+    #[test]
+    fn raw_tweakcn_export_zip_should_coerce_to_a_native_pack() {
+        // The zero-translation posture: upload design/tangerine's export
+        // shape as-is; the adapter coerces it (schema-stamped, oklch →
+        // hex, unmapped variables dropped) before the row exists.
+        let export = json!({
+            "$schema": "https://tweakcn.com/r/themes/yellow.json",
+            "name": "Warm Ochre",
+            "type": "registry:style",
+            "cssVars": {
+                "light": {
+                    "background": "#faeade",
+                    "card": "#fff8f0",
+                    "foreground": "#333333",
+                    "primary": "#8a4b1a",
+                    "primary-foreground": "#ffffff"
+                },
+                "dark": {"background": "#221810", "foreground": "#e5e5e5"}
+            }
+        })
+        .to_string();
+        let bytes = build_zip(&[("manifest.json", export.as_bytes())]);
+        let b = ingest_local_zip(&bytes).unwrap();
+        assert_eq!(b.artifact_kind, PluginArtifactKind::Theme);
+        assert!(b.declared_capabilities.is_empty());
+        // The coerced bundle carries the NORMALIZED native manifest.
+        assert_eq!(
+            b.manifest.get("kind").and_then(|v| v.as_str()),
+            Some("theme")
+        );
+        assert!(
+            b.manifest
+                .get("light")
+                .and_then(|v| v.get("background"))
+                .is_some(),
+            "coerced light values persist through staging"
+        );
+    }
+
+    #[test]
+    fn theme_pack_off_schema_token_is_refused() {
+        let mut value: serde_json::Value = serde_json::from_str(&theme_manifest_str()).unwrap();
+        value["light"] = json!({"font_family": "Comic Sans"});
+        let manifest = value.to_string();
+        let bytes = build_zip(&[("manifest.json", manifest.as_bytes())]);
+        assert_eq!(
+            ingest_local_zip(&bytes).unwrap_err(),
+            IngestReason::BadManifest
+        );
+    }
+
+    #[test]
+    fn theme_pack_registry_entry_dispatches_not_to_the_plugin_manifest() {
+        let payload = json!({
+            "slug": "warm-ochre",
+            "tag": "v1.0.0",
+            "artifact": {"digest": digest_of("theme bytes"), "signature": "sig"},
+            "manifest": serde_json::from_str::<serde_json::Value>(&theme_manifest_str()).unwrap()
+        });
+        let b = ingest_registry_entry(&serde_json::to_vec(&payload).unwrap(), &[]).unwrap();
+        assert_eq!(b.artifact_kind, PluginArtifactKind::Theme);
+        assert!(b.declared_capabilities.is_empty());
     }
 
     fn build_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {

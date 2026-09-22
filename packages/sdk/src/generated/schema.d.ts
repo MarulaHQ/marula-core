@@ -5371,6 +5371,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/plugins/distribution/theme-packs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/plugins/distribution/theme-packs — the org's installed
+         *     theme packs (ADR 0009 V1 distribution; restyle-only manifests).
+         */
+        get: operations["theme_packs_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/distribution/theme-packs/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/plugins/distribution/theme-packs/{slug} — uninstall.
+         *     Refused while the pack is the org's active theme (repoint the typed
+         *     `appearance.theme` setting first).
+         */
+        delete: operations["theme_packs_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/plugins/installed": {
         parameters: {
             query?: never;
@@ -18927,6 +18968,8 @@ export interface components {
             adopted_install_id?: string | null;
             /** Format: uuid */
             adopted_skill_id?: string | null;
+            /** Format: uuid */
+            adopted_theme_pack_id?: string | null;
             artifact_digest: string;
             artifact_kind: string;
             declared_capabilities: string[];
@@ -19265,6 +19308,35 @@ export interface components {
              * @description The envelope id to look for in the delivery log.
              */
             event_id: string;
+        };
+        ThemePackList: {
+            packs: components["schemas"]["ThemePackView"][];
+        };
+        /**
+         * @description One installed theme pack for the org. The `manifest` carries the FULL
+         *     validated manifest snapshot (token overrides only); the ACTIVE pack
+         *     is identified through the typed `appearance.theme` setting value
+         *     `pack:<slug>`, not this table.
+         */
+        ThemePackView: {
+            /**
+             * @description Present when this pack is the org's active theme (i.e. the
+             *     typed `appearance.theme` setting names `pack:<slug>`).
+             */
+            active: boolean;
+            artifact_digest?: string | null;
+            description: string;
+            fetched_ref?: string | null;
+            /** Format: uuid */
+            id: string;
+            manifest: unknown;
+            name: string;
+            /** Format: int32 */
+            schema_version: number;
+            slug: string;
+            source_kind: string;
+            source_url: string;
+            version: string;
         };
         Ticket: {
             /** Format: uuid */
@@ -30822,6 +30894,57 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["StagedItemView"];
                 };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    theme_packs_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThemePackList"];
+                };
+            };
+        };
+    };
+    theme_packs_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description installed pack slug */
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             404: {
                 headers: {

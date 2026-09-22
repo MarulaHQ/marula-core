@@ -29,6 +29,7 @@ pub mod settings;
 pub mod sla_engine;
 pub mod status;
 pub mod templates;
+pub mod theme_pack;
 pub mod time_audit;
 pub mod webhooks;
 pub mod workflow;

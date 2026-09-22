@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO theme_packs (\n             id, org_id, slug, name, version, description, manifest,\n             schema_version, provenance_source_kind, provenance_source_url,\n             provenance_fetched_ref, provenance_digest, installed_by, installed_at\n           ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8,\n             $9::text::plugin_source_kind, $10, $11, $12, $13, now())\n           ON CONFLICT (org_id, slug) DO UPDATE SET\n             name = EXCLUDED.name,\n             version = EXCLUDED.version,\n             description = EXCLUDED.description,\n             manifest = EXCLUDED.manifest,\n             schema_version = EXCLUDED.schema_version,\n             provenance_source_kind = EXCLUDED.provenance_source_kind,\n             provenance_source_url = EXCLUDED.provenance_source_url,\n             provenance_fetched_ref = EXCLUDED.provenance_fetched_ref,\n             provenance_digest = EXCLUDED.provenance_digest,\n             installed_by = EXCLUDED.installed_by,\n             updated_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Int4",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3a8d1c121be35d78330a3fbf12fad898d218fe4d6e8ace5956fe61c4e813fe28"
+}

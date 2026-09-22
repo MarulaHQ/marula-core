@@ -197,7 +197,7 @@ async fn settings_registry_values_and_profile_flow() {
         json!({ "key": "general.eod_hour", "value": 24 }), // out of range
         json!({ "key": "general.eod_hour", "value": "17" }), // wrong type
         json!({ "key": "general.nope", "value": 1 }),      // unknown key
-        json!({ "key": "appearance.theme", "value": "dark" }), // user key via org route
+        json!({ "key": "email.greeting", "value": "Hi {name}," }), // user key via org route
     ] {
         let response = send(
             &app,
@@ -216,7 +216,7 @@ async fn settings_registry_values_and_profile_flow() {
         axum::http::Method::PUT,
         "/api/settings/user",
         Some(&token),
-        Some(json!({ "key": "appearance.theme", "value": "dark" })),
+        Some(json!({ "key": "appearance.mode", "value": "dark" })),
     )
     .await;
     assert_eq!(response.status(), 200);
@@ -233,7 +233,7 @@ async fn settings_registry_values_and_profile_flow() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|v| v["key"] == "appearance.theme")
+        .find(|v| v["key"] == "appearance.mode")
         .and_then(|v| v["value"].as_str().map(String::from));
     assert_eq!(theme.as_deref(), Some("dark"));
 

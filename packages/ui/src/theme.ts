@@ -5,6 +5,7 @@
  * tokens.css reacts to the attribute on its own.
  */
 import { useSyncExternalStore } from "react";
+import { setThemePreset } from "./theme-pack-apply";
 
 export type Theme = "light" | "dark";
 
@@ -77,4 +78,40 @@ export function useTheme(): { theme: Theme; setTheme: (theme: Theme) => void } {
     (): Theme => "light",
   );
   return { theme, setTheme: applyTheme };
+}
+
+// --- Wave 24: theme presets (data-preset attribute) ---------------------------
+
+/** Reuses the same MutationsObserver machinery as useTheme for preset swaps:
+ * the preset is purely a current-attribute read, so subscribers get fresh
+ * values whenever data-preset changes. */
+function subscribePreset(callback: () => void): () => void {
+  const observer = new MutationObserver(callback);
+  observer.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["data-preset"],
+  });
+  return () => observer.disconnect();
+}
+
+function currentPreset(): string | null {
+  return document.documentElement.getAttribute("data-preset");
+}
+
+/** Reactive active theme preset id (null = Tangerine baseline). */
+export function useThemePreset(): {
+  preset: string | null;
+  setPreset: (id: string | null) => void;
+} {
+  const preset = useSyncExternalStore(
+    subscribePreset,
+    currentPreset,
+    (): string | null => null,
+  );
+  return { preset, setPreset: setPresetAttribute as (id: string | null) => void };
+}
+
+function setPresetAttribute(id: string | null): void {
+  // Delegate to the pack-apply setter (attribute + persistence).
+  setThemePreset(id);
 }

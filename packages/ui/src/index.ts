@@ -9,6 +9,32 @@
 export { cn } from "./lib/cn";
 export * from "./tokens";
 export * from "./theme";
+export type { PackTheme, TokenRole, TokenValues, ThemePreset } from "./theme-tokens";
+export {
+  BUILTIN_PRESETS,
+  TANGERINE,
+  SLATE,
+  COPPER,
+  HIGH_CONTRAST,
+  DEFAULT_PRESET,
+  TOKEN_ROLES,
+  isValidTokenValue,
+  isBuiltinPreset,
+  presetById,
+  presetCss,
+  builtinPresetCss,
+  THEME_TOKEN_SCHEMA_VERSION,
+} from "./theme-tokens";
+export {
+  applyPackStyles,
+  removePackStyles,
+  packStyleId,
+  setThemePreset,
+  resolveInitialPreset,
+  PRESET_STORAGE_KEY,
+  PACK_STYLE_PREFIX,
+  type PackTokens,
+} from "./theme-pack-apply";
 
 export * from "./components/button";
 export * from "./components/input";

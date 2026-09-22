@@ -179,6 +179,8 @@ pub struct StagedItemView {
     pub adopted_install_id: Option<Uuid>,
     #[schema(value_type = Option<uuid::Uuid>)]
     pub adopted_skill_id: Option<Uuid>,
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub adopted_theme_pack_id: Option<Uuid>,
 }
 
 impl From<PluginStagedItem> for StagedItemView {
@@ -197,6 +199,7 @@ impl From<PluginStagedItem> for StagedItemView {
             review_note: i.review_note,
             adopted_install_id: i.adopted_install_id,
             adopted_skill_id: i.adopted_skill_id,
+            adopted_theme_pack_id: i.adopted_theme_pack_id,
         }
     }
 }
@@ -231,6 +234,143 @@ pub struct ApproveStagedRequest {
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct RefuseStagedRequest {
     pub review_note: String,
+}
+
+// --- Wave 24: installed org theme packs --------------------------------------
+
+/// One installed theme pack for the org. The `manifest` carries the FULL
+/// validated manifest snapshot (token overrides only); the ACTIVE pack
+/// is identified through the typed `appearance.theme` setting value
+/// `pack:<slug>`, not this table.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ThemePackView {
+    #[schema(value_type = uuid::Uuid)]
+    pub id: Uuid,
+    pub slug: String,
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub schema_version: i32,
+    pub manifest: serde_json::Value,
+    pub source_kind: String,
+    pub source_url: String,
+    pub fetched_ref: Option<String>,
+    pub artifact_digest: Option<String>,
+    /// Present when this pack is the org's active theme (i.e. the
+    /// typed `appearance.theme` setting names `pack:<slug>`).
+    pub active: bool,
+}
+
+impl ThemePackView {
+    fn from_pack(pack: core_db::theme_packs::ThemePack, active_theme: Option<String>) -> Self {
+        let active = active_theme
+            .as_deref()
+            .and_then(|a| a.strip_prefix("pack:"))
+            .map(|a| a == pack.slug)
+            .unwrap_or(false)
+            || active_theme
+                .as_deref()
+                .map(|a| a == pack.slug)
+                .unwrap_or(false);
+        Self {
+            id: pack.id,
+            slug: pack.slug,
+            name: pack.name,
+            version: pack.version,
+            description: pack.description,
+            schema_version: pack.schema_version,
+            manifest: pack.manifest,
+            source_kind: pack.provenance_source_kind,
+            source_url: pack.provenance_source_url,
+            fetched_ref: pack.provenance_fetched_ref,
+            artifact_digest: pack.provenance_digest,
+            active,
+        }
+    }
+}
+
+/// GET /api/plugins/distribution/theme-packs — the org's installed
+/// theme packs (ADR 0009 V1 distribution; restyle-only manifests).
+#[utoipa::path(operation_id = "theme_packs_list", get, path = "/api/plugins/distribution/theme-packs", tag = "plugins", security(("bearer" = [])),
+    responses((status = 200, body = ThemePackList)))]
+pub async fn list_theme_packs(
+    State(state): State<AppState>,
+    extensions: Extensions,
+) -> ApiResult<Json<ThemePackList>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, plugins(Action::View))?;
+    let org_id = authed.principal.user.org_id;
+    let mut read_tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org(&mut read_tx, org_id).await?;
+    let packs = core_db::theme_packs::list_packs(&mut read_tx, org_id).await?;
+    let active_theme = core_db::settings::list_org_overrides(&mut *read_tx, org_id)
+        .await
+        .ok()
+        .and_then(|rows| {
+            rows.into_iter()
+                .find(|o| o.key == core_domain::settings::APPEARANCE_THEME)
+                .and_then(|o| o.value.as_str().map(String::from))
+        });
+    read_tx.commit().await.map_err(ApiError::from)?;
+    let packs = packs
+        .into_iter()
+        .map(|p| ThemePackView::from_pack(p, active_theme.clone()))
+        .collect();
+    Ok(Json(ThemePackList { packs }))
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ThemePackList {
+    pub packs: Vec<ThemePackView>,
+}
+
+/// DELETE /api/plugins/distribution/theme-packs/{slug} — uninstall.
+/// Refused while the pack is the org's active theme (repoint the typed
+/// `appearance.theme` setting first).
+#[utoipa::path(operation_id = "theme_packs_delete", delete, path = "/api/plugins/distribution/theme-packs/{slug}", tag = "plugins", security(("bearer" = [])),
+    params(("slug" = String, Path, description = "installed pack slug")),
+    responses((status = 204), (status = 404), (status = 409)))]
+pub async fn delete_theme_pack(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    axum::extract::Path(slug): axum::extract::Path<String>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_plugin_admin(&authed)?;
+    let org_id = authed.principal.user.org_id;
+    let actor = authed.principal.user.id;
+    let user_slug = slug.clone();
+    org_tx::with_org_tx(&state, org_id, actor, |mut tx| async move {
+        let slug = user_slug.clone();
+        let active_theme = core_db::settings::list_org_overrides(&mut *tx.tx, org_id)
+            .await
+            .ok()
+            .and_then(|rows| {
+                rows.into_iter()
+                    .find(|o| o.key == core_domain::settings::APPEARANCE_THEME)
+                    .and_then(|o| o.value.as_str().map(String::from))
+            });
+        core_db::theme_packs::delete_pack(&mut tx.tx, org_id, &slug, active_theme.as_deref())
+            .await?;
+        core_db::audit::insert(
+            &mut *tx.tx,
+            &core_domain::entities::AuditEvent {
+                id: Uuid::now_v7(),
+                org_id,
+                actor: core_domain::entities::Actor::Human(actor),
+                action: "plugin.theme_pack_uninstalled".into(),
+                entity_type: Some("theme_pack".into()),
+                entity_id: Some(slug.clone()),
+                detail: serde_json::json!({ "slug": slug }),
+                ip: None,
+                occurred_at: chrono::Utc::now(),
+            },
+        )
+        .await?;
+        Ok((tx, ()))
+    })
+    .await?;
+    Ok(Json(serde_json::json!({ "uninstalled": slug })))
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -419,6 +559,7 @@ async fn stage_bundle(
         reviewed_at: None,
         adopted_install_id: None,
         adopted_skill_id: None,
+        adopted_theme_pack_id: None,
     };
     let view = StagedItemView::from(item.clone());
     org_tx::with_org_tx(state, org_id, actor, |mut tx| async move {
@@ -791,7 +932,8 @@ pub async fn approve_staged(
             }
         }
         let granted_keys: Vec<String> = requested.iter().map(|c| c.as_str().to_string()).collect();
-        let (adopted_install_id, adopted_skill_id) = match item.artifact_kind {
+        let (adopted_install_id, adopted_skill_id, adopted_theme_pack_id) = match item.artifact_kind
+        {
             PluginArtifactKind::Plugin => {
                 let manifest: PluginManifestV2 = serde_json::from_value(item.manifest.clone())
                     .map_err(|e| {
@@ -905,7 +1047,7 @@ pub async fn approve_staged(
                     },
                 )
                 .await?;
-                (Some(install.id), None)
+                (Some(install.id), None, None)
             }
             PluginArtifactKind::Skill => {
                 // Skills reuse the 0040 versioned-rows seam (append-only
@@ -945,7 +1087,45 @@ pub async fn approve_staged(
                     &item.manifest,
                 )
                 .await?;
-                (None, Some(row.id))
+                (None, Some(row.id), None)
+            }
+            PluginArtifactKind::Theme => {
+                // Wave 24: approving a staged theme pack MINTS the org's
+                // theme_packs row. Themes carry ZERO capabilities (the
+                // ingestion gate refuses anything else), so there is no
+                // grant screen beyond the same owner/admin review the
+                // other kinds ride; the pack rides the SAME audit event.
+                let manifest = item.manifest.clone();
+                let name = manifest
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                let version = manifest
+                    .get("version")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                if name.is_empty() || version.is_empty() {
+                    return Err(ApiError::Validation(
+                        "staged theme manifest is unreadable".into(),
+                    ));
+                }
+                let pack = core_db::theme_packs::install_from_staged(
+                    &mut tx.tx,
+                    org_id,
+                    Uuid::now_v7(),
+                    item.source_kind.as_str(),
+                    &name,
+                    &version,
+                    &manifest,
+                    &item.source_url,
+                    item.fetched_ref.as_deref(),
+                    &item.artifact_digest,
+                    actor,
+                )
+                .await?;
+                (None, None, Some(pack.id))
             }
         };
         core_db::plugin_distribution::update_staged_status(
@@ -958,6 +1138,7 @@ pub async fn approve_staged(
             now,
             adopted_install_id,
             adopted_skill_id,
+            adopted_theme_pack_id,
         )
         .await?;
         core_db::audit::insert(
@@ -976,6 +1157,7 @@ pub async fn approve_staged(
                     "granted_capabilities": granted_keys,
                     "adopted_install_id": adopted_install_id,
                     "adopted_skill_id": adopted_skill_id,
+                    "adopted_theme_pack_id": adopted_theme_pack_id,
                 }),
                 ip: None,
                 occurred_at: now,
@@ -1044,6 +1226,7 @@ pub async fn refuse_staged(
             Some(&note),
             Some(actor),
             now,
+            None,
             None,
             None,
         )

@@ -84,6 +84,7 @@ pub mod sla;
 pub mod tags;
 pub mod taxonomy;
 pub mod templates;
+pub mod theme_packs;
 pub mod ticket_links;
 pub mod tickets;
 pub mod time_audit;

@@ -3,6 +3,7 @@
   "private": true,
   "packageManager": "pnpm@9.0.0",
   "scripts": {
+    "theme:check": "node scripts/check-theme-packs.mjs",
     "dev": "turbo run dev",
     "build": "turbo run build",
     "lint": "turbo run lint",

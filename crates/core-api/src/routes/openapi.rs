@@ -374,6 +374,8 @@ use utoipa::OpenApi;
         crate::routes::plugin_distribution::get_install_settings,
         crate::routes::plugin_distribution::put_install_settings,
         crate::routes::plugin_distribution::list_install_provenance,
+        crate::routes::plugin_distribution::list_theme_packs,
+        crate::routes::plugin_distribution::delete_theme_pack,
         crate::routes::plugin_distribution::list_org_skills,
         crate::routes::plugin_distribution::set_skill_enabled,
         crate::routes::portal::login,
@@ -1215,7 +1217,9 @@ use utoipa::OpenApi;
         crate::routes::plugins::RevokeCatalogEntryRequest,
         crate::routes::plugins::InstallPluginRequest,
         crate::routes::plugins::UpdateInstallRequest,
-        // ADR 0009 distribution lifecycle (Wave 16 lane 7)
+        // ADR 0009 distribution lifecycle (Wave 16 lane 7) + Wave 24 theme packs
+        crate::routes::plugin_distribution::ThemePackList,
+        crate::routes::plugin_distribution::ThemePackView,
         crate::routes::plugin_distribution::StageFromRegistryRequest,
         crate::routes::plugin_distribution::StageFromGithubRequest,
         crate::routes::plugin_distribution::StageSkillRequest,

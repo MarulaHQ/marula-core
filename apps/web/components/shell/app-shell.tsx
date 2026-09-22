@@ -19,6 +19,7 @@ import { AppHeader } from "../app-header";
 import { TimerDock } from "../timer-dock";
 import { isHeaderlessPath } from "./chrome";
 import { NavRail } from "./nav-rail";
+import { ThemePresetSync } from "../theme-preset-sync";
 
 
 const RAIL_COLLAPSE_KEY = "meridian-rail-collapsed";
@@ -98,10 +99,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  if (headerless) return <>{children}</>;
+  if (headerless) return (
+    <>
+      <ThemePresetSync />
+      {children}
+    </>
+  );
 
   return (
     <div className="flex h-dvh min-h-0">
+      <ThemePresetSync />
       {/* WCAG 2.4.1 bypass block: keyboard users skip the rail + top bar chrome. */}
       <a
         href="#m-main-content"

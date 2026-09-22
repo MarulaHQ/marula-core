@@ -540,6 +540,10 @@ impl PluginSourceKind {
 pub enum PluginArtifactKind {
     Plugin,
     Skill,
+    /// Wave 24 theming system: a declarative theme pack — token overrides
+    /// validated against the theme-token schema, zero code, zero
+    /// capabilities (restyle-only by construction).
+    Theme,
 }
 
 impl PluginArtifactKind {
@@ -547,6 +551,7 @@ impl PluginArtifactKind {
         match self {
             PluginArtifactKind::Plugin => "plugin",
             PluginArtifactKind::Skill => "skill",
+            PluginArtifactKind::Theme => "theme",
         }
     }
 
@@ -554,6 +559,7 @@ impl PluginArtifactKind {
         match value {
             "plugin" => Some(Self::Plugin),
             "skill" => Some(Self::Skill),
+            "theme" => Some(Self::Theme),
             _ => None,
         }
     }
@@ -628,6 +634,9 @@ pub struct PluginStagedItem {
     pub adopted_install_id: Option<Uuid>,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub adopted_skill_id: Option<Uuid>,
+    /// Wave 24: the theme-pack row minted on approval of a `theme`
+    /// staged item.
+    pub adopted_theme_pack_id: Option<Uuid>,
 }
 
 /// One link of the append-only provenance chain

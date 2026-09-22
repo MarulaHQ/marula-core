@@ -1,0 +1,15 @@
+import { chromium } from "playwright";
+const BASE="http://127.0.0.1:15435"; const API="http://127.0.0.1:15433";
+const b=await chromium.launch({ args: ["--no-proxy-server"] });
+const p=await (await b.newContext()).newPage();
+p.on("requestfailed", r=>console.log("FAILED", r.method(), r.url()));
+p.on("response", r=>{ if(r.url().includes("15433")) console.log("API RESP", r.status(), r.url().slice(0,80)); });
+p.on("pageerror", e=>console.log("PAGEERR", String(e).slice(0,200)));
+await p.goto(`${BASE}/login`, { waitUntil: "networkidle" });
+await p.locator('input[type="email"], input[name*="email" i]').first().fill("owner@demo.local");
+await p.locator('input[type="password"]').first().fill("demo-password-123");
+await p.getByRole("button", { name: /sign in/i }).click();
+await p.waitForTimeout(6000);
+console.log("url now:", p.url());
+for (const c of await p.context().cookies()) console.log("COOKIE", c.name, c.domain, String(c.expires).slice(0,11));
+await b.close();

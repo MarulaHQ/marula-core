@@ -505,17 +505,6 @@ pub async fn refresh(
     if !cookies::double_submit_ok(&headers) {
         return Err(ApiError::Forbidden("csrf check failed".into()));
     }
-    // Durable per-IP throttle pre-check, typed 429 — proves nothing about
-    // any account (no user identity exists yet), so the code cannot
-    // fingerprint lockout state.
-    enforce_gate(
-        &state,
-        crate::auth::hardening::kinds::REFRESH,
-        &headers,
-        GateSubject::IpOnly,
-        false,
-    )
-    .await?;
 
     // Cookie fallback: browser clients may POST with no (or empty) body.
     let refresh_token: Option<(Uuid, String)> = match req {
@@ -526,9 +515,25 @@ pub async fn refresh(
         _ => cookies::session_refresh_pair_from(&headers),
     };
     let Some((sid, secret)) = refresh_token else {
-        // Consistent pre-throttle answer: need a body or a cookie.
+        // Consistent pre-throttle answer: need a body or a cookie. The
+        // caller presented NO credential AT ALL — gate counters exist to
+        // throttle brute-force attempts against a presented token; an
+        // anonymous boot probe cannot brute-force anything, so it also
+        // must NOT pollute the durable per-IP refresh gate.
         return Err(ApiError::Unauthorized("invalid refresh token".into()));
     };
+
+    // Durable per-IP throttle pre-check, typed 429 — proves nothing about
+    // any account (no user identity exists yet), so the code cannot
+    // fingerprint lockout state. Only reached once a credential exists.
+    enforce_gate(
+        &state,
+        crate::auth::hardening::kinds::REFRESH,
+        &headers,
+        GateSubject::IpOnly,
+        false,
+    )
+    .await?;
 
     let presented_hash = jwt::hash_refresh_token(&secret);
 

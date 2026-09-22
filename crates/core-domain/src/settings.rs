@@ -198,7 +198,18 @@ impl SettingDeclaration {
                     ))
                 }
             };
-            let options = self.options().unwrap_or(&[]);
+            if self.key == APPEARANCE_THEME {
+                // The org theme may also name an installed custom theme
+                // pack (`pack:<slug>`) — a dynamic id validated at
+                // install/uninstall time by the theme-pack seam; the bare
+                // shape (not free text) is checked here.
+                if text.starts_with("pack:")
+                    && crate::theme_pack::is_preset_or_pack_slug(&text[5..])
+                {
+                    return Ok(());
+                }
+            }
+            let options: &[&str] = self.options().unwrap_or(&[]);
             if !options.contains(&text) {
                 return Err(format!("'{text}' is not one of: {}", options.join(", ")));
             }
@@ -213,7 +224,9 @@ impl SettingDeclaration {
             SettingKind::Enumeration => Some(match self.key {
                 GENERAL_DEFAULT_TIMEZONE => TIMEZONE_OPTIONS,
                 GENERAL_WEEK_START => WEEK_START_OPTIONS,
-                APPEARANCE_THEME => THEME_OPTIONS,
+                APPEARANCE_THEME => THEME_PRESET_OPTIONS,
+                APPEARANCE_THEME_OVERRIDE => THEME_OVERRIDE_OPTIONS,
+                APPEARANCE_MODE => MODE_OPTIONS,
                 AI_COMPLETION_PROVIDER => AI_PROVIDER_OPTIONS,
                 _ => EMPTY_OPTIONS,
             }),
@@ -238,6 +251,13 @@ pub const GENERAL_DEFAULT_TIMEZONE: &str = "general.default_timezone";
 pub const GENERAL_WEEK_START: &str = "general.week_start";
 pub const GENERAL_EOD_HOUR: &str = "general.eod_hour";
 pub const APPEARANCE_THEME: &str = "appearance.theme";
+/// Per-user override over the org theme (Wave 24). 'org_default' sentinel.
+pub const APPEARANCE_THEME_OVERRIDE: &str = "appearance.theme_override";
+/// Per-user light/dark mode. Supersedes the old flat user-scope
+/// `appearance.theme` key via migration 0097 (U6-safe supersede).
+pub const APPEARANCE_MODE: &str = "appearance.mode";
+/// The org-scope setting key pointing at the active custom theme pack.
+pub const APPEARANCE_THEME_PACK: &str = "appearance.theme_pack";
 pub const ONBOARDING_WIZARD_COMPLETED: &str = "onboarding.wizard_completed";
 pub const AI_COMPLETION_PROVIDER: &str = "ai.completion_provider";
 pub const AI_COMPLETION_MODEL: &str = "ai.completion_model";
@@ -336,7 +356,22 @@ pub const TIMEZONE_OPTIONS: &[&str] = &[
 
 pub const WEEK_START_OPTIONS: &[&str] = &["monday", "sunday"];
 
-pub const THEME_OPTIONS: &[&str] = &["light", "dark"];
+/// Shipped default theme presets (Wave 24 leg A). `tangerine` is the
+/// pinned default-v1 of the theme-token schema.
+pub const THEME_PRESET_OPTIONS: &[&str] = &["tangerine", "slate", "high_contrast", "copper"];
+pub const MODE_OPTIONS: &[&str] = &["system", "light", "dark"];
+
+pub const THEME_OPTIONS: &[&str] = THEME_PRESET_OPTIONS;
+/// The "follow the org theme" sentinel value of appearance.theme_override.
+pub const THEME_OVERRIDE_ORG_SENTINEL: &str = "org_default";
+/// Per-user override enumerates the presets + the org-default sentinel.
+pub const THEME_OVERRIDE_OPTIONS: &[&str] = &[
+    THEME_OVERRIDE_ORG_SENTINEL,
+    "tangerine",
+    "slate",
+    "high_contrast",
+    "copper",
+];
 
 pub const AI_PROVIDER_OPTIONS: &[&str] = &[
     "none",
@@ -407,13 +442,40 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> =
             SettingDeclaration {
                 key: APPEARANCE_THEME,
                 kind: SettingKind::Enumeration,
-                default: SettingValue::Text("light".into()),
+                default: SettingValue::Text("tangerine".into()),
+                scope: SettingScope::Org,
+                section: SettingSection::Appearance,
+                visibility: SettingVisibility::Ui,
+                label: "Org theme",
+                description: "The theme preset applied org-wide (Wave 24 theming system): \
+                             Tangerine is the default; admins may pick any shipped built-in \
+                             preset or an installed theme pack. Per-user overrides ride the \
+                             appearance.theme_override setting.",
+            },
+            SettingDeclaration {
+                key: APPEARANCE_THEME_OVERRIDE,
+                kind: SettingKind::Enumeration,
+                default: SettingValue::Text("org_default".into()),
                 scope: SettingScope::User,
                 section: SettingSection::Appearance,
                 visibility: SettingVisibility::Ui,
-                label: "Theme",
-                description: "Workbench appearance for this account. Until a choice is saved \
-                             the app follows the system preference.",
+                label: "Theme override",
+                description: "Per-user theme override. 'org_default' follows the org theme \
+                             story; any other value pins one of the shipped presets for this \
+                             account (user→org precedence, like the sticky AI model picks).",
+            },
+            SettingDeclaration {
+                key: APPEARANCE_MODE,
+                kind: SettingKind::Enumeration,
+                default: SettingValue::Text("system".into()),
+                scope: SettingScope::User,
+                section: SettingSection::Appearance,
+                visibility: SettingVisibility::Ui,
+                label: "Mode",
+                description: "Light or dark appearance for this account. 'system' follows the \
+                             device preference; the device-level instant toggle syncs here. \
+                             Supersedes the old flat user-scope appearance.theme key \
+                             (U6-safe migration 0097).",
             },
             SettingDeclaration {
                 key: ONBOARDING_WIZARD_COMPLETED,
@@ -643,12 +705,15 @@ mod tests {
         assert!(declaration("nope.nope").is_none());
         assert_eq!(
             default_value(APPEARANCE_THEME),
-            Some(SettingValue::Text("light".into()))
+            Some(SettingValue::Text("tangerine".into()))
         );
-        assert_eq!(declarations_for(SettingScope::User).len(), 3);
+        // Wave 24: per-user override + per-user mode (appearance.theme
+        // is org-scope now): greeting, signoff, override, mode = 4.
+        assert_eq!(declarations_for(SettingScope::User).len(), 4);
         // Tripwire count: bump deliberately when an org-scope setting is
-        // added (Wave 18 lane 2b added ai.features_enabled — 13 → 14).
-        assert_eq!(declarations_for(SettingScope::Org).len(), 14);
+        // added (Wave 24 lane 1 repurposed appearance.theme as org scope
+        // — 14 → 15).
+        assert_eq!(declarations_for(SettingScope::Org).len(), 15);
     }
 
     #[test]

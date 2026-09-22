@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM theme_packs WHERE org_id = $1 AND slug = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b62bfa53a9bb7034538aa04d5943f6fb5c33620003a2d1fd3cb49f50b3699c0c"
+}

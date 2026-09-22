@@ -1,7 +1,8 @@
 // /settings/preferences — per-user preferences.
 //
-// Purpose: consolidates the account-level surfaces in one place: theme is
-// a REAL registry setting (appearance.theme, user scope) written through
+// Purpose: consolidates the account-level surfaces in one place: appearance
+// mode is a REAL registry setting (appearance.mode, user scope — Wave 24
+// supersede of the old flat appearance.theme key) written through
 // /api/v1/settings/user AND applied locally via the Workbench theme hook;
 // the email greeting / sign-off pair (email.greeting, email.signoff —
 // user-scope registry settings) autosave debounced through the same
@@ -107,7 +108,7 @@ export default function UserPreferencesPage() {
     void (async () => {
       const { data } = await api.api.GET("/api/v1/settings/user");
       if (!data) return;
-      const row = (data ?? []).find((v) => v.key === "appearance.theme");
+      const row = (data ?? []).find((v) => v.key === "appearance.mode");
       if (row && typeof row.value === "string") setRegistryTheme(row.value);
     })();
   }, [auth.status]);
@@ -119,7 +120,7 @@ export default function UserPreferencesPage() {
     setSaved(false);
     try {
       const res = await api.api.PUT("/api/v1/settings/user", {
-        body: { key: "appearance.theme", value: next },
+        body: { key: "appearance.mode", value: next },
       });
       if (res.error) {
         const detail =

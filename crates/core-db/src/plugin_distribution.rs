@@ -50,7 +50,7 @@ const STAGED_COLS: &str =
     "id, org_id, artifact_kind::text AS artifact_kind, source_kind::text AS source_kind, \
      source_url, fetched_ref, artifact_digest, manifest, declared_capabilities, \
      status::text AS status, uploaded_by, uploaded_at, review_note, reviewed_by, \
-     reviewed_at, adopted_install_id, adopted_skill_id";
+     reviewed_at, adopted_install_id, adopted_skill_id, adopted_theme_pack_id";
 
 fn row_to_staged(row: &sqlx::postgres::PgRow) -> DbResult<PluginStagedItem> {
     Ok(PluginStagedItem {
@@ -73,6 +73,7 @@ fn row_to_staged(row: &sqlx::postgres::PgRow) -> DbResult<PluginStagedItem> {
         reviewed_at: row.get("reviewed_at"),
         adopted_install_id: row.get("adopted_install_id"),
         adopted_skill_id: row.get("adopted_skill_id"),
+        adopted_theme_pack_id: row.get("adopted_theme_pack_id"),
     })
 }
 
@@ -149,6 +150,7 @@ pub async fn update_staged_status(
     now: chrono::DateTime<chrono::Utc>,
     adopted_install_id: Option<Uuid>,
     adopted_skill_id: Option<Uuid>,
+    adopted_theme_pack_id: Option<Uuid>,
 ) -> DbResult<()> {
     let mut current: Option<PluginStagedStatus> = None;
     let row = sqlx::query(&format!(
@@ -176,6 +178,7 @@ pub async fn update_staged_status(
              reviewed_at = $6,
              adopted_install_id = COALESCE($7, adopted_install_id),
              adopted_skill_id = COALESCE($8, adopted_skill_id),
+             adopted_theme_pack_id = COALESCE($9, adopted_theme_pack_id),
              updated_at = now()
            WHERE org_id = $1 AND id = $2"#,
         org_id,
@@ -186,6 +189,7 @@ pub async fn update_staged_status(
         now,
         adopted_install_id,
         adopted_skill_id,
+        adopted_theme_pack_id,
     )
     .execute(&mut *tx)
     .await?;

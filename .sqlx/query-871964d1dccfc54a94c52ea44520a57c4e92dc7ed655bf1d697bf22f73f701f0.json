@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE plugin_staged_items SET\n             status = $3::text::plugin_staged_status,\n             review_note = $4,\n             reviewed_by = $5,\n             reviewed_at = $6,\n             adopted_install_id = COALESCE($7, adopted_install_id),\n             adopted_skill_id = COALESCE($8, adopted_skill_id),\n             adopted_theme_pack_id = COALESCE($9, adopted_theme_pack_id),\n             updated_at = now()\n           WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Uuid",
+        "Timestamptz",
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "871964d1dccfc54a94c52ea44520a57c4e92dc7ed655bf1d697bf22f73f701f0"
+}

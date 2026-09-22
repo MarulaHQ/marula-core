@@ -131,7 +131,7 @@ use crate::auth::recovery;
 use crate::state::AppState;
 use axum::{
     middleware,
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
     Router,
 };
 
@@ -1456,6 +1456,14 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/plugins/distribution/staged/{id}/refuse"),
             post(plugin_distribution::refuse_staged),
+        )
+        .route(
+            &rp("/plugins/distribution/theme-packs"),
+            get(plugin_distribution::list_theme_packs),
+        )
+        .route(
+            &rp("/plugins/distribution/theme-packs/{slug}"),
+            delete(plugin_distribution::delete_theme_pack),
         )
         .route(
             &rp("/plugins/installed/{id}/update"),
