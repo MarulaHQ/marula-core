@@ -60,6 +60,13 @@ skills-lock.json
 .windsurf/skills/
 .agents/skills/hallmark
 
+# slopmonster skill: README/examples/docs-img are upstream repo marketing/changelog
+# content, not needed at runtime (scorer only needs SKILL.md, tools, references, prompts)
+.kilo/skills/slopmonster/README.md
+.kilo/skills/slopmonster/docs/
+.kilo/skills/slopmonster/examples/
+.kilo/skills/slopmonster/.github/
+
 # Website phase 2: rendered docs bundle (generated at build time by
 # website/scripts/sync-docs.mjs via docs/site/scripts/publish.mjs — the
 # markdown under docs/site stays the only source of truth, ADR 0009)

@@ -97,6 +97,18 @@ Builds share `.kilo/target-shared` via `.cargo/config.toml` + `.kilo/setup-scrip
 (disk guardrails DX6) — never build into a worktree-local `target/`; disk
 housekeeping is `scripts/dev-clean.sh` (dry-run default, `--go` applies).
 
+## Prose must pass SlopMonster (BINDING, all agents)
+
+Any prose an agent writes or edits for humans — landing/marketing copy, READMEs, docs
+prose, emails, UI copy with full sentences — must be evaluated with the SlopMonster
+skill (`.kilo/skills/slopmonster/`). Load it (`skill: slopmonster`) before writing the
+prose, then verify with `python3 .kilo/skills/slopmonster/tools/deslop.py <file>`.
+Ship only at **5/5 CLEAN** (use `--allow-proof` only when a number is real and
+evidenced). If the score is below 5, clean it following the skill's loop
+(kill vocabulary → kill constructions → put a person back in) and re-lint.
+This is not needed for code, code comments, logs, git messages, or prose inside
+`code` spans/fenced blocks — the scorer skips those too.
+
 ## Lane to-do lists (all agent worktrees)
 
 Every worktree lane decomposes its assigned scope into a to-do list using
