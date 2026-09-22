@@ -3,7 +3,7 @@
 
 **Meridian Core API 0.1.0** — The single write surface for Project Meridian. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**372 paths · 515 operations · 755 schemas.**
+**451 paths · 617 operations · 889 schemas.**
 
 ## agent-proposals
 
@@ -24,6 +24,20 @@
 | `POST` | `/api/v1/agent-skills` <a id="agent_skills_publish"></a> | POST /api/v1/agent-skills — publish a NEW version of a skill. | [PublishSkillRequest](#schema-publishskillrequest) |
 | `GET` | `/api/v1/agent-skills/{id}` <a id="agent_skills_get"></a> | GET /api/v1/agent-skills/{id} — one immutable version. | — |
 
+## ai
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `POST` | `/api/v1/ai/chat/sessions/{session_id}/turns` <a id="chat_runner_turn_post"></a> | POST /ai/chat/sessions/{session_id}/turns — run ONE bounded model turn on a granted surface, streaming loop frames over `text/event-stream`. Refusals (surface/model/cap/credential/agent capability), the hard cap and the rate limit answer typed BEFORE any stream begins — clients branch on codes without parsing frames. | [ChatTurnRequest](#schema-chatturnrequest) |
+| `POST` | `/api/v1/ai/me/authorize` <a id="ai_my_authorize_post"></a> | POST /ai/me/authorize — the completion-edge resolution (typed refusals; degrade-never-5xx), delegating to the shared pipeline. | [AiAuthorizeRequest](#schema-aiauthorizerequest) |
+| `GET` | `/api/v1/ai/me/credentials` <a id="ai_my_credentials_get"></a> | GET /ai/me/credentials — the caller's personal credential summaries. | — |
+| `PUT` | `/api/v1/ai/me/credentials` <a id="ai_my_credential_put"></a> | PUT /ai/me/credentials — seal a PERSONAL credential (flag-gated). | [PutAiCredentialRequest](#schema-putaicredentialrequest) |
+| `DELETE` | `/api/v1/ai/me/credentials/{credential_id}` <a id="ai_my_credential_delete"></a> | DELETE /ai/me/credentials/{credential_id} — revoke a PERSONAL credential. | — |
+| `DELETE` | `/api/v1/ai/me/model-picks/{surface_key}` <a id="ai_my_pick_delete"></a> | DELETE /ai/me/model-picks/{surface_key} — clears the sticky pick. | — |
+| `PUT` | `/api/v1/ai/me/model-picks/{surface_key}` <a id="ai_my_pick_put"></a> | PUT /ai/me/model-picks/{surface_key} — a sticky pick; the pair must sit inside the admin allowlist or the pick is typed-refused. | [PutAiPickRequest](#schema-putaipickrequest) |
+| `GET` | `/api/v1/ai/me/surfaces` <a id="ai_my_surfaces_get"></a> | GET /ai/me/surfaces — which surfaces the CALLER may use (deny-by-default: only granted, enabled, non-internal rows surface). | — |
+| `GET` | `/api/v1/ai/me/usage` <a id="ai_my_usage_get"></a> | GET /ai/me/usage — personal progress against caps. | — |
+
 ## alert-sources
 
 | Method | Path | Operation | Request body |
@@ -37,6 +51,8 @@
 | Method | Path | Operation | Request body |
 |---|---|---|---|
 | `GET` | `/api/v1/alerts` <a id="alerts_list"></a> | GET /api/alerts — newest-first ledger browse, filterable by source and incident ticket (staff, ticket-view scoped). | — |
+| `POST` | `/api/v1/alerts/{id}/acknowledge` <a id="alerts_acknowledge"></a> | POST /api/alerts/{id}/acknowledge — triage: open → acknowledged. Instant-first (IF1/IF2): idempotency-keyed, read-your-write. Re-ack (or ack of an already-resolved alert) is a typed conflict — the state is honest, never silently rewritten. | [MutationParams](#schema-mutationparams) |
+| `POST` | `/api/v1/alerts/{id}/resolve` <a id="alerts_resolve"></a> | POST /api/alerts/{id}/resolve — triage: open/acknowledged → resolved. Resolving straight from `open` leaves the ack fields NULL (no acknowledgement ever happened — the row renders that honestly). | [MutationParams](#schema-mutationparams) |
 | `POST` | `/api/v1/alerts/ingest/{source_ref}` <a id="alerts_ingest"></a> | POST /api/alerts/ingest/{source_ref} — HMAC-verified alert ingest. | [IngestAlertRequest](#schema-ingestalertrequest) |
 
 ## api-keys
@@ -103,8 +119,12 @@
 | `GET` | `/api/v1/auth/edge/sources/{name}/links` <a id="edge_links_list"></a> | GET /api/auth/edge/sources/{name}/links — admin link listing. | — |
 | `POST` | `/api/v1/auth/edge/sources/{name}/links` <a id="edge_link_create"></a> | POST /api/auth/edge/sources/{name}/links — create an explicit link. Audited as `auth.federated_account_linked`. | [CreateEdgeLinkRequest](#schema-createedgelinkrequest) |
 | `DELETE` | `/api/v1/auth/edge/sources/{name}/links/{link_id}` <a id="edge_link_delete"></a> | DELETE /api/auth/edge/sources/{name}/links/{link_id}. Audited as `auth.federated_account_unlinked`. | — |
+| `POST` | `/api/v1/auth/email-verification/confirm` <a id="auth_email_verification_confirm"></a> | POST /api/auth/email-verification/confirm — marks the email verified (single-use, audited). | [TokenRequest](#schema-tokenrequest) |
+| `POST` | `/api/v1/auth/email-verification/request` <a id="auth_email_verification_request"></a> | POST /api/auth/email-verification/request — resend (public, THROTTLED; admin override rides POST /api/org/users/{id}/email-verified). | [EmailVerifyRequest](#schema-emailverifyrequest) |
 | `POST` | `/api/v1/auth/login` <a id="handlers_login"></a> | POST /api/auth/login — resolves the org by email (SECURITY DEFINER bridge), verifies the argon2 hash under RLS scope. When any second factor is enrolled, returns a short-lived `mfa_pending` bridge instead of tokens; POST /api/auth/mfa/verify completes it. | [LoginRequest](#schema-loginrequest) |
 | `POST` | `/api/v1/auth/logout` <a id="handlers_logout"></a> | POST /api/auth/logout — revokes the refresh session and audits the event. | [RefreshRequest](#schema-refreshrequest) |
+| `POST` | `/api/v1/auth/magic-link/confirm` <a id="auth_magic_link_confirm"></a> | POST /api/auth/magic-link/confirm — consumes the link and issues a full session through the SAME machinery as password login. STAFF family only (the portal is NOT included — see the threat model). | [MagicLinkConfirm](#schema-magiclinkconfirm) |
+| `POST` | `/api/v1/auth/magic-link/request` <a id="auth_magic_link_request"></a> | POST /api/auth/magic-link/request — deny-by-default per org (`orgs.magic_link_sign_in`, 0088): unknown emails AND disabled orgs collapse into the SAME uniform answer. | [EmailVerifyRequest](#schema-emailverifyrequest) |
 | `POST` | `/api/v1/auth/mfa/recovery-codes/regenerate` <a id="mfa_recovery_regenerate"></a> | POST /api/auth/mfa/recovery-codes/regenerate — invalidates all previous codes, issues a new batch (revealed once). | [RegenerateRecoveryRequest](#schema-regeneraterecoveryrequest) |
 | `POST` | `/api/v1/auth/mfa/totp/disable` <a id="mfa_totp_disable"></a> | POST /api/auth/mfa/totp/disable — requires password AND a live factor; wipes TOTP enrollment and all recovery codes. | [TotpDisableRequest](#schema-totpdisablerequest) |
 | `POST` | `/api/v1/auth/mfa/totp/enroll-begin` <a id="mfa_totp_enroll_begin"></a> | POST /api/auth/mfa/totp/enroll-begin — generates a secret (returned ONCE) and stores it sealed+unconfirmed. Re-calling restarts enrollment safely. | — |
@@ -124,6 +144,8 @@
 | `DELETE` | `/api/v1/auth/oidc/providers/{name}` <a id="oidc_provider_delete"></a> | DELETE /api/auth/oidc/providers/{name}. | — |
 | `PUT` | `/api/v1/auth/oidc/providers/{name}` <a id="oidc_provider_upsert"></a> | PUT /api/auth/oidc/providers/{name} — create or replace a provider. The client secret is required on every write (rotate-friendly). | [UpsertProviderRequest](#schema-upsertproviderrequest) |
 | `GET` | `/api/v1/auth/oidc/providers/public` <a id="oidc_providers_public"></a> | GET /api/auth/oidc/providers/public — drives config-driven SSO buttons on the login screen. No configuration detail beyond names. | — |
+| `POST` | `/api/v1/auth/password-reset/confirm` <a id="auth_password_reset_confirm"></a> | POST /api/auth/password-reset/confirm — consumes the token, sets the new password, and revokes ALL of the user's live sessions (the reset's security payload: a stolen session cannot outlive it). | [PasswordResetConfirm](#schema-passwordresetconfirm) |
+| `POST` | `/api/v1/auth/password-reset/request` <a id="auth_password_reset_request"></a> | POST /api/auth/password-reset/request — issues a single-use token + mail when the account exists; ALWAYS the uniform answer. | [PasswordResetRequest](#schema-passwordresetrequest) |
 | `POST` | `/api/v1/auth/refresh` <a id="handlers_refresh"></a> | POST /api/auth/refresh — rotates the refresh secret as a NEW chain node. Presenting an already-consumed (rotated/revoked/expired) token proves replay: the WHOLE chain is revoked and the event is audited. | [RefreshRequest](#schema-refreshrequest) |
 | `POST` | `/api/v1/auth/register` <a id="handlers_register"></a> | POST /api/auth/register — creates the org, its default roles/board/SLA policy, and the first user as Owner. One transaction: a half-created org can never exist. | [RegisterRequest](#schema-registerrequest) |
 | `GET` | `/api/v1/auth/sessions` <a id="auth_sessions_list"></a> | GET /api/auth/sessions — the caller's live refresh sessions (security settings page). | — |
@@ -137,6 +159,7 @@
 | `POST` | `/api/v1/automation-rules` <a id="automation_rules_create"></a> | POST /api/automation-rules — documents are validated through core-domain BEFORE storage, so stored rules are always well-formed (malformed rules can only arrive out-of-band and are skipped at evaluation time). | [CreateRuleRequest](#schema-createrulerequest) |
 | `DELETE` | `/api/v1/automation-rules/{id}` <a id="automation_rules_delete"></a> | DELETE /api/automation-rules/{id} | — |
 | `PATCH` | `/api/v1/automation-rules/{id}` <a id="automation_rules_update"></a> | PATCH /api/automation-rules/{id} | [UpdateRuleRequest](#schema-updaterulerequest) |
+| `POST` | `/api/v1/automation-rules/{id}/test-run` <a id="automation_rules_test_run"></a> | automation_rules_test_run | — |
 
 ## availability
 
@@ -195,6 +218,7 @@
 | Method | Path | Operation | Request body |
 |---|---|---|---|
 | `GET` | `/api/v1/calendar/day` <a id="calendar_day"></a> | GET /api/calendar/day — one local day for one user. | — |
+| `GET` | `/api/v1/calendar/deadlines` <a id="calendar_deadlines"></a> | GET /api/calendar/deadlines — the ORG-WIDE ticket-deadline read model (Wave 17 lane 13): /calendar team mode overlays THIS instead of the bounded page-1 tickets fetch. Alive tickets only (category not closed) whose due date falls in the window; hydrated in the row itself. | — |
 | `GET` | `/api/v1/calendar/team` <a id="calendar_team"></a> | GET /api/calendar/team — every org member over an absolute UTC range. | — |
 | `GET` | `/api/v1/calendar/week` <a id="calendar_week"></a> | GET /api/calendar/week — Monday-start local week for one user. | — |
 
@@ -240,6 +264,7 @@
 | `POST` | `/api/v1/clients/{id}/assets` <a id="clients_create_asset"></a> | POST /api/clients/{id}/assets | [CreateAssetRequest](#schema-createassetrequest) |
 | `GET` | `/api/v1/clients/{id}/board-exposures` <a id="board_exposures_list"></a> | GET /api/clients/{id}/board-exposures — every configured row for the client (exposed or not), so admin UI can render toggles. | — |
 | `PUT` | `/api/v1/clients/{id}/board-exposures` <a id="board_exposures_put"></a> | PUT /api/clients/{id}/board-exposures — upsert one board×client row. | [PutExposureRequest](#schema-putexposurerequest) |
+| `GET` | `/api/v1/clients/{id}/completeness` <a id="clients_completeness"></a> | GET /api/clients/{id}/completeness — backend documentation-completeness scoring (Wave 17 lane 13): the weights live SERVER-side now, replacing the honest client-side metadata scoring the clients lane shipped. Same shape, same pro-ration doctrine: score = round(earned / maxKnown × 100) with null legs (leg absent) pro-rated OUT, never a silent zero. | — |
 | `GET` | `/api/v1/clients/{id}/contacts` <a id="clients_list_contacts"></a> | GET /api/clients/{id}/contacts | — |
 | `POST` | `/api/v1/clients/{id}/contacts` <a id="clients_create_contact"></a> | POST /api/clients/{id}/contacts | [CreateContactRequest](#schema-createcontactrequest) |
 | `GET` | `/api/v1/clients/{id}/portal-users` <a id="portal_users_list"></a> | GET /api/clients/{id}/portal-users — directory for one client. | — |
@@ -331,6 +356,10 @@
 | `POST` | `/api/v1/documents` <a id="documents_create"></a> | POST /api/documents — instant-first (IF1/IF2); creates the document and its immutable version 1 in one commit. | [CreateDocumentRequest](#schema-createdocumentrequest) |
 | `GET` | `/api/v1/documents/{id}` <a id="documents_get"></a> | GET /api/documents/{id} | — |
 | `PATCH` | `/api/v1/documents/{id}` <a id="documents_update"></a> | PATCH /api/documents/{id} — instant-first (IF1/IF2); an edit APPENDS the next immutable version and moves the document's head to it. No existing version row is touched. | [UpdateDocumentRequest](#schema-updatedocumentrequest) |
+| `GET` | `/api/v1/documents/{id}/attachments` <a id="document_attachments_list"></a> | GET /api/documents/{id}/attachments — newest-first list for one doc. | — |
+| `POST` | `/api/v1/documents/{id}/attachments` <a id="document_attachments_upload"></a> | POST /api/documents/{id}/attachments — raw octet-stream upload (same header contract as the ticket surface: `x-filename` + declared content-type verified against sniffed magic bytes). | — |
+| `DELETE` | `/api/v1/documents/{id}/attachments/{attachment_id}` <a id="document_attachments_delete"></a> | DELETE /api/documents/{id}/attachments/{attachment_id} — author-gated (the uploader, or an org owner/admin). The stored object is reclaimed only when NO row in EITHER attachments table still references the same content-addressed key. | — |
+| `GET` | `/api/v1/documents/{id}/attachments/{attachment_id}/download` <a id="document_attachments_download"></a> | GET /api/documents/{id}/attachments/{attachment_id}/download — streams the stored object behind documents authz (no presigned URLs in v1). | — |
 | `GET` | `/api/v1/documents/{id}/links` <a id="documents_list_links"></a> | documents_list_links | — |
 | `POST` | `/api/v1/documents/{id}/links` <a id="documents_add_link"></a> | POST /api/documents/{id}/links — target existence is enforced by the resolution join (the link row itself allows any uuid, so the route checks the target kind's table exists for the org before insert). | [CreateLinkRequest](#schema-createlinkrequest) |
 | `POST` | `/api/v1/documents/{id}/restore` <a id="documents_restore"></a> | POST /api/documents/{id}/restore — instant-first (IF1/IF2); §6 rule: the restore APPENDS a new version copying the target's content. The target's title comes along, renames after it are not silently undone. | [RestoreDocumentRequest](#schema-restoredocumentrequest) |
@@ -410,7 +439,7 @@
 | `GET` | `/api/v1/kb/articles/{article_id}/embeds` <a id="kb_list_article_embeds"></a> | GET /api/kb/articles/{article_id}/embeds | — |
 | `POST` | `/api/v1/kb/articles/{article_id}/embeds` <a id="kb_create_embed"></a> | POST /api/kb/articles/{article_id}/embeds — resolve-then-store; instant-first (IF1/IF2). | [CreateEmbedRequest](#schema-createembedrequest) |
 | `DELETE` | `/api/v1/kb/articles/{id}` <a id="kb_delete_article"></a> | DELETE /api/kb/articles/{id} — emits `kb_article.deleted` so the unified-search indexer drops the article's index entry. | — |
-| `GET` | `/api/v1/kb/articles/{id}` <a id="kb_get_article"></a> | GET /api/kb/articles/{id} | — |
+| `GET` | `/api/v1/kb/articles/{id}` <a id="kb_get_article"></a> | GET /api/kb/articles/{id} — with the sanitized read-only HTML projection (no editor package in any read bundle). | — |
 | `PATCH` | `/api/v1/kb/articles/{id}` <a id="kb_update_article"></a> | PATCH /api/kb/articles/{id} — instant-first (IF1/IF2). Archived articles refuse title/body edits until unarchived (typed conflict); status flips stay legal. | [UpdateArticleRequest](#schema-updatearticlerequest) |
 | `GET` | `/api/v1/kb/categories` <a id="kb_list_categories"></a> | GET /api/kb/categories | — |
 | `POST` | `/api/v1/kb/categories` <a id="kb_create_category"></a> | POST /api/kb/categories — instant-first (IF1/IF2). | [CreateCategoryRequest](#schema-createcategoryrequest) |
@@ -449,6 +478,7 @@
 |---|---|---|---|
 | `GET` | `/api/v1/meeting-types` <a id="meeting_types_list"></a> | GET /api/meeting-types | — |
 | `POST` | `/api/v1/meeting-types` <a id="meeting_types_create"></a> | POST /api/meeting-types | [MeetingTypeBody](#schema-meetingtypebody) |
+| `DELETE` | `/api/v1/meeting-types/{id}` <a id="meeting_types_delete"></a> | DELETE /api/meeting-types/{id} — HARD delete with audit (Wave 17 lane 13): unlike the Pause toggle (PATCH `is_active`), this removes the template outright. A scheduling link still referencing the row refuses with a typed conflict (the FK RESTRICT surfaces) — pause the links FIRST or re-target them; history rows (bookings) are untouched by the template's deletion. | — |
 | `PATCH` | `/api/v1/meeting-types/{id}` <a id="meeting_types_update"></a> | PATCH /api/meeting-types/{id} | [MeetingTypeBody](#schema-meetingtypebody) |
 
 ## migration
@@ -492,13 +522,17 @@
 |---|---|---|---|
 | `GET` | `/api/v1/org` <a id="org_profile_get"></a> | GET /api/org — profile fields shown on General settings / the wizard. | — |
 | `PATCH` | `/api/v1/org` <a id="org_profile_patch"></a> | PATCH /api/org — updates name and/or ticket prefix (Admin:edit). Idempotent; emits `org.updated` + audit row. | [PatchOrgRequest](#schema-patchorgrequest) |
+| `GET` | `/api/v1/org/exports` <a id="org_export_list"></a> | GET /api/org/exports — the org-export ledger read model (0089): newest-first list over the exports the org has created so /settings/export grows its list/archive surface over real history. | — |
 | `POST` | `/api/v1/org/exports` <a id="org_export_create"></a> | POST /api/org/exports — builds the versioned bundle, streams it into the ObjectStore, and returns the signed download link. | — |
+| `PATCH` | `/api/v1/org/exports/{export_id}` <a id="org_export_archive"></a> | PATCH /api/org/exports/{export_id} — archives (or restores) ONE ledger row; a pure read-model toggle over the row, content untouched. | [ExportArchiveUpdate](#schema-exportarchiveupdate) |
+| `POST` | `/api/v1/org/exports/{export_id}/download-link` <a id="org_export_link"></a> | POST /api/org/exports/{export_id}/download-link — mints ONE fresh 15-minute signed link for a LEDGERED export (the link is never stored — this is the per-row download affordance the history surface uses). | — |
 | `GET` | `/api/v1/org/exports/{org_id}/{export_id}/download` <a id="org_export_download"></a> | GET /api/org/exports/{org_id}/{export_id}/download — streams the stored bundle. Authenticated by the signed link alone (no JWT): an expired or forged token is an unauthorized request, indistinguishable between the two. The org id is IN the path (and inside the signature) so a token authorizes exactly one (org, export, expiry) triple. | — |
 | `GET` | `/api/v1/org/manifest` <a id="org_manifest"></a> | GET /api/org/manifest — the org's customization manifest. | — |
 | `GET` | `/api/v1/org/pod-visibility` <a id="org_pod_visibility_get"></a> | GET /api/org/pod-visibility — the org's stored matrix; `config` is `{}` when the org never customized (clients fall back to their registry defaults, defaults-first). | — |
 | `PUT` | `/api/v1/org/pod-visibility` <a id="org_pod_visibility_put"></a> | PUT /api/org/pod-visibility — rewrites the org's matrix (Admin:edit). Emits `org.pod_visibility_updated` + audit row in the same tx. | [PutPodVisibilityRequest](#schema-putpodvisibilityrequest) |
 | `GET` | `/api/v1/org/users` <a id="org_users_list"></a> | GET /api/org/users — the staff directory (manager+). | — |
 | `POST` | `/api/v1/org/users` <a id="org_users_invite"></a> | POST /api/org/users — invite (create) a staff user. The row lands INACTIVE with an unusable password; the response carries a one-time setup token the invitee redeems at `POST /org/users/accept-invite`. | [InviteUserRequest](#schema-inviteuserrequest) |
+| `POST` | `/api/v1/org/users/{id}/email-verified` <a id="org_users_set_email_verified"></a> | POST /api/org/users/{id}/email-verified — the admin OVERRIDE for the email-verification gate (migration 0088). Audited both ways. | [SetEmailVerifiedRequest](#schema-setemailverifiedrequest) |
 | `PATCH` | `/api/v1/org/users/{id}/role` <a id="org_users_set_role"></a> | PATCH /api/org/users/{id}/role — assign a builtin org role. Each change is audited; the last active owner cannot be demoted away from owner. | [SetUserRoleRequest](#schema-setuserrolerequest) |
 | `PATCH` | `/api/v1/org/users/{id}/status` <a id="org_users_set_status"></a> | PATCH /api/org/users/{id}/status — activate or deactivate. Deactivation revokes every live session and blocks login in the same commit. | [SetUserStatusRequest](#schema-setuserstatusrequest) |
 | `POST` | `/api/v1/org/users/accept-invite` <a id="org_users_accept_invite"></a> | POST /api/org/users/accept-invite — public invite redemption: set the first password and activate the account; returns a normal token pair. The token is single-use and expiring; an unknown, used, or expired token is an indistinguishable 404. | [AcceptInviteRequest](#schema-acceptinviterequest) |
@@ -516,6 +550,9 @@
 | `GET` | `/api/v1/passwords/{id}/links` <a id="passwords_list_links"></a> | GET /api/passwords/{id}/links | — |
 | `POST` | `/api/v1/passwords/{id}/links` <a id="passwords_add_link"></a> | POST /api/passwords/{id}/links | [CreateLinkRequest](#schema-createlinkrequest) |
 | `POST` | `/api/v1/passwords/{id}/reveal` <a id="passwords_reveal"></a> | POST /api/passwords/{id}/reveal — the ONLY plaintext path. Requires `passwords:edit`, runs inside the org tx so the reveal event commits atomically with the read, and the response is the sole carrier of the decrypted secret. | — |
+| `GET` | `/api/v1/passwords/{id}/share-links` <a id="passwords_list_share_links"></a> | GET /api/passwords/{id}/share-links | — |
+| `POST` | `/api/v1/passwords/{id}/share-links` <a id="passwords_create_share_link"></a> | POST /api/passwords/{id}/share-links — one-time link for the legacy byte-compatible entry surface (the same token posture as records). | [CreateSecretShareLinkRequest](#schema-createsecretsharelinkrequest) |
+| `DELETE` | `/api/v1/passwords/{id}/share-links/{share_id}` <a id="passwords_delete_share_link"></a> | DELETE /api/passwords/{id}/share-links/{share_id} | — |
 
 ## pipeline
 
@@ -539,10 +576,27 @@
 | `GET` | `/api/v1/plugins/catalog/{slug}` <a id="plugin_catalog_get"></a> | GET /api/plugins/catalog/{slug}. | — |
 | `POST` | `/api/v1/plugins/catalog/{slug}/revoke` <a id="plugin_catalog_revoke"></a> | POST /api/plugins/catalog/{slug}/revoke — the registry kill switch. Denies new installs and marks every existing install revoked (deny-by-default: a revoked plugin never runs); one `plugin.install_revoked` event per affected install. | [RevokeCatalogEntryRequest](#schema-revokecatalogentryrequest) |
 | `POST` | `/api/v1/plugins/catalog/{slug}/versions` <a id="plugin_catalog_append_version"></a> | POST /api/plugins/catalog/{slug}/versions — append a version to a live entry (revoked entries accept no new versions). | [AppendVersionRequest](#schema-appendversionrequest) |
+| `GET` | `/api/v1/plugins/distribution/agent-skills` <a id="plugin_distribution_skills_list"></a> | GET /api/plugins/distribution/agent-skills — the ACTIVE version of every org skill, with its provenance. | — |
+| `POST` | `/api/v1/plugins/distribution/agent-skills/{id}/enabled` <a id="plugin_distribution_skill_enabled"></a> | POST /api/plugins/distribution/agent-skills/{id}/enabled — the skills half's enable gate (deny-by-default: enable is an explicit owner/admin action on the active version row; version rows other than the active one are never enabled). | [RefuseStagedRequest](#schema-refusestagedrequest) |
+| `GET` | `/api/v1/plugins/distribution/staged` <a id="plugin_distribution_staged_list"></a> | GET /api/plugins/distribution/staged — pending + terminal rows. Owners/admins see everything; plain members see only their OWN uploads (the deny-by-default staged visibility). | — |
+| `POST` | `/api/v1/plugins/distribution/staged/{id}/approve` <a id="plugin_distribution_staged_approve"></a> | POST /api/plugins/distribution/staged/{id}/approve — the owner/admin review. Approve MINTS but remains deny-by-default: a plugin adopt is created DISABLED (a public-registry source lands the SAME staged pipeline — browsing is help, not bypass); a skill lands disabled until enabled. Grants must subset the staged manifest's declared set. | [ApproveStagedRequest](#schema-approvestagedrequest) |
+| `GET` | `/api/v1/plugins/distribution/staged/{id}/consent` <a id="plugin_distribution_staged_consent"></a> | GET /api/plugins/distribution/staged/{id}/consent — the SAME consent shape for every source: declared capabilities + the manifest's settings JSON-Schema (the typed-registry render source). | — |
+| `POST` | `/api/v1/plugins/distribution/staged/{id}/refuse` <a id="plugin_distribution_staged_refuse"></a> | POST /api/plugins/distribution/staged/{id}/refuse — the reviewer declines: terminal for the staged row (the uploader may re-stage a fresh upload). A typed note is required. | [RefuseStagedRequest](#schema-refusestagedrequest) |
+| `POST` | `/api/v1/plugins/distribution/staged/github` <a id="plugin_distribution_stage_github"></a> | POST /api/plugins/distribution/staged/github — the pinned GitHub pull: the manifest is fetched AT THE PINNED COMMIT (never HEAD), the digest is computed over the fetched bytes, the pin is recorded on the staged row; a no-pin call is refused. | [StageFromGithubRequest](#schema-stagefromgithubrequest) |
+| `POST` | `/api/v1/plugins/distribution/staged/registry` <a id="plugin_distribution_stage_registry"></a> | POST /api/plugins/distribution/staged/registry — a public marketplace registry entry (static JSON, git-tag pinned, code-signature/digest shape: the BUILD-PROMPT v1 fixture). The SERVER fetches and the adapter validates BEFORE anything registers. | [StageFromRegistryRequest](#schema-stagefromregistryrequest) |
+| `POST` | `/api/v1/plugins/distribution/staged/skill` <a id="plugin_distribution_stage_skill"></a> | POST /api/plugins/distribution/staged/skill — skills from free/open community marketplaces/repo APIs (`skill_community`: the server refetches the manifest and digest-verifies it before the row exists) and manual member uploads (`manual_upload`: inline manifest). Skill content is UNTRUSTED RAG-class data — staged, never executed. | [StageSkillRequest](#schema-stageskillrequest) |
+| `POST` | `/api/v1/plugins/distribution/staged/zip` <a id="plugin_distribution_stage_zip"></a> | POST /api/plugins/distribution/staged/zip — the local zip import. ALL the sandbox validation (manifest schema, artifact digest, size/entry caps, exactly one root manifest.json, traversal safety) runs BEFORE the row exists; the declared capability list rides into the SAME consent screen. | — |
 | `GET` | `/api/v1/plugins/installed` <a id="plugin_install_list"></a> | GET /api/plugins/installed — this org's adoptions. | — |
 | `POST` | `/api/v1/plugins/installed` <a id="plugin_install_create"></a> | POST /api/plugins/installed — adopt a catalog entry at a pinned version. Created DISABLED (deny-by-default); enabling is a separate explicit admin action. | [InstallPluginRequest](#schema-installpluginrequest) |
 | `DELETE` | `/api/v1/plugins/installed/{id}` <a id="plugin_install_delete"></a> | DELETE /api/plugins/installed/{id} — uninstall (the adoption row goes away; re-install is a fresh adoption). | — |
 | `PATCH` | `/api/v1/plugins/installed/{id}` <a id="plugin_install_update"></a> | PATCH /api/plugins/installed/{id} — enable/disable, upgrade the pinned version, or adjust the grant set. Widening grants re-validates against the NEW pinned manifest. Revoked installs are terminal. | [UpdateInstallRequest](#schema-updateinstallrequest) |
+| `POST` | `/api/v1/plugins/installed/{id}/consent` <a id="plugin_install_update_consent"></a> | POST /api/plugins/installed/{id}/consent — commit the CONSENTED update: the swap IS the consent action (deny-by-default — until the owner/admin consents, the OLD version is what runs). Consent appends the provenance chain and rides the existing update event. | — |
+| `POST` | `/api/v1/plugins/installed/{id}/discard-update` <a id="plugin_install_update_discard"></a> | POST /api/plugins/installed/{id}/discard-update — abandon the pending re-consent (the OLD version keeps running; the pending columns clear). | — |
+| `GET` | `/api/v1/plugins/installed/{id}/provenance` <a id="plugin_distribution_provenance_list"></a> | GET /api/plugins/installed/{id}/provenance — the append-only `{source_kind, source_url, fetched_ref, artifact_digest, uploader}` for one install. The chain SURVIVES terminal uninstalls (no cascade). | — |
+| `GET` | `/api/v1/plugins/installed/{id}/settings` <a id="plugin_install_settings_get"></a> | GET /api/plugins/installed/{id}/settings — the render source: the pinned manifest's declared JSON-Schema + the validated config. | — |
+| `PATCH` | `/api/v1/plugins/installed/{id}/settings` <a id="plugin_install_settings_put"></a> | PATCH /api/plugins/installed/{id}/settings — the config is validated against the pinned manifest's schema AT THE WRITE BOUNDARY (the typed-registry doctrine: no hand-authored per-plugin pages, and a plugin with no declared schema gets consent/enable/disable only — this endpoint refuses its config writes). Every write is audited. | [PutInstallSettingsRequest](#schema-putinstallsettingsrequest) |
+| `GET` | `/api/v1/plugins/installed/{id}/update` <a id="plugin_install_update_get"></a> | GET /api/plugins/installed/{id}/update — the pending-state read (the consent screen shows exactly what consent would do). | — |
+| `POST` | `/api/v1/plugins/installed/{id}/update` <a id="plugin_install_update_propose"></a> | POST /api/plugins/installed/{id}/update — propose the update: the candidate version lands in the pending columns while the OLD version keeps running; the response IS the re-consent diff the consent screen renders. | [ProposeUpdateRequest](#schema-proposeupdaterequest) |
 
 ## pm-schedules
 
@@ -743,6 +797,37 @@
 | Method | Path | Operation | Request body |
 |---|---|---|---|
 | `GET` | `/api/v1/search` <a id="search_query"></a> | GET /api/search — unified staff search across tickets, comments and the client hierarchy. | — |
+| `GET` | `/api/v1/search/pins` <a id="search_pins_list"></a> | GET /api/search/pins — the caller's own pins, newest-first. | — |
+| `POST` | `/api/v1/search/pins` <a id="search_pins_create"></a> | POST /api/search/pins — pins one stored result. The entity must EXIST in the index (a pin is a stored result, never invented) and kind sits behind the same permission gate the query ran behind. One pin per (kind, id): re-pinning is idempotent AND refreshes the stored snapshot (query + title + parent) to current — the created_at stays the original pin time (Wave 23 lane 1, item 6). | [CreateSearchPinRequest](#schema-createsearchpinrequest) |
+| `DELETE` | `/api/v1/search/pins/{id}` <a id="search_pins_delete"></a> | DELETE /api/search/pins/{id} — unpins the caller's OWN pin; another user's pin is simply not theirs (typed 404, never a conflict leak). | — |
+
+## secrets
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/secrets/folders` <a id="secrets_folders_list"></a> | GET /api/secrets/folders — metadata-only category tree. | — |
+| `POST` | `/api/v1/secrets/folders` <a id="secrets_folders_create"></a> | secrets_folders_create | [CreateSecretFolderRequest](#schema-createsecretfolderrequest) |
+| `DELETE` | `/api/v1/secrets/folders/{id}` <a id="secrets_folders_delete"></a> | secrets_folders_delete | — |
+| `PATCH` | `/api/v1/secrets/folders/{id}` <a id="secrets_folders_update"></a> | secrets_folders_update | [UpdateSecretFolderRequest](#schema-updatesecretfolderrequest) |
+| `POST` | `/api/v1/secrets/folders/{id}/fork` <a id="secrets_folders_fork"></a> | POST /api/secrets/folders/{id}/fork — fork-the-seed customization (a NEW row graph in the client's scope, never edit-in-place, ADR 0004). | [ForkSecretFolderRequest](#schema-forksecretfolderrequest) |
+| `DELETE` | `/api/v1/secrets/grants` <a id="secrets_grants_delete"></a> | DELETE /api/secrets/grants?role_id=&folder_id= — revoke one grant. | — |
+| `GET` | `/api/v1/secrets/grants` <a id="secrets_grants_list"></a> | GET /api/secrets/grants — the grant matrix reads for admins (Owner or Admin only; grants are policy data, not vault contents). | — |
+| `PUT` | `/api/v1/secrets/grants` <a id="secrets_grants_set"></a> | PUT /api/secrets/grants — upserts ONE role × folder grant row (can_edit implies read). Owner/Admin only. | [SetSecretGrantRequest](#schema-setsecretgrantrequest) |
+| `GET` | `/api/v1/secrets/records` <a id="secrets_records_list"></a> | GET /api/secrets/records — metadata-only vault rows. | — |
+| `POST` | `/api/v1/secrets/records` <a id="secrets_records_create"></a> | POST /api/secrets/records — seals fields with coordinate AAD; instant-first (IF1–IF3) when an idempotency key rides the request. | [CreateSecretRecordRequest](#schema-createsecretrecordrequest) |
+| `DELETE` | `/api/v1/secrets/records/{id}` <a id="secrets_records_delete"></a> | DELETE /api/secrets/records/{id} — records retire; their fields cascade; the audit keeps the trail. | — |
+| `GET` | `/api/v1/secrets/records/{id}` <a id="secrets_records_get"></a> | GET /api/secrets/records/{id} — metadata only. | — |
+| `PATCH` | `/api/v1/secrets/records/{id}` <a id="secrets_records_update"></a> | PATCH /api/secrets/records/{id} — metadata + field rotation/clear (`value: null` clears — A5); instant-first envelope (IF1–IF3). | [UpdateSecretRecordRequest](#schema-updatesecretrecordrequest) |
+| `GET` | `/api/v1/secrets/records/{id}/file` <a id="secrets_records_get_file"></a> | GET /api/secrets/records/{id}/file — the reveal-file path (document kind ONLY): requires `secrets:edit` + the category gate (the same posture as field reveal), decrypts the object-store ciphertext, and emits `secret.revealed` in-commit with the read. The response is the sole carrier of the plaintext bytes. | — |
+| `PUT` | `/api/v1/secrets/records/{id}/file` <a id="secrets_records_put_file"></a> | PUT /api/secrets/records/{id}/file — document-kind ONLY. Seals the uploaded bytes (AAD-bound to the record coordinate), PUTs the ciphertext to the object store behind the core-store S3/local seam, and pins the pointer + hash + byte length on the record in the same tx (event emitted in-commit). | — |
+| `GET` | `/api/v1/secrets/records/{id}/links` <a id="secrets_records_list_links"></a> | GET /api/secrets/records/{id}/links | — |
+| `POST` | `/api/v1/secrets/records/{id}/links` <a id="secrets_records_add_link"></a> | POST /api/secrets/records/{id}/links — typed labels via the seam; broken targets ride the asset-docs semantic (never cascade-deleted). | [CreateLinkRequest](#schema-createlinkrequest) |
+| `POST` | `/api/v1/secrets/records/{id}/reveal` <a id="secrets_records_reveal"></a> | POST /api/secrets/records/{id}/reveal — the ONLY plaintext path, mirroring `/passwords/{id}/reveal`: requires `secrets:edit`, runs inside the org tx so the reveal event commits atomically with the read, decrypts with coordinate AAD first (falling back to the legacy seal for rows the deterministic importer forwarded) and the response is the sole carrier of the decrypted fields. | — |
+| `GET` | `/api/v1/secrets/records/{id}/share-links` <a id="secrets_records_list_share_links"></a> | GET /api/secrets/records/{id}/share-links — the lifecycle ledger (metadata only; NEVER the tokens). | — |
+| `POST` | `/api/v1/secrets/records/{id}/share-links` <a id="secrets_records_create_share_link"></a> | POST /api/secrets/records/{id}/share-links — mint a one-time share link; the token is returned ONCE (re-issuing is the flow for mistakes). | [CreateSecretShareLinkRequest](#schema-createsecretsharelinkrequest) |
+| `DELETE` | `/api/v1/secrets/records/{id}/share-links/{share_id}` <a id="secrets_records_delete_share_link"></a> | DELETE /api/secrets/records/{id}/share-links/{share_id} — revoke a not-yet-consumed link; consumed links are immutable history. | — |
+| `POST` | `/api/v1/secrets/records/bulk` <a id="secrets_records_bulk"></a> | POST /api/secrets/records/bulk — the chunked worker path. | [BulkSecretIngestRequest](#schema-bulksecretingestrequest) |
+| `POST` | `/api/v1/secrets/share-links/claim` <a id="secrets_share_links_claim"></a> | POST /api/secrets/share-links/claim — consume a link exactly once, unseal its subject behind the org + permission + category gates, and stamp the audit trail + `secret.share_link_claimed` event. | [ClaimShareLinkRequest](#schema-claimsharelinkrequest) |
 
 ## settings
 
@@ -750,8 +835,28 @@
 |---|---|---|---|
 | `PUT` | `/api/v1/settings/ai/byok` <a id="settings_ai_byok_put"></a> | PUT /api/settings/ai/byok — seals and stores an API key at rest (Admin:edit + owner/admin standing). Rides the instant-first write path; replays are byte-identical and the trail stores presence flags only. | [PutByokSecretRequest](#schema-putbyoksecretrequest) |
 | `DELETE` | `/api/v1/settings/ai/byok/{provider}` <a id="settings_ai_byok_delete"></a> | DELETE /api/settings/ai/byok/{provider} — removes a sealed BYOK key through the same gated path; the write trail keeps the presence snapshot. | — |
+| `PUT` | `/api/v1/settings/ai/caps` <a id="settings_ai_cap_put"></a> | PUT /settings/ai/caps — upsert org-wide or per-user soft/hard caps (audited). | [PutAiCapRequest](#schema-putaicaprequest) |
+| `DELETE` | `/api/v1/settings/ai/caps/{cap_id}` <a id="settings_ai_cap_delete"></a> | DELETE /settings/ai/caps/{cap_id}. | — |
+| `PUT` | `/api/v1/settings/ai/catalog` <a id="settings_ai_catalog_put"></a> | PUT /settings/ai/catalog — upsert one curated (provider, model) pair. | [PutAiCatalogRequest](#schema-putaicatalogrequest) |
+| `DELETE` | `/api/v1/settings/ai/catalog/{entry_id}` <a id="settings_ai_catalog_delete"></a> | DELETE /settings/ai/catalog/{entry_id}. | — |
+| `GET` | `/api/v1/settings/ai/credentials` <a id="settings_ai_credentials_get"></a> | GET /settings/ai/credentials — the org's credential summaries (admin). | — |
+| `PUT` | `/api/v1/settings/ai/credentials` <a id="settings_ai_credential_put"></a> | PUT /settings/ai/credentials — seal an ORG credential (admin). | [PutAiCredentialRequest](#schema-putaicredentialrequest) |
+| `DELETE` | `/api/v1/settings/ai/credentials/{credential_id}` <a id="settings_ai_credential_delete"></a> | DELETE /settings/ai/credentials/{credential_id} — revoke an ORG credential. | — |
+| `GET` | `/api/v1/settings/ai/decision` <a id="settings_ai_decision_overview"></a> | settings_ai_decision_overview | — |
+| `PUT` | `/api/v1/settings/ai/decision/{surface_key}/config` <a id="settings_ai_decision_config_put"></a> | settings_ai_decision_config_put | [PutDecisionConfigRequest](#schema-putdecisionconfigrequest) |
+| `POST` | `/api/v1/settings/ai/decision/{surface_key}/preview` <a id="settings_ai_decision_preview"></a> | settings_ai_decision_preview | [DecisionPreviewRequest](#schema-decisionpreviewrequest) |
+| `PUT` | `/api/v1/settings/ai/decision/features` <a id="settings_ai_decision_features_put"></a> | settings_ai_decision_features_put | [PutDecisionFeaturesRequest](#schema-putdecisionfeaturesrequest) |
+| `PUT` | `/api/v1/settings/ai/grants` <a id="settings_ai_grant_put"></a> | PUT /settings/ai/grants — upsert one per-surface grant (audited). | [PutAiGrantRequest](#schema-putaigrantrequest) |
+| `DELETE` | `/api/v1/settings/ai/grants/{grant_id}` <a id="settings_ai_grant_delete"></a> | DELETE /settings/ai/grants/{grant_id} — revoke one grant (audited). | — |
+| `GET` | `/api/v1/settings/ai/matrix` <a id="settings_ai_matrix_get"></a> | GET /settings/ai/matrix — the full admin view. | — |
+| `PUT` | `/api/v1/settings/ai/model-picks/{surface_key}` <a id="settings_ai_org_pick_put"></a> | PUT /settings/ai/model-picks/{surface_key} — the ORG default pick (owner/admin standing; stored as user_id NULL so every member's resolution falls back onto it when no personal pick holds). | [PutAiPickRequest](#schema-putaipickrequest) |
+| `GET` | `/api/v1/settings/ai/plugin-surfaces` <a id="settings_ai_plugin_surfaces_get"></a> | Org-scoped plugin surfaces registered by THIS org (kind = 'plugin'), for the admin plugin-surface management view. Globally seeded native/internal keys are administrable through the matrix, not here. | — |
+| `PUT` | `/api/v1/settings/ai/plugin-surfaces` <a id="settings_ai_plugin_surface_put"></a> | PUT /settings/ai/plugin-surfaces — register (or update) one org-scoped plugin surface (audited, instant-first write path). The registered key is deny-by-default until the grant flow covers it. | [PutAiPluginSurfaceRequest](#schema-putaipluginsurfacerequest) |
+| `POST` | `/api/v1/settings/ai/plugin-surfaces/{surface_id}/disable` <a id="settings_ai_plugin_surface_disable"></a> | POST /settings/ai/plugin-surfaces/{surface_id}/disable. | — |
+| `POST` | `/api/v1/settings/ai/plugin-surfaces/{surface_id}/enable` <a id="settings_ai_plugin_surface_enable"></a> | POST /settings/ai/plugin-surfaces/{surface_id}/enable. | — |
 | `GET` | `/api/v1/settings/ai/status` <a id="settings_ai_status"></a> | GET /api/settings/ai/status — overview of AI completion provider & configured keys. | — |
 | `POST` | `/api/v1/settings/ai/test` <a id="settings_ai_test"></a> | POST /api/settings/ai/test — test-connection probe (Admin:edit gated). None mode returns the typed unavailable outcome; a configured provider verifies its sealed key still decrypts (tamper/rotation check). No vendor HTTP call happens in v1 — the live probe rides the edge adapters when a lane wires them. | [TestConnectionRequest](#schema-testconnectionrequest) |
+| `GET` | `/api/v1/settings/ai/usage/org` <a id="settings_ai_usage_org_get"></a> | GET /settings/ai/usage/org — org progress roll-up (admin). | — |
 | `GET` | `/api/v1/settings/org` <a id="settings_org_get"></a> | GET /api/settings/org — effective org settings (defaults overlaid by stored overrides). Visible to every member. | — |
 | `PUT` | `/api/v1/settings/org` <a id="settings_org_put"></a> | PUT /api/settings/org — upserts one org-scope override after registry validation (Admin:edit required). Emits `setting.updated` + audit row. | [UpdateSettingRequest](#schema-updatesettingrequest) |
 | `GET` | `/api/v1/settings/registry` <a id="settings_registry"></a> | GET /api/settings/registry — every declared setting with kind, default, scope and validation shape. Any authenticated member may read it. | — |
@@ -816,7 +921,7 @@
 
 | Method | Path | Operation | Request body |
 |---|---|---|---|
-| `GET` | `/api/v1/tickets` <a id="tickets_list"></a> | GET /api/tickets — filtered, priority-ordered list; each row carries its custom-field values (TASKLIST 2.17) fetched in one batched query. | — |
+| `GET` | `/api/v1/tickets` <a id="tickets_list"></a> | GET /api/tickets — filtered, priority-ordered list; each row carries its custom-field values (TASKLIST 2.17) fetched in one batched query. Pagination is envelope-compatible: the body stays the plain ticket array; deep-page walks pass the opaque `cursor` query param (from the previous page's `x-next-cursor` response header) and the server resumes strictly after that row — keyset, not O(offset) scan (docs/perf.md F2). | — |
 | `POST` | `/api/v1/tickets` <a id="tickets_create"></a> | POST /api/tickets — allocates the human ticket number, initializes SLA clocks, validates + stores any initial custom-field values (REQUIRED definitions enforced), and emits `ticket.created` — all in one transaction. Instant-first (IF1/IF2): routed through the shared idempotency gate and returns the read-your-write `mutation` metadata. | [CreateTicketRequest](#schema-createticketrequest) |
 | `GET` | `/api/v1/tickets/{id}` <a id="tickets_get_one"></a> | GET /api/tickets/{id} | — |
 | `PATCH` | `/api/v1/tickets/{id}` <a id="tickets_patch"></a> | PATCH /api/tickets/{id} — partial update; validates + upserts any provided custom-field values; emits `ticket.updated`, `ticket.field_set` (per changed field), and `ticket.assigned` when the assignee changes. Instant-first (IF1/IF2): idempotency-keyed, version- gated, and returns prior + new values for undo. | [PatchTicketRequest](#schema-patchticketrequest) |
@@ -825,6 +930,7 @@
 | `GET` | `/api/v1/tickets/{id}/checklist` <a id="tickets_get_checklist"></a> | GET /api/tickets/{id}/checklist — lazily instantiates any template items the ticket has not picked up yet, then returns the full view. | — |
 | `POST` | `/api/v1/tickets/{id}/checklist` <a id="tickets_add_checklist_item"></a> | POST /api/tickets/{id}/checklist — appends an ad-hoc checklist item. Ad-hoc items never block closure; emits `ticket.checklist_updated`. Instant-first (IF1/IF2): idempotency-keyed and returns the read-your-write mutation metadata for the created item. | [AddChecklistItemRequest](#schema-addchecklistitemrequest) |
 | `POST` | `/api/v1/tickets/{id}/checklist/{item_id}` <a id="tickets_set_checklist_item"></a> | POST /api/tickets/{id}/checklist/{item_id} — toggles one checklist item; emits `ticket.checklist_updated` in the same transaction. Instant-first (IF1/IF2): idempotency-keyed and returns the read-your-write mutation metadata for the toggled item. | [SetChecklistItemRequest](#schema-setchecklistitemrequest) |
+| `POST` | `/api/v1/tickets/{id}/checklist/complete-all` <a id="tickets_complete_all_checklist"></a> | POST /api/tickets/{id}/checklist/complete-all — the close gate's Option A batch (docs/notes-tasks-workbar.md §4.2/§5.3): every listed task flips to `checked` AND lands its server-composed auto-append note, ALL in one transaction with per-item idempotency keys (`complete-all:{ticket}:{item}`- derived under the caller's envelope key). Items already terminal (checked/N-A) are skipped idempotently; an unknown id 404s the whole batch (atomicity). Every appended note carries `workflow_meta { kind: "task_closeall", auto: true, item_ids: [..] }` — the REPORTED auto-close provenance the close-gate dialog displays. Also usable pre-close, not only at the gate. | [CompleteAllRequest](#schema-completeallrequest) |
 | `GET` | `/api/v1/tickets/{id}/comments` <a id="tickets_list_comments"></a> | GET /api/tickets/{id}/comments — internal notes require ticket view; the portal surface filters kinds separately (portal v1). | — |
 | `POST` | `/api/v1/tickets/{id}/comments` <a id="tickets_add_comment"></a> | POST /api/tickets/{id}/comments — adds a structured note; @mentions fan out into the notification center. Instant-first (IF1/IF2): idempotency-keyed and returns the read-your-write mutation metadata. | [AddCommentRequest](#schema-addcommentrequest) |
 | `GET` | `/api/v1/tickets/{id}/comments/{comment_id}/attachments` <a id="attachments_list_for_comment"></a> | GET /api/tickets/{id}/comments/{comment_id}/attachments — one comment's attachments. | — |
@@ -832,6 +938,7 @@
 | `POST` | `/api/v1/tickets/{id}/cost-lines` <a id="tickets_create_cost_line"></a> | POST /api/tickets/{id}/cost-lines — add a money line (parts/flat/other). | [CreateCostLineRequest](#schema-createcostlinerequest) |
 | `DELETE` | `/api/v1/tickets/{id}/cost-lines/{line_id}` <a id="tickets_remove_cost_line"></a> | DELETE /api/tickets/{id}/cost-lines/{line_id} — remove an unbilled line. | — |
 | `PATCH` | `/api/v1/tickets/{id}/cost-lines/{line_id}` <a id="tickets_update_cost_line"></a> | PATCH /api/tickets/{id}/cost-lines/{line_id} — edit an unbilled line. | [UpdateCostLineRequest](#schema-updatecostlinerequest) |
+| `GET` | `/api/v1/tickets/{id}/decision-suggestions` <a id="tickets_decision_suggestions"></a> | GET /api/tickets/{id}/decision-suggestions — the workbench card's read. Optimistic UI rides the instant-first envelope upstream; this endpoint is a plain RLS'd read (nothing to undo, nothing to gate). | — |
 | `GET` | `/api/v1/tickets/{id}/emails` <a id="tickets_list_emails"></a> | GET /api/tickets/{id}/emails — every ledger row routed to this ticket (inbound + outbound), newest first, with reply-chain parents resolved and outbound delivery state projected from the retry ledger. | — |
 | `GET` | `/api/v1/tickets/{id}/expenses` <a id="tickets_list_expenses"></a> | GET /api/tickets/{id}/expenses — the ticket's expense entries. | — |
 | `POST` | `/api/v1/tickets/{id}/expenses` <a id="tickets_create_expense"></a> | POST /api/tickets/{id}/expenses — record an expense entry. | [CreateExpenseRequest](#schema-createexpenserequest) |
@@ -844,9 +951,14 @@
 | `DELETE` | `/api/v1/tickets/{id}/links/{link_id}` <a id="tickets_remove_link"></a> | DELETE /api/tickets/{id}/links/{link_id} — remove one edge. | — |
 | `POST` | `/api/v1/tickets/{id}/merge` <a id="tickets_merge"></a> | POST /api/tickets/{id}/merge — merge THIS ticket into `survivor_id`. Children, comments, time entries, cost lines, and expenses fold into the survivor; the source is closed on its own board and marked `merged_into_ticket_id` (its row stays queryable — doctrine #9). | [MergeRequest](#schema-mergerequest) |
 | `POST` | `/api/v1/tickets/{id}/move-board` <a id="tickets_move_board"></a> | POST /api/tickets/{id}/move-board — move a ticket to another board with the status remapped through the SEMANTIC categories (typed 409 listing the target statuses when the current category has no counterpart). SLA state is preserved by default; `reset_sla` re-initializes the clocks. Audited, emits `ticket.board_moved`, all in one transaction. Instant- first (IF1/IF2): idempotency-keyed, version-gated, read-your-write. | [MoveBoardRequest](#schema-moveboardrequest) |
+| `DELETE` | `/api/v1/tickets/{id}/note-draft` <a id="tickets_delete_note_draft"></a> | DELETE /api/tickets/{id}/note-draft — explicit draft discard. | — |
+| `GET` | `/api/v1/tickets/{id}/note-draft` <a id="tickets_get_note_draft"></a> | GET /api/tickets/{id}/note-draft — restores the caller's autosaved composer draft (IF2, §5.2). Typed absence (200 with `draft: null`), never a 404: an absent draft is a normal first-open state, not a miss. | — |
+| `PUT` | `/api/v1/tickets/{id}/note-draft` <a id="tickets_put_note_draft"></a> | PUT /api/tickets/{id}/note-draft — debounced autosave of the workbar composer draft (NOT a comment; never renders on any ledger). Fresh drafts ride the IF idempotency-keyed write path and opportunistically purge 30-day-stale rows. | [PutNoteDraftRequest](#schema-putnotedraftrequest) |
+| `POST` | `/api/v1/tickets/{id}/notes/refine` <a id="tickets_refine_note"></a> | POST /api/tickets/{id}/notes/refine — Tier-2 grammar pass (docs/notes- tasks-workbar.md §2.5): sends the draft to the org's configured CompletionProvider (BYOK seam) and returns a PROPOSAL. NEVER a direct write: the ledger is untouched; the composer shows a diff with Apply/Discard and Apply rides the normal submit path. Provider unconfigured/unavailable → typed `status: "unavailable"` + the reason — the Tier-1 Tidy always works and the UI owns the "not available yet" state (Template-button pattern). | [RefineNoteRequest](#schema-refinenoterequest) |
 | `GET` | `/api/v1/tickets/{id}/presence` <a id="ticket_presence"></a> | GET /api/tickets/{id}/presence — current viewers/editors of the ticket, TTL-pruned. The ticket must exist in the caller's org (RLS); the roster is org-keyed, so it can never leak across orgs. | — |
 | `POST` | `/api/v1/tickets/{id}/revert` <a id="tickets_revert"></a> | POST /api/tickets/{id}/revert — undo one server-accepted edit by restoring its prior values as a NORMAL authorized idempotent write (IF1 envelope end to end). Appends a new trail row (op `revert`), emits `ticket.reverted` on the event bus, and writes the audited `ticket.reverted` trail row — the append-only history is never rewritten. | [RevertTicketRequest](#schema-revertticketrequest) |
 | `GET` | `/api/v1/tickets/{id}/rollup` <a id="tickets_rollup"></a> | GET /api/tickets/{id}/rollup — children/members + folded time + billable money. | — |
+| `GET` | `/api/v1/tickets/{id}/similar-tickets` <a id="tickets_similar_tickets"></a> | GET /api/tickets/{id}/similar-tickets — retrieval top-k + per-candidate relatedness Noul. Degrade-never-5xx: a quiet decision edge returns the plain retrieval list, never an error. | — |
 | `GET` | `/api/v1/tickets/{id}/sla` <a id="tickets_sla_status"></a> | GET /api/tickets/{id}/comments — optional kind filter; internal notes require ticket view. The portal surface must consume the dedicated client-visible read (`core-db::tickets::list_client_visible_comments`), never this staff endpoint. GET /api/tickets/{id}/sla — clock state plus a live business-time remaining estimate for the resolution budget (drives the UI badge). | — |
 | `POST` | `/api/v1/tickets/{id}/status` <a id="tickets_change_status"></a> | POST /api/tickets/{id}/status — the guarded lifecycle transition: domain transition rules, pre-close checklist enforcement (typed 409 listing the incomplete required items when the board enforces), SLA pause bookkeeping, and the `ticket.status_changed` event, all in one tx. Instant-first (IF1/IF2): idempotency-keyed, version-gated, read-your-write. | [ChangeStatusRequest](#schema-changestatusrequest) |
 | `GET` | `/api/v1/tickets/{id}/tags` <a id="tickets_list_tags"></a> | GET /api/tickets/{id}/tags — the ticket's applied tags. | — |
@@ -923,10 +1035,35 @@
 | <a id="schema-agentproposalpage"></a>`AgentProposalPage` | object | GET /api/agent-proposals envelope. |
 | <a id="schema-agentproposalview"></a>`AgentProposalView` | object | One IF8 proposal with the full snapshot the approval decision needs. |
 | <a id="schema-agentskilllist"></a>`AgentSkillList` | object |  |
+| <a id="schema-agentskillversion"></a>`AgentSkillVersion` | object | One skill VERSION row (the migration-0040 shape + the distribution columns from migration 0079). History is append-only; rollback appends a NEW version carrying an old manifest. Enablement rides the o |
 | <a id="schema-agentskillview"></a>`AgentSkillView` | object | One immutable skill version. |
 | <a id="schema-aggregate"></a>`Aggregate` | string | Aggregation function of a measure. `Count` may omit the column (`COUNT(*)`); every other aggregate requires one, and the catalog decides which column types each accepts. |
+| <a id="schema-aiallowedmodeldto"></a>`AiAllowedModelDto` | object |  |
+| <a id="schema-aiauthorizedcredential"></a>`AiAuthorizedCredential` | object |  |
+| <a id="schema-aiauthorizerequest"></a>`AiAuthorizeRequest` | object |  |
+| <a id="schema-aiauthorizeresponse"></a>`AiAuthorizeResponse` | object |  |
+| <a id="schema-aicapdto"></a>`AiCapDto` | object |  |
+| <a id="schema-aicapmutationresponse"></a>`AiCapMutationResponse` | object |  |
+| <a id="schema-aicapstate"></a>`AiCapState` | object |  |
+| <a id="schema-aicatalogdto"></a>`AiCatalogDto` | object |  |
+| <a id="schema-aicatalogmutationresponse"></a>`AiCatalogMutationResponse` | object |  |
+| <a id="schema-aicredentialdto"></a>`AiCredentialDto` | object | Presence-only credential descriptor — never secret material. |
+| <a id="schema-aicredentialmutationresponse"></a>`AiCredentialMutationResponse` | object |  |
+| <a id="schema-aidecisionoperator"></a>`AiDecisionOperator` | string | How an `ai_decision` condition judges one recorded answer entry. |
+| <a id="schema-aigrantdto"></a>`AiGrantDto` | object |  |
+| <a id="schema-aigrantmutationresponse"></a>`AiGrantMutationResponse` | object |  |
+| <a id="schema-aimatrixresponse"></a>`AiMatrixResponse` | object |  |
+| <a id="schema-aimysurfacesresponse"></a>`AiMySurfacesResponse` | object |  |
+| <a id="schema-aimyusageresponse"></a>`AiMyUsageResponse` | object |  |
+| <a id="schema-aiorgusageresponse"></a>`AiOrgUsageResponse` | object |  |
+| <a id="schema-aipickmutationresponse"></a>`AiPickMutationResponse` | object |  |
+| <a id="schema-aipluginsurfacemutationresponse"></a>`AiPluginSurfaceMutationResponse` | object |  |
+| <a id="schema-aipluginsurfacesresponse"></a>`AiPluginSurfacesResponse` | object |  |
+| <a id="schema-aisurfaceaccessdto"></a>`AiSurfaceAccessDto` | object |  |
+| <a id="schema-aisurfacedto"></a>`AiSurfaceDto` | object |  |
 | <a id="schema-alertlistquery"></a>`AlertListQuery` | object |  |
 | <a id="schema-alertlistresponse"></a>`AlertListResponse` | object |  |
+| <a id="schema-alertmutationresponse"></a>`AlertMutationResponse` | object | Instant-first mutation response for a triage action (0089). The alert IS the read-your-write result; `mutation` carries the envelope metadata (idempotency replay, entity seq). |
 | <a id="schema-alertseverity"></a>`AlertSeverity` | string | Alert severity vocabulary. Maps onto ticket priorities when an alert anchors an incident ticket: critical→P1, warning→P2, info→P3. |
 | <a id="schema-alertsourcelist"></a>`AlertSourceList` | object |  |
 | <a id="schema-alertsourcemutationresponse"></a>`AlertSourceMutationResponse` | composite | Instant-first mutation response for a source (IF2). `secret` is the raw HMAC signing secret — populated ONLY by the create response and never again (same show-once contract as webhooks/api-keys). |
@@ -945,7 +1082,9 @@
 | <a id="schema-appointmentrequeststatus"></a>`AppointmentRequestStatus` | string | Lifecycle of an appointment request. `approved`/`declined`/`cancelled` are terminal; approved requests carry the created appointment's id. |
 | <a id="schema-appointmentstatus"></a>`AppointmentStatus` | string | Lifecycle of a booking. `cancelled` frees the slot (the DB exclusion constraint's partial predicate); `done` still occupies it. |
 | <a id="schema-approvalstatus"></a>`ApprovalStatus` | string | Approval lifecycle of a time entry (Wave 14 lane 1): `draft` entries are still being worked on, `submitted` waits in the approver queue, `approved` entries are the only ones billing reads may consume, |
+| <a id="schema-approvestagedrequest"></a>`ApproveStagedRequest` | object |  |
 | <a id="schema-archivecatalogitemrequest"></a>`ArchiveCatalogItemRequest` | composite |  |
+| <a id="schema-articledetail"></a>`ArticleDetail` | composite | The single-article read surface (GET): article fields at the top level plus the sanitized read-only HTML projection the web client renders server-side — the editor package never ships in bundles that  |
 | <a id="schema-articlelistquery"></a>`ArticleListQuery` | object |  |
 | <a id="schema-articlemutationresponse"></a>`ArticleMutationResponse` | composite | Instant-first mutation response (IF2). |
 | <a id="schema-assetlifecycleinput"></a>`AssetLifecycleInput` | object | Rental tracking + depreciation inputs on an asset (money is integer minor units + currency code per ADR 0002; no conversion happens here). |
@@ -958,7 +1097,9 @@
 | <a id="schema-auditevent"></a>`AuditEvent` | object |  |
 | <a id="schema-auditpage"></a>`AuditPage` | object |  |
 | <a id="schema-automationaction"></a>`AutomationAction` | object | Effects a rule may request. Every variant maps onto an existing core-api write path — automations never gain private write routes. |
-| <a id="schema-automationcondition"></a>`AutomationCondition` | object | One predicate; a rule matches only when EVERY condition holds. |
+| <a id="schema-automationcondition"></a>`AutomationCondition` | object | One predicate; a rule matches only when EVERY condition holds. Deterministic predicates evaluate against the ticket snapshot; the [`AutomationCondition::AiDecision`] kind is pulled out by [`split_cond |
+| <a id="schema-automationtestrunmatch"></a>`AutomationTestRunMatch` | object | POST /api/automation-rules/{id}/test-run — dry-run one rule against the org's most recent tickets (board-scoped when the rule binds a board), PROPOSAL-shaped: what WOULD match and what the actions wou |
+| <a id="schema-automationtestrunresponse"></a>`AutomationTestRunResponse` | object |  |
 | <a id="schema-availabilitylistresponse"></a>`AvailabilityListResponse` | object |  |
 | <a id="schema-availabilityquery"></a>`AvailabilityQuery` | object |  |
 | <a id="schema-availabilitywindow"></a>`AvailabilityWindow` | object | One recurring weekly availability template: `weekday` (0 = Monday … 6 = Sunday), local wall-clock `[start_local, end_local)` in `timezone`, optionally bounded by an effective date range. This is a TEM |
@@ -985,12 +1126,19 @@
 | <a id="schema-bulkdecisionresponse"></a>`BulkDecisionResponse` | object |  |
 | <a id="schema-bulkmoverequest"></a>`BulkMoveRequest` | object |  |
 | <a id="schema-bulkmoveresponse"></a>`BulkMoveResponse` | object |  |
+| <a id="schema-bulkrowoutcome"></a>`BulkRowOutcome` | string |  |
+| <a id="schema-bulkrowresult"></a>`BulkRowResult` | object |  |
+| <a id="schema-bulksecretingestrequest"></a>`BulkSecretIngestRequest` | object |  |
+| <a id="schema-bulksecretingestresponse"></a>`BulkSecretIngestResponse` | object |  |
+| <a id="schema-bulksecretrecord"></a>`BulkSecretRecord` | object |  |
 | <a id="schema-businesscalendar"></a>`BusinessCalendar` | object | Weekly business hours in a named IANA timezone, plus holiday dates. `None` window = non-business day. |
 | <a id="schema-byokoverviewresponse"></a>`ByokOverviewResponse` | object | Summary of all configured AI providers for the org. |
 | <a id="schema-byoksecretmutationresponse"></a>`ByokSecretMutationResponse` | composite | Mutation response: status fields plus the instant-first mutation metadata (`mutation.version` echoes into the next write). |
 | <a id="schema-byoksecretstatus"></a>`ByokSecretStatus` | object | Non-secret status of a stored BYOK key (presence flags only — never key material). Flattened into mutation responses so a stored replay deserializes byte-identically. |
 | <a id="schema-cadence"></a>`Cadence` | string | The typed cadence of a schedule row (the stored slug's Rust shape). |
 | <a id="schema-cadencespec"></a>`CadenceSpec` | object | The typed cadence + wall-clock shape (same columns as report schedules; the DB CHECKs pin the same consistency rules). |
+| <a id="schema-calendardeadlineentry"></a>`CalendarDeadlineEntry` | object | One deadline the overlay renders. Hydration lives in the row. |
+| <a id="schema-calendardeadlinesresponse"></a>`CalendarDeadlinesResponse` | object |  |
 | <a id="schema-calendarexclusion"></a>`CalendarExclusion` | object | Absolute UTC time-off punching holes in availability. |
 | <a id="schema-calendaritem"></a>`CalendarItem` | object | Flat merged entry so calendars render one ordered list without caring which table produced it. |
 | <a id="schema-calendarsyncconnection"></a>`CalendarSyncConnection` | object | One external-calendar connection for one user's calendar. |
@@ -1012,6 +1160,7 @@
 | <a id="schema-catalogview"></a>`CatalogView` | object | The field catalog of ONE versioned view: every projected column plus the narrower filterable inventory. Identifiers here are the ONLY ones a builder may reference — the server re-validates every spec  |
 | <a id="schema-categorymutationresponse"></a>`CategoryMutationResponse` | composite | Instant-first mutation response (IF2): category fields at the top level plus the additive `mutation` metadata. |
 | <a id="schema-changestatusrequest"></a>`ChangeStatusRequest` | composite |  |
+| <a id="schema-chatturnrequest"></a>`ChatTurnRequest` | object |  |
 | <a id="schema-checklistitem"></a>`ChecklistItem` | object | One line of a ticket's pre-close checklist. Items instantiated from the board's template carry `template_item_id`; those are REQUIRED when the board enforces pre-close checklists (see `crate::notes`). |
 | <a id="schema-checklistprogress"></a>`ChecklistProgress` | object | Derived-at-read-time checklist progress (never materialized — see the 0016 migration header for the justification). `required_open` counts unchecked template-derived instances: the close-blocking set  |
 | <a id="schema-checklisttemplate"></a>`ChecklistTemplate` | object | A board's pre-close checklist template. Exactly one per board (UNIQUE in storage): the deterministic gate consulted at close time. |
@@ -1027,12 +1176,16 @@
 | <a id="schema-cimergestatus"></a>`CiMergeStatus` | string | CI4: lifecycle of a reviewable merge candidate. |
 | <a id="schema-cisemanticclass"></a>`CiSemanticClass` | string | CI6: a semantic class is the behavior-bearing identity of a CI type. Layouts (types) are org-configurable and renameable; the class is not. |
 | <a id="schema-cisettingsview"></a>`CiSettingsView` | object |  |
+| <a id="schema-claimsharelinkrequest"></a>`ClaimShareLinkRequest` | object |  |
 | <a id="schema-client"></a>`Client` | object |  |
+| <a id="schema-clientcompletenessview"></a>`ClientCompletenessView` | object | The backend documentation-completeness read model — the weights live here; the web card renders the facts. |
 | <a id="schema-clientmutationresponse"></a>`ClientMutationResponse` | composite | Instant-first mutation response (IF2): client fields at the top level (unchanged shape) plus the additive `mutation` metadata. |
 | <a id="schema-clientoverriderow"></a>`ClientOverrideRow` | object | The stored client row, as provenance on a resolved entry (who last set it and when — the audit subject; the append-only trail keeps the full history). |
 | <a id="schema-clientworkflowresolution"></a>`ClientWorkflowResolution` | object | The client's full resolved workflow: one entry per registry declaration, registry order preserved. |
 | <a id="schema-commentlistquery"></a>`CommentListQuery` | object |  |
 | <a id="schema-committedchunkref"></a>`CommittedChunkRef` | object | One committed chunk's position in the resume view. |
+| <a id="schema-completeallrequest"></a>`CompleteAllRequest` | composite | POST /api/tickets/{id}/checklist/complete-all request (Wave 17 lane 11 §5.3): the close gate's Option A batch — every listed item flips to `checked` and each lands its auto-append note, ALL in one tra |
+| <a id="schema-completenessgap"></a>`CompletenessGap` | object | One named scoring leg that couldn't earn its weight. |
 | <a id="schema-configitemmutationresponse"></a>`ConfigItemMutationResponse` | composite | Instant-first mutation response (IF2). |
 | <a id="schema-configitemview"></a>`ConfigItemView` | composite |  |
 | <a id="schema-configsourcelink"></a>`ConfigSourceLink` | object | A feeder's per-source record link (ADR 0003). 0..N per config item; the unique key is `(org, source_system, external_id)`. |
@@ -1042,11 +1195,14 @@
 | <a id="schema-conflictview"></a>`ConflictView` | object | One blocking booking named by the dry-run. |
 | <a id="schema-connectionview"></a>`ConnectionView` | object |  |
 | <a id="schema-connectorappointment"></a>`ConnectorAppointment` | object | One booking as the connector sees it. |
+| <a id="schema-connectorprofile"></a>`ConnectorProfile` | object | ADR 0009 §6 (Wave 19 lane 2): the modeled connector governance profile — WHERE the connector speaks (webhook endpoints) and what it wears outward (SaaS scopes). Structured, validated DECLARATIONS, not |
 | <a id="schema-connectorschedulequery"></a>`ConnectorScheduleQuery` | object | GET /api/dispatch-connector/schedule query. The window is bounded at 62 days so one pull cannot scan the whole calendar. |
 | <a id="schema-connectorscheduleview"></a>`ConnectorScheduleView` | object |  |
 | <a id="schema-connectorstatusview"></a>`ConnectorStatusView` | object | The latest status push for one booking. |
 | <a id="schema-connectortechnician"></a>`ConnectorTechnician` | object | GET /api/dispatch-connector/technicians entry. |
 | <a id="schema-connectortechniciansview"></a>`ConnectorTechniciansView` | object |  |
+| <a id="schema-consentdiffview"></a>`ConsentDiffView` | object |  |
+| <a id="schema-consentview"></a>`ConsentView` | object | The consent screen payload — ONE component shared by every source (same shape the update re-consent flow shows). |
 | <a id="schema-contact"></a>`Contact` | object |  |
 | <a id="schema-contract"></a>`Contract` | object | A commercial agreement with one client. Money fields are integer minor units (cents for USD) — floats are forbidden near amounts (§5). |
 | <a id="schema-contractdetail"></a>`ContractDetail` | composite | The contract aggregate as one view: the agreement plus its rate card and fee schedule. |
@@ -1107,6 +1263,10 @@
 | <a id="schema-createrulerequest"></a>`CreateRuleRequest` | object |  |
 | <a id="schema-createschedulerequest"></a>`CreateScheduleRequest` | composite |  |
 | <a id="schema-createschedulinglinkrequest"></a>`CreateSchedulingLinkRequest` | composite |  |
+| <a id="schema-createsearchpinrequest"></a>`CreateSearchPinRequest` | object |  |
+| <a id="schema-createsecretfolderrequest"></a>`CreateSecretFolderRequest` | object |  |
+| <a id="schema-createsecretrecordrequest"></a>`CreateSecretRecordRequest` | composite |  |
+| <a id="schema-createsecretsharelinkrequest"></a>`CreateSecretShareLinkRequest` | object |  |
 | <a id="schema-createsiterequest"></a>`CreateSiteRequest` | object |  |
 | <a id="schema-createstagerequest"></a>`CreateStageRequest` | composite | POST /api/pipeline/stages body. |
 | <a id="schema-createstatusrequest"></a>`CreateStatusRequest` | object |  |
@@ -1139,6 +1299,12 @@
 | <a id="schema-decideappointmentrequest"></a>`DecideAppointmentRequest` | composite | A staff decision body. `decision_note` is the (optional) reason shown to the client on decline and a confirmation note on approve. |
 | <a id="schema-decideproposalrequest"></a>`DecideProposalRequest` | object |  |
 | <a id="schema-decideresponse"></a>`DecideResponse` | object | Instant-first mutation response (IF2) for a decision. `appointment` is present ONLY on approve: the calendar booking this decision made. |
+| <a id="schema-decisionconfigmutationresponse"></a>`DecisionConfigMutationResponse` | object |  |
+| <a id="schema-decisionfeaturemutationresponse"></a>`DecisionFeatureMutationResponse` | object |  |
+| <a id="schema-decisionoverviewresponse"></a>`DecisionOverviewResponse` | object |  |
+| <a id="schema-decisionpreviewrequest"></a>`DecisionPreviewRequest` | object |  |
+| <a id="schema-decisionsuggestionsresponse"></a>`DecisionSuggestionsResponse` | object |  |
+| <a id="schema-decisionsurfaceoverview"></a>`DecisionSurfaceOverview` | object |  |
 | <a id="schema-declarationview"></a>`DeclarationView` | object | Wire shape of one declaration. Kinds/options are flattened so generated clients can render editors directly from this payload. |
 | <a id="schema-definitionscope"></a>`DefinitionScope` | string | Visibility scope of a stored definition: `org` (published org-wide, admins only) or `self` (private to the creator). |
 | <a id="schema-deliveryattemptview"></a>`DeliveryAttemptView` | object |  |
@@ -1154,6 +1320,9 @@
 | <a id="schema-dispatchqueueview"></a>`DispatchQueueView` | object | GET /api/dispatch/queue envelope. |
 | <a id="schema-dispatchstatusshade"></a>`DispatchStatusShade` | object | The latest connector/staff status push for one booking, shaded onto the board block face. |
 | <a id="schema-document"></a>`Document` | object | A document's living handle. No content lives here — content is only ever a [`DocumentVersion`]; `current_version` names the newest one. |
+| <a id="schema-documentattachmentdeleted"></a>`DocumentAttachmentDeleted` | object |  |
+| <a id="schema-documentattachmentlist"></a>`DocumentAttachmentList` | object |  |
+| <a id="schema-documentattachmentview"></a>`DocumentAttachmentView` | object |  |
 | <a id="schema-documentlayout"></a>`DocumentLayout` | object | An org-managed document/asset type. System layouts (the seeded standard MSP set) are editable but not deletable. |
 | <a id="schema-documentlink"></a>`DocumentLink` | object | A cross-entity relationship row (`document_links`, 0053). |
 | <a id="schema-documentlistquery"></a>`DocumentListQuery` | object |  |
@@ -1170,18 +1339,24 @@
 | <a id="schema-emaildeliveryview"></a>`EmailDeliveryView` | object | Delivery projection from the `email_outbound` ledger. Present for outbound rows only — inbound mail has no send lifecycle. |
 | <a id="schema-emaildirection"></a>`EmailDirection` | string | Whether a message entered (inbound) or left (outbound) the system. |
 | <a id="schema-emailmessage"></a>`EmailMessage` | object | One persisted email message. `rfc_message_id` is unique per org and is the idempotency key for inbound processing; `email_refs` carries the RFC 5322 References chain (`references` itself is reserved S |
+| <a id="schema-emailverifiedresponse"></a>`EmailVerifiedResponse` | object |  |
+| <a id="schema-emailverifyrequest"></a>`EmailVerifyRequest` | object |  |
 | <a id="schema-embedmutationresponse"></a>`EmbedMutationResponse` | composite |  |
 | <a id="schema-embedresolution"></a>`EmbedResolution` | object | The allowlist decision plus (optionally) the provider's own oEmbed embed HTML, fetched server-side. `html` is present only when `fetch=true` and the provider endpoint answers 2xx. |
 | <a id="schema-entitykind"></a>`EntityKind` | string | Which entity family a batch targets. One batch = exactly one kind; the parent-before-child ordering across batches keeps foreign references resolvable without cross-batch transactions. D2 remainder ex |
 | <a id="schema-escalationstep"></a>`EscalationStep` | object | One escalation ladder step as stored (`sla_escalation_steps`). |
 | <a id="schema-eventslistresponse"></a>`EventsListResponse` | object |  |
 | <a id="schema-expensemutationresponse"></a>`ExpenseMutationResponse` | object |  |
+| <a id="schema-exportarchiveupdate"></a>`ExportArchiveUpdate` | object |  |
 | <a id="schema-exportbundle"></a>`ExportBundle` | object | The org-data export envelope, `bundle_version` 1. |
 | <a id="schema-exportclient"></a>`ExportClient` | object | One client company row. |
 | <a id="schema-exportcomment"></a>`ExportComment` | object | One ticket comment. |
 | <a id="schema-exportcontact"></a>`ExportContact` | object | One contact row; `client_id`/`site_id` reference this bundle. |
 | <a id="schema-exportcreatedresponse"></a>`ExportCreatedResponse` | object |  |
 | <a id="schema-exportfieldvalue"></a>`ExportFieldValue` | object | One typed custom-field value attached to any entity row. |
+| <a id="schema-exporthistorylist"></a>`ExportHistoryList` | object |  |
+| <a id="schema-exporthistoryview"></a>`ExportHistoryView` | object | One ledger row as /settings/export renders it. The signed link is NEVER stored — rows carry content facts; links are minted fresh. |
+| <a id="schema-exportlinkrefreshed"></a>`ExportLinkRefreshed` | object |  |
 | <a id="schema-exportorg"></a>`ExportOrg` | object | Org profile identity. |
 | <a id="schema-exportsections"></a>`ExportSections` | object | Section container — all fields always present; empty org state is an empty array, never an absent key. |
 | <a id="schema-exportsite"></a>`ExportSite` | object | One site row; `client_id` references `clients` in this bundle. |
@@ -1200,6 +1375,7 @@
 | <a id="schema-filterop"></a>`FilterOp` | string | Filter operators supported by the v1 compiled reports. Operand typing is enforced through [`ValueType`] matches in the builder, so e.g. a bool operand can never reach a timestamp column. The serde enc |
 | <a id="schema-filtervalue"></a>`FilterValue` | object | A typed filter operand. The variant must match the catalog [`ValueType`] of the filtered column (`Int` covers both Int and BigInt columns) — enforced by [`ReportSpec::validate`], so a mismatched opera |
 | <a id="schema-forkrolerequest"></a>`ForkRoleRequest` | composite |  |
+| <a id="schema-forksecretfolderrequest"></a>`ForkSecretFolderRequest` | object |  |
 | <a id="schema-forktemplaterequest"></a>`ForkTemplateRequest` | composite |  |
 | <a id="schema-fxrateentry"></a>`FxRateEntry` | object | One `fx_rates` row: append-only; corrections add rows, never rewrite. |
 | <a id="schema-fxreconciliationrow"></a>`FxReconciliationRow` | object | One `ops.v1_fx_reconciliation` row — the FX deliverable to the books (FX7): original amount, rate, source/date, base equivalent, sync target. The core records conversions that happened; realized/unrea |
@@ -1213,6 +1389,7 @@
 | <a id="schema-ingestalertrequest"></a>`IngestAlertRequest` | object |  |
 | <a id="schema-ingestresponse"></a>`IngestResponse` | object | POST /api/alerts/ingest — outcome of one signed delivery. |
 | <a id="schema-installpluginrequest"></a>`InstallPluginRequest` | object |  |
+| <a id="schema-installsettingsview"></a>`InstallSettingsView` | object |  |
 | <a id="schema-installview"></a>`InstallView` | object |  |
 | <a id="schema-instantiatetemplaterequest"></a>`InstantiateTemplateRequest` | composite |  |
 | <a id="schema-integrationlinkstatus"></a>`IntegrationLinkStatus` | object | Per-connector link state as data (linked/unlinked + last touch). |
@@ -1242,7 +1419,7 @@
 | <a id="schema-linkbeginresponse"></a>`LinkBeginResponse` | object |  |
 | <a id="schema-linkcheckresponse"></a>`LinkCheckResponse` | composite | The link-check response: the refreshed row plus the outcome. |
 | <a id="schema-linkcheckstatus"></a>`LinkCheckStatus` | string | Outcome of a link-check. `unreachable` covers DNS/TLS/HTTP failures — the record exists but could not be verified. |
-| <a id="schema-linkkind"></a>`LinkKind` | string | Either endpoint of a link. Documents, passwords, and assets can link FROM; documents, passwords, clients, tickets, KB articles, and assets can be linked TO (asset kind added in migration 0054). |
+| <a id="schema-linkkind"></a>`LinkKind` | string | Either endpoint of a link. Documents, passwords, assets, and secret records can link FROM; documents, passwords, clients, tickets, KB articles, assets, and secret records can be linked TO (asset kind  |
 | <a id="schema-linksview"></a>`LinksView` | object |  |
 | <a id="schema-listcandidatesquery"></a>`ListCandidatesQuery` | object |  |
 | <a id="schema-listconfigitemsquery"></a>`ListConfigItemsQuery` | object |  |
@@ -1252,6 +1429,8 @@
 | <a id="schema-listtraveldraftsquery"></a>`ListTravelDraftsQuery` | object |  |
 | <a id="schema-loginrequest"></a>`LoginRequest` | object |  |
 | <a id="schema-loginresponse"></a>`LoginResponse` | object | Login outcome: tokens directly, or a short-lived MFA bridge token when any second factor is enrolled. Untagged so legacy clients that ignore `mfa_required` keep parsing the plain token pair they alway |
+| <a id="schema-loopmessage"></a>`LoopMessage` | object | One conversation message (`system` \| `user` \| `assistant` \| `tool`). |
+| <a id="schema-magiclinkconfirm"></a>`MagicLinkConfirm` | object |  |
 | <a id="schema-maintenancewindow"></a>`MaintenanceWindow` | object | Planned downtime: an absolute UTC interval during which SLA clocks do not consume business-time budget (vendor maintenance, change freezes). |
 | <a id="schema-manifestapikey"></a>`ManifestApiKey` | object | API-key metadata. `key_hash` (the credential verifier) and the raw key material are structurally absent — only the display prefix survives. |
 | <a id="schema-manifestautomationrule"></a>`ManifestAutomationRule` | object | One event-triggered automation rule. |
@@ -1281,6 +1460,7 @@
 | <a id="schema-meetingassigneescope"></a>`MeetingAssigneeScope` | string | Who a meeting type books against: ONE user's calendar, or the unioned availability of a free-form admin-defined group. |
 | <a id="schema-meetingtype"></a>`MeetingType` | object | A bookable template: duration, buffer before/after, booking window, org-editable free-form `parameters`, and the assignee scope. Auto- email is per-template; with transport `none` the send is skipped. |
 | <a id="schema-meetingtypebody"></a>`MeetingTypeBody` | composite |  |
+| <a id="schema-meetingtypedeleted"></a>`MeetingTypeDeleted` | object |  |
 | <a id="schema-meetingtypemutation"></a>`MeetingTypeMutation` | object |  |
 | <a id="schema-meresponse"></a>`MeResponse` | object |  |
 | <a id="schema-mergeconflictentry"></a>`MergeConflictEntry` | object |  |
@@ -1297,6 +1477,8 @@
 | <a id="schema-mutationmeta"></a>`MutationMeta` | object | Read-your-write metadata every mutation response carries (IF2), merged as the additive `mutation` object alongside the entity fields. |
 | <a id="schema-mutationparams"></a>`MutationParams` | object | The autosave mutation parameters every gated create/update body carries (flattened into the request struct — purely additive fields). |
 | <a id="schema-myworkitem"></a>`MyWorkItem` | object | One cross-board my-work queue row (TASKLIST 2.11): the ticket plus the annotations the Today screen renders per the mockup. |
+| <a id="schema-notedraftbody"></a>`NoteDraftBody` | object |  |
+| <a id="schema-notedraftresponse"></a>`NoteDraftResponse` | object |  |
 | <a id="schema-notekind"></a>`NoteKind` | string | Taxonomy of structured ticket notes (§1). |
 | <a id="schema-notification"></a>`Notification` | object |  |
 | <a id="schema-notificationkind"></a>`NotificationKind` | string |  |
@@ -1319,6 +1501,8 @@
 | <a id="schema-passwordhistoryentry"></a>`PasswordHistoryEntry` | object | One archived secret ciphertext from a credential's change history. |
 | <a id="schema-passwordlistquery"></a>`PasswordListQuery` | object |  |
 | <a id="schema-passwordmutationresponse"></a>`PasswordMutationResponse` | composite | Instant-first mutation response (IF2). |
+| <a id="schema-passwordresetconfirm"></a>`PasswordResetConfirm` | object |  |
+| <a id="schema-passwordresetrequest"></a>`PasswordResetRequest` | object |  |
 | <a id="schema-passwordreveal"></a>`PasswordReveal` | object | The audited reveal response: plaintext is returned exactly once, over TLS, to a caller holding `passwords:edit`; the reveal emits a `password.revealed` contract event (provenance query: "who looked at |
 | <a id="schema-patchalertsourcerequest"></a>`PatchAlertSourceRequest` | composite |  |
 | <a id="schema-patchappointmentrequest"></a>`PatchAppointmentRequest` | object |  |
@@ -1343,6 +1527,13 @@
 | <a id="schema-plugininstallstatus"></a>`PluginInstallStatus` | string | Install lifecycle. Deny-by-default: `Disabled` until an explicit admin enable; `Revoked` is terminal (registry revocation or explicit revoke) — a revoked install never runs again until re-installed. |
 | <a id="schema-pluginmanifestbody"></a>`PluginManifestBody` | object | The declarative manifest as submitted. `interface_version` is server-pinned (the runtime speaks exactly one version), so a caller cannot publish an entry the runtime would refuse. |
 | <a id="schema-pluginmanifestv2"></a>`PluginManifestV2` | object | The declarative v2 plugin manifest: name/version/capabilities — a DATA document describing what a plugin IS and what it may ask for. It is never executable content: the runtime executes nothing from a |
+| <a id="schema-pluginruntimekind"></a>`PluginRuntimeKind` | string | The plugin-side artifact vocabulary for the roster tabs (WASM vs HTTP connector). Skills are NOT in this closed set — the skill half lives on `PluginArtifactKind::Skill` in the distribution seam (0079 |
+| <a id="schema-pluginsettingsupdated"></a>`PluginSettingsUpdated` | object | `plugin.settings_updated` — a per-install config rendered FROM the pinned manifest's settings JSON-Schema changed (validated at the write boundary; no hand-authored per-plugin settings pages exist). |
+| <a id="schema-pluginsourcekind"></a>`PluginSourceKind` | string | The closed source vocabulary — every distribution adapter records the same provenance chain, typed by the kind of source it is. |
+| <a id="schema-pluginstagedimportapproved"></a>`PluginStagedImportApproved` | object | `plugin.staged_import_approved` — an owner/admin reviewed the consent diff and the wait ended in adoption: the catalog entry/version + install were minted (plugins) or the agent skill was imported (sk |
+| <a id="schema-pluginstagedimportcreated"></a>`PluginStagedImportCreated` | object | `plugin.staged_import_created` — a member upload (skill or plugin) landed staged: validated, never executed, visible only to its uploader and admins. Capabilities are the staged manifest's DECLARED ke |
+| <a id="schema-pluginstagedimportrefused"></a>`PluginStagedImportRefused` | object | `plugin.staged_import_refused` — the reviewer declined the staged import (terminal for that row; the uploader may re-stage fresh). |
+| <a id="schema-pluginupdatepending"></a>`PluginUpdatePending` | object | `plugin.update_pending` — an update proposal is waiting on the re-consent diff: the OLD version stays pinned and running until the owner/admin consents; consent commits the swap. |
 | <a id="schema-pmrun"></a>`PmRun` | object | One append-only PM run ledger row. |
 | <a id="schema-pmschedule"></a>`PmSchedule` | object | A recurring/scheduled ticket (PM schedule): a ticket template plus the typed cadence (same shape as report schedules). The worker claims due rows; core-api generates the instance and advances the cade |
 | <a id="schema-podvisibilityview"></a>`PodVisibilityView` | object |  |
@@ -1391,8 +1582,10 @@
 | <a id="schema-proposalclassification"></a>`ProposalClassification` | string | Proposal classification: who will see the change if it lands. |
 | <a id="schema-proposallistquery"></a>`ProposalListQuery` | object | GET /api/agent-proposals query. |
 | <a id="schema-proposalstatus"></a>`ProposalStatus` | string | Proposal lifecycle state. |
+| <a id="schema-proposeupdaterequest"></a>`ProposeUpdateRequest` | object |  |
 | <a id="schema-provenanceevent"></a>`ProvenanceEvent` | object | One provenance entry: a single field change within one applied write. |
 | <a id="schema-provenancepage"></a>`ProvenancePage` | object |  |
+| <a id="schema-provenanceview"></a>`ProvenanceView` | object |  |
 | <a id="schema-providermutationresponse"></a>`ProviderMutationResponse` | composite | Instant-first mutation response (IF2) for provider rows. |
 | <a id="schema-publiclinkview"></a>`PublicLinkView` | object | What the public page needs to render the booking UI: the template's bookable shape plus a slot preview over the booking window. The horizon follows `booking_window_days`; intervals are computed in ser |
 | <a id="schema-publicprovider"></a>`PublicProvider` | object |  |
@@ -1412,10 +1605,20 @@
 | <a id="schema-pushstatusmutationresponse"></a>`PushStatusMutationResponse` | composite | 201 body: the pushed row plus the read-your-write metadata (IF2). |
 | <a id="schema-pushstatusrequest"></a>`PushStatusRequest` | composite | POST /api/dispatch-connector/appointments/{id}/status body. |
 | <a id="schema-pushstatusresponse"></a>`PushStatusResponse` | object | The pushed row (entity fields; the mutation envelope flattens it). |
+| <a id="schema-putaicaprequest"></a>`PutAiCapRequest` | composite |  |
+| <a id="schema-putaicatalogrequest"></a>`PutAiCatalogRequest` | composite |  |
+| <a id="schema-putaicredentialrequest"></a>`PutAiCredentialRequest` | composite |  |
+| <a id="schema-putaigrantrequest"></a>`PutAiGrantRequest` | composite |  |
+| <a id="schema-putaipickrequest"></a>`PutAiPickRequest` | composite |  |
+| <a id="schema-putaipluginsurfacerequest"></a>`PutAiPluginSurfaceRequest` | composite |  |
 | <a id="schema-putbyoksecretrequest"></a>`PutByokSecretRequest` | composite | Request to store or update a sealed BYOK API key. |
 | <a id="schema-putcapabilityrequest"></a>`PutCapabilityRequest` | object |  |
 | <a id="schema-putchecklisttemplaterequest"></a>`PutChecklistTemplateRequest` | object |  |
+| <a id="schema-putdecisionconfigrequest"></a>`PutDecisionConfigRequest` | object |  |
+| <a id="schema-putdecisionfeaturesrequest"></a>`PutDecisionFeaturesRequest` | object |  |
 | <a id="schema-putexposurerequest"></a>`PutExposureRequest` | object |  |
+| <a id="schema-putinstallsettingsrequest"></a>`PutInstallSettingsRequest` | object |  |
+| <a id="schema-putnotedraftrequest"></a>`PutNoteDraftRequest` | object |  |
 | <a id="schema-putoverriderequest"></a>`PutOverrideRequest` | composite | PUT body: `{ "state": "set", "value": <typed payload> }` or `{ "state": "disabled" }`, plus the instant-first parameters. |
 | <a id="schema-putpodvisibilityrequest"></a>`PutPodVisibilityRequest` | object |  |
 | <a id="schema-queuedticket"></a>`QueuedTicket` | composite | One queued ticket: the day-view's queue row shape plus the explicit override when one exists. |
@@ -1437,8 +1640,11 @@
 | <a id="schema-recordpaymentrequest"></a>`RecordPaymentRequest` | composite |  |
 | <a id="schema-recordraterequest"></a>`RecordRateRequest` | composite |  |
 | <a id="schema-recoverycodesresponse"></a>`RecoveryCodesResponse` | object |  |
+| <a id="schema-refinenoterequest"></a>`RefineNoteRequest` | object |  |
+| <a id="schema-refinenoteresponse"></a>`RefineNoteResponse` | object | Refine outcome. `proposal` is a SUGGESTION — applying it is an explicit user action that posts through the normal comment-create envelope with `workflow_meta.kind = "refined"`; AI provenance rides the |
 | <a id="schema-refreshrequest"></a>`RefreshRequest` | object |  |
 | <a id="schema-refundcreditnoterequest"></a>`RefundCreditNoteRequest` | composite | POST /api/credit-notes/{id}/refund body. |
+| <a id="schema-refusestagedrequest"></a>`RefuseStagedRequest` | object |  |
 | <a id="schema-regeneraterecoveryrequest"></a>`RegenerateRecoveryRequest` | object |  |
 | <a id="schema-registerrequest"></a>`RegisterRequest` | object |  |
 | <a id="schema-registryresponse"></a>`RegistryResponse` | object |  |
@@ -1498,27 +1704,52 @@
 | <a id="schema-scorecardsla"></a>`ScorecardSla` | object | SLA attainment block. `response_total`/`resolution_total` count only tickets where BOTH the SLA target and the actual instant exist (the three-valued metrics from `ops.v1_sla_outcomes`); attainment is |
 | <a id="schema-scorecardwindow"></a>`ScorecardWindow` | object |  |
 | <a id="schema-scorecardworkload"></a>`ScorecardWorkload` | object | Workload mix over APPROVED time entries only — drafts and rejected entries are never scorecard truth (Wave 14 lane-1 approval contract). |
+| <a id="schema-searchpinlist"></a>`SearchPinList` | object |  |
+| <a id="schema-searchpinview"></a>`SearchPinView` | object | One pinned result as the /search surface renders it. |
 | <a id="schema-searchquery"></a>`SearchQuery` | object |  |
 | <a id="schema-searchresponse"></a>`SearchResponse` | object |  |
 | <a id="schema-searchresult"></a>`SearchResult` | object |  |
+| <a id="schema-secretcategorygrant"></a>`SecretCategoryGrant` | object | A role × folder category grant (`secret_category_grants`). Grants are DATA flowing through the central policy module: the matrix permission (`secrets:read`/`secrets:edit`) is checked FIRST, then the c |
+| <a id="schema-secretfieldmeta"></a>`SecretFieldMeta` | object | A material field of a secret record — METADATA ONLY view. The ciphertext and plaintext never ride this entity; `value_ciphertext` lives in `secret_fields` only. |
+| <a id="schema-secretfieldvalue"></a>`SecretFieldValue` | object |  |
+| <a id="schema-secretfieldvaluepatch"></a>`SecretFieldValuePatch` | object | PATCH field entry (A5, Wave 16 lane 9): `value: null` CLEARS the sealed field (row deleted, audited via the record-updated event); a value rotates the sealed ciphertext. |
+| <a id="schema-secretfolder"></a>`SecretFolder` | object | A secret category folder (`secret_folders`). Exactly one of org/client scope rows: org-scope rows carry `org_id` (client_id NULL), client-scope rows carry `client_id` (org_id NULL — the tenancy spine  |
+| <a id="schema-secretfolderkind"></a>`SecretFolderKind` | string | The closed seeded-configuration vocabulary for folders. |
+| <a id="schema-secretrecord"></a>`SecretRecord` | object | A SecretRecord (`secret_records`, migration 0078) — the generalization beside the shipped `PasswordEntry` (whose UI and responses stay byte- compatible; the vault never becomes a destructive cutover). |
+| <a id="schema-secretrecordkind"></a>`SecretRecordKind` | string | The kind of a `secret_records` row. |
+| <a id="schema-secretrecordmutationresponse"></a>`SecretRecordMutationResponse` | composite | Instant-first mutation response (IF2): the metadata-only record plus the write-trail/replay metadata (mirrors PasswordMutationResponse). |
+| <a id="schema-secretreveal"></a>`SecretReveal` | object | The audited reveal response: the ONLY plaintext carrier for secret records, mirroring `/passwords/{id}/reveal` (requires secrets:edit, emits `secret.revealed`, plaintext returned exactly once). Reveal |
+| <a id="schema-secretrevealfield"></a>`SecretRevealField` | object |  |
+| <a id="schema-secretsharelink"></a>`SecretShareLink` | object | A one-time share link row (`secret_share_links`, migration 0096). The token NEVER round-trips here: the DB stores a SHA-256 hash and the raw token exists exactly once, inside the create response (`Sec |
+| <a id="schema-secretsharelinkissued"></a>`SecretShareLinkIssued` | object | The create response — the ONLY place the raw token exists on the wire; the URL is resolved by the web app at `/{app}/share?token=…`. (Named `Issued` because `SecretShareLinkCreated` is the domain-EVEN |
 | <a id="schema-segmentend"></a>`SegmentEnd` | string | Why a timer segment ended. Preserved forever — the pause reason is billable-work metadata, not a transient UI state. |
 | <a id="schema-sendstatementrequest"></a>`SendStatementRequest` | composite | POST /api/invoices/{id}/dunning/statement body. |
 | <a id="schema-sendstatementresponse"></a>`SendStatementResponse` | object | POST /api/invoices/{id}/dunning/statement response. |
 | <a id="schema-sessioninfo"></a>`SessionInfo` | object |  |
 | <a id="schema-setchecklistitemrequest"></a>`SetChecklistItemRequest` | composite |  |
 | <a id="schema-setdependenciesrequest"></a>`SetDependenciesRequest` | object |  |
+| <a id="schema-setemailverifiedrequest"></a>`SetEmailVerifiedRequest` | object |  |
 | <a id="schema-setqueuerankrequest"></a>`SetQueueRankRequest` | composite | PUT /api/dispatch/queue/{ticket_id} body. |
+| <a id="schema-setsecretgrantrequest"></a>`SetSecretGrantRequest` | object |  |
+| <a id="schema-setskillenabledrequest"></a>`SetSkillEnabledRequest` | object |  |
 | <a id="schema-setticketfieldvaluerequest"></a>`SetTicketFieldValueRequest` | object |  |
 | <a id="schema-settingkind"></a>`SettingKind` | object | The value shapes the registry understands. A stored value must satisfy its declaration's kind or the write is rejected (validation is applied before persistence, never after). |
 | <a id="schema-settingvalue"></a>`SettingValue` | object | A concrete setting value. Only three payload types exist by design — richer structures are entities, not settings. |
 | <a id="schema-settransitionsrequest"></a>`SetTransitionsRequest` | object |  |
 | <a id="schema-setuserrolerequest"></a>`SetUserRoleRequest` | composite |  |
 | <a id="schema-setuserstatusrequest"></a>`SetUserStatusRequest` | composite |  |
+| <a id="schema-shareclaimmaterial"></a>`ShareClaimMaterial` | object | The unified claim response: the material exactly once (the claim consumes the link). Mirrors `SecretReveal` / `PasswordReveal` contents under one shape — `fields` carries `field_key` → plaintext. |
+| <a id="schema-sharesubjectkind"></a>`ShareSubjectKind` | string | Which vault subject a share link or rotation refers to. One-time share links cover BOTH the native secret records and the legacy byte- compatible password entries; rotation mirrors the same pair. |
+| <a id="schema-similarticketcandidate"></a>`SimilarTicketCandidate` | object |  |
+| <a id="schema-similarticketsquery"></a>`SimilarTicketsQuery` | object |  |
+| <a id="schema-similarticketsresponse"></a>`SimilarTicketsResponse` | object |  |
 | <a id="schema-site"></a>`Site` | object |  |
 | <a id="schema-skillcatalogentry"></a>`SkillCatalogEntry` | object | GET /api/dispatch/skills envelope entry: the org skill catalog with holder counts (`active` = non-expired as of now). |
 | <a id="schema-skillinput"></a>`SkillInput` | object | One entry of a skill replacement set. |
 | <a id="schema-skilllistquery"></a>`SkillListQuery` | object |  |
+| <a id="schema-skillmanifest"></a>`SkillManifest` | object | The declarative skill manifest (docs/10-agent-platform.md §4: `AgentSkill` — version, capabilities, prompts/rules). Content is UNTRUSTED RAG-class data: consumption-time layering quotes and scopes it  |
 | <a id="schema-skillscatalogview"></a>`SkillsCatalogView` | object |  |
+| <a id="schema-skillversionview"></a>`SkillVersionView` | object |  |
 | <a id="schema-skillview"></a>`SkillView` | object | One skill on one technician. |
 | <a id="schema-slacalendar"></a>`SlaCalendar` | object | An org-level business-hours calendar row (`sla_calendars`). The math type is [`BusinessCalendar`]; this carries its identity. |
 | <a id="schema-slaverdictrequest"></a>`SlaVerdictRequest` | object |  |
@@ -1528,8 +1759,12 @@
 | <a id="schema-ssoexchangeresponse"></a>`SsoExchangeResponse` | object |  |
 | <a id="schema-stagechunkrequest"></a>`StageChunkRequest` | composite | POST /imports/batches/{id}/stage request: uploads ONE chunk of rows to the ObjectStore under a deterministic key without executing anything. |
 | <a id="schema-stagechunkresponse"></a>`StageChunkResponse` | object |  |
+| <a id="schema-stageditemview"></a>`StagedItemView` | object |  |
+| <a id="schema-stagefromgithubrequest"></a>`StageFromGithubRequest` | object |  |
+| <a id="schema-stagefromregistryrequest"></a>`StageFromRegistryRequest` | object |  |
 | <a id="schema-stagelistquery"></a>`StageListQuery` | object |  |
 | <a id="schema-stagemutationresponse"></a>`StageMutationResponse` | composite | Instant-first mutation responses (IF2). |
+| <a id="schema-stageskillrequest"></a>`StageSkillRequest` | object |  |
 | <a id="schema-stagetype"></a>`StageType` | string | The kind of a pipeline stage. `won` / `lost` are terminal outcomes; deals on such a stage are closed. |
 | <a id="schema-starttimerrequest"></a>`StartTimerRequest` | composite |  |
 | <a id="schema-statementline"></a>`StatementLine` | object | One open invoice on the statement. |
@@ -1537,6 +1772,8 @@
 | <a id="schema-submitentryrequest"></a>`SubmitEntryRequest` | object |  |
 | <a id="schema-submitresponse"></a>`SubmitResponse` | composite | Instant-first mutation response (IF2): the full entry snapshot (including its new approval state) plus the decision trail entry. |
 | <a id="schema-submittraveldraftrequest"></a>`SubmitTravelDraftRequest` | composite | POST /api/dispatch/travel-drafts/{id}/submit body. |
+| <a id="schema-suggestionanswer"></a>`SuggestionAnswer` | object |  |
+| <a id="schema-suggestionsurface"></a>`SuggestionSurface` | object |  |
 | <a id="schema-syncforcequery"></a>`SyncForceQuery` | object |  |
 | <a id="schema-syncoutcomeresponse"></a>`SyncOutcomeResponse` | object |  |
 | <a id="schema-syncoutcomewire"></a>`SyncOutcomeWire` | object |  |
@@ -1544,6 +1781,7 @@
 | <a id="schema-tagmutationresponse"></a>`TagMutationResponse` | object |  |
 | <a id="schema-tagview"></a>`TagView` | object | One tag + how many tickets currently carry it. |
 | <a id="schema-targetstatusoption"></a>`TargetStatusOption` | object | One target-board status option inside a `board_move_status_conflict` 409 — everything the client needs to render the pick list. |
+| <a id="schema-taskgateitem"></a>`TaskGateItem` | object | One unassigned task on the close gate's typed 409 (§4.1): the row the UI must resolve (Option A batch-close / Option B manual work) — decision text, and whether it is a REQUIRED template item (enforce |
 | <a id="schema-tasklistquery"></a>`TaskListQuery` | object |  |
 | <a id="schema-taskmutationresponse"></a>`TaskMutationResponse` | composite |  |
 | <a id="schema-taskstatus"></a>`TaskStatus` | string | Lifecycle of a task. `completed` is reached ONLY through the dedicated complete endpoint, which enforces dependency readiness and emits the completion (+ milestone billing seam) events. |
@@ -1565,7 +1803,8 @@
 | <a id="schema-testfireresponse"></a>`TestFireResponse` | object |  |
 | <a id="schema-ticket"></a>`Ticket` | object |  |
 | <a id="schema-ticketboardmoveresponse"></a>`TicketBoardMoveResponse` | composite | Same additive envelope as the status endpoint (plain ticket body). |
-| <a id="schema-ticketchecklistmutationresponse"></a>`TicketChecklistMutationResponse` | composite | Same additive envelope for checklist writes: the full checklist view at the top level (unchanged shape) plus the read-your-write metadata for the affected item. |
+| <a id="schema-ticketchecklistbatchresponse"></a>`TicketChecklistBatchResponse` | composite | Batch response: full updated checklist view + the appended notes in item order so the client reconciles in one round trip. |
+| <a id="schema-ticketchecklistmutationresponse"></a>`TicketChecklistMutationResponse` | composite | Same additive envelope for checklist writes: the full checklist view at the top level (unchanged shape) plus the read-your-write metadata for the affected item. `appended_note` carries the server-comp |
 | <a id="schema-ticketchecklistview"></a>`TicketChecklistView` | object | GET response for a ticket's checklist: instances, derived progress, and the board's live enforcement posture. `blocking` lists the unchecked REQUIRED items when enforcement is active (empty otherwise) |
 | <a id="schema-ticketcomment"></a>`TicketComment` | object | A structured ticket note. Taxonomy: internal / client-visible / in-house update. `kind` gates portal visibility and email fan-out. |
 | <a id="schema-ticketcommentmutationresponse"></a>`TicketCommentMutationResponse` | composite | Same additive envelope for comments (plain comment body). |
@@ -1600,6 +1839,7 @@
 | <a id="schema-timersession"></a>`TimerSession` | object | One user's timer against one ticket. At most one session per user is ever running — enforced by [`TimerSession::start_switch`]. |
 | <a id="schema-timesettingsresponse"></a>`TimeSettingsResponse` | object |  |
 | <a id="schema-tokenpair"></a>`TokenPair` | object | Token pair returned by all auth flows. |
+| <a id="schema-tokenrequest"></a>`TokenRequest` | object |  |
 | <a id="schema-totpdisablerequest"></a>`TotpDisableRequest` | object |  |
 | <a id="schema-totpenrollbeginresponse"></a>`TotpEnrollBeginResponse` | object |  |
 | <a id="schema-totpenrollverifyrequest"></a>`TotpEnrollVerifyRequest` | object |  |
@@ -1611,6 +1851,7 @@
 | <a id="schema-undostackquery"></a>`UndoStackQuery` | object |  |
 | <a id="schema-undostackresponse"></a>`UndoStackResponse` | object |  |
 | <a id="schema-undostep"></a>`UndoStep` | object | One applied write on the record — one step of the undo stack. |
+| <a id="schema-uniformok"></a>`UniformOk` | object | The uniform shape every request surface returns. |
 | <a id="schema-unreadcount"></a>`UnreadCount` | object |  |
 | <a id="schema-updatearticlerequest"></a>`UpdateArticleRequest` | composite |  |
 | <a id="schema-updateassetrequest"></a>`UpdateAssetRequest` | composite |  |
@@ -1629,6 +1870,7 @@
 | <a id="schema-updatelayoutrequest"></a>`UpdateLayoutRequest` | composite |  |
 | <a id="schema-updatepasswordrequest"></a>`UpdatePasswordRequest` | composite |  |
 | <a id="schema-updatepreferencerequest"></a>`UpdatePreferenceRequest` | object |  |
+| <a id="schema-updateproposalview"></a>`UpdateProposalView` | object |  |
 | <a id="schema-updateproviderrequest"></a>`UpdateProviderRequest` | composite |  |
 | <a id="schema-updatequoterequest"></a>`UpdateQuoteRequest` | composite | PATCH /api/quotes/{id} body — draft-only. Absent fields keep their value; `lines` present replaces the whole line list. |
 | <a id="schema-updatereportdefinitionrequest"></a>`UpdateReportDefinitionRequest` | composite | PUT /api/report-definitions/{id} body — full-replace semantics: every member is applied; `description: null` clears it. |
@@ -1636,6 +1878,8 @@
 | <a id="schema-updaterulerequest"></a>`UpdateRuleRequest` | object |  |
 | <a id="schema-updateschedulerequest"></a>`UpdateScheduleRequest` | composite |  |
 | <a id="schema-updatescorecardsettingsrequest"></a>`UpdateScorecardSettingsRequest` | object |  |
+| <a id="schema-updatesecretfolderrequest"></a>`UpdateSecretFolderRequest` | object |  |
+| <a id="schema-updatesecretrecordrequest"></a>`UpdateSecretRecordRequest` | composite |  |
 | <a id="schema-updatesettingrequest"></a>`UpdateSettingRequest` | object |  |
 | <a id="schema-updatesettingsrequest"></a>`UpdateSettingsRequest` | object |  |
 | <a id="schema-updatestagerequest"></a>`UpdateStageRequest` | composite | PATCH /api/pipeline/stages/{id} body. |
@@ -1654,6 +1898,7 @@
 | <a id="schema-valueview"></a>`ValueView` | object | One effective value: registry default overlaid by any stored override. |
 | <a id="schema-vaultentryview"></a>`VaultEntryView` | object | A vault entry as the asset detail page sees it: metadata only — reveal rides the audited `/passwords/{id}/reveal` endpoint. |
 | <a id="schema-verdictresponse"></a>`VerdictResponse` | object |  |
+| <a id="schema-verifystatus"></a>`VerifyStatus` | object |  |
 | <a id="schema-viewid"></a>`ViewId` | string | Versioned read-model views. Variant ↔ physical view name is frozen alongside the schema-version suffix; adding a view is additive. The serde encoding is the view SLUG (`snake_case`) — the same string  |
 | <a id="schema-viewlistquery"></a>`ViewListQuery` | object |  |
 | <a id="schema-viewmutationresponse"></a>`ViewMutationResponse` | composite |  |
@@ -1668,6 +1913,7 @@
 | <a id="schema-webhooklist"></a>`WebhookList` | object |  |
 | <a id="schema-webhooksecretresponse"></a>`WebhookSecretResponse` | object | Returned by create ONLY — carries the signing secret in plaintext one final time. There is deliberately no read-back path. |
 | <a id="schema-webhookview"></a>`WebhookView` | object |  |
+| <a id="schema-wiplimitupdate"></a>`WipLimitUpdate` | object | WIP-cap patch input (0089): `Default` (field absent) = unchanged; JSON null = clear; a number = set. serde's `Option<Option>` mapping makes a present-but-null field UNREPRESENTABLE from JSON (null fol |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 26 operation groups; schema count 755 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 26 operation groups; schema count 889 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*

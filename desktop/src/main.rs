@@ -438,6 +438,12 @@ fn main() {
     install_sigterm_handler(data_root().join("pgdata"));
 
     tauri::Builder::default()
+        // Auto-update channel (GA packaging): the updater reads its
+        // endpoint + pubkey from tauri.conf.json `plugins.updater`. The
+        // update check is opt-in from the frontend seam (no update UI
+        // ships in this lane); release workflow lives in
+        // docs/desktop-release.md.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(backend)
         .setup(move |app| {
             // Rust-built window so the initialization script (API base
