@@ -736,6 +736,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/attachments/{id}/transcribe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/v1/attachments/{id}/transcribe — transcribe one stored
+         *     audio attachment through the org's granted `transcription` surface.
+         */
+        post: operations["attachments_transcribe"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/audit-events": {
         parameters: {
             query?: never;
@@ -2217,6 +2237,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/catalog/pricing-feeds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/v1/catalog/pricing-feeds — upload one immutable distributor
+         *     feed batch; admin/owner; then `/{batch_id}/apply` overlays pricing by
+         *     lowercase SKU.
+         */
+        post: operations["pricing_feed_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/catalog/pricing-feeds/{batch_id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/v1/catalog/pricing-feeds/{batch_id}/apply */
+        post: operations["pricing_feed_apply"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/clients": {
         parameters: {
             query?: never;
@@ -2687,6 +2745,82 @@ export interface paths {
         get: operations["config_items_list_merges"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/connectors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/v1/connectors — the org's installed bridges (presence only). */
+        get: operations["connectors_index"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/connectors/voip/call-logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/v1/connectors/voip/call-logs — machine ingest of one call
+         *     record (idempotent per provider call id). Requires the consents +
+         *     the `calls.ingest` scope.
+         */
+        post: operations["connectors_voip_ingest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/connectors/{kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/v1/connectors/{kind} — the admin installs / re-consents. */
+        post: operations["connectors_install"];
+        /** DELETE /api/v1/connectors/{kind} — withdraws the consent. */
+        delete: operations["connectors_remove"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/connectors/{kind}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/v1/connectors/{kind}/test — a provisioned canary through
+         *     the adapter (slack/teams notifications; rewst trigger).
+         */
+        post: operations["connectors_test"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5189,6 +5323,75 @@ export interface paths {
          *     the active one are never enabled).
          */
         post: operations["plugin_distribution_skill_enabled"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/distribution/publishers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/plugins/distribution/publishers — the org's publisher
+         *     registry (vouched history included; `verified` = the active badge).
+         */
+        get: operations["plugin_distribution_publishers_list"];
+        put?: never;
+        /**
+         * POST /api/plugins/distribution/publishers — admin vouches a
+         *     publisher identity on the org's behalf (re-vouch flips a revoked row
+         *     back; a double-verify conflicts).
+         */
+        post: operations["plugin_distribution_publishers_verify"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/distribution/publishers/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/plugins/distribution/publishers/{id} — withdraws the
+         *     vouch; the badge disappears and the row persists as history.
+         */
+        delete: operations["plugin_distribution_publishers_revoke"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/distribution/ratings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/plugins/distribution/ratings — the org's ratings, optionally
+         *     narrowed to one artifact release.
+         */
+        get: operations["plugin_distribution_ratings_list"];
+        /**
+         * PUT /api/plugins/distribution/ratings — upserts the caller's rating
+         *     on one artifact release (one per user per release; re-rate wins).
+         */
+        put: operations["plugin_distribution_ratings_put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -9362,6 +9565,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/webhooks/stripe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["stripe_webhook_receive"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/webhooks/{id}": {
         parameters: {
             query?: never;
@@ -11581,6 +11800,26 @@ export interface components {
             title: string;
             /** Format: int32 */
             travel_minutes: number;
+        };
+        ConnectorIndexResponse: {
+            /** @description Installed connectors (typed kinds only, presence summaries). */
+            installed: components["schemas"]["ConnectorInstallationView"][];
+        };
+        ConnectorInstallRequest: {
+            /**
+             * @description Provider configuration document — WHOLESALE sealed (never
+             *     logged, never echoed). The adapters expect, per kind:
+             *     slack/teams `{ "webhook_url": "https://…" }`,
+             *     rewst `{ "webhook_url": "https://…", "secret": "…" }`,
+             *     voip `{ "access_token": "…", "provider": "…" }`.
+             */
+            config: unknown;
+        };
+        ConnectorInstallationView: {
+            capability_scopes: string[];
+            kind: string;
+            /** Format: date-time */
+            updated_at?: string | null;
         };
         /**
          * @description ADR 0009 §6 (Wave 19 lane 2): the modeled connector governance
@@ -14734,6 +14973,10 @@ export interface components {
              */
             offset?: number | null;
         };
+        ListRatingsQuery: {
+            artifact_digest?: string | null;
+            source_url?: string | null;
+        };
         ListTaxonomyQuery: {
             /**
              * @description Include retired nodes (admin editors + the manifest want them;
@@ -16056,6 +16299,105 @@ export interface components {
             version: string;
         };
         /**
+         * @description `plugin.publisher_revoked` — the org-side vouch was withdrawn;
+         *     the badge disappears and history is preserved.
+         */
+        PluginPublisherRevoked: {
+            publisher: string;
+            /** Format: date-time */
+            revoked_at: string;
+            /** Format: uuid */
+            revoked_by: string;
+            /** Format: uuid */
+            verification_id?: string | null;
+        };
+        /**
+         * @description Marketplace v2 verified-publisher registry row (Wave 22). A
+         *     publisher is a NORMALIZED SOURCE IDENTITY; verification is per-org
+         *     (this org vouches this publisher), admin-curated, and additive over
+         *     the v1 distribution formats.
+         */
+        PluginPublisherVerification: {
+            display_name: string;
+            /** Format: uuid */
+            id: string;
+            note: string;
+            /** Format: uuid */
+            org_id: string;
+            /** @description Normalized identity, e.g. `github.com/owner` or `registry://slug`. */
+            publisher: string;
+            /** Format: date-time */
+            revoked_at?: string | null;
+            /** Format: uuid */
+            revoked_by?: string | null;
+            /** @description `verified` | `revoked`. */
+            status: string;
+            /** Format: date-time */
+            verified_at: string;
+            /** Format: uuid */
+            verified_by?: string | null;
+        };
+        /**
+         * @description `plugin.publisher_verified` — Marketplace v2: an owner/admin vouched
+         *     for a publisher identity on behalf of the org (per-org badge, never
+         *     global). Additive over the v1 distribution surfaces.
+         */
+        PluginPublisherVerified: {
+            display_name: string;
+            publisher: string;
+            /** Format: uuid */
+            verification_id?: string | null;
+            /** Format: date-time */
+            verified_at: string;
+            /** Format: uuid */
+            verified_by: string;
+        };
+        /**
+         * @description Marketplace v2 per-user rating on one artifact RELEASE (the
+         *     `{source_kind, source_url, artifact_digest}` triple). One rating per
+         *     user per release; re-rating is an upsert.
+         */
+        PluginRating: {
+            /** @description sha256 hex of the artifact release. */
+            artifact_digest: string;
+            comment: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: date-time */
+            rated_at: string;
+            /** Format: uuid */
+            rated_by?: string | null;
+            /**
+             * Format: int32
+             * @description 1..=5 stars.
+             */
+            rating: number;
+            source_kind: components["schemas"]["PluginSourceKind"];
+            source_url: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /**
+         * @description `plugin.rating_recorded` — Marketplace v2 social layer: one staff
+         *     member's 1–5 star rating on an artifact release (upsert semantics —
+         *     a re-rate wins and the event fires once per upsert).
+         */
+        PluginRatingRecorded: {
+            artifact_digest: string;
+            comment: string;
+            /** Format: date-time */
+            rated_at: string;
+            /** Format: uuid */
+            rated_by: string;
+            /** Format: int32 */
+            rating: number;
+            /** @description The artifact release triple. */
+            source_kind: string;
+            source_url: string;
+        };
+        /**
          * @description The plugin-side artifact vocabulary for the roster tabs (WASM vs HTTP
          *     connector). Skills are NOT in this closed set — the skill half lives
          *     on `PluginArtifactKind::Skill` in the distribution seam (0079). Parse
@@ -16380,6 +16722,12 @@ export interface components {
              */
             amount_minor: number;
             notes?: string | null;
+            /**
+             * @description PSP payment-method surface (e.g. a confirmed Stripe `pm_*` id
+             *     from the embedded payment form). None = ledger-only none-mode
+             *     settlement; required when the org resolved provider is Stripe.
+             */
+            payment_method?: string | null;
         };
         /**
          * @description Instant-first mutation response (IF2) for a portal payment: the
@@ -16578,6 +16926,38 @@ export interface components {
              * @description Window end (inclusive), ISO date.
              */
             to?: string | null;
+        };
+        PricingFeedApplyResponse: {
+            /** Format: uuid */
+            batch_id: string;
+            /** Format: int64 */
+            matched: number;
+            outcomes: components["schemas"]["PricingFeedOutcomeView"][];
+            /** Format: int64 */
+            unmatched: number;
+            unmatched_skus: string[];
+        };
+        PricingFeedBatchRequest: {
+            entries: components["schemas"]["PricingFeedEntryRequest"][];
+            note?: string | null;
+            source: string;
+        };
+        PricingFeedBatchResponse: {
+            /** Format: uuid */
+            batch_id: string;
+        };
+        PricingFeedEntryRequest: {
+            /** Format: int64 */
+            cost_minor: number;
+            currency: string;
+            sku: string;
+            /** Format: int64 */
+            unit_price_minor: number;
+        };
+        PricingFeedOutcomeView: {
+            matched: boolean;
+            reason: string;
+            sku: string;
         };
         /**
          * @description Industry-standard four-tier priority.
@@ -16904,6 +17284,18 @@ export interface components {
              *     history, never an in-place edit.
              */
             slug: string;
+        };
+        PublisherVerificationView: {
+            display_name: string;
+            /** Format: uuid */
+            id: string;
+            note: string;
+            publisher: string;
+            /** Format: date-time */
+            revoked_at?: string | null;
+            status: string;
+            /** Format: date-time */
+            verified_at?: string | null;
         };
         /**
          * @description One exported row: internal id, stable source key when the row was ever
@@ -17250,6 +17642,19 @@ export interface components {
              */
             config: unknown;
         };
+        PutRatingRequest: {
+            /** @description sha256 hex of the artifact release the rating pins. */
+            artifact_digest: string;
+            comment?: string | null;
+            /** Format: int32 */
+            rating: number;
+            /**
+             * @description `marketplace_registry` | `github_repo` | `local_zip` |
+             *     `skill_community` | `manual_upload`.
+             */
+            source_kind: string;
+            source_url: string;
+        };
         /**
          * @description Queue mutation envelope (set + clear share the shape; clears carry
          *     `cleared: true` and null note).
@@ -17449,6 +17854,31 @@ export interface components {
             /** Format: int64 */
             rate_minor: number;
             work_type: string;
+        };
+        RatingListView: {
+            ratings: components["schemas"]["PluginRating"][];
+            /**
+             * @description Aggregate for the requested target (or the whole org list when
+             *     unfiltered — the aggregate then spans targets and is advisory).
+             */
+            summary: components["schemas"]["RatingSummary"];
+        };
+        RatingMineView: {
+            comment: string;
+            /** Format: int32 */
+            rating: number;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        RatingSummary: {
+            /** Format: double */
+            average?: number | null;
+            /**
+             * Format: int64
+             * @description Aggregated over the org: count of ratings and the mean.
+             */
+            count: number;
+            mine?: null | components["schemas"]["RatingMineView"];
         };
         ReconciliationQuery: {
             /** Format: int64 */
@@ -19330,6 +19760,12 @@ export interface components {
              */
             event_id: string;
         };
+        TestResult: {
+            detail?: string | null;
+            kind: string;
+            /** @description `delivered` | `refused` | `bad_config` | `unreachable`. */
+            outcome: string;
+        };
         ThemePackList: {
             packs: components["schemas"]["ThemePackView"][];
         };
@@ -19933,6 +20369,15 @@ export interface components {
         TotpEnrollVerifyRequest: {
             code: string;
         };
+        TranscriptionResponse: {
+            /** @description The audio duration the provider reports, when it sends one. */
+            duration?: string | null;
+            model: string;
+            provider: string;
+            /** @description The typed surface the call rode (always `transcription` here). */
+            surface: string;
+            text: string;
+        };
         /**
          * @description One directed edge in a board's explicit transition matrix. Both ids must
          *     belong to statuses of the SAME board (enforced here, and by composite FKs
@@ -20534,6 +20979,15 @@ export interface components {
             applied: boolean;
             reason?: string | null;
         };
+        VerifyPublisherRequest: {
+            display_name: string;
+            note?: string | null;
+            /**
+             * @description GitHub `owner/repo` URL or bare path, `registry://slug`, or
+             *     a host (zips) — normalized server-side to the publisher identity.
+             */
+            publisher: string;
+        };
         VerifyStatus: {
             email_verified: boolean;
         };
@@ -20565,6 +21019,24 @@ export interface components {
         /** @description POST /api/credit-notes/{id}/void body. */
         VoidCreditNoteRequest: components["schemas"]["MutationParams"];
         VoidInvoiceRequest: components["schemas"]["MutationParams"];
+        VoipCallLogRequest: {
+            /** @description Provider call id (idempotency — required). */
+            call_id: string;
+            /** @description `in` | `out`. */
+            direction: string;
+            /** Format: int32 */
+            duration_seconds: number;
+            external_number: string;
+            /** Format: date-time */
+            occurred_at: string;
+            summary?: string | null;
+            /** Format: uuid */
+            ticket_id?: string | null;
+        };
+        VoipCallLogResponse: {
+            /** Format: uuid */
+            id: string;
+        };
         WebauthnBeginResponse: {
             /** @description Opaque ceremony binding — pass back to finish. */
             challenge_token: string;
@@ -22145,6 +22617,47 @@ export interface operations {
                 content: {
                     "application/octet-stream": number[];
                 };
+            };
+        };
+    };
+    attachments_transcribe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranscriptionResponse"];
+                };
+            };
+            /** @description typed AI refusals (surface/grant/credential/cap) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description not_audio or size cap */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -24686,6 +25199,68 @@ export interface operations {
             };
         };
     };
+    pricing_feed_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PricingFeedBatchRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PricingFeedBatchResponse"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    pricing_feed_apply: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PricingFeedApplyResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     clients_list: {
         parameters: {
             query?: never;
@@ -25645,6 +26220,143 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["CiMerge"][];
                 };
+            };
+        };
+    };
+    connectors_index: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorIndexResponse"];
+                };
+            };
+        };
+    };
+    connectors_voip_ingest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VoipCallLogRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoipCallLogResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    connectors_install: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectorInstallRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorInstallationView"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    connectors_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    connectors_test: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestResult"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -30661,6 +31373,138 @@ export interface operations {
                 content?: never;
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_distribution_publishers_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublisherVerificationView"][];
+                };
+            };
+        };
+    };
+    plugin_distribution_publishers_verify: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VerifyPublisherRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublisherVerificationView"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_distribution_publishers_revoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublisherVerificationView"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_distribution_ratings_list: {
+        parameters: {
+            query?: {
+                source_url?: string;
+                artifact_digest?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RatingListView"];
+                };
+            };
+        };
+    };
+    plugin_distribution_ratings_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutRatingRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RatingSummary"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -39432,6 +40276,41 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["WebhookSecretResponse"];
                 };
+            };
+        };
+    };
+    stripe_webhook_receive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": number[];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
