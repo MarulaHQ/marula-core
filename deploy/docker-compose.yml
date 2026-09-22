@@ -110,7 +110,11 @@ services:
       DATABASE_URL: postgres://meridian_app:meridian_app@postgres:5432/meridian
       REDIS_URL: redis://redis:6379/0
       BIND_ADDR: 0.0.0.0:8080
-      JWT_SECRET: ${JWT_SECRET:-dev-only-insecure-secret-change-me}
+      JWT_SECRET: ${JWT_SECRET:-5d1a2f0b3c4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e}
+      # 64-hex dev-only at-rest seal key (Wave 19 GA hardening): from_env
+      # hard-fails without an explicit MERIDIAN_SECRET_KEY. Operators MUST
+      # override both secrets for anything beyond a local test harness.
+      MERIDIAN_SECRET_KEY: ${MERIDIAN_SECRET_KEY:-a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e5}
       CORS_ORIGIN: http://localhost:3000
       # Email v1 defaults (see crates/core-mail/README.md none modes):
       # webhook DISABLED until EMAIL_INBOUND_HMAC_SECRET is set; transport
@@ -154,7 +158,7 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       BIND_ADDR: 0.0.0.0:8081
-      JWT_SECRET: ${JWT_SECRET:-dev-only-insecure-secret-change-me}
+      JWT_SECRET: ${JWT_SECRET:-5d1a2f0b3c4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e}
       # OpenTelemetry (TASKLIST 2.18): empty ⇒ none mode; see header.
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     ports:
@@ -180,6 +184,9 @@ services:
       DATABASE_URL: postgres://meridian:meridian@postgres:5432/meridian
       REDIS_URL: redis://redis:6379/0
       BIND_ADDR: 0.0.0.0:8082
+      # Must match core-api's MERIDIAN_SECRET_KEY or sealed webhook secrets
+      # are undecryptable by the delivery worker.
+      MERIDIAN_SECRET_KEY: ${MERIDIAN_SECRET_KEY:-a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e5}
       RELAY_BATCH: "200"
       CORE_API_URL: http://core-api:8080
       EMAIL_INTERNAL_TOKEN: ${EMAIL_INTERNAL_TOKEN:-dev-email-internal}
