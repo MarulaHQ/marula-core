@@ -3,7 +3,7 @@
 
 **Meridian Core API 0.1.0** — The single write surface for Project Meridian. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**453 paths · 619 operations · 891 schemas.**
+**465 paths · 634 operations · 916 schemas.**
 
 ## agent-proposals
 
@@ -101,6 +101,7 @@
 |---|---|---|---|
 | `DELETE` | `/api/v1/attachments/{id}` <a id="attachments_delete"></a> | DELETE /api/attachments/{id} — author-gated (the uploader, or an org owner/admin). The stored object is reclaimed only when no sibling row still references the same content-addressed key. | — |
 | `GET` | `/api/v1/attachments/{id}/download` <a id="attachments_download"></a> | GET /api/attachments/{id}/download — streams the stored bytes through the API behind board-view authz (no public URLs in v1). Integrity is verifiable against the recorded sha256 (`x-meridian-sha256` header). | — |
+| `POST` | `/api/v1/attachments/{id}/transcribe` <a id="attachments_transcribe"></a> | POST /api/v1/attachments/{id}/transcribe — transcribe one stored audio attachment through the org's granted `transcription` surface. | — |
 
 ## audit-events
 
@@ -243,6 +244,13 @@
 | `POST` | `/api/v1/calendar-sync/{id}/sync` <a id="calendar_sync_run"></a> | POST /api/calendar-sync/{id}/sync — poll now (manual trigger; the worker lane calls the same seam on its schedule). Network fetch happens OUTSIDE the transaction; the apply + poll-state record + event emission run inside ONE org transaction. | — |
 | `GET` | `/api/v1/calendar-sync/feed/{token}` <a id="public_calendar_sync_feed"></a> | GET /api/calendar-sync/feed/{token} — the OUTBOUND direction: the user's live appointments as a subscribable iCalendar document. Unauthenticated but token-scoped and rate-limited (the scheduling-links pattern); the token resolves org + user, then the read is org-scoped. | — |
 
+## catalog
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `POST` | `/api/v1/catalog/pricing-feeds` <a id="pricing_feed_create"></a> | POST /api/v1/catalog/pricing-feeds — upload one immutable distributor feed batch; admin/owner; then `/{batch_id}/apply` overlays pricing by lowercase SKU. | [PricingFeedBatchRequest](#schema-pricingfeedbatchrequest) |
+| `POST` | `/api/v1/catalog/pricing-feeds/{batch_id}/apply` <a id="pricing_feed_apply"></a> | POST /api/v1/catalog/pricing-feeds/{batch_id}/apply | — |
+
 ## catalog-items
 
 | Method | Path | Operation | Request body |
@@ -296,6 +304,16 @@
 | `PUT` | `/api/v1/config-items/precedence` <a id="config_items_upsert_precedence"></a> | PUT /api/config-items/precedence — a per-type/per-source precedence override (CI5). Upserts by (layout, field, source). | [UpsertPrecedenceRequest](#schema-upsertprecedencerequest) |
 | `GET` | `/api/v1/config-items/settings` <a id="config_items_get_settings"></a> | GET /api/config-items/settings — the org's auto-merge threshold. | — |
 | `PUT` | `/api/v1/config-items/settings` <a id="config_items_put_settings"></a> | PUT /api/config-items/settings — the org's auto-merge confidence threshold (CI4). | [UpdateSettingsRequest](#schema-updatesettingsrequest) |
+
+## connectors
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/connectors` <a id="connectors_index"></a> | GET /api/v1/connectors — the org's installed bridges (presence only). | — |
+| `DELETE` | `/api/v1/connectors/{kind}` <a id="connectors_remove"></a> | DELETE /api/v1/connectors/{kind} — withdraws the consent. | — |
+| `POST` | `/api/v1/connectors/{kind}` <a id="connectors_install"></a> | POST /api/v1/connectors/{kind} — the admin installs / re-consents. | [ConnectorInstallRequest](#schema-connectorinstallrequest) |
+| `POST` | `/api/v1/connectors/{kind}/test` <a id="connectors_test"></a> | POST /api/v1/connectors/{kind}/test — a provisioned canary through the adapter (slack/teams notifications; rewst trigger). | — |
+| `POST` | `/api/v1/connectors/voip/call-logs` <a id="connectors_voip_ingest"></a> | POST /api/v1/connectors/voip/call-logs — machine ingest of one call record (idempotent per provider call id). Requires the consents + the `calls.ingest` scope. | [VoipCallLogRequest](#schema-voipcalllogrequest) |
 
 ## contracts
 
@@ -578,6 +596,11 @@
 | `POST` | `/api/v1/plugins/catalog/{slug}/versions` <a id="plugin_catalog_append_version"></a> | POST /api/plugins/catalog/{slug}/versions — append a version to a live entry (revoked entries accept no new versions). | [AppendVersionRequest](#schema-appendversionrequest) |
 | `GET` | `/api/v1/plugins/distribution/agent-skills` <a id="plugin_distribution_skills_list"></a> | GET /api/plugins/distribution/agent-skills — the ACTIVE version of every org skill, with its provenance. | — |
 | `POST` | `/api/v1/plugins/distribution/agent-skills/{id}/enabled` <a id="plugin_distribution_skill_enabled"></a> | POST /api/plugins/distribution/agent-skills/{id}/enabled — the skills half's enable gate (deny-by-default: enable is an explicit owner/admin action on the active version row; version rows other than the active one are never enabled). | [RefuseStagedRequest](#schema-refusestagedrequest) |
+| `GET` | `/api/v1/plugins/distribution/publishers` <a id="plugin_distribution_publishers_list"></a> | GET /api/plugins/distribution/publishers — the org's publisher registry (vouched history included; `verified` = the active badge). | — |
+| `POST` | `/api/v1/plugins/distribution/publishers` <a id="plugin_distribution_publishers_verify"></a> | POST /api/plugins/distribution/publishers — admin vouches a publisher identity on the org's behalf (re-vouch flips a revoked row back; a double-verify conflicts). | [VerifyPublisherRequest](#schema-verifypublisherrequest) |
+| `DELETE` | `/api/v1/plugins/distribution/publishers/{id}` <a id="plugin_distribution_publishers_revoke"></a> | DELETE /api/plugins/distribution/publishers/{id} — withdraws the vouch; the badge disappears and the row persists as history. | — |
+| `GET` | `/api/v1/plugins/distribution/ratings` <a id="plugin_distribution_ratings_list"></a> | GET /api/plugins/distribution/ratings — the org's ratings, optionally narrowed to one artifact release. | — |
+| `PUT` | `/api/v1/plugins/distribution/ratings` <a id="plugin_distribution_ratings_put"></a> | PUT /api/plugins/distribution/ratings — upserts the caller's rating on one artifact release (one per user per release; re-rate wins). | [PutRatingRequest](#schema-putratingrequest) |
 | `GET` | `/api/v1/plugins/distribution/staged` <a id="plugin_distribution_staged_list"></a> | GET /api/plugins/distribution/staged — pending + terminal rows. Owners/admins see everything; plain members see only their OWN uploads (the deny-by-default staged visibility). | — |
 | `POST` | `/api/v1/plugins/distribution/staged/{id}/approve` <a id="plugin_distribution_staged_approve"></a> | POST /api/plugins/distribution/staged/{id}/approve — the owner/admin review. Approve MINTS but remains deny-by-default: a plugin adopt is created DISABLED (a public-registry source lands the SAME staged pipeline — browsing is help, not bypass); a skill lands disabled until enabled. Grants must subset the staged manifest's declared set. | [ApproveStagedRequest](#schema-approvestagedrequest) |
 | `GET` | `/api/v1/plugins/distribution/staged/{id}/consent` <a id="plugin_distribution_staged_consent"></a> | GET /api/plugins/distribution/staged/{id}/consent — the SAME consent shape for every source: declared capabilities + the manifest's settings JSON-Schema (the typed-registry render source). | — |
@@ -754,6 +777,7 @@
 | Method | Path | Operation | Request body |
 |---|---|---|---|
 | `GET` | `/api/v1/roles` <a id="roles_list"></a> | GET /api/roles — the org's roles plus the canonical preset + portal tier rosters (manager+). | — |
+| `PUT` | `/api/v1/roles/{id}` <a id="roles_update"></a> | PUT /api/roles/{id} — the custom-roles EDITOR (Wave 22): updates a custom row's name and/or permission set. Builtin presets are typed refusals (rb1) — restore is the ONLY preset-matrix mutation. | [UpdateRoleRequest](#schema-updaterolerequest) |
 | `POST` | `/api/v1/roles/{id}/fork` <a id="roles_fork"></a> | POST /api/roles/{id}/fork — duplicate a role (typically a preset) into a mutable custom copy on the same matrix. The origin row is untouched. | [ForkRoleRequest](#schema-forkrolerequest) |
 | `POST` | `/api/v1/roles/{id}/restore` <a id="roles_restore"></a> | POST /api/roles/{id}/restore — reset a preset row's permission array to the canonical shipped set (RB1: the presets stay canonical). Custom roles and forks are org-owned data and are never restorable. | [RestoreRoleRequest](#schema-restorerolerequest) |
 
@@ -1017,6 +1041,7 @@
 | `PATCH` | `/api/v1/webhooks/{id}` <a id="webhooks_update"></a> | PATCH /api/webhooks/{id} — mutate URL / filter / enabled flag. | [UpdateWebhookRequest](#schema-updatewebhookrequest) |
 | `GET` | `/api/v1/webhooks/{id}/deliveries` <a id="webhooks_deliveries_list"></a> | GET /api/webhooks/{id}/deliveries — the in-app delivery log, newest first, keyset-cursor paged. | — |
 | `POST` | `/api/v1/webhooks/{id}/test` <a id="webhooks_test_fire"></a> | POST /api/webhooks/{id}/test — fires one `webhook.test` envelope into the real pipeline (outbox → relay → stream → signed delivery), then returns 202; poll the deliveries endpoint to watch attempts land. | — |
+| `POST` | `/api/v1/webhooks/stripe` <a id="stripe_webhook_receive"></a> | stripe_webhook_receive | array |
 
 ## workflow-overrides
 
@@ -1197,6 +1222,9 @@
 | <a id="schema-conflictview"></a>`ConflictView` | object | One blocking booking named by the dry-run. |
 | <a id="schema-connectionview"></a>`ConnectionView` | object |  |
 | <a id="schema-connectorappointment"></a>`ConnectorAppointment` | object | One booking as the connector sees it. |
+| <a id="schema-connectorindexresponse"></a>`ConnectorIndexResponse` | object |  |
+| <a id="schema-connectorinstallationview"></a>`ConnectorInstallationView` | object |  |
+| <a id="schema-connectorinstallrequest"></a>`ConnectorInstallRequest` | object |  |
 | <a id="schema-connectorprofile"></a>`ConnectorProfile` | object | ADR 0009 §6 (Wave 19 lane 2): the modeled connector governance profile — WHERE the connector speaks (webhook endpoints) and what it wears outward (SaaS scopes). Structured, validated DECLARATIONS, not |
 | <a id="schema-connectorschedulequery"></a>`ConnectorScheduleQuery` | object | GET /api/dispatch-connector/schedule query. The window is bounded at 62 days so one pull cannot scan the whole calendar. |
 | <a id="schema-connectorscheduleview"></a>`ConnectorScheduleView` | object |  |
@@ -1427,6 +1455,7 @@
 | <a id="schema-listconfigitemsquery"></a>`ListConfigItemsQuery` | object |  |
 | <a id="schema-listentriesquery"></a>`ListEntriesQuery` | object |  |
 | <a id="schema-listorgusersquery"></a>`ListOrgUsersQuery` | object |  |
+| <a id="schema-listratingsquery"></a>`ListRatingsQuery` | object |  |
 | <a id="schema-listtaxonomyquery"></a>`ListTaxonomyQuery` | object |  |
 | <a id="schema-listtraveldraftsquery"></a>`ListTravelDraftsQuery` | object |  |
 | <a id="schema-loginrequest"></a>`LoginRequest` | object |  |
@@ -1529,6 +1558,11 @@
 | <a id="schema-plugininstallstatus"></a>`PluginInstallStatus` | string | Install lifecycle. Deny-by-default: `Disabled` until an explicit admin enable; `Revoked` is terminal (registry revocation or explicit revoke) — a revoked install never runs again until re-installed. |
 | <a id="schema-pluginmanifestbody"></a>`PluginManifestBody` | object | The declarative manifest as submitted. `interface_version` is server-pinned (the runtime speaks exactly one version), so a caller cannot publish an entry the runtime would refuse. |
 | <a id="schema-pluginmanifestv2"></a>`PluginManifestV2` | object | The declarative v2 plugin manifest: name/version/capabilities — a DATA document describing what a plugin IS and what it may ask for. It is never executable content: the runtime executes nothing from a |
+| <a id="schema-pluginpublisherrevoked"></a>`PluginPublisherRevoked` | object | `plugin.publisher_revoked` — the org-side vouch was withdrawn; the badge disappears and history is preserved. |
+| <a id="schema-pluginpublisherverification"></a>`PluginPublisherVerification` | object | Marketplace v2 verified-publisher registry row (Wave 22). A publisher is a NORMALIZED SOURCE IDENTITY; verification is per-org (this org vouches this publisher), admin-curated, and additive over the v |
+| <a id="schema-pluginpublisherverified"></a>`PluginPublisherVerified` | object | `plugin.publisher_verified` — Marketplace v2: an owner/admin vouched for a publisher identity on behalf of the org (per-org badge, never global). Additive over the v1 distribution surfaces. |
+| <a id="schema-pluginrating"></a>`PluginRating` | object | Marketplace v2 per-user rating on one artifact RELEASE (the `{source_kind, source_url, artifact_digest}` triple). One rating per user per release; re-rating is an upsert. |
+| <a id="schema-pluginratingrecorded"></a>`PluginRatingRecorded` | object | `plugin.rating_recorded` — Marketplace v2 social layer: one staff member's 1–5 star rating on an artifact release (upsert semantics — a re-rate wins and the event fires once per upsert). |
 | <a id="schema-pluginruntimekind"></a>`PluginRuntimeKind` | string | The plugin-side artifact vocabulary for the roster tabs (WASM vs HTTP connector). Skills are NOT in this closed set — the skill half lives on `PluginArtifactKind::Skill` in the distribution seam (0079 |
 | <a id="schema-pluginsettingsupdated"></a>`PluginSettingsUpdated` | object | `plugin.settings_updated` — a per-install config rendered FROM the pinned manifest's settings JSON-Schema changed (validated at the write boundary; no hand-authored per-plugin settings pages exist). |
 | <a id="schema-pluginsourcekind"></a>`PluginSourceKind` | string | The closed source vocabulary — every distribution adapter records the same provenance chain, typed by the kind of source it is. |
@@ -1571,6 +1605,11 @@
 | <a id="schema-presenceviewer"></a>`PresenceViewer` | object | One presence viewer on an entity (roster + roster frames). |
 | <a id="schema-presetview"></a>`PresetView` | object | The canonical definition of one shipped preset (RB1): the presets stay canonical even though every org carries its own rows — restore resets a row to this set. |
 | <a id="schema-previewquery"></a>`PreviewQuery` | object |  |
+| <a id="schema-pricingfeedapplyresponse"></a>`PricingFeedApplyResponse` | object |  |
+| <a id="schema-pricingfeedbatchrequest"></a>`PricingFeedBatchRequest` | object |  |
+| <a id="schema-pricingfeedbatchresponse"></a>`PricingFeedBatchResponse` | object |  |
+| <a id="schema-pricingfeedentryrequest"></a>`PricingFeedEntryRequest` | object |  |
+| <a id="schema-pricingfeedoutcomeview"></a>`PricingFeedOutcomeView` | object |  |
 | <a id="schema-priority"></a>`Priority` | string | Industry-standard four-tier priority. |
 | <a id="schema-project"></a>`Project` | object | A project engagement under a client (or internal when `client_id` is `None`). |
 | <a id="schema-projectinstantiateresponse"></a>`ProjectInstantiateResponse` | composite | The instantiation result: the applied project plus the expansion counts (clients render "created N phases, M tasks" without refetching). |
@@ -1592,6 +1631,7 @@
 | <a id="schema-publiclinkview"></a>`PublicLinkView` | object | What the public page needs to render the booking UI: the template's bookable shape plus a slot preview over the booking window. The horizon follows `booking_window_days`; intervals are computed in ser |
 | <a id="schema-publicprovider"></a>`PublicProvider` | object |  |
 | <a id="schema-publishcatalogentryrequest"></a>`PublishCatalogEntryRequest` | object |  |
+| <a id="schema-publisherverificationview"></a>`PublisherVerificationView` | object |  |
 | <a id="schema-publishskillrequest"></a>`PublishSkillRequest` | object |  |
 | <a id="schema-pullitem"></a>`PullItem` | object | One exported row: internal id, stable source key when the row was ever pushed under one, and the canonical projection (the SAME field catalog the push side diffs against). |
 | <a id="schema-pullpage"></a>`PullPage` | object | GET /api/migration/pull/{family} envelope. |
@@ -1623,6 +1663,7 @@
 | <a id="schema-putnotedraftrequest"></a>`PutNoteDraftRequest` | object |  |
 | <a id="schema-putoverriderequest"></a>`PutOverrideRequest` | composite | PUT body: `{ "state": "set", "value": <typed payload> }` or `{ "state": "disabled" }`, plus the instant-first parameters. |
 | <a id="schema-putpodvisibilityrequest"></a>`PutPodVisibilityRequest` | object |  |
+| <a id="schema-putratingrequest"></a>`PutRatingRequest` | object |  |
 | <a id="schema-queuedticket"></a>`QueuedTicket` | composite | One queued ticket: the day-view's queue row shape plus the explicit override when one exists. |
 | <a id="schema-queuemutationresponse"></a>`QueueMutationResponse` | object | Queue mutation envelope (set + clear share the shape; clears carry `cleared: true` and null note). |
 | <a id="schema-queuequery"></a>`QueueQuery` | object |  |
@@ -1638,6 +1679,9 @@
 | <a id="schema-ratelistquery"></a>`RateListQuery` | object |  |
 | <a id="schema-ratemutationresponse"></a>`RateMutationResponse` | composite |  |
 | <a id="schema-ratespec"></a>`RateSpec` | object | T&M rate-card row spec (hourly minor units per `work_type`). |
+| <a id="schema-ratinglistview"></a>`RatingListView` | object |  |
+| <a id="schema-ratingmineview"></a>`RatingMineView` | object |  |
+| <a id="schema-ratingsummary"></a>`RatingSummary` | object |  |
 | <a id="schema-reconciliationquery"></a>`ReconciliationQuery` | object |  |
 | <a id="schema-recordpaymentrequest"></a>`RecordPaymentRequest` | composite |  |
 | <a id="schema-recordraterequest"></a>`RecordRateRequest` | composite |  |
@@ -1803,6 +1847,7 @@
 | <a id="schema-testconnectionrequest"></a>`TestConnectionRequest` | object | Request to test the connection to an AI provider. |
 | <a id="schema-testconnectionresponse"></a>`TestConnectionResponse` | object | Result of testing an AI provider connection. |
 | <a id="schema-testfireresponse"></a>`TestFireResponse` | object |  |
+| <a id="schema-testresult"></a>`TestResult` | object |  |
 | <a id="schema-themepacklist"></a>`ThemePackList` | object |  |
 | <a id="schema-themepackview"></a>`ThemePackView` | object | One installed theme pack for the org. The `manifest` carries the FULL validated manifest snapshot (token overrides only); the ACTIVE pack is identified through the typed `appearance.theme` setting val |
 | <a id="schema-ticket"></a>`Ticket` | object |  |
@@ -1847,6 +1892,7 @@
 | <a id="schema-totpdisablerequest"></a>`TotpDisableRequest` | object |  |
 | <a id="schema-totpenrollbeginresponse"></a>`TotpEnrollBeginResponse` | object |  |
 | <a id="schema-totpenrollverifyrequest"></a>`TotpEnrollVerifyRequest` | object |  |
+| <a id="schema-transcriptionresponse"></a>`TranscriptionResponse` | object |  |
 | <a id="schema-transitionedge"></a>`TransitionEdge` | object | One directed edge in a board's explicit transition matrix. Both ids must belong to statuses of the SAME board (enforced here, and by composite FKs in storage). |
 | <a id="schema-traveldraftmutationresponse"></a>`TravelDraftMutationResponse` | composite | Mutation envelope: draft fields at the top level plus the additive `mutation` metadata (IF2). |
 | <a id="schema-traveldraftview"></a>`TravelDraftView` | object | One travel/mileage draft. |
@@ -1879,6 +1925,7 @@
 | <a id="schema-updatequoterequest"></a>`UpdateQuoteRequest` | composite | PATCH /api/quotes/{id} body — draft-only. Absent fields keep their value; `lines` present replaces the whole line list. |
 | <a id="schema-updatereportdefinitionrequest"></a>`UpdateReportDefinitionRequest` | composite | PUT /api/report-definitions/{id} body — full-replace semantics: every member is applied; `description: null` clears it. |
 | <a id="schema-updatereportschedulerequest"></a>`UpdateReportScheduleRequest` | composite | PUT /api/report-schedules/{id} body — full-replace semantics; every member is applied and the next-run preview recomputes. |
+| <a id="schema-updaterolerequest"></a>`UpdateRoleRequest` | composite |  |
 | <a id="schema-updaterulerequest"></a>`UpdateRuleRequest` | object |  |
 | <a id="schema-updateschedulerequest"></a>`UpdateScheduleRequest` | composite |  |
 | <a id="schema-updatescorecardsettingsrequest"></a>`UpdateScorecardSettingsRequest` | object |  |
@@ -1902,6 +1949,7 @@
 | <a id="schema-valueview"></a>`ValueView` | object | One effective value: registry default overlaid by any stored override. |
 | <a id="schema-vaultentryview"></a>`VaultEntryView` | object | A vault entry as the asset detail page sees it: metadata only — reveal rides the audited `/passwords/{id}/reveal` endpoint. |
 | <a id="schema-verdictresponse"></a>`VerdictResponse` | object |  |
+| <a id="schema-verifypublisherrequest"></a>`VerifyPublisherRequest` | object |  |
 | <a id="schema-verifystatus"></a>`VerifyStatus` | object |  |
 | <a id="schema-viewid"></a>`ViewId` | string | Versioned read-model views. Variant ↔ physical view name is frozen alongside the schema-version suffix; adding a view is additive. The serde encoding is the view SLUG (`snake_case`) — the same string  |
 | <a id="schema-viewlistquery"></a>`ViewListQuery` | object |  |
@@ -1909,6 +1957,8 @@
 | <a id="schema-vizhint"></a>`VizHint` | string | Visualization hint the report builder renders with (ADR 0001: Recharts bar/line/pie/table on the frontend). Pure presentation metadata — it never influences the compiled SQL. |
 | <a id="schema-voidcreditnoterequest"></a>`VoidCreditNoteRequest` | composite | POST /api/credit-notes/{id}/void body. |
 | <a id="schema-voidinvoicerequest"></a>`VoidInvoiceRequest` | composite |  |
+| <a id="schema-voipcalllogrequest"></a>`VoipCallLogRequest` | object |  |
+| <a id="schema-voipcalllogresponse"></a>`VoipCallLogResponse` | object |  |
 | <a id="schema-webauthnbeginresponse"></a>`WebauthnBeginResponse` | object |  |
 | <a id="schema-webauthncredentialinfo"></a>`WebauthnCredentialInfo` | object |  |
 | <a id="schema-webauthnloginfinishrequest"></a>`WebauthnLoginFinishRequest` | object |  |
@@ -1920,4 +1970,4 @@
 | <a id="schema-wiplimitupdate"></a>`WipLimitUpdate` | object | WIP-cap patch input (0089): `Default` (field absent) = unchanged; JSON null = clear; a number = set. serde's `Option<Option>` mapping makes a present-but-null field UNREPRESENTABLE from JSON (null fol |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 26 operation groups; schema count 891 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 26 operation groups; schema count 916 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
