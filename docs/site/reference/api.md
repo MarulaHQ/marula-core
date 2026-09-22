@@ -3,7 +3,7 @@
 
 **Meridian Core API 0.1.0** — The single write surface for Project Meridian. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**451 paths · 617 operations · 889 schemas.**
+**453 paths · 619 operations · 891 schemas.**
 
 ## agent-proposals
 
@@ -586,6 +586,8 @@
 | `POST` | `/api/v1/plugins/distribution/staged/registry` <a id="plugin_distribution_stage_registry"></a> | POST /api/plugins/distribution/staged/registry — a public marketplace registry entry (static JSON, git-tag pinned, code-signature/digest shape: the BUILD-PROMPT v1 fixture). The SERVER fetches and the adapter validates BEFORE anything registers. | [StageFromRegistryRequest](#schema-stagefromregistryrequest) |
 | `POST` | `/api/v1/plugins/distribution/staged/skill` <a id="plugin_distribution_stage_skill"></a> | POST /api/plugins/distribution/staged/skill — skills from free/open community marketplaces/repo APIs (`skill_community`: the server refetches the manifest and digest-verifies it before the row exists) and manual member uploads (`manual_upload`: inline manifest). Skill content is UNTRUSTED RAG-class data — staged, never executed. | [StageSkillRequest](#schema-stageskillrequest) |
 | `POST` | `/api/v1/plugins/distribution/staged/zip` <a id="plugin_distribution_stage_zip"></a> | POST /api/plugins/distribution/staged/zip — the local zip import. ALL the sandbox validation (manifest schema, artifact digest, size/entry caps, exactly one root manifest.json, traversal safety) runs BEFORE the row exists; the declared capability list rides into the SAME consent screen. | — |
+| `GET` | `/api/v1/plugins/distribution/theme-packs` <a id="theme_packs_list"></a> | GET /api/plugins/distribution/theme-packs — the org's installed theme packs (ADR 0009 V1 distribution; restyle-only manifests). | — |
+| `DELETE` | `/api/v1/plugins/distribution/theme-packs/{slug}` <a id="theme_packs_delete"></a> | DELETE /api/plugins/distribution/theme-packs/{slug} — uninstall. Refused while the pack is the org's active theme (repoint the typed `appearance.theme` setting first). | — |
 | `GET` | `/api/v1/plugins/installed` <a id="plugin_install_list"></a> | GET /api/plugins/installed — this org's adoptions. | — |
 | `POST` | `/api/v1/plugins/installed` <a id="plugin_install_create"></a> | POST /api/plugins/installed — adopt a catalog entry at a pinned version. Created DISABLED (deny-by-default); enabling is a separate explicit admin action. | [InstallPluginRequest](#schema-installpluginrequest) |
 | `DELETE` | `/api/v1/plugins/installed/{id}` <a id="plugin_install_delete"></a> | DELETE /api/plugins/installed/{id} — uninstall (the adoption row goes away; re-install is a fresh adoption). | — |
@@ -1801,6 +1803,8 @@
 | <a id="schema-testconnectionrequest"></a>`TestConnectionRequest` | object | Request to test the connection to an AI provider. |
 | <a id="schema-testconnectionresponse"></a>`TestConnectionResponse` | object | Result of testing an AI provider connection. |
 | <a id="schema-testfireresponse"></a>`TestFireResponse` | object |  |
+| <a id="schema-themepacklist"></a>`ThemePackList` | object |  |
+| <a id="schema-themepackview"></a>`ThemePackView` | object | One installed theme pack for the org. The `manifest` carries the FULL validated manifest snapshot (token overrides only); the ACTIVE pack is identified through the typed `appearance.theme` setting val |
 | <a id="schema-ticket"></a>`Ticket` | object |  |
 | <a id="schema-ticketboardmoveresponse"></a>`TicketBoardMoveResponse` | composite | Same additive envelope as the status endpoint (plain ticket body). |
 | <a id="schema-ticketchecklistbatchresponse"></a>`TicketChecklistBatchResponse` | composite | Batch response: full updated checklist view + the appended notes in item order so the client reconciles in one round trip. |
@@ -1916,4 +1920,4 @@
 | <a id="schema-wiplimitupdate"></a>`WipLimitUpdate` | object | WIP-cap patch input (0089): `Default` (field absent) = unchanged; JSON null = clear; a number = set. serde's `Option<Option>` mapping makes a present-but-null field UNREPRESENTABLE from JSON (null fol |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 26 operation groups; schema count 889 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 26 operation groups; schema count 891 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
