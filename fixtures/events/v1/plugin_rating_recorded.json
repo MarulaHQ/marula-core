@@ -1,0 +1,16 @@
+{
+  "event_type": "plugin.rating_recorded",
+  "entity": "plugin_rating",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "artifact_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "comment": "Solid summarizer, unchecks cues",
+    "rated_at": "2023-11-14T22:13:40Z",
+    "rated_by": "00000000-0000-0000-0000-000000000035",
+    "rating": 4,
+    "source_kind": "marketplace_registry",
+    "source_url": "registry://ticket-summarizer"
+  }
+}

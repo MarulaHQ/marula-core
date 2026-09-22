@@ -5195,6 +5195,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/plugins/distribution/publishers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/plugins/distribution/publishers — the org's publisher
+         *     registry (vouched history included; `verified` = the active badge).
+         */
+        get: operations["plugin_distribution_publishers_list"];
+        put?: never;
+        /**
+         * POST /api/plugins/distribution/publishers — admin vouches a
+         *     publisher identity on the org's behalf (re-vouch flips a revoked row
+         *     back; a double-verify conflicts).
+         */
+        post: operations["plugin_distribution_publishers_verify"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/distribution/publishers/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/plugins/distribution/publishers/{id} — withdraws the
+         *     vouch; the badge disappears and the row persists as history.
+         */
+        delete: operations["plugin_distribution_publishers_revoke"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/distribution/ratings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/plugins/distribution/ratings — the org's ratings, optionally
+         *     narrowed to one artifact release.
+         */
+        get: operations["plugin_distribution_ratings_list"];
+        /**
+         * PUT /api/plugins/distribution/ratings — upserts the caller's rating
+         *     on one artifact release (one per user per release; re-rate wins).
+         */
+        put: operations["plugin_distribution_ratings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/plugins/distribution/staged": {
         parameters: {
             query?: never;
@@ -14713,6 +14782,10 @@ export interface components {
              */
             offset?: number | null;
         };
+        ListRatingsQuery: {
+            artifact_digest?: string | null;
+            source_url?: string | null;
+        };
         ListTaxonomyQuery: {
             /**
              * @description Include retired nodes (admin editors + the manifest want them;
@@ -16035,6 +16108,105 @@ export interface components {
             version: string;
         };
         /**
+         * @description `plugin.publisher_revoked` — the org-side vouch was withdrawn;
+         *     the badge disappears and history is preserved.
+         */
+        PluginPublisherRevoked: {
+            publisher: string;
+            /** Format: date-time */
+            revoked_at: string;
+            /** Format: uuid */
+            revoked_by: string;
+            /** Format: uuid */
+            verification_id?: string | null;
+        };
+        /**
+         * @description Marketplace v2 verified-publisher registry row (Wave 22). A
+         *     publisher is a NORMALIZED SOURCE IDENTITY; verification is per-org
+         *     (this org vouches this publisher), admin-curated, and additive over
+         *     the v1 distribution formats.
+         */
+        PluginPublisherVerification: {
+            display_name: string;
+            /** Format: uuid */
+            id: string;
+            note: string;
+            /** Format: uuid */
+            org_id: string;
+            /** @description Normalized identity, e.g. `github.com/owner` or `registry://slug`. */
+            publisher: string;
+            /** Format: date-time */
+            revoked_at?: string | null;
+            /** Format: uuid */
+            revoked_by?: string | null;
+            /** @description `verified` | `revoked`. */
+            status: string;
+            /** Format: date-time */
+            verified_at: string;
+            /** Format: uuid */
+            verified_by?: string | null;
+        };
+        /**
+         * @description `plugin.publisher_verified` — Marketplace v2: an owner/admin vouched
+         *     for a publisher identity on behalf of the org (per-org badge, never
+         *     global). Additive over the v1 distribution surfaces.
+         */
+        PluginPublisherVerified: {
+            display_name: string;
+            publisher: string;
+            /** Format: uuid */
+            verification_id?: string | null;
+            /** Format: date-time */
+            verified_at: string;
+            /** Format: uuid */
+            verified_by: string;
+        };
+        /**
+         * @description Marketplace v2 per-user rating on one artifact RELEASE (the
+         *     `{source_kind, source_url, artifact_digest}` triple). One rating per
+         *     user per release; re-rating is an upsert.
+         */
+        PluginRating: {
+            /** @description sha256 hex of the artifact release. */
+            artifact_digest: string;
+            comment: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: date-time */
+            rated_at: string;
+            /** Format: uuid */
+            rated_by?: string | null;
+            /**
+             * Format: int32
+             * @description 1..=5 stars.
+             */
+            rating: number;
+            source_kind: components["schemas"]["PluginSourceKind"];
+            source_url: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /**
+         * @description `plugin.rating_recorded` — Marketplace v2 social layer: one staff
+         *     member's 1–5 star rating on an artifact release (upsert semantics —
+         *     a re-rate wins and the event fires once per upsert).
+         */
+        PluginRatingRecorded: {
+            artifact_digest: string;
+            comment: string;
+            /** Format: date-time */
+            rated_at: string;
+            /** Format: uuid */
+            rated_by: string;
+            /** Format: int32 */
+            rating: number;
+            /** @description The artifact release triple. */
+            source_kind: string;
+            source_url: string;
+        };
+        /**
          * @description The plugin-side artifact vocabulary for the roster tabs (WASM vs HTTP
          *     connector). Skills are NOT in this closed set — the skill half lives
          *     on `PluginArtifactKind::Skill` in the distribution seam (0079). Parse
@@ -16884,6 +17056,18 @@ export interface components {
              */
             slug: string;
         };
+        PublisherVerificationView: {
+            display_name: string;
+            /** Format: uuid */
+            id: string;
+            note: string;
+            publisher: string;
+            /** Format: date-time */
+            revoked_at?: string | null;
+            status: string;
+            /** Format: date-time */
+            verified_at?: string | null;
+        };
         /**
          * @description One exported row: internal id, stable source key when the row was ever
          *     pushed under one, and the canonical projection (the SAME field catalog
@@ -17229,6 +17413,19 @@ export interface components {
              */
             config: unknown;
         };
+        PutRatingRequest: {
+            /** @description sha256 hex of the artifact release the rating pins. */
+            artifact_digest: string;
+            comment?: string | null;
+            /** Format: int32 */
+            rating: number;
+            /**
+             * @description `marketplace_registry` | `github_repo` | `local_zip` |
+             *     `skill_community` | `manual_upload`.
+             */
+            source_kind: string;
+            source_url: string;
+        };
         /**
          * @description Queue mutation envelope (set + clear share the shape; clears carry
          *     `cleared: true` and null note).
@@ -17428,6 +17625,31 @@ export interface components {
             /** Format: int64 */
             rate_minor: number;
             work_type: string;
+        };
+        RatingListView: {
+            ratings: components["schemas"]["PluginRating"][];
+            /**
+             * @description Aggregate for the requested target (or the whole org list when
+             *     unfiltered — the aggregate then spans targets and is advisory).
+             */
+            summary: components["schemas"]["RatingSummary"];
+        };
+        RatingMineView: {
+            comment: string;
+            /** Format: int32 */
+            rating: number;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        RatingSummary: {
+            /** Format: double */
+            average?: number | null;
+            /**
+             * Format: int64
+             * @description Aggregated over the org: count of ratings and the mean.
+             */
+            count: number;
+            mine?: null | components["schemas"]["RatingMineView"];
         };
         ReconciliationQuery: {
             /** Format: int64 */
@@ -20508,6 +20730,15 @@ export interface components {
              */
             applied: boolean;
             reason?: string | null;
+        };
+        VerifyPublisherRequest: {
+            display_name: string;
+            note?: string | null;
+            /**
+             * @description GitHub `owner/repo` URL or bare path, `registry://slug`, or
+             *     a host (zips) — normalized server-side to the publisher identity.
+             */
+            publisher: string;
         };
         VerifyStatus: {
             email_verified: boolean;
@@ -30636,6 +30867,138 @@ export interface operations {
                 content?: never;
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_distribution_publishers_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublisherVerificationView"][];
+                };
+            };
+        };
+    };
+    plugin_distribution_publishers_verify: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VerifyPublisherRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublisherVerificationView"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_distribution_publishers_revoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublisherVerificationView"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_distribution_ratings_list: {
+        parameters: {
+            query?: {
+                source_url?: string;
+                artifact_digest?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RatingListView"];
+                };
+            };
+        };
+    };
+    plugin_distribution_ratings_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutRatingRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RatingSummary"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

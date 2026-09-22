@@ -1494,6 +1494,21 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/plugins/distribution/agent-skills/{id}/enabled"),
             post(plugin_distribution::set_skill_enabled),
         )
+        // Marketplace v2 (Wave 22): verified publishers + ratings —
+        // strictly ADDITIVE over the v1 surfaces above (reads plugins:view;
+        // publisher writes owner/admin; ratings any staff viewer).
+        .route(
+            &rp("/plugins/distribution/publishers"),
+            get(plugin_distribution::list_publishers).post(plugin_distribution::verify_publisher),
+        )
+        .route(
+            &rp("/plugins/distribution/publishers/{id}"),
+            delete(plugin_distribution::revoke_publisher),
+        )
+        .route(
+            &rp("/plugins/distribution/ratings"),
+            get(plugin_distribution::list_ratings).put(plugin_distribution::put_rating),
+        )
         .route(&rp("/calendar/week"), get(calendar::calendar_week))
         .route(&rp("/calendar/team"), get(calendar::calendar_team))
         .route(

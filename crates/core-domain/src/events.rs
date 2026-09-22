@@ -173,6 +173,12 @@ pub mod types {
     /// appends to the provenance read surface via audit.
     pub const PLUGIN_STAGED_IMPORT_CREATED: &str = "plugin.staged_import_created";
     pub const PLUGIN_STAGED_IMPORT_APPROVED: &str = "plugin.staged_import_approved";
+    /// Marketplace v2 (Wave 22): per-org verified-publisher badge minted.
+    pub const PLUGIN_PUBLISHER_VERIFIED: &str = "plugin.publisher_verified";
+    /// Marketplace v2 (Wave 22): per-org verified-publisher badge withdrawn.
+    pub const PLUGIN_PUBLISHER_REVOKED: &str = "plugin.publisher_revoked";
+    /// Marketplace v2 (Wave 22): a rating upserted on an artifact release.
+    pub const PLUGIN_RATING_RECORDED: &str = "plugin.rating_recorded";
     pub const PLUGIN_STAGED_IMPORT_REFUSED: &str = "plugin.staged_import_refused";
     pub const PLUGIN_UPDATE_PENDING: &str = "plugin.update_pending";
     pub const PLUGIN_SETTINGS_UPDATED: &str = "plugin.settings_updated";
@@ -1292,6 +1298,50 @@ pub struct PluginStagedImportRefused {
     pub review_note: Option<String>,
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
     pub refused_at: DateTime<Utc>,
+}
+
+/// `plugin.publisher_verified` — Marketplace v2: an owner/admin vouched
+/// for a publisher identity on behalf of the org (per-org badge, never
+/// global). Additive over the v1 distribution surfaces.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PluginPublisherVerified {
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub verification_id: Option<crate::ids::PluginVerificationId>,
+    pub publisher: String,
+    pub display_name: String,
+    pub verified_by: Uuid,
+    pub verified_at: DateTime<Utc>,
+}
+
+/// `plugin.publisher_revoked` — the org-side vouch was withdrawn;
+/// the badge disappears and history is preserved.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PluginPublisherRevoked {
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub verification_id: Option<crate::ids::PluginVerificationId>,
+    pub publisher: String,
+    pub revoked_by: Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub revoked_at: DateTime<Utc>,
+}
+
+/// `plugin.rating_recorded` — Marketplace v2 social layer: one staff
+/// member's 1–5 star rating on an artifact release (upsert semantics —
+/// a re-rate wins and the event fires once per upsert).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PluginRatingRecorded {
+    /// The artifact release triple.
+    pub source_kind: String,
+    pub source_url: String,
+    pub artifact_digest: String,
+    pub rating: i16,
+    pub comment: String,
+    pub rated_by: Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub rated_at: DateTime<Utc>,
 }
 
 /// `plugin.update_pending` — an update proposal is waiting on the

@@ -454,7 +454,8 @@ use core_domain::events::{
     MigrationPushSessionFinished, MigrationPushSessionStarted, NotificationCreated, OnCallChanged,
     PipelineDealCreated, PipelineDealStageChanged, PipelineDealUpdated, PipelineStageCreated,
     PipelineStageUpdated, PluginCatalogEntryCreated, PluginInstallRevoked, PluginInstallUpdated,
-    PluginInstalled, PluginSettingsUpdated, PluginStagedImportApproved, PluginStagedImportCreated,
+    PluginInstalled, PluginPublisherRevoked, PluginPublisherVerified, PluginRatingRecorded,
+    PluginSettingsUpdated, PluginStagedImportApproved, PluginStagedImportCreated,
     PluginStagedImportRefused, PluginUpdatePending, PmScheduleChanged, PmScheduleDeleted,
     PodVisibilityUpdated, ProjectCreated, ProjectMilestoneCompleted, ProjectPhaseCompleted,
     ProjectPhaseCreated, ProjectPhaseUpdated, ProjectTaskCompleted, ProjectTaskCreated,
@@ -2243,6 +2244,53 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
                 reviewed_by: su(54),
                 review_note: Some("digest did not verify".into()),
                 refused_at: st(20),
+            }
+        ),
+    },
+    // -- Marketplace v2 (Wave 22): verified publishers + ratings ------------
+    PublishedEvent {
+        event_type: types::PLUGIN_PUBLISHER_VERIFIED,
+        entity: "plugin_publisher_verification",
+        variant: "default",
+        shape: typed_shape!(
+            PluginPublisherVerified,
+            PluginPublisherVerified {
+                verification_id: Some(su(55)),
+                publisher: "github.com/meridian-labs".into(),
+                display_name: "Meridian Labs".into(),
+                verified_by: su(54),
+                verified_at: st(20),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PLUGIN_PUBLISHER_REVOKED,
+        entity: "plugin_publisher_verification",
+        variant: "default",
+        shape: typed_shape!(
+            PluginPublisherRevoked,
+            PluginPublisherRevoked {
+                verification_id: Some(su(55)),
+                publisher: "github.com/meridian-labs".into(),
+                revoked_by: su(54),
+                revoked_at: st(21),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PLUGIN_RATING_RECORDED,
+        entity: "plugin_rating",
+        variant: "default",
+        shape: typed_shape!(
+            PluginRatingRecorded,
+            PluginRatingRecorded {
+                source_kind: "marketplace_registry".into(),
+                source_url: "registry://ticket-summarizer".into(),
+                artifact_digest: "aa".repeat(32),
+                rating: 4,
+                comment: "Solid summarizer, unchecks cues".into(),
+                rated_by: su(53),
+                rated_at: st(20),
             }
         ),
     },

@@ -17,6 +17,7 @@ import { useState } from "react";
 import { api } from "../../../lib/api";
 import { reasonCopy } from "../../../lib/error-copy";
 import { ConsentSummary } from "./consent";
+import { RatingPanel, VerifiedBadge } from "./marketplace-v2";
 
 type StagedItemView = components["schemas"]["StagedItemView"];
 type ConsentView = components["schemas"]["ConsentView"];
@@ -109,6 +110,7 @@ function StagedRow({
       <div className="flex flex-wrap items-center gap-2">
         <Tag tone={STATUS_TONE[item.status] ?? "neutral"}>{item.status}</Tag>
         <span className="text-[13px] font-semibold">{item.artifact_kind}</span>
+        <VerifiedBadge sourceUrl={item.source_url} />
         <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
           {item.source_kind} · {item.source_url}
           {item.fetched_ref !== null ? ` · ${item.fetched_ref}` : ""}
@@ -197,6 +199,7 @@ function StagedRow({
           Note: {item.review_note}
         </p>
       ) : null}
+      <RatingPanel sourceUrl={item.source_url} digest={item.artifact_digest} />
     </div>
   );
 }
