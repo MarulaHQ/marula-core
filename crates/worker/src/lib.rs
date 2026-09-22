@@ -31,6 +31,7 @@ pub mod email;
 pub mod notifier;
 pub mod pm_sweep;
 pub mod queue_runner;
+pub mod rotation_sweep;
 pub mod search_indexer;
 pub mod sla_sweep;
 pub mod time;
@@ -239,6 +240,21 @@ pub async fn run(
         });
     }
 
+    // Secret-rotation reminders (Wave 19 lane 3): claims due rotate_at
+    // rows across both vault subjects, enqueues secrets.rotation jobs.
+    let rotation_alive = Arc::new(AtomicBool::new(true));
+    {
+        let alive = Arc::clone(&rotation_alive);
+        let rot_pool = pool.clone();
+        let rot_shutdown = shutdown.clone();
+        tokio::spawn(async move {
+            rotation_sweep::run_rotation_sweep(rot_pool, config.eval_interval_secs, rot_shutdown)
+                .await;
+            alive.store(false, Ordering::Relaxed);
+            tracing::error!("rotation sweep exited; reporting unhealthy");
+        });
+    }
+
     // Signed-webhook delivery consumer: event stream → matched
     // subscriptions → durable webhook.deliver jobs (processed by the
     // queue runner above).
@@ -287,6 +303,7 @@ pub async fn run(
         webhooks_alive,
         delivery_alive,
         pm_alive,
+        rotation_alive,
     };
     // Unified-search indexing: consumes domain events and pushes index
     // writes through core-api's internal effect surface. Disabled cleanly
@@ -339,6 +356,7 @@ struct HealthFlags {
     webhooks_alive: Arc<AtomicBool>,
     delivery_alive: Arc<AtomicBool>,
     pm_alive: Arc<AtomicBool>,
+    rotation_alive: Arc<AtomicBool>,
 }
 
 async fn healthz(State(flags): State<Arc<HealthFlags>>) -> Json<serde_json::Value> {
@@ -350,10 +368,11 @@ async fn healthz(State(flags): State<Arc<HealthFlags>>) -> Json<serde_json::Valu
         && flags.automations_alive.load(Ordering::Relaxed)
         && flags.webhooks_alive.load(Ordering::Relaxed)
         && flags.delivery_alive.load(Ordering::Relaxed)
-        && flags.pm_alive.load(Ordering::Relaxed);
+        && flags.pm_alive.load(Ordering::Relaxed)
+        && flags.rotation_alive.load(Ordering::Relaxed);
     if ok {
         Json(
-            json!({ "status": "ok", "relay": "alive", "email": "alive", "queue": "alive", "sla": "alive", "automations": "alive", "webhooks": "alive", "delivery": "alive", "pm": "alive" }),
+            json!({ "status": "ok", "relay": "alive", "email": "alive", "queue": "alive", "sla": "alive", "automations": "alive", "webhooks": "alive", "delivery": "alive", "pm": "alive", "rotation": "alive" }),
         )
     } else {
         Json(json!({ "status": "unhealthy" }))
@@ -376,6 +395,7 @@ mod tests {
     #[tokio::test]
     async fn healthz_reflects_the_liveness_flags() {
         let flags = HealthFlags {
+            rotation_alive: Arc::new(AtomicBool::new(true)),
             relay_alive: Arc::new(AtomicBool::new(true)),
             email_alive: Arc::new(AtomicBool::new(true)),
             time_alive: Arc::new(AtomicBool::new(true)),

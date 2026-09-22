@@ -181,6 +181,9 @@ async fn settle_job<S: DeliverySink, E: EffectApi>(
         // through core-api's normal ticket-creation path; the pm_runs
         // ledger makes replays inert.
         "pm.generate" => "/api/internal/pm/generate",
+        // Secret-rotation reminders (Wave 19 lane 3): the internal
+        // surface owns the notification + `secret.rotation_due` event.
+        "secrets.rotation" => "/api/internal/secrets/rotation",
         "automation.effects" => "/api/internal/effects",
         // Staged import batches (TASKLIST D2 remainder): the runner replays
         // the batch's ObjectStore chunks through core-api's commit path.

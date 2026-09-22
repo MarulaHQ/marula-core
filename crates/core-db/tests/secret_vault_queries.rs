@@ -369,6 +369,7 @@ async fn records_crud_with_sealed_fields_and_scope_equality() {
         None,
         None,
         None,
+        None,
         &sealed,
         owner,
     )
@@ -400,6 +401,7 @@ async fn records_crud_with_sealed_fields_and_scope_equality() {
         fixed_uuid(7820),
         core_domain::entities::SecretRecordKind::Password,
         "Scoping Target",
+        None,
         None,
         None,
         None,
@@ -481,6 +483,7 @@ async fn importer_maps_shipped_passwords_forward_without_cutover() {
         &[9u8, 9, 9],
         Some(&[8u8, 8]),
         None,
+        None,
         fixed_uuid(7822),
     )
     .await
@@ -494,6 +497,7 @@ async fn importer_maps_shipped_passwords_forward_without_cutover() {
         "svc2",
         "https://client.example",
         &[7u8, 7, 7],
+        None,
         None,
         None,
         fixed_uuid(7822),
@@ -659,6 +663,7 @@ async fn rls_scopes_folders_records_and_cross_org() {
         None,
         None,
         None,
+        None,
         &[],
         owner,
     )
@@ -707,4 +712,148 @@ async fn rls_scopes_folders_records_and_cross_org() {
     assert!(org_b_folder.is_err(), "RLS: A's folder invisible in B");
     let org_b_record = secret_vault::get_record(&mut tx_b, org_b, fixed_uuid(7832)).await;
     assert!(org_b_record.is_err(), "RLS: B sees no A record rows");
+}
+
+// --- Wave 19 lane 3: rotation sweep claim + share-link claim SQL ---------------
+
+/// The worker rotation sweep (share_links::claim_due_rotation): the
+/// stamp IS the claim, so a row due-and-unreminded loads exactly once
+/// per schedule; a row whose marker already passed the CURRENT deadline
+/// re-arms only after `rotate_at` moves forward. Also proves the
+/// non-schedulable rows (rotate_at NULL) never load.
+
+#[tokio::test]
+async fn rotation_sweep_claims_once_and_rearms() {
+    let db = test_db().await;
+    let app = db.app.clone();
+    let (org, _roles) = seed_org_at(&db, 7840, "rotation-sweep").await;
+    let mut tx = org_tx(&app, org).await;
+    let folder = secret_vault::list_all_org_folders(&mut tx, org)
+        .await
+        .expect("folders")
+        .into_iter()
+        .find(|f| f.client_id.is_none())
+        .expect("an org-scope folder exists");
+    // Past-due AND never-rotated ⇒ due.
+    secret_vault::create_record(
+        &mut tx,
+        org,
+        None,
+        folder.id,
+        fixed_uuid(7841),
+        core_domain::entities::SecretRecordKind::Password,
+        "Rotation sweep past due 7841",
+        None,
+        Some(past(7841)),
+        None,
+        None,
+        None,
+        &[],
+        fixed_uuid(7880),
+    )
+    .await
+    .expect("due record");
+    // Scheduled-but-future ⇒ healthy, never due.
+    secret_vault::create_record(
+        &mut tx,
+        org,
+        None,
+        folder.id,
+        fixed_uuid(7842),
+        core_domain::entities::SecretRecordKind::Password,
+        "Rotation sweep future 7842",
+        None,
+        Some(future(7842)),
+        None,
+        None,
+        None,
+        &[],
+        fixed_uuid(7880),
+    )
+    .await
+    .expect("future record");
+    // No rotation schedule at all ⇒ invisible to the sweep.
+    secret_vault::create_record(
+        &mut tx,
+        org,
+        None,
+        folder.id,
+        fixed_uuid(7843),
+        core_domain::entities::SecretRecordKind::Password,
+        "Rotation sweep unset 7843",
+        None,
+        None,
+        None,
+        None,
+        None,
+        &[],
+        fixed_uuid(7880),
+    )
+    .await
+    .expect("unscheduled record");
+    tx.commit().await.expect("commit seeds");
+
+    let claims = core_db::share_links::claim_due_rotation(&db.admin, 200)
+        .await
+        .expect("sweep claim");
+    assert_eq!(
+        claims.len(),
+        1,
+        "exactly the past-due row loads: {claims:?}"
+    );
+    assert_eq!(claims[0].subject_id, fixed_uuid(7841));
+    assert_eq!(
+        claims[0].subject_kind,
+        core_domain::entities::ShareSubjectKind::SecretRecord
+    );
+    let empty = core_db::share_links::claim_due_rotation(&db.admin, 200)
+        .await
+        .expect("second sweep");
+    assert!(empty.is_empty(), "the stamp is the claim — no double-send");
+
+    // Re-arm only on a forward `rotate_at` move (update_record stamps
+    // last_rotated_at in the same write; the marker comparison then
+    // uses the NEW deadline).
+    let mut tx = org_tx(&app, org).await;
+    let rearm = secret_vault::update_record(
+        &mut tx,
+        org,
+        fixed_uuid(7841),
+        "Rotation sweep past due 7841",
+        None,
+        Some(Some(future_7843())),
+        &[],
+        fixed_uuid(7880),
+    )
+    .await
+    .expect("re-schedule");
+    assert!(
+        rearm.last_rotated_at.is_some(),
+        "forward move stamps the ledger"
+    );
+    tx.commit().await.expect("commit re-schedule");
+    // The NEW deadline is in the future, so the sweep stays silent.
+    let claims = core_db::share_links::claim_due_rotation(&db.admin, 200)
+        .await
+        .expect("re-armed sweep");
+    assert!(claims.is_empty(), "re-armed rows stay quiet until due");
+}
+
+/// Instant helpers for the rotation sweep rows (past/future instants
+/// relative to now — real DB clock drives the sweep).
+fn past(secs: u64) -> chrono::DateTime<chrono::Utc> {
+    chrono::Utc::now() - chrono::Duration::seconds((3600 + secs) as i64)
+}
+
+fn future(secs: u64) -> chrono::DateTime<chrono::Utc> {
+    chrono::Utc::now() + chrono::Duration::seconds((3600 * 24 + secs) as i64)
+}
+
+fn future_7843() -> chrono::DateTime<chrono::Utc> {
+    future(7843)
+}
+
+#[allow(dead_code)]
+fn past_instant_7841() -> chrono::DateTime<chrono::Utc> {
+    past(7841)
 }

@@ -23,6 +23,8 @@ fn row(r: sqlx::postgres::PgRow) -> PasswordEntry {
         username: r.get("username"),
         url: r.get("url"),
         expires_at: r.get("expires_at"),
+        rotate_at: r.get("rotate_at"),
+        last_rotated_at: r.get("last_rotated_at"),
         has_notes: r.get::<Option<Vec<u8>>, _>("notes_ciphertext").is_some(),
         created_by: r.get("created_by"),
         updated_by: r.get("updated_by"),
@@ -31,7 +33,7 @@ fn row(r: sqlx::postgres::PgRow) -> PasswordEntry {
     }
 }
 
-const COLS: &str = "id, org_id, client_id, title, username, url, expires_at, notes_ciphertext, created_by, updated_by, created_at, updated_at";
+const COLS: &str = "id, org_id, client_id, title, username, url, expires_at, rotate_at, last_rotated_at, notes_ciphertext, created_by, updated_by, created_at, updated_at";
 
 #[derive(Debug, Default, Clone)]
 pub struct PasswordFilter {
@@ -115,14 +117,15 @@ pub async fn create_password<'e, E>(
     secret_ciphertext: &[u8],
     notes_ciphertext: Option<&[u8]>,
     expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    rotate_at: Option<chrono::DateTime<chrono::Utc>>,
     actor: Uuid,
 ) -> DbResult<PasswordEntry>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     let r = sqlx::query(&format!(
-        "INSERT INTO passwords (id, org_id, client_id, title, username, url, secret_ciphertext, notes_ciphertext, expires_at, created_by, updated_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
+        "INSERT INTO passwords (id, org_id, client_id, title, username, url, secret_ciphertext, notes_ciphertext, expires_at, rotate_at, created_by, updated_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
          RETURNING {COLS}"
     ))
     .bind(id)
@@ -134,6 +137,7 @@ where
     .bind(secret_ciphertext)
     .bind(notes_ciphertext)
     .bind(expires_at)
+    .bind(rotate_at)
     .bind(actor)
     .fetch_one(executor)
     .await?;
@@ -154,6 +158,7 @@ pub async fn update_password(
     new_secret: Option<&[u8]>,
     new_notes: Option<Option<&[u8]>>,
     expires_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
+    rotate_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
     actor: Uuid,
 ) -> DbResult<PasswordEntry> {
     // Archive the outgoing ciphertext whenever the secret changes.
@@ -177,6 +182,12 @@ pub async fn update_password(
            secret_ciphertext = COALESCE($6, secret_ciphertext),
            notes_ciphertext = CASE WHEN $7::bool THEN $8 ELSE notes_ciphertext END,
            expires_at = CASE WHEN $9::bool THEN $10 ELSE expires_at END,
+           rotate_at = CASE WHEN $12::bool THEN $13 ELSE rotate_at END,
+           -- Moving the schedule stamps the rotation ledger (Wave 19
+           -- lane 3): a fresh rotate_at IS a rotation of the entry; the
+           -- sealed bytes rotate through the normal history path when
+           -- new_secret rides along.
+           last_rotated_at = CASE WHEN $12::bool THEN now() ELSE last_rotated_at END,
            updated_by = $11,
            updated_at = now()
          WHERE org_id = $1 AND id = $2
@@ -193,6 +204,8 @@ pub async fn update_password(
     .bind(expires_at.is_some())
     .bind(expires_at.flatten())
     .bind(actor)
+    .bind(rotate_at.is_some())
+    .bind(rotate_at.flatten())
     .fetch_optional(executor)
     .await?
     .map(row)

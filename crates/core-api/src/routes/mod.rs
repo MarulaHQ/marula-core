@@ -106,6 +106,7 @@ pub mod scheduling;
 pub mod scheduling_links;
 pub mod scorecards;
 pub mod search;
+pub mod secret_share;
 pub mod secrets;
 pub mod settings;
 pub mod similar_tickets;
@@ -330,6 +331,10 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // through core-api, never direct DB writes).
         .route(&rp("/internal/sla/verdict"), post(internal::sla_verdict))
         .route(&rp("/internal/pm/generate"), post(internal::pm_generate))
+        .route(
+            &rp("/internal/secrets/rotation"),
+            post(internal::rotation_notify),
+        )
         .route(&rp("/internal/effects"), post(internal::effects))
         .route(
             &rp("/internal/time/gap-audit/run"),
@@ -984,6 +989,28 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/secrets/records/{id}/links"),
             get(secrets::list_record_links).post(secrets::add_record_link),
+        )
+        // one-time share links (Wave 19 lane 3)
+        .route(
+            &rp("/secrets/records/{id}/share-links"),
+            get(secret_share::list_record_share_links).post(secret_share::create_record_share_link),
+        )
+        .route(
+            &rp("/secrets/records/{id}/share-links/{share_id}"),
+            axum::routing::delete(secret_share::delete_record_share_link),
+        )
+        .route(
+            &rp("/passwords/{id}/share-links"),
+            get(secret_share::list_password_share_links)
+                .post(secret_share::create_password_share_link),
+        )
+        .route(
+            &rp("/passwords/{id}/share-links/{share_id}"),
+            axum::routing::delete(secret_share::delete_password_share_link),
+        )
+        .route(
+            &rp("/secrets/share-links/claim"),
+            post(secret_share::claim_share_link),
         )
         .route(
             &rp("/secrets/grants"),

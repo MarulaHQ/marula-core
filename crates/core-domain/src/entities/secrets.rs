@@ -173,6 +173,13 @@ pub struct SecretRecord {
     pub kind: SecretRecordKind,
     pub title: String,
     pub expires_at: Option<DateTime<Utc>>,
+    /// Operator-scheduled rotation due date (Wave 19 lane 3) — additive
+    /// on 0078's record shape; the worker sweep reminds once past it.
+    #[serde(default)]
+    pub rotate_at: Option<DateTime<Utc>>,
+    /// Stamped by the same update that moves `rotate_at` forward.
+    #[serde(default)]
+    pub last_rotated_at: Option<DateTime<Utc>>,
     /// Document-kind files ride object storage as ciphertext with
     /// pointer+hash rows — never material blobs in this table.
     #[serde(default)]
@@ -212,6 +219,91 @@ pub struct SecretReveal {
 pub struct SecretRevealField {
     pub field_key: String,
     pub value: String,
+}
+
+/// Which vault subject a share link or rotation refers to. One-time
+/// share links cover BOTH the native secret records and the legacy byte-
+/// compatible password entries; rotation mirrors the same pair.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum ShareSubjectKind {
+    /// A native `SecretRecord` (secret_records, 0078).
+    SecretRecord,
+    /// A legacy `PasswordEntry` (the shipped vault surface).
+    Password,
+}
+
+impl ShareSubjectKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ShareSubjectKind::SecretRecord => "secret_record",
+            ShareSubjectKind::Password => "password",
+        }
+    }
+}
+
+/// A one-time share link row (`secret_share_links`, migration 0096).
+/// The token NEVER round-trips here: the DB stores a SHA-256 hash and
+/// the raw token exists exactly once, inside the create response
+/// (`SecretShareLinkCreated`). Scoped to the org, expiring by
+/// `expires_at`, single-use by construction (transactional claim),
+/// audited through `audit_events` at every lifecycle step.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SecretShareLink {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub id: Uuid,
+    /// Which vault subject the link shares (ids/title only — never the
+    /// material).
+    pub subject_kind: ShareSubjectKind,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub subject_id: Uuid,
+    pub label: String,
+    /// Long absolute URL is composed client-side off the claim token;
+    /// responses here carry none of it.
+    pub expires_at: DateTime<Utc>,
+    /// Non-NULL only while the link is dead-by-creator (revoked links
+    /// can never have been consumed — the row CHECK keeps the pair
+    /// exclusive).
+    pub revoked_at: Option<DateTime<Utc>>,
+    /// Consumed exactly once: the claim's stamp; `consumed_by` is the
+    /// claiming org user (the claimer must belong to the sharing org).
+    pub consumed_at: Option<DateTime<Utc>>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub consumed_by: Option<UserId>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub created_by: Option<UserId>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// The create response — the ONLY place the raw token exists on the
+/// wire; the URL is resolved by the web app at `/{app}/share?token=…`.
+/// (Named `Issued` because `SecretShareLinkCreated` is the domain-EVENT
+/// payload's struct; this is the HTTP response.)
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SecretShareLinkIssued {
+    /// The one-time token, verbatim — never stored server-side (SHA-256
+    /// only).
+    pub token: String,
+    /// Composed from the token: `?token=...` for the consumer surface.
+    pub link_path: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub id: Uuid,
+    pub expires_at: DateTime<Utc>,
+    pub label: String,
+}
+
+/// Request body for creating a one-time share link: label is optional
+/// provenance, expiry is required (bounded validity is the offer).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct CreateSecretShareLink {
+    pub label: String,
+    /// RFC 3339 instant; the server clamps sanity floors (past values
+    /// are typed-refused, never silently clamped).
+    pub expires_at: DateTime<Utc>,
 }
 
 /// A role × folder category grant (`secret_category_grants`). Grants are

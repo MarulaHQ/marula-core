@@ -191,6 +191,8 @@ fn record_row(r: sqlx::postgres::PgRow) -> SecretRecord {
             .unwrap_or(SecretRecordKind::Password),
         title: r.get("title"),
         expires_at: r.get("expires_at"),
+        rotate_at: r.get("rotate_at"),
+        last_rotated_at: r.get("last_rotated_at"),
         object_key: r.get("object_key"),
         file_sha256: r.get("file_sha256"),
         file_bytes: r.get("file_bytes"),
@@ -554,7 +556,7 @@ pub async fn list_org_records(
     org_id: Uuid,
     folder_id: Option<Uuid>,
 ) -> DbResult<Vec<SecretRecord>> {
-    let sql = "SELECT id, org_id, client_id, folder_id, kind::text AS kind, title, expires_at, object_key, file_sha256, file_bytes, created_by, updated_by, created_at, updated_at
+    let sql = "SELECT id, org_id, client_id, folder_id, kind::text AS kind, title, expires_at, rotate_at, last_rotated_at, object_key, file_sha256, file_bytes, created_by, updated_by, created_at, updated_at
                FROM secret_records sr
                WHERE sr.org_id = $1
                  AND ($2::uuid IS NULL OR sr.folder_id = $2)
@@ -576,7 +578,7 @@ pub async fn list_client_records(
     client_id: Uuid,
     folder_id: Option<Uuid>,
 ) -> DbResult<Vec<SecretRecord>> {
-    let sql = "SELECT id, org_id, client_id, folder_id, kind::text AS kind, title, expires_at, object_key, file_sha256, file_bytes, created_by, updated_by, created_at, updated_at
+    let sql = "SELECT id, org_id, client_id, folder_id, kind::text AS kind, title, expires_at, rotate_at, last_rotated_at, object_key, file_sha256, file_bytes, created_by, updated_by, created_at, updated_at
                FROM secret_records sr
                WHERE sr.client_id = $1
                  AND ($2::uuid IS NULL OR sr.folder_id = $2)
@@ -612,7 +614,7 @@ async fn attach_fields(
 /// One record + metadata-only field views; only inside the org.
 pub async fn get_record(conn: &mut PgConnection, org_id: Uuid, id: Uuid) -> DbResult<SecretRecord> {
     let scope = in_org_scope("sr", 1);
-    let sql = "SELECT id, org_id, client_id, folder_id, kind::text AS kind, title, expires_at, object_key, file_sha256, file_bytes, created_by, updated_by, created_at, updated_at
+    let sql = "SELECT id, org_id, client_id, folder_id, kind::text AS kind, title, expires_at, rotate_at, last_rotated_at, object_key, file_sha256, file_bytes, created_by, updated_by, created_at, updated_at
                FROM secret_records sr
                WHERE sr.id = $2 AND ".to_string() + &scope;
     let r = sqlx::query(&sql)
@@ -644,6 +646,7 @@ pub async fn create_record(
     kind: SecretRecordKind,
     title: &str,
     expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    rotate_at: Option<chrono::DateTime<chrono::Utc>>,
     object_key: Option<&str>,
     file_sha256: Option<&str>,
     file_bytes: Option<i64>,
@@ -666,9 +669,9 @@ pub async fn create_record(
     }
     sqlx::query(
         "INSERT INTO secret_records
-           (id, org_id, client_id, folder_id, kind, title, expires_at,
+           (id, org_id, client_id, folder_id, kind, title, expires_at, rotate_at,
             object_key, file_sha256, file_bytes, created_by, updated_by)
-         VALUES ($2, $1, $3, $4, $5::secret_record_kind, $6, $7, $8, $9, $10, $11, $11)",
+         VALUES ($2, $1, $3, $4, $5::secret_record_kind, $6, $7, $8, $9, $10, $11, $12, $12)",
     )
     .bind(org_id)
     .bind(id)
@@ -677,6 +680,7 @@ pub async fn create_record(
     .bind(kind.as_str())
     .bind(title)
     .bind(expires_at)
+    .bind(rotate_at)
     .bind(object_key)
     .bind(file_sha256)
     .bind(file_bytes)
@@ -705,13 +709,14 @@ pub async fn create_record(
 /// Updates metadata + sealed fields. Field semantics mirror the shipped
 /// password surface: absent key ignored; `Some(None)` clears; `Some`
 /// bytes replaces (rotate). Returns the fresh record.
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub async fn update_record(
     conn: &mut PgConnection,
     org_id: Uuid,
     id: Uuid,
     title: &str,
     expires_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
+    rotate_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
     field_updates: &[(String, Option<Vec<u8>>)],
     actor: Uuid,
 ) -> DbResult<SecretRecord> {
@@ -719,6 +724,10 @@ pub async fn update_record(
         "UPDATE secret_records SET
            title = $3,
            expires_at = CASE WHEN $4::bool THEN $5 ELSE expires_at END,
+           rotate_at = CASE WHEN $7::bool THEN $8 ELSE rotate_at END,
+           -- Moving the schedule stamps the rotation ledger (Wave 19
+           -- lane 3): a fresh rotate_at IS a rotation of the record.
+           last_rotated_at = CASE WHEN $7::bool THEN now() ELSE last_rotated_at END,
            updated_by = $6,
            updated_at = now()
          WHERE id = $2 AND org_id = $1",
@@ -729,6 +738,8 @@ pub async fn update_record(
     .bind(expires_at.is_some())
     .bind(expires_at.flatten())
     .bind(actor)
+    .bind(rotate_at.is_some())
+    .bind(rotate_at.flatten())
     .execute(&mut *conn)
     .await?;
     if r.rows_affected() == 0 {

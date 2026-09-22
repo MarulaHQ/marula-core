@@ -79,6 +79,7 @@ pub mod search;
 pub mod search_pins;
 pub mod secret_vault;
 pub mod settings;
+pub mod share_links;
 pub mod sla;
 pub mod tags;
 pub mod taxonomy;

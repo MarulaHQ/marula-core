@@ -378,6 +378,16 @@ pub mod types {
     pub const SECRET_REVEALED: &str = "secret.revealed";
     pub const SECRET_GRANT_UPDATED: &str = "secret.grant_updated";
     pub const SECRET_GRANT_DELETED: &str = "secret.grant_deleted";
+    /// Wave 19 lane 3: the worker rotation sweep reminded once past a
+    /// record's `rotate_at` (at-most-once per schedule; rotation state
+    /// update clears the marker).
+    pub const SECRET_ROTATION_DUE: &str = "secret.rotation_due";
+    /// Wave 19 lane 3: a one-time share link was created (token NEVER
+    /// on the wire here — the create response carries it exactly once).
+    pub const SECRET_SHARE_LINK_CREATED: &str = "secret.share_link_created";
+    /// Wave 19 lane 3: a one-time share link was claimed exactly once;
+    /// payloads carry ids/titles only.
+    pub const SECRET_SHARE_LINK_CLAIMED: &str = "secret.share_link_claimed";
     /// Asset taxonomy on the docs-platform (Wave 11 lane 5, migration
     /// 0054): typed asset instances ride `device_assets` +
     /// `document_layouts`. Payloads ride the untyped additive pattern (the
@@ -2513,6 +2523,53 @@ pub struct SecretGrantDeleted {
     pub role_id: uuid::Uuid,
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub folder_id: uuid::Uuid,
+}
+
+/// `secret.rotation_due` — the worker rotation sweep claimed a record's
+/// `rotate_at` past-now slot (at-most-once: the same UPDATE stamps
+/// `rotation_reminded_at`). Payloads carry ids/titles only. Automation
+/// rules and webhooks can hook this event on the single event stream.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SecretRotationDue {
+    /// `secret_record` or `password` (the legacy byte-compatible entry).
+    pub subject_kind: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub subject_id: uuid::Uuid,
+    pub title: String,
+    /// The scheduled instant the reminder fired for (RFC 3339).
+    pub rotate_at: String,
+}
+
+/// `secret.share_link_created` — a one-time share link came into being.
+/// No token, no secret: the generate step returns the raw token exactly
+/// once in the create RESPONSE; every durable surface stores a hash.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SecretShareLinkCreated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub share_id: uuid::Uuid,
+    /// `secret_record` or `password`.
+    pub subject_kind: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub subject_id: uuid::Uuid,
+    pub title: String,
+    pub expires_at: String,
+}
+
+/// `secret.share_link_claimed` — the audited consume rail: exactly one
+/// claimer resolved the link and reached the material. Payloads carry
+/// ids/titles only (the same posture as `secret.revealed`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SecretShareLinkClaimed {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub share_id: uuid::Uuid,
+    /// `secret_record` or `password`.
+    pub subject_kind: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub subject_id: uuid::Uuid,
+    pub title: String,
 }
 
 /// `agent_skill.created` / `agent_skill.updated` default — the original
