@@ -8,10 +8,11 @@
 //! (routes), capability meaning (core-domain crate).
 
 use crate::{DbError, DbResult};
+use chrono::{DateTime, Utc};
 use core_domain::entities::agent_skills::{AgentSkillVersion, SkillManifest};
 use core_domain::entities::plugins::{
-    PluginArtifactKind, PluginProvenanceEntry, PluginSourceKind, PluginStagedItem,
-    PluginStagedStatus,
+    PluginArtifactKind, PluginProvenanceEntry, PluginPublisherVerification, PluginRating,
+    PluginSourceKind, PluginStagedItem, PluginStagedStatus,
 };
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
@@ -646,4 +647,198 @@ pub async fn latest_provenance(
     .await?
     .ok_or(DbError::NotFound)?;
     row_to_provenance(&row)
+}
+
+// --- Marketplace v2 (Wave 22): verified publishers + ratings ---------------
+
+const PUBLISHER_COLS: &str = "id, org_id, publisher, display_name, status, \
+     verified_by, verified_at, revoked_at, revoked_by, note";
+
+fn row_to_publisher(row: &sqlx::postgres::PgRow) -> DbResult<PluginPublisherVerification> {
+    let model = PluginPublisherVerification {
+        id: row.get("id"),
+        org_id: row.get("org_id"),
+        publisher: row.get("publisher"),
+        display_name: row.get("display_name"),
+        status: row.get("status"),
+        verified_by: row.get("verified_by"),
+        verified_at: row.get("verified_at"),
+        revoked_at: row.get("revoked_at"),
+        revoked_by: row.get("revoked_by"),
+        note: row.get("note"),
+    };
+    model
+        .validate()
+        .map_err(|e| DbError::Conflict(e.to_string()))?;
+    Ok(model)
+}
+
+/// Inserts a new publisher verification row (status flips ride UPDATE).
+pub async fn create_publisher_verification(
+    tx: &mut PgConnection,
+    model: &PluginPublisherVerification,
+) -> DbResult<()> {
+    sqlx::query(
+        "INSERT INTO plugin_publisher_verifications
+           (id, org_id, publisher, display_name, status, verified_by, verified_at, revoked_at,
+            revoked_by, note)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+    )
+    .bind(model.id)
+    .bind(model.org_id)
+    .bind(model.publisher.trim())
+    .bind(model.display_name.trim())
+    .bind(&model.status)
+    .bind(model.verified_by)
+    .bind(model.verified_at)
+    .bind(model.revoked_at)
+    .bind(model.revoked_by)
+    .bind(&model.note)
+    .execute(&mut *tx)
+    .await?;
+    Ok(())
+}
+
+pub async fn list_publisher_verifications<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    active_only: bool,
+) -> DbResult<Vec<PluginPublisherVerification>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let sql = format!(
+        "SELECT {PUBLISHER_COLS} FROM plugin_publisher_verifications
+         WHERE org_id = $1 AND ($2::boolean IS FALSE OR status = 'verified')
+         ORDER BY verified_at DESC"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(active_only)
+        .fetch_all(executor)
+        .await?;
+    rows.iter().map(row_to_publisher).collect()
+}
+
+/// Finds the verification row for one normalized publisher identity.
+pub async fn get_publisher_by_identity(
+    executor: &mut PgConnection,
+    org_id: Uuid,
+    publisher: &str,
+) -> DbResult<PluginPublisherVerification> {
+    let sql = format!(
+        "SELECT {PUBLISHER_COLS} FROM plugin_publisher_verifications
+         WHERE org_id = $1 AND publisher = $2"
+    );
+    sqlx::query(&sql)
+        .bind(org_id)
+        .bind(publisher)
+        .fetch_optional(&mut *executor)
+        .await?
+        .ok_or(DbError::NotFound)
+        .and_then(|r| row_to_publisher(&r))
+}
+
+/// Flips the verification state of one row (`verified` | `revoked`).
+/// Revocation stamps the revocation envelope; re-verification clears it.
+pub async fn set_publisher_status(
+    tx: &mut PgConnection,
+    org_id: Uuid,
+    id: Uuid,
+    status: &str,
+    actor: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<()> {
+    let (revoked_at, revoked_by, display) = match status {
+        "verified" => (None, None, "verified"),
+        "revoked" => (Some(now), actor, "revoked"),
+        other => return Err(DbError::Conflict(format!("unknown status {other:?}"))),
+    };
+    let updated = sqlx::query(
+        "UPDATE plugin_publisher_verifications
+         SET status = $3, revoked_at = $4, revoked_by = $5
+         WHERE org_id = $1 AND id = $2",
+    )
+    .bind(org_id)
+    .bind(id)
+    .bind(display)
+    .bind(revoked_at)
+    .bind(revoked_by)
+    .execute(&mut *tx)
+    .await?;
+    if updated.rows_affected() == 0 {
+        return Err(DbError::NotFound);
+    }
+    Ok(())
+}
+
+const RATING_COLS: &str = "id, org_id, source_kind::text AS source_kind, source_url, \
+     artifact_digest, rating, comment, rated_by, rated_at, updated_at";
+
+fn row_to_rating(row: &sqlx::postgres::PgRow) -> DbResult<PluginRating> {
+    let kind = parse_source_kind(row.get("source_kind"))?;
+    Ok(PluginRating {
+        id: row.get("id"),
+        org_id: row.get("org_id"),
+        source_kind: kind,
+        source_url: row.get("source_url"),
+        artifact_digest: row.get("artifact_digest"),
+        rating: row.get("rating"),
+        comment: row.get("comment"),
+        rated_by: row.get("rated_by"),
+        rated_at: row.get("rated_at"),
+        updated_at: row.get("updated_at"),
+    })
+}
+
+/// Upserts the caller's rating on one artifact release (re-rate wins).
+pub async fn upsert_rating(tx: &mut PgConnection, model: &PluginRating) -> DbResult<()> {
+    sqlx::query(
+        "INSERT INTO plugin_ratings
+           (id, org_id, source_kind, source_url, artifact_digest, rating, comment, rated_by,
+            rated_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+         ON CONFLICT (org_id, rated_by, source_url, artifact_digest) DO UPDATE
+         SET rating = EXCLUDED.rating,
+             comment = EXCLUDED.comment,
+             updated_at = EXCLUDED.updated_at",
+    )
+    .bind(model.id)
+    .bind(model.org_id)
+    .bind(model.source_kind.as_str())
+    .bind(&model.source_url)
+    .bind(&model.artifact_digest)
+    .bind(model.rating)
+    .bind(&model.comment)
+    .bind(model.rated_by)
+    .bind(model.rated_at)
+    .execute(&mut *tx)
+    .await?;
+    Ok(())
+}
+
+/// Lists the org's ratings, optionally narrowed to one artifact release.
+pub async fn list_ratings<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    source_url: Option<&str>,
+    artifact_digest: Option<&str>,
+) -> DbResult<Vec<PluginRating>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let sql = format!(
+        "SELECT {RATING_COLS} FROM plugin_ratings
+         WHERE org_id = $1
+           AND ($2::text IS NULL OR source_url = $2)
+           AND ($3::text IS NULL OR artifact_digest = $3)
+         ORDER BY updated_at DESC LIMIT 500"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(source_url.map(str::trim).filter(|s| !s.is_empty()))
+        .bind(artifact_digest.map(str::trim).filter(|s| !s.is_empty()))
+        .fetch_all(executor)
+        .await?;
+    rows.iter().map(row_to_rating).collect()
 }

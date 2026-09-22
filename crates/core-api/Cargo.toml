@@ -16,6 +16,8 @@ serial_test = "3"
 # (public API contract) against this router — test-only edge; the
 # connector never imports the core.
 ci-feeders = { path = "../../connectors/ci-feeders" }
+app-bridges = { path = "../../connectors/app-bridges" }
+
 
 [[bin]]
 name = "core-api"
@@ -31,6 +33,7 @@ core-db = { path = "../core-db" }
 core-decision = { path = "../core-decision" }
 core-domain = { path = "../core-domain", features = ["openapi"] }
 plugin-host = { path = "../plugin-host" }
+app-bridges = { path = "../../connectors/app-bridges" }
 core-billing = { path = "../core-billing" }
 core-documents = { path = "../core-documents" }
 core-kb = { path = "../core-kb" }

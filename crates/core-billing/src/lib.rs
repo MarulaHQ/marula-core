@@ -23,7 +23,8 @@ pub mod periods;
 pub mod rules;
 
 pub use payments::{
-    ChargeReceipt, ChargeRequest, NonePaymentProvider, PaymentError, PaymentProvider,
+    ChargeReceipt, ChargeRequest, NonePaymentProvider, PaymentDeclinedCode, PaymentError,
+    PaymentProvider, StripePaymentProvider,
 };
 pub use periods::{period_start, periods_starting_in};
 pub use rules::{evaluate, BillableEntry, BillingError};

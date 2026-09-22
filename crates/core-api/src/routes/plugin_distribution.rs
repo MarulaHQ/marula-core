@@ -46,11 +46,13 @@ use axum::{
 use core_domain::entities::agent_skills::AgentSkillVersion;
 use core_domain::entities::{
     ConsentDiff, PluginArtifactKind, PluginCapability, PluginCatalogEntry, PluginInstall,
-    PluginInstallStatus, PluginManifestV2, PluginProvenanceEntry, PluginSourceKind,
-    PluginStagedItem, PluginStagedStatus, PluginVersion, PLUGIN_RUNTIME_INTERFACE_VERSION,
+    PluginInstallStatus, PluginManifestV2, PluginProvenanceEntry, PluginPublisherVerification,
+    PluginRating, PluginSourceKind, PluginStagedItem, PluginStagedStatus, PluginVersion,
+    PLUGIN_RUNTIME_INTERFACE_VERSION,
 };
 use core_domain::events::{
-    types, PluginSettingsUpdated, PluginStagedImportApproved, PluginStagedImportCreated,
+    types, PluginPublisherRevoked, PluginPublisherVerified, PluginRatingRecorded,
+    PluginSettingsUpdated, PluginStagedImportApproved, PluginStagedImportCreated,
     PluginStagedImportRefused, PluginUpdatePending,
 };
 use core_domain::policy::{Action, Module, Permission};
@@ -1901,4 +1903,518 @@ impl From<AgentSkillVersion> for SkillVersionView {
             created_at: v.created_at,
         }
     }
+}
+
+// --- Marketplace v2 (Wave 22): verified publishers + ratings ------------------------
+
+/// Normalizes a publisher source identity: `registry://slug` verbatim;
+/// `github.com/{owner}/{repo}` collapses to `github.com/{owner}` (the
+/// publisher is the owner, not one repo); any bare URL collapses to its
+/// host (zip uploads are vouched per host). Empty results are refusals.
+fn normalize_publisher(publisher: &str) -> ApiResult<String> {
+    let value = publisher.trim().to_lowercase();
+    if value.is_empty() {
+        return Err(ApiError::Validation(
+            "a publisher identity is required".into(),
+        ));
+    }
+    if let Some(slug) = value
+        .strip_prefix("registry://")
+        .filter(|s| validate_repo_component(s).is_ok())
+    {
+        return Ok(format!("registry://{slug}"));
+    }
+    let no_scheme = value
+        .strip_prefix("https://")
+        .or_else(|| value.strip_prefix("http://"))
+        .unwrap_or(&value)
+        .trim_matches('/');
+    let mut parts = no_scheme.split('/');
+    let host = parts
+        .next()
+        .ok_or_else(|| ApiError::Validation("the publisher identity is not a URL".into()))?;
+    let owner = parts.next().unwrap_or("");
+    if host == "github.com" {
+        if owner.is_empty() {
+            return Err(ApiError::Validation(
+                "github.com needs an owner path".into(),
+            ));
+        }
+        validate_repo_component(owner)?;
+        return Ok(format!("github.com/{owner}"));
+    }
+    // Host-only identity for everything else (zip contributors and
+    // unknown hosts vouch at host granularity).
+    if host.contains('/') || host.is_empty() || host.len() > 253 {
+        return Err(ApiError::Validation(
+            "the publisher identity is not a URL".into(),
+        ));
+    }
+    if !host
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+    {
+        return Err(ApiError::Validation(
+            "the publisher host is not a valid hostname".into(),
+        ));
+    }
+    Ok(host.to_string())
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct VerifyPublisherRequest {
+    /// GitHub `owner/repo` URL or bare path, `registry://slug`, or
+    /// a host (zips) — normalized server-side to the publisher identity.
+    pub publisher: String,
+    pub display_name: String,
+    #[schema(value_type = Option<String>)]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct PublisherVerificationView {
+    #[schema(value_type = uuid::Uuid)]
+    pub id: Uuid,
+    pub publisher: String,
+    pub display_name: String,
+    pub status: String,
+    #[schema(value_type = Option<String>, format = "date-time")]
+    pub verified_at: chrono::DateTime<chrono::Utc>,
+    #[schema(value_type = Option<String>, format = "date-time")]
+    pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub note: String,
+}
+
+impl From<PluginPublisherVerification> for PublisherVerificationView {
+    fn from(v: PluginPublisherVerification) -> Self {
+        Self {
+            id: v.id,
+            publisher: v.publisher,
+            display_name: v.display_name,
+            status: v.status,
+            verified_at: v.verified_at,
+            revoked_at: v.revoked_at,
+            note: v.note,
+        }
+    }
+}
+
+/// GET /api/plugins/distribution/publishers — the org's publisher
+/// registry (vouched history included; `verified` = the active badge).
+#[utoipa::path(operation_id = "plugin_distribution_publishers_list", get, path = "/api/plugins/distribution/publishers", tag = "plugins", security(("bearer" = [])),
+    responses((status = 200, body = [PublisherVerificationView])))]
+pub async fn list_publishers(
+    State(state): State<AppState>,
+    extensions: Extensions,
+) -> ApiResult<Json<Vec<PublisherVerificationView>>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, plugins(Action::View))?;
+    let org_id = authed.principal.user.org_id;
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org(&mut tx, org_id).await?;
+    let rows =
+        core_db::plugin_distribution::list_publisher_verifications(&mut *tx, org_id, false).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(rows.into_iter().map(Into::into).collect()))
+}
+
+/// POST /api/plugins/distribution/publishers — admin vouches a
+/// publisher identity on the org's behalf (re-vouch flips a revoked row
+/// back; a double-verify conflicts).
+#[utoipa::path(operation_id = "plugin_distribution_publishers_verify", post, path = "/api/plugins/distribution/publishers", tag = "plugins", security(("bearer" = [])),
+    request_body = VerifyPublisherRequest,
+    responses((status = 200, body = PublisherVerificationView), (status = 409)))]
+pub async fn verify_publisher(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Json(req): Json<VerifyPublisherRequest>,
+) -> ApiResult<Json<PublisherVerificationView>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_plugin_admin(&authed)?;
+    let actor = authed.principal.user.id;
+    let org_id = authed.principal.user.org_id;
+    let publisher = normalize_publisher(&req.publisher)?;
+    let display_name = req.display_name.trim().to_string();
+    if display_name.is_empty() || display_name.len() > 200 {
+        return Err(ApiError::Validation(
+            "display_name is required (max 200 chars)".into(),
+        ));
+    }
+    let now = chrono::Utc::now();
+    let row = org_tx::with_org_tx(&state, org_id, actor, |mut tx| async move {
+        let created = match core_db::plugin_distribution::get_publisher_by_identity(
+            &mut tx.tx, org_id, &publisher,
+        )
+        .await
+        {
+            Ok(existing) => {
+                if existing.status == "verified" {
+                    return Err(ApiError::Conflict(format!(
+                        "{publisher} is already verified by this org"
+                    )));
+                }
+                core_db::plugin_distribution::set_publisher_status(
+                    &mut tx.tx,
+                    org_id,
+                    existing.id,
+                    "verified",
+                    Some(actor),
+                    now,
+                )
+                .await?;
+                core_db::plugin_distribution::get_publisher_by_identity(
+                    &mut tx.tx, org_id, &publisher,
+                )
+                .await?
+            }
+            Err(core_db::DbError::NotFound) => {
+                let model = PluginPublisherVerification {
+                    id: Uuid::now_v7(),
+                    org_id,
+                    publisher: publisher.clone(),
+                    display_name: display_name.clone(),
+                    status: "verified".into(),
+                    verified_by: Some(actor),
+                    verified_at: now,
+                    revoked_at: None,
+                    revoked_by: None,
+                    note: req.note.clone().unwrap_or_default(),
+                };
+                model
+                    .validate()
+                    .map_err(|e| ApiError::Validation(e.to_string()))?;
+                core_db::plugin_distribution::create_publisher_verification(&mut tx.tx, &model)
+                    .await?;
+                model
+            }
+            Err(e) => return Err(e.into()),
+        };
+        core_db::audit::insert(
+            &mut *tx.tx,
+            &core_domain::entities::AuditEvent {
+                id: Uuid::now_v7(),
+                org_id,
+                actor: core_domain::entities::Actor::Human(actor),
+                action: "plugin.publisher_verified".into(),
+                entity_type: Some("plugin_publisher_verification".into()),
+                entity_id: Some(created.id.to_string()),
+                detail: serde_json::json!({
+                    "publisher": publisher,
+                    "display_name": display_name,
+                }),
+                ip: None,
+                occurred_at: now,
+            },
+        )
+        .await?;
+        tx.emit(
+            types::PLUGIN_PUBLISHER_VERIFIED,
+            "plugin_publisher_verification",
+            Some(created.id.to_string().as_str()),
+            &serde_json::to_value(PluginPublisherVerified {
+                verification_id: Some(created.id),
+                publisher: publisher.clone(),
+                display_name,
+                verified_by: actor,
+                verified_at: now,
+            })
+            .unwrap_or(serde_json::Value::Null),
+        )
+        .await?;
+        Ok((tx, created))
+    })
+    .await?;
+    Ok(Json(row.into()))
+}
+
+/// DELETE /api/plugins/distribution/publishers/{id} — withdraws the
+/// vouch; the badge disappears and the row persists as history.
+#[utoipa::path(operation_id = "plugin_distribution_publishers_revoke", delete, path = "/api/plugins/distribution/publishers/{id}", tag = "plugins", security(("bearer" = [])),
+    params(("id" = uuid::Uuid, Path)),
+    responses((status = 200, body = PublisherVerificationView), (status = 404)))]
+pub async fn revoke_publisher(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<PublisherVerificationView>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_plugin_admin(&authed)?;
+    let actor = authed.principal.user.id;
+    let org_id = authed.principal.user.org_id;
+    let now = chrono::Utc::now();
+    let existing = {
+        let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+        core_db::set_org(&mut tx, org_id).await?;
+        let row =
+            core_db::plugin_distribution::list_publisher_verifications(&mut *tx, org_id, false)
+                .await?
+                .into_iter()
+                .find(|v| v.id == id)
+                .ok_or(ApiError::NotFound)?;
+        tx.commit().await.map_err(ApiError::from)?;
+        row
+    };
+    if existing.status == "revoked" {
+        return Err(ApiError::Conflict("the vouch is already withdrawn".into()));
+    }
+    let revoked_publisher = existing.publisher.clone();
+    let revoked_publisher_ref = revoked_publisher.clone();
+    org_tx::with_org_tx(&state, org_id, actor, move |mut tx| async move {
+        core_db::plugin_distribution::set_publisher_status(
+            &mut tx.tx,
+            org_id,
+            id,
+            "revoked",
+            Some(actor),
+            now,
+        )
+        .await?;
+        core_db::audit::insert(
+            &mut *tx.tx,
+            &core_domain::entities::AuditEvent {
+                id: Uuid::now_v7(),
+                org_id,
+                actor: core_domain::entities::Actor::Human(actor),
+                action: "plugin.publisher_revoked".into(),
+                entity_type: Some("plugin_publisher_verification".into()),
+                entity_id: Some(id.to_string()),
+                detail: serde_json::json!({ "publisher": revoked_publisher.clone() }),
+                ip: None,
+                occurred_at: now,
+            },
+        )
+        .await?;
+        tx.emit(
+            types::PLUGIN_PUBLISHER_REVOKED,
+            "plugin_publisher_verification",
+            Some(id.to_string().as_str()),
+            &serde_json::to_value(PluginPublisherRevoked {
+                verification_id: Some(id),
+                publisher: revoked_publisher.clone(),
+                revoked_by: actor,
+                revoked_at: now,
+            })
+            .unwrap_or(serde_json::Value::Null),
+        )
+        .await?;
+        Ok((tx, ()))
+    })
+    .await?;
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org(&mut tx, org_id).await?;
+    let refreshed = core_db::plugin_distribution::get_publisher_by_identity(
+        &mut tx,
+        org_id,
+        &revoked_publisher_ref,
+    )
+    .await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(refreshed.into()))
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct ListRatingsQuery {
+    #[schema(value_type = Option<String>)]
+    pub source_url: Option<String>,
+    #[schema(value_type = Option<String>)]
+    pub artifact_digest: Option<String>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct RatingSummary {
+    /// Aggregated over the org: count of ratings and the mean.
+    pub count: i64,
+    #[schema(value_type = Option<f64>)]
+    pub average: Option<f64>,
+    /// The caller's own rating on this target, when one exists.
+    #[schema(value_type = Option<RatingMineView>)]
+    pub mine: Option<RatingMineView>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct RatingMineView {
+    pub rating: i16,
+    pub comment: String,
+    #[schema(value_type = String, format = "date-time")]
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct RatingListView {
+    pub ratings: Vec<PluginRating>,
+    /// Aggregate for the requested target (or the whole org list when
+    /// unfiltered — the aggregate then spans targets and is advisory).
+    pub summary: RatingSummary,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct PutRatingRequest {
+    /// `marketplace_registry` | `github_repo` | `local_zip` |
+    /// `skill_community` | `manual_upload`.
+    pub source_kind: String,
+    pub source_url: String,
+    /// sha256 hex of the artifact release the rating pins.
+    pub artifact_digest: String,
+    pub rating: i16,
+    #[schema(value_type = Option<String>)]
+    pub comment: Option<String>,
+}
+
+/// GET /api/plugins/distribution/ratings — the org's ratings, optionally
+/// narrowed to one artifact release.
+#[utoipa::path(operation_id = "plugin_distribution_ratings_list", get, path = "/api/plugins/distribution/ratings", tag = "plugins", security(("bearer" = [])),
+    params(("source_url" = Option<String>, Query), ("artifact_digest" = Option<String>, Query)),
+    responses((status = 200, body = RatingListView)))]
+pub async fn list_ratings(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    axum::extract::Query(q): axum::extract::Query<ListRatingsQuery>,
+) -> ApiResult<Json<RatingListView>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, plugins(Action::View))?;
+    let org_id = authed.principal.user.org_id;
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org(&mut tx, org_id).await?;
+    let rows = core_db::plugin_distribution::list_ratings(
+        &mut *tx,
+        org_id,
+        q.source_url.as_deref(),
+        q.artifact_digest.as_deref(),
+    )
+    .await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(rating_view(rows, &authed.principal.user.id)))
+}
+
+fn rating_view(rows: Vec<core_domain::entities::PluginRating>, caller: &Uuid) -> RatingListView {
+    let count = rows.len() as i64;
+    let mean = if count == 0 {
+        None
+    } else {
+        Some(rows.iter().map(|r| f64::from(r.rating)).sum::<f64>() / f64::from(count as u32))
+    };
+    let mine = rows
+        .iter()
+        .find(|r| r.rated_by == Some(*caller))
+        .map(|r| RatingMineView {
+            rating: r.rating,
+            comment: r.comment.clone(),
+            updated_at: r.updated_at,
+        });
+    RatingListView {
+        summary: RatingSummary {
+            count,
+            average: mean,
+            mine,
+        },
+        ratings: rows,
+    }
+}
+
+/// PUT /api/plugins/distribution/ratings — upserts the caller's rating
+/// on one artifact release (one per user per release; re-rate wins).
+#[utoipa::path(operation_id = "plugin_distribution_ratings_put", put, path = "/api/plugins/distribution/ratings", tag = "plugins", security(("bearer" = [])),
+    request_body = PutRatingRequest,
+    responses((status = 200, body = RatingSummary), (status = 400), (status = 409)))]
+pub async fn put_rating(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Json(req): Json<PutRatingRequest>,
+) -> ApiResult<Json<RatingSummary>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, plugins(Action::View))?;
+    let actor = authed.principal.user.id;
+    let org_id = authed.principal.user.org_id;
+    let source_kind = PluginSourceKind::parse(&req.source_kind)
+        .ok_or_else(|| ApiError::Validation("unknown source_kind for the rated artifact".into()))?;
+    let digest = req.artifact_digest.trim().to_lowercase();
+    if !core_domain::entities::plugins::is_sha256_hex(&digest) {
+        return Err(ApiError::Validation(
+            "artifact_digest must be a sha256 hex digest".into(),
+        ));
+    }
+    let source_url = req.source_url.trim().to_string();
+    let source_url_query = source_url.clone();
+    let digest_query = digest.clone();
+    if source_url.is_empty() || source_url.len() > 500 {
+        return Err(ApiError::Validation("source_url is required".into()));
+    }
+    let comment = req.comment.unwrap_or_default();
+    if comment.len() > 2000 {
+        return Err(ApiError::Validation(
+            "comment must be at most 2000 chars".into(),
+        ));
+    }
+    let now = chrono::Utc::now();
+    let model = PluginRating {
+        id: Uuid::now_v7(),
+        org_id,
+        source_kind,
+        source_url: source_url.clone(),
+        artifact_digest: digest.clone(),
+        rating: req.rating,
+        comment: comment.clone(),
+        rated_by: Some(actor),
+        rated_at: now,
+        updated_at: now,
+    };
+    model
+        .validate()
+        .map_err(|e| ApiError::Validation(e.to_string()))?;
+    let rating = model.rating;
+    org_tx::with_org_tx(&state, org_id, actor, |mut tx| async move {
+        core_db::plugin_distribution::upsert_rating(&mut tx.tx, &model).await?;
+        core_db::audit::insert(
+            &mut *tx.tx,
+            &core_domain::entities::AuditEvent {
+                id: Uuid::now_v7(),
+                org_id,
+                actor: core_domain::entities::Actor::Human(actor),
+                action: "plugin.rating_recorded".into(),
+                entity_type: Some("plugin_rating".into()),
+                entity_id: Some(model.id.to_string()),
+                detail: serde_json::json!({
+                    "source_kind": source_kind.as_str(),
+                    "source_url": source_url,
+                    "artifact_digest": digest,
+                    "rating": rating,
+                }),
+                ip: None,
+                occurred_at: now,
+            },
+        )
+        .await?;
+        tx.emit(
+            types::PLUGIN_RATING_RECORDED,
+            "plugin_rating",
+            Some(model.id.to_string().as_str()),
+            &serde_json::to_value(PluginRatingRecorded {
+                source_kind: source_kind.as_str().into(),
+                source_url: source_url.clone(),
+                artifact_digest: digest,
+                rating,
+                comment: comment.clone(),
+                rated_by: actor,
+                rated_at: now,
+            })
+            .unwrap_or(serde_json::Value::Null),
+        )
+        .await?;
+        Ok((tx, ()))
+    })
+    .await?;
+    let rows = {
+        let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+        core_db::set_org(&mut tx, org_id).await?;
+        let rows = core_db::plugin_distribution::list_ratings(
+            &mut *tx,
+            org_id,
+            Some(&source_url_query),
+            Some(&digest_query),
+        )
+        .await?;
+        tx.commit().await.map_err(ApiError::from)?;
+        rows
+    };
+    Ok(Json(rating_view(rows, &actor).summary))
 }

@@ -523,3 +523,113 @@ fn portal_tier_roster() -> Vec<PortalTierView> {
         ),
     ]
 }
+
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
+pub struct UpdateRoleRequest {
+    #[schema(value_type = Option<String>)]
+    pub name: Option<String>,
+    #[schema(value_type = Option<Vec<String>>, max_items = 64)]
+    pub permissions: Option<Vec<String>>,
+    #[serde(flatten)]
+    pub instant: instant::MutationParams,
+}
+
+/// PUT /api/roles/{id} — the custom-roles EDITOR (Wave 22): updates a
+/// custom row's name and/or permission set. Builtin presets are typed
+/// refusals (rb1) — restore is the ONLY preset-matrix mutation.
+#[utoipa::path(operation_id = "roles_update", put, path = "/api/roles/{id}", tag = "org-users", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    request_body = UpdateRoleRequest,
+    responses((status = 200, body = RoleMutationResponse),
+              (status = 403, description = "builtin_role_immutable"),
+              (status = 404),
+              (status = 422, description = "validation failure")))]
+pub async fn update(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdateRoleRequest>,
+) -> ApiResult<Json<RoleMutationResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, manage_roles())?;
+    let org_id = authed.principal.user.org_id;
+    let actor_id = authed.principal.user.id;
+    let view = org_tx::with_org_tx(&state, org_id, actor_id, |mut ctx| async move {
+        let origin = core_db::roles::get_role(&mut *ctx.tx, org_id, id)
+            .await
+            .map_err(ApiError::from)?;
+        if origin.builtin.is_some() {
+            return Err(ApiError::Forbidden(
+                "BUILTIN_ROLE_IMMUTABLE: fork the preset instead — the shipped presets stay canonical (RB1)".into(),
+            ));
+        }
+        if let Some(name) = req.name.as_deref() {
+            let name = name.trim();
+            if name.is_empty() || name.len() > 64 {
+                return Err(ApiError::Validation(
+                    "role name is required (1..=64 characters)".into(),
+                ));
+            }
+        }
+        if let Some(perms) = req.permissions.as_ref() {
+            if perms.len() > core_domain::policy::Module::ALL.len() * core_domain::policy::Action::ALL.len() {
+                return Err(ApiError::Validation(
+                    "the permission set exceeds the full matrix".into(),
+                ));
+            }
+        }
+        core_db::roles::update_custom_role(
+            &mut ctx.tx,
+            org_id,
+            id,
+            req.name.as_deref(),
+            req.permissions.as_ref(),
+        )
+        .await
+        .map_err(ApiError::from)?;
+        core_db::audit::insert(
+            &mut *ctx.tx,
+            &AuditEvent {
+                id: Uuid::now_v7(),
+                org_id,
+                actor: Actor::Human(actor_id),
+                action: "role.updated".into(),
+                entity_type: Some(ENTITY.into()),
+                entity_id: Some(id.to_string()),
+                detail: serde_json::json!({
+                    "name": req.name,
+                    "permission_count": req.permissions.as_ref().map(|p| p.len()),
+                }),
+                ip: None,
+                occurred_at: chrono::Utc::now(),
+            },
+        )
+        .await?;
+        let seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec { entity: ENTITY, entity_id: id, version: None },
+        )
+        .await?;
+        let refreshed = core_db::roles::get_role(&mut *ctx.tx, org_id, id).await.map_err(ApiError::from)?;
+        let view = RoleView::from_entry(refreshed, 0);
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: ENTITY,
+                entity_id: view.id,
+                op: "update",
+                seq,
+                before: None,
+                after: serde_json::to_value(&view).unwrap_or(Value::Null),
+                updated_at: chrono::Utc::now(),
+                key: req.instant.idempotency_key.as_deref(),
+                payload: &view,
+                provenance: Default::default(),
+            },
+        )
+        .await?;
+        Ok((ctx, RoleMutationResponse { role: view, mutation }))
+    })
+    .await?;
+    Ok(Json(view))
+}

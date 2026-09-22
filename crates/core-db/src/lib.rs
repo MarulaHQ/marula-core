@@ -45,6 +45,7 @@ pub mod federation;
 pub mod fx;
 pub mod hardening;
 pub mod imports;
+pub mod integrations;
 pub mod invoices;
 pub mod kb;
 pub mod kb_rich;

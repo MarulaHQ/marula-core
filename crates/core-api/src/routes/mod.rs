@@ -47,6 +47,7 @@ pub mod attachments;
 pub mod audit;
 pub mod availability;
 pub mod billing;
+pub mod billing_provider;
 pub mod board_access;
 pub mod boards;
 pub mod byok;
@@ -75,6 +76,7 @@ pub mod events;
 pub mod export;
 pub mod fx;
 pub mod imports;
+pub mod integrations;
 pub mod internal;
 pub mod invoices;
 pub mod kb;
@@ -111,6 +113,7 @@ pub mod secrets;
 pub mod settings;
 pub mod similar_tickets;
 pub mod sla_admin;
+pub mod stripe_webhook;
 pub mod tags;
 pub mod taxonomy;
 pub mod templates;
@@ -119,6 +122,7 @@ pub mod ticket_links;
 pub mod tickets;
 pub mod time;
 pub mod timers;
+pub mod transcription;
 pub mod undo;
 pub mod webhook_admin;
 pub mod webhooks;
@@ -426,7 +430,34 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .merge(scheduling_links::public_routes(gen))
         // Calendar sync (Wave 14 lane 2): the unauthenticated, token-
         // scoped OUTBOUND feed — the external calendar subscribes to it.
-        .merge(calendar_sync::public_routes(gen));
+        .merge(calendar_sync::public_routes(gen))
+        // Stripe webhook receiver (Wave 22): unauthenticated by design —
+        // the Stripe-Signature HMAC is the auth; the handler rejects
+        // typed 403 without a valid signature or configured secret.
+        .route(&rp("/webhooks/stripe"), post(stripe_webhook::receive))
+        // Ecosystem connectors (Wave 22): Slack/Teams/Rewst/VoIP over the
+        // connector_installations consent seam; installs + tests are
+        // owner/admin.
+        .route(&rp("/connectors"), get(integrations::index))
+        .route(
+            &rp("/connectors/{kind}"),
+            post(integrations::install).delete(integrations::remove),
+        )
+        .route(&rp("/connectors/{kind}/test"), post(integrations::test))
+        .route(
+            &rp("/connectors/voip/call-logs"),
+            post(integrations::voip_ingest),
+        )
+        // Distributor pricing feeds (Wave 22): immutable batches, typed
+        // overlay publisher.
+        .route(
+            &rp("/catalog/pricing-feeds"),
+            post(integrations::create_feed),
+        )
+        .route(
+            &rp("/catalog/pricing-feeds/{batch_id}/apply"),
+            post(integrations::apply_feed),
+        );
 
     let protected = Router::new()
         .route(&rp("/me"), get(auth_handlers::me))
@@ -511,6 +542,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // role directory + preset lifecycle (Wave 13 lane 6, RB1): the
         // shipped presets are data rows; fork/restore ride the envelope.
         .route(&rp("/roles"), get(roles::list))
+        .route(&rp("/roles/{id}"), put(roles::update))
         .route(&rp("/roles/{id}/fork"), post(roles::fork))
         .route(&rp("/roles/{id}/restore"), post(roles::restore))
         .route(
@@ -723,6 +755,13 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/attachments/{id}"),
             axum::routing::delete(attachments::remove),
+        )
+        // Transcription edge (Wave 22): the ADR 0008 registered
+        // `transcription` plugin surface — audio attachments only, the
+        // shared AI admission pipeline gates every call.
+        .route(
+            &rp("/attachments/{id}/transcribe"),
+            post(transcription::transcribe_attachment),
         )
         .route(
             &rp("/tickets/{id}/checklist"),
@@ -1493,6 +1532,21 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/plugins/distribution/agent-skills/{id}/enabled"),
             post(plugin_distribution::set_skill_enabled),
+        )
+        // Marketplace v2 (Wave 22): verified publishers + ratings —
+        // strictly ADDITIVE over the v1 surfaces above (reads plugins:view;
+        // publisher writes owner/admin; ratings any staff viewer).
+        .route(
+            &rp("/plugins/distribution/publishers"),
+            get(plugin_distribution::list_publishers).post(plugin_distribution::verify_publisher),
+        )
+        .route(
+            &rp("/plugins/distribution/publishers/{id}"),
+            delete(plugin_distribution::revoke_publisher),
+        )
+        .route(
+            &rp("/plugins/distribution/ratings"),
+            get(plugin_distribution::list_ratings).put(plugin_distribution::put_rating),
         )
         .route(&rp("/calendar/week"), get(calendar::calendar_week))
         .route(&rp("/calendar/team"), get(calendar::calendar_team))

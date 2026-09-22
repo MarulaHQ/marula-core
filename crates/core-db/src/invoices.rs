@@ -707,6 +707,32 @@ where
     Ok(())
 }
 
+/// Idempotence guard for PSCallback-style settlements (Wave 22 Stripe
+/// webhook): whether ONE payment already carries `provider_ref` on this
+/// invoice — a redelivered event finds this true and does nothing.
+pub async fn payment_exists_for_ref<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    invoice_id: Uuid,
+    provider_ref: &str,
+) -> DbResult<bool>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query_scalar!(
+        r#"SELECT EXISTS(
+             SELECT 1 FROM invoice_payments
+             WHERE org_id = $1 AND invoice_id = $2 AND provider_ref = $3
+           ) AS "exists!""#,
+        org_id,
+        invoice_id,
+        provider_ref,
+    )
+    .fetch_one(executor)
+    .await?;
+    Ok(row)
+}
+
 /// Applies a recorded payment to the invoice's paid total, flipping the
 /// status to `paid` on settlement. Returns `None` when the invoice is
 /// not in an issued state (payments only land on issued invoices).

@@ -29,7 +29,7 @@ use core_domain::entities::Attachment;
 use core_domain::events::{types, AttachmentAdded, AttachmentDeleted};
 use core_domain::policy::{Action, BoardOp, Module, Permission};
 /// Tickets-module permission shorthand (mirrors the sibling lane files).
-fn tickets(action: Action) -> Permission {
+pub fn tickets(action: Action) -> Permission {
     Permission::Matrix {
         module: Module::Tickets,
         action,

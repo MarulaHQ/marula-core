@@ -45,6 +45,7 @@ import {
 import type { components } from "@meridian/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
+import { RoleMatrixEditor, type EditableRole } from "./role-editor";
 import { ConfirmDestructive, SaveBar, SettingsHeader } from "../../../components/settings/settings-shell";
 import { OFFLINE_RETRY_COPY, reasonCopy } from "../../../lib/error-copy";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
@@ -245,6 +246,33 @@ export default function TeamSettingsPage() {
       setRoleActionError(result.message ?? "The restore was rejected.");
       return;
     }
+    void fetchRoles();
+  };
+
+  // --- Wave 22 advanced custom-roles editor state ------------------------
+  const [editingRole, setEditingRole] = useState<EditableRole | null>(null);
+  const [roleSaveBusy, setRoleSaveBusy] = useState(false);
+  const [roleSaveError, setRoleSaveError] = useState<string | null>(null);
+
+  /** PUT /api/v1/roles/{id} — name + permission set for CUSTOM rows. */
+  const saveRole = async (role: EditableRole) => {
+    setRoleSaveBusy(true);
+    setRoleSaveError(null);
+    const { error, response } = await api.api.PUT("/api/v1/roles/{id}", {
+      params: { path: { id: role.id } },
+      body: { name: role.name, permissions: role.permissions },
+    });
+    setRoleSaveBusy(false);
+    if (error !== undefined) {
+      const envelope = (error as { error?: { reason?: string; message?: string } } | undefined)?.error;
+      setRoleSaveError(
+        envelope?.reason === "builtin_role_immutable"
+          ? "Preset roles stay canonical — fork it into a custom copy instead."
+          : envelope?.message ?? `The save was refused (${response?.status ?? 0}).`,
+      );
+      return;
+    }
+    setEditingRole(null);
     void fetchRoles();
   };
 
@@ -683,6 +711,70 @@ export default function TeamSettingsPage() {
                 })}
               </tbody>
             </Table>
+            <div>
+              <h3 className="text-[13px] font-semibold">Custom roles</h3>
+              <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+                Forks and originals you minted — the matrix editor edits these directly; presets stay canonical
+                (fork instead).
+              </p>
+            </div>
+            {(() => {
+              const customRoles = (rolesData.roles ?? []).filter((r) => !r.builtin);
+              if (customRoles.length === 0) {
+                return (
+                  <p className="text-[12px]" style={{ color: "var(--m-text-muted)" }} data-testid="no-custom-roles">
+                    No custom roles yet — duplicate a preset above to mint one.
+                  </p>
+                );
+              }
+              return customRoles.map((r) => {
+                const editable: EditableRole =
+                  editingRole?.id === r.id
+                    ? editingRole
+                    : {
+                        id: r.id,
+                        name: r.name,
+                        permissions: Array.isArray(r.permissions) ? (r.permissions as string[]) : [],
+                      };
+                const grants = Array.isArray(r.permissions) ? (r.permissions as unknown[]).length : 0;
+                return editingRole?.id === r.id ? (
+                  <RoleMatrixEditor
+                    key={r.id}
+                    role={editable}
+                    busy={roleSaveBusy}
+                    busyError={roleSaveError}
+                    onCancel={() => setEditingRole(null)}
+                    onSave={(next) => void saveRole(next)}
+                    onChange={setEditingRole}
+                  />
+                ) : (
+                  <div
+                    key={r.id}
+                    className="flex items-center gap-2 rounded-lg border p-2.5"
+                    style={{ borderColor: "var(--m-border)" }}
+                    data-testid={`custom-role-row-${r.name}`}
+                  >
+                    <span className="text-[13px] font-medium">{r.name}</span>
+                    <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+                      {grants} grant{grants === 1 ? "" : "s"} · {r.holders ?? 0} member
+                      {(r.holders ?? 0) === 1 ? "" : "s"}
+                    </span>
+                    {canManageRoles ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="ml-auto"
+                        disabled={roleSaveBusy}
+                        onClick={() => setEditingRole(editable)}
+                        data-testid={`role-edit-${r.name}`}
+                      >
+                        Edit
+                      </Button>
+                    ) : null}
+                  </div>
+                );
+              });
+            })()}
             <div>
               <h3 className="text-[13px] font-semibold">Portal tiers</h3>
               <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>

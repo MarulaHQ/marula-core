@@ -54,6 +54,8 @@ pub type CalendarSyncEventId = Uuid;
 pub type PluginCatalogEntryId = Uuid;
 /// An org's install (adoption) of a catalog entry.
 pub type PluginInstallId = Uuid;
+/// Marketplace v2: the verified-publisher registry row id.
+pub type PluginVerificationId = Uuid;
 pub type CalendarId = Uuid;
 pub type ProjectId = Uuid;
 pub type PhaseId = Uuid;
