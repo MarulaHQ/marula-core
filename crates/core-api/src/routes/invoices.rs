@@ -45,7 +45,7 @@ use axum::{
     http::Extensions,
     Json,
 };
-use core_billing::{ChargeRequest, NonePaymentProvider, PaymentProvider};
+use core_billing::ChargeRequest;
 use core_domain::entities::{
     BillingCandidateLine, BillingLineKind, ContractType, DunningState, Invoice, InvoiceLine,
     InvoicePayment, InvoiceRun, InvoiceStatus,
@@ -1147,10 +1147,12 @@ pub async fn record_payment(
             )));
         }
 
-        // The seam hands the charge to the provider; v1 resolves the
-        // built-in none-mode provider (no external PSP calls).
-        let provider: std::sync::Arc<dyn PaymentProvider> =
-            std::sync::Arc::new(NonePaymentProvider);
+        // The seam hands the charge to the provider. Staff recording
+        // stays LEDGER-ONLY (none-mode): a staff-row payment is an
+        // external fact being RECORDED (wire/transfer/check), not a
+        // card charge — PSP charging belongs to the portal pay flow.
+        let provider: std::sync::Arc<dyn core_billing::PaymentProvider> =
+            std::sync::Arc::new(core_billing::NonePaymentProvider);
         let receipt = provider
             .charge(&ChargeRequest {
                 org_id,
@@ -1158,11 +1160,15 @@ pub async fn record_payment(
                 invoice_number: invoice.number.clone(),
                 amount_minor: req.amount_minor,
                 currency: invoice.currency.clone(),
+                payment_method: None,
             })
             .await
             .map_err(|e| match e {
-                core_billing::PaymentError::Declined { reason } => {
-                    ApiError::Conflict(format!("payment declined: {reason}"))
+                core_billing::PaymentError::Declined { reason, code } => {
+                    ApiError::PaymentDeclined {
+                        code: code.as_str().into(),
+                        provider_reason: reason,
+                    }
                 }
                 core_billing::PaymentError::Unavailable(m) => ApiError::Unavailable(m),
             })?;

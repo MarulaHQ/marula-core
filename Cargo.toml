@@ -41,6 +41,7 @@ members = [
     "connectors/it-glue",
     "connectors/m365-graph",
     "connectors/immybot",
+    "connectors/app-bridges",
 ]
 
 # Desktop lane (2026-09-13, ADR 0005): lighter release profile for the
@@ -130,7 +131,7 @@ totp-rs = { version = "5", default-features = false, features = ["otpauth"] }
 webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation"] }
 webauthn-rs-core = "0.5"
 aes-gcm = "0.10"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "multipart"] }
 url = "2"
 regex = "1"
 data-encoding = "2"

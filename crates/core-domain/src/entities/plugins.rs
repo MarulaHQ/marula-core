@@ -691,6 +691,104 @@ impl PluginProvenanceEntry {
     }
 }
 
+/// Marketplace v2 verified-publisher registry row (Wave 22). A
+/// publisher is a NORMALIZED SOURCE IDENTITY; verification is per-org
+/// (this org vouches this publisher), admin-curated, and additive over
+/// the v1 distribution formats.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PluginPublisherVerification {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub id: Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub org_id: Uuid,
+    /// Normalized identity, e.g. `github.com/owner` or `registry://slug`.
+    pub publisher: String,
+    pub display_name: String,
+    /// `verified` | `revoked`.
+    pub status: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub verified_by: Option<Uuid>,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub verified_at: DateTime<Utc>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>, format = "date-time"))]
+    pub revoked_at: Option<DateTime<Utc>>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub revoked_by: Option<Uuid>,
+    pub note: String,
+}
+
+impl PluginPublisherVerification {
+    pub fn validate(&self) -> Result<(), crate::error::DomainError> {
+        match self.status.as_str() {
+            "verified" | "revoked" => {}
+            other => {
+                return Err(crate::error::DomainError::Validation(format!(
+                    "unknown publisher status {:?}",
+                    other
+                )))
+            }
+        }
+        if self.publisher.trim().is_empty() || self.publisher.len() > 300 {
+            return Err(crate::error::DomainError::Validation(
+                "publisher identity is required (max 300 chars)".into(),
+            ));
+        }
+        if self.display_name.trim().is_empty() || self.display_name.len() > 200 {
+            return Err(crate::error::DomainError::Validation(
+                "display_name is required (max 200 chars)".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Marketplace v2 per-user rating on one artifact RELEASE (the
+/// `{source_kind, source_url, artifact_digest}` triple). One rating per
+/// user per release; re-rating is an upsert.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PluginRating {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub id: Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub org_id: Uuid,
+    pub source_kind: PluginSourceKind,
+    pub source_url: String,
+    /// sha256 hex of the artifact release.
+    pub artifact_digest: String,
+    /// 1..=5 stars.
+    pub rating: i16,
+    pub comment: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub rated_by: Option<Uuid>,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub rated_at: DateTime<Utc>,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub updated_at: DateTime<Utc>,
+}
+
+impl PluginRating {
+    pub fn validate(&self) -> Result<(), crate::error::DomainError> {
+        if !(1..=5).contains(&self.rating) {
+            return Err(crate::error::DomainError::Validation(
+                "rating must be 1..=5 stars".into(),
+            ));
+        }
+        if !self.artifact_digest.is_empty() && !is_sha256_hex(&self.artifact_digest) {
+            return Err(crate::error::DomainError::Validation(
+                "artifact_digest must be a sha256 hex digest".into(),
+            ));
+        }
+        if self.comment.len() > 2000 {
+            return Err(crate::error::DomainError::Validation(
+                "comment must be at most 2000 chars".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// True iff `value` is a 64-char lowercase sha256 hex string.
 pub fn is_sha256_hex(value: &str) -> bool {
     value.len() == 64

@@ -13,10 +13,11 @@
 
 import type { components } from "@meridian/sdk";
 import { Button, Card, EmptyState, Input, Spinner, Tag } from "@meridian/ui";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../../../lib/api";
 import { reasonCopy } from "../../../lib/error-copy";
 import { ConsentSummary } from "./consent";
+import { RatingPanel, VerifiedBadge } from "./marketplace-v2";
 
 type StagedItemView = components["schemas"]["StagedItemView"];
 type ConsentView = components["schemas"]["ConsentView"];
@@ -35,11 +36,13 @@ function StagedRow({
   item,
   canManage,
   onChanged,
+  uploaderNames,
 }: {
   item: StagedItemView;
   canManage: boolean;
   /** Authoritative reconcile after approve/refuse (parent refetch). */
   onChanged: () => void;
+  uploaderNames: Record<string, string>;
 }) {
   const [consent, setConsent] = useState<ConsentView | null>(null);
   const [open, setOpen] = useState(false);
@@ -48,9 +51,15 @@ function StagedRow({
   const [busy, setBusy] = useState(false);
   const [rowError, setRowError] = useState<string | null>(null);
 
-  /** The uploader identity rides the staged row — truncated to a
-   * reviewable prefix; the full chain lives on the adopted install. */
-  const uploader = item.uploaded_by.length > 12 ? `${item.uploaded_by.slice(0, 12)}…` : item.uploaded_by;
+  /** The uploader identity rides the staged row — shown by member name
+   * when the directory map is available, else a reviewable id prefix;
+   * the full chain lives on the adopted install. */
+  const uploader =
+    item.uploaded_by in uploaderNames
+      ? uploaderNames[item.uploaded_by]
+      : item.uploaded_by.length > 12
+        ? `${item.uploaded_by.slice(0, 12)}…`
+        : item.uploaded_by;
 
   const loadConsent = async () => {
     if (consent !== null) {
@@ -109,6 +118,7 @@ function StagedRow({
       <div className="flex flex-wrap items-center gap-2">
         <Tag tone={STATUS_TONE[item.status] ?? "neutral"}>{item.status}</Tag>
         <span className="text-[13px] font-semibold">{item.artifact_kind}</span>
+        <VerifiedBadge sourceUrl={item.source_url} />
         <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
           {item.source_kind} · {item.source_url}
           {item.fetched_ref !== null ? ` · ${item.fetched_ref}` : ""}
@@ -197,6 +207,7 @@ function StagedRow({
           Note: {item.review_note}
         </p>
       ) : null}
+      <RatingPanel sourceUrl={item.source_url} digest={item.artifact_digest} />
     </div>
   );
 }
@@ -210,6 +221,29 @@ export function StagedApprovalsTab({
   canManage: boolean;
   onChanged: () => void;
 }) {
+  /** Best-effort uploader-name map: owner/admin get the directory listing,
+   * members silently fall back to the truncated id (they only ever see
+   * their own stagings). */
+  const [uploaders, setUploaders] = useState<Record<string, string>>({});
+  const missing = staged?.some((item) => !(item.uploaded_by in uploaders)) ?? false;
+  useEffect(() => {
+    if (staged === null || !missing) return;
+    let cancelled = false;
+    const run = async () => {
+      const { data } = await api.api.GET("/api/v1/org/users", {
+        params: { query: { limit: 100 } },
+      });
+      if (!cancelled && data) {
+        const list = (data as { users: { id: string; display_name: string; email: string }[] }).users ?? [];
+        setUploaders(Object.fromEntries(list.map((u) => [u.id, `${u.display_name} (${u.email})`])));
+      }
+      cancelled = true;
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [staged, missing]);
   const pending = (staged ?? []).filter((s) => s.status === "pending");
   const decided = (staged ?? []).filter((s) => s.status !== "pending");
   return (
@@ -229,7 +263,7 @@ export function StagedApprovalsTab({
                 <EmptyState message="No staged imports awaiting review. Members' uploads appear here for owner/admin consent before anything executes." />
               ) : (
                 pending.map((item) => (
-                  <StagedRow key={item.id} item={item} canManage={canManage} onChanged={onChanged} />
+                  <StagedRow key={item.id} item={item} canManage={canManage} onChanged={onChanged} uploaderNames={uploaders} />
                 ))
               )}
             </div>
@@ -239,7 +273,7 @@ export function StagedApprovalsTab({
               <h3 className="p-4 pb-2 text-sm font-semibold">Reviewed</h3>
               <div className="grid gap-3 px-4 pb-4">
                 {decided.map((item) => (
-                  <StagedRow key={item.id} item={item} canManage={canManage} onChanged={onChanged} />
+                  <StagedRow key={item.id} item={item} canManage={canManage} onChanged={onChanged} uploaderNames={uploaders} />
                 ))}
               </div>
             </Card>

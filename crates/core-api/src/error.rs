@@ -61,6 +61,23 @@ pub enum ApiError {
     Validation(String),
     #[error("conflict: {0}")]
     Conflict(String),
+    /// Wave 22 typed 409 for PSP declines (the error-envelope follow-up):
+    /// reason stays `payment_declined`, the TYPED decline code rides the
+    /// extra field, and the provider's raw decline text is preserved
+    /// there too — third-party prose never becomes the primary message.
+    #[error("payment declined ({code})")]
+    PaymentDeclined {
+        /// Typed decline component (`payment_declined` codes).
+        code: String,
+        /// The provider's raw decline text (kept as extra detail).
+        provider_reason: String,
+    },
+    /// Typed 403 webhook rejections (Wave 22 Stripe receiver): the
+    /// signature never verified, the webhook secret is unconfigured, or
+    /// the event arrived outside the acceptance window — none of which
+    /// is author auth, so it stays its own reason code.
+    #[error("stripe webhook rejected: {0}")]
+    StripeWebhookRejected(&'static str),
     /// Typed 409 for an If-Match-style version mismatch (instant-first
     /// IF1): the caller's `version` no longer matches the entity's current
     /// monotonic seq, so the write was rejected before anything changed.
@@ -290,6 +307,20 @@ fn map_unique_constraint(constraint: &str) -> Option<(&'static str, &'static str
         "settings_key_unique" => Some((
             "settings_key_taken",
             "a setting with this key already exists",
+        )),
+        // Wave 22 Marketplace v2 (migration 0097): both new unique
+        // indexes get typed reasons per the migration-conventions rule.
+        "uq_plugin_publisher_identity" => Some((
+            "publisher_already_verified",
+            "this publisher identity is already in the org's registry",
+        )),
+        "uq_plugin_rating_per_user" => Some((
+            "rating_targeted",
+            "you already rated this release; re-rate with PUT instead",
+        )),
+        "uq_voip_call_id" => Some((
+            "voip_call_replayed",
+            "this call id was already recorded on this org",
         )),
         "idx_alert_sources_ref" => Some((
             "alert_source_ref_taken",
@@ -522,6 +553,23 @@ impl IntoResponse for ApiError {
                 None,
             ),
             ApiError::Conflict(m) => (StatusCode::CONFLICT, "conflict", m.clone(), None),
+            ApiError::PaymentDeclined {
+                code,
+                provider_reason,
+            } => (
+                StatusCode::CONFLICT,
+                "payment_declined",
+                format!(
+                    "the payment was declined ({code}); the provider's reason is kept in the extra field"
+                ),
+                Some(json!({ "code": code, "provider_reason": provider_reason })),
+            ),
+            ApiError::StripeWebhookRejected(m) => (
+                StatusCode::FORBIDDEN,
+                "stripe_webhook_rejected",
+                m.to_string(),
+                None,
+            ),
             ApiError::VersionConflict { expected, provided } => (
                 StatusCode::CONFLICT,
                 "version_conflict",

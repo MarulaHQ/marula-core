@@ -22,13 +22,14 @@ import { InstallDetail } from "./install-detail";
 import { AgentSkillsTab } from "./agent-skills-tab";
 import { RegistryTab } from "./registry-tab";
 import { StagedApprovalsTab } from "./staged-approvals";
+import { MarketplaceViewTab } from "./marketplace-v2";
 
 type InstallView = components["schemas"]["InstallView"];
 type StagedItemView = components["schemas"]["StagedItemView"];
 type SkillVersionView = components["schemas"]["SkillVersionView"];
 type CatalogEntryView = components["schemas"]["CatalogEntryView"];
 
-const TABS = ["WASM", "HTTP connectors", "Agent skills", "Registry", "Approvals"] as const;
+const TABS = ["WASM", "HTTP connectors", "Agent skills", "Registry", "Approvals", "Marketplace"] as const;
 type Tab = (typeof TABS)[number];
 
 /** The install-discriminator: unknown/absent ≤ v1 shapes degrade to the
@@ -157,8 +158,10 @@ export default function PluginsSettingsPage() {
     <RegistryTab catalog={catalog} installs={installs} canManage={canManage} onChanged={() => void refresh()} />
   ) : tab === "Approvals" ? (
     <StagedApprovalsTab staged={staged} canManage={canManage} onChanged={() => void refresh()} />
-  ) : (
+  ) : tab === "Agent skills" ? (
     <AgentSkillsTab skills={skills} canManage={canManage} onChanged={() => void refresh()} />
+  ) : (
+    <MarketplaceViewTab canManage={canManage} />
   )}
         </>
       )}

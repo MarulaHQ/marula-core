@@ -141,3 +141,40 @@ pub async fn count_holders(
     .await?;
     Ok(count)
 }
+
+/// Updates a CUSTOM role's editable fields (name and/or permissions).
+/// The `builtin IS NULL` predicate keeps every preset row immutable
+/// (RB1); a 0-rows update (builtin target or missing row) resolves to
+/// typed NotFound for the route to distinguish.
+pub async fn update_custom_role(
+    tx: &mut sqlx::PgConnection,
+    org_id: uuid::Uuid,
+    role_id: Uuid,
+    name: Option<&str>,
+    permissions: Option<&Vec<String>>,
+) -> DbResult<()> {
+    let result = sqlx::query(
+        r#"UPDATE roles SET
+              name = CASE WHEN $3::text IS NOT NULL THEN $3 ELSE name END,
+              permissions = CASE WHEN $4::text IS NOT NULL THEN $4::text::jsonb ELSE permissions END,
+              updated_at = now()
+           WHERE org_id = $1 AND id = $2
+             AND (builtin IS NULL OR lower(builtin) = '')"#,
+    )
+    .bind(org_id)
+    .bind(role_id)
+    .bind(name.map(str::trim).filter(|n| !n.is_empty()))
+    .bind(
+        permissions
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|e| DbError::Conflict(format!("permissions are unreadable: {e}")))?
+            .as_deref(),
+    )
+    .execute(&mut *tx)
+    .await?;
+    if result.rows_affected() == 0 {
+        return Err(DbError::NotFound);
+    }
+    Ok(())
+}
