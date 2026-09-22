@@ -7,6 +7,12 @@ The Diátaxis site for Meridian. Four quadrants, each kept in its lane:
 - [`reference/`](reference/) — descriptive, exhaustive, generated
 - [`explanation/`](explanation/) — understanding-oriented (the why)
 
+## Coverage & IA
+
+The current coverage audit and information-architecture plan (Wave 27) lives
+at [`DOCS-COVERAGE.md`](DOCS-COVERAGE.md) — read it before adding pages; it
+carries the quadrant conventions, audience rules, and the lane-2 work order.
+
 ## Generated pages (do not edit by hand)
 
 | Page | Source | Regenerate |
