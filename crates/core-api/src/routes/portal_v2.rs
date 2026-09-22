@@ -39,7 +39,7 @@ use axum::{
     Json,
 };
 use chrono::{DateTime, Utc};
-use core_billing::{ChargeRequest, NonePaymentProvider, PaymentProvider};
+use core_billing::ChargeRequest;
 use core_domain::entities::{
     AppointmentKind, AppointmentRequest, AppointmentRequestStatus, Invoice, InvoicePayment,
     InvoiceStatus, PortalRole,
@@ -257,6 +257,10 @@ pub struct PortalPayRequest {
     /// balance. Currency is always the invoice's own.
     pub amount_minor: i64,
     pub notes: Option<String>,
+    /// PSP payment-method surface (e.g. a confirmed Stripe `pm_*` id
+    /// from the embedded payment form). None = ledger-only none-mode
+    /// settlement; required when the org resolved provider is Stripe.
+    pub payment_method: Option<String>,
     /// Instant-first autosave parameters (IF1): idempotency key + If-Match
     /// `version` on the invoice.
     #[serde(flatten, default)]
@@ -313,6 +317,8 @@ pub async fn pay_invoice(
     let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
     let key = req.instant.idempotency_key.clone();
 
+    let provider =
+        crate::routes::billing_provider::resolve_payment_provider(&state, org_id).await?;
     let outcome = org_tx::with_org_tx(&state, org_id, authed.user.id, |mut ctx| async move {
         if let InstantClaim::Replay(stored) = instant::claim(
             &mut ctx,
@@ -353,11 +359,11 @@ pub async fn pay_invoice(
             )));
         }
 
-        // The seam hands the charge to the provider; v1 resolves the
-        // built-in none-mode provider (no external PSP calls) — the
-        // receipt records a LEDGER-ONLY settlement.
-        let provider: std::sync::Arc<dyn PaymentProvider> =
-            std::sync::Arc::new(NonePaymentProvider);
+        // The seam hands the charge to the ORG'S RESOLVED PROVIDER
+        // (Wave 22: none-mode by default; Stripe once the org opts in
+        // via billing.payment_provider AND the instance key exists —
+        // resolve fails closed to none-mode). Declines are TYPED on the
+        // wire (payment_declined + code extra), never PSP prose.
         let receipt = provider
             .charge(&ChargeRequest {
                 org_id,
@@ -365,11 +371,15 @@ pub async fn pay_invoice(
                 invoice_number: invoice.number.clone(),
                 amount_minor: req.amount_minor,
                 currency: invoice.currency.clone(),
+                payment_method: req.payment_method.clone(),
             })
             .await
             .map_err(|e| match e {
-                core_billing::PaymentError::Declined { reason } => {
-                    ApiError::Conflict(format!("payment declined: {reason}"))
+                core_billing::PaymentError::Declined { reason, code } => {
+                    ApiError::PaymentDeclined {
+                        code: code.as_str().into(),
+                        provider_reason: reason,
+                    }
                 }
                 core_billing::PaymentError::Unavailable(m) => ApiError::Unavailable(m),
             })?;

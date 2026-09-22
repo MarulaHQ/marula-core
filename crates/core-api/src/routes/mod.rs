@@ -47,6 +47,7 @@ pub mod attachments;
 pub mod audit;
 pub mod availability;
 pub mod billing;
+pub mod billing_provider;
 pub mod board_access;
 pub mod boards;
 pub mod byok;
@@ -111,6 +112,7 @@ pub mod secrets;
 pub mod settings;
 pub mod similar_tickets;
 pub mod sla_admin;
+pub mod stripe_webhook;
 pub mod tags;
 pub mod taxonomy;
 pub mod templates;
@@ -426,7 +428,11 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .merge(scheduling_links::public_routes(gen))
         // Calendar sync (Wave 14 lane 2): the unauthenticated, token-
         // scoped OUTBOUND feed — the external calendar subscribes to it.
-        .merge(calendar_sync::public_routes(gen));
+        .merge(calendar_sync::public_routes(gen))
+        // Stripe webhook receiver (Wave 22): unauthenticated by design —
+        // the Stripe-Signature HMAC is the auth; the handler rejects
+        // typed 403 without a valid signature or configured secret.
+        .route(&rp("/webhooks/stripe"), post(stripe_webhook::receive));
 
     let protected = Router::new()
         .route(&rp("/me"), get(auth_handlers::me))
