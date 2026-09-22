@@ -318,6 +318,10 @@ fn map_unique_constraint(constraint: &str) -> Option<(&'static str, &'static str
             "rating_targeted",
             "you already rated this release; re-rate with PUT instead",
         )),
+        "uq_voip_call_id" => Some((
+            "voip_call_replayed",
+            "this call id was already recorded on this org",
+        )),
         "idx_alert_sources_ref" => Some((
             "alert_source_ref_taken",
             "an alert source with this ref already exists",

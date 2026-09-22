@@ -41,6 +41,7 @@ members = [
     "connectors/it-glue",
     "connectors/m365-graph",
     "connectors/immybot",
+    "connectors/app-bridges",
 ]
 
 # Desktop lane (2026-09-13, ADR 0005): lighter release profile for the

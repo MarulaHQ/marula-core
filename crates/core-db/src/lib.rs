@@ -78,6 +78,7 @@ pub mod scorecards;
 pub mod search;
 pub mod search_pins;
 pub mod secret_vault;
+pub mod integrations;
 pub mod settings;
 pub mod share_links;
 pub mod sla;

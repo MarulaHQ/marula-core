@@ -40,6 +40,7 @@ pub mod agent_platform;
 pub mod ai_policy;
 pub mod alerts;
 pub mod api_keys;
+pub mod integrations;
 pub mod appointment_requests;
 pub mod approvals;
 pub mod assets;
@@ -433,7 +434,27 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // Stripe webhook receiver (Wave 22): unauthenticated by design —
         // the Stripe-Signature HMAC is the auth; the handler rejects
         // typed 403 without a valid signature or configured secret.
-        .route(&rp("/webhooks/stripe"), post(stripe_webhook::receive));
+        .route(&rp("/webhooks/stripe"), post(stripe_webhook::receive))
+        // Ecosystem connectors (Wave 22): Slack/Teams/Rewst/VoIP over the
+        // connector_installations consent seam; installs + tests are
+        // owner/admin.
+        .route(&rp("/connectors"), get(integrations::index))
+        .route(
+            &rp("/connectors/{kind}"),
+            post(integrations::install).delete(integrations::remove),
+        )
+        .route(&rp("/connectors/{kind}/test"), post(integrations::test))
+        .route(
+            &rp("/connectors/voip/call-logs"),
+            post(integrations::voip_ingest),
+        )
+        // Distributor pricing feeds (Wave 22): immutable batches, typed
+        // overlay publisher.
+        .route(&rp("/catalog/pricing-feeds"), post(integrations::create_feed))
+        .route(
+            &rp("/catalog/pricing-feeds/{batch_id}/apply"),
+            post(integrations::apply_feed),
+        );
 
     let protected = Router::new()
         .route(&rp("/me"), get(auth_handlers::me))
