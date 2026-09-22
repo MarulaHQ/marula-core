@@ -40,7 +40,6 @@ pub mod agent_platform;
 pub mod ai_policy;
 pub mod alerts;
 pub mod api_keys;
-pub mod integrations;
 pub mod appointment_requests;
 pub mod approvals;
 pub mod assets;
@@ -77,6 +76,7 @@ pub mod events;
 pub mod export;
 pub mod fx;
 pub mod imports;
+pub mod integrations;
 pub mod internal;
 pub mod invoices;
 pub mod kb;
@@ -450,7 +450,10 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         )
         // Distributor pricing feeds (Wave 22): immutable batches, typed
         // overlay publisher.
-        .route(&rp("/catalog/pricing-feeds"), post(integrations::create_feed))
+        .route(
+            &rp("/catalog/pricing-feeds"),
+            post(integrations::create_feed),
+        )
         .route(
             &rp("/catalog/pricing-feeds/{batch_id}/apply"),
             post(integrations::apply_feed),
@@ -539,6 +542,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // role directory + preset lifecycle (Wave 13 lane 6, RB1): the
         // shipped presets are data rows; fork/restore ride the envelope.
         .route(&rp("/roles"), get(roles::list))
+        .route(&rp("/roles/{id}"), put(roles::update))
         .route(&rp("/roles/{id}/fork"), post(roles::fork))
         .route(&rp("/roles/{id}/restore"), post(roles::restore))
         .route(

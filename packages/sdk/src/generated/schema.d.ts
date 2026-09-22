@@ -6836,6 +6836,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/roles/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * PUT /api/roles/{id} — the custom-roles EDITOR (Wave 22): updates a
+         *     custom row's name and/or permission set. Builtin presets are typed
+         *     refusals (rb1) — restore is the ONLY preset-matrix mutation.
+         */
+        put: operations["roles_update"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/roles/{id}/fork": {
         parameters: {
             query?: never;
@@ -20296,6 +20317,10 @@ export interface components {
             timezone: string;
             /** Format: int32 */
             window_days?: number | null;
+        };
+        UpdateRoleRequest: components["schemas"]["MutationParams"] & {
+            name?: string | null;
+            permissions?: string[] | null;
         };
         UpdateRuleRequest: {
             actions?: unknown;
@@ -34018,6 +34043,51 @@ export interface operations {
             };
             /** @description requires manage_users or manage_roles */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    roles_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateRoleRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleMutationResponse"];
+                };
+            };
+            /** @description builtin_role_immutable */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

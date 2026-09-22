@@ -125,9 +125,17 @@ pub async fn install(
     Json(req): Json<ConnectorInstallRequest>,
 ) -> ApiResult<Json<ConnectorInstallationView>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, Permission::Matrix { module: Module::Commercial, action: Action::Edit })?;
+    require_permission(
+        &authed.principal,
+        Permission::Matrix {
+            module: Module::Commercial,
+            action: Action::Edit,
+        },
+    )?;
     if !authed.principal.is_owner_or_admin() {
-        return Err(ApiError::Forbidden("connector consent is owner/admin".into()));
+        return Err(ApiError::Forbidden(
+            "connector consent is owner/admin".into(),
+        ));
     }
     let kind = parse_kind(&kind)?;
     // Config pre-validation AT THE BOUNDARY: empty bodies are refusals —
@@ -187,16 +195,29 @@ pub async fn remove(
     Path(kind): Path<String>,
 ) -> ApiResult<Json<Value>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, Permission::Matrix { module: Module::Time, action: Action::View })?;
+    require_permission(
+        &authed.principal,
+        Permission::Matrix {
+            module: Module::Time,
+            action: Action::View,
+        },
+    )?;
     if !authed.principal.is_owner_or_admin() {
-        return Err(ApiError::Forbidden("connector consent is owner/admin".into()));
+        return Err(ApiError::Forbidden(
+            "connector consent is owner/admin".into(),
+        ));
     }
     let kind = parse_kind(&kind)?;
     let org_id = authed.principal.user.org_id;
-    org_tx::with_org_tx(&state, org_id, authed.principal.user.id, |mut tx| async move {
-        core_db::webhooks::delete_connector_installation(&mut *tx.tx, org_id, kind).await?;
-        Ok((tx, ()))
-    })
+    org_tx::with_org_tx(
+        &state,
+        org_id,
+        authed.principal.user.id,
+        |mut tx| async move {
+            core_db::webhooks::delete_connector_installation(&mut *tx.tx, org_id, kind).await?;
+            Ok((tx, ()))
+        },
+    )
     .await?;
     Ok(Json(json!({ "removed": true })))
 }
@@ -222,9 +243,17 @@ pub async fn test(
     Path(kind): Path<String>,
 ) -> ApiResult<Json<TestResult>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, Permission::Matrix { module: Module::Time, action: Action::View })?;
+    require_permission(
+        &authed.principal,
+        Permission::Matrix {
+            module: Module::Time,
+            action: Action::View,
+        },
+    )?;
     if !authed.principal.is_owner_or_admin() {
-        return Err(ApiError::Forbidden("connector tests are owner/admin".into()));
+        return Err(ApiError::Forbidden(
+            "connector tests are owner/admin".into(),
+        ));
     }
     let kind = parse_kind(&kind)?;
     let org_id = authed.principal.user.org_id;
@@ -302,12 +331,13 @@ pub async fn test(
     }
 }
 
-pub(crate) fn to_test(
-    kind: &str,
-    outcome: Result<(), app_bridges::BridgeError>,
-) -> TestResult {
+pub(crate) fn to_test(kind: &str, outcome: Result<(), app_bridges::BridgeError>) -> TestResult {
     match outcome {
-        Ok(()) => TestResult { kind: kind.into(), outcome: "delivered".into(), detail: None },
+        Ok(()) => TestResult {
+            kind: kind.into(),
+            outcome: "delivered".into(),
+            detail: None,
+        },
         Err(e) => {
             let (reason, detail) = match e {
                 app_bridges::BridgeError::Refused(_, d) => ("refused", Some(d)),
@@ -316,7 +346,11 @@ pub(crate) fn to_test(
                 }
                 app_bridges::BridgeError::Unreachable(_, m) => ("unreachable", Some(m)),
             };
-            TestResult { kind: kind.into(), outcome: reason.into(), detail }
+            TestResult {
+                kind: kind.into(),
+                outcome: reason.into(),
+                detail,
+            }
         }
     }
 }
@@ -344,10 +378,18 @@ pub async fn voip_ingest(
     Json(req): Json<VoipCallLogRequest>,
 ) -> ApiResult<Json<VoipCallLogResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, Permission::Matrix { module: Module::Tickets, action: Action::View })?;
+    require_permission(
+        &authed.principal,
+        Permission::Matrix {
+            module: Module::Tickets,
+            action: Action::View,
+        },
+    )?;
     let org_id = authed.principal.user.org_id;
     if req.direction != "in" && req.direction != "out" {
-        return Err(ApiError::Validation("direction must be 'in' or 'out'".into()));
+        return Err(ApiError::Validation(
+            "direction must be 'in' or 'out'".into(),
+        ));
     }
     if req.external_number.trim().is_empty() {
         return Err(ApiError::Validation("external_number is required".into()));
@@ -355,8 +397,11 @@ pub async fn voip_ingest(
     if req.duration_seconds < 0 {
         return Err(ApiError::Validation("duration_seconds must be ≥ 0".into()));
     }
-    let inserted_id =
-        org_tx::with_org_tx(&state, org_id, authed.principal.user.id, |mut tx| async move {
+    let inserted_id = org_tx::with_org_tx(
+        &state,
+        org_id,
+        authed.principal.user.id,
+        |mut tx| async move {
             let (installation_id, _sealed) =
                 core_db::integrations::get_connector_installation(&mut tx.tx, org_id, "voip")
                     .await
@@ -376,8 +421,9 @@ pub async fn voip_ingest(
             };
             core_db::integrations::insert_voip_call_log(&mut tx.tx, &model).await?;
             Ok((tx, model.id))
-        })
-        .await?;
+        },
+    )
+    .await?;
     Ok(Json(VoipCallLogResponse { id: inserted_id }))
 }
 
@@ -452,7 +498,13 @@ pub async fn create_feed(
     Json(req): Json<PricingFeedBatchRequest>,
 ) -> ApiResult<Json<PricingFeedBatchResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, Permission::Matrix { module: Module::Commercial, action: Action::Edit })?;
+    require_permission(
+        &authed.principal,
+        Permission::Matrix {
+            module: Module::Commercial,
+            action: Action::Edit,
+        },
+    )?;
     if req.entries.is_empty() || req.entries.len() > 5000 {
         return Err(ApiError::Validation(
             "a batch needs 1..=5000 entries".into(),
@@ -476,16 +528,16 @@ pub async fn create_feed(
             &mut tx.tx,
             batch_id,
             org_id,
-            req.entries.iter().map(|e| {
-                core_db::integrations::PricingFeedEntry {
+            req.entries
+                .iter()
+                .map(|e| core_db::integrations::PricingFeedEntry {
                     sku: Some(e.sku.clone()),
                     currency: e.currency.clone(),
                     unit_price_minor: e.unit_price_minor,
                     cost_minor: e.cost_minor,
-                }
-            })
-            .collect::<Vec<_>>()
-            .as_slice(),
+                })
+                .collect::<Vec<_>>()
+                .as_slice(),
         )
         .await?;
         Ok((tx, batch_id))
@@ -511,24 +563,37 @@ pub async fn apply_feed(
     Path(batch_id): Path<Uuid>,
 ) -> ApiResult<Json<PricingFeedApplyResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, Permission::Matrix { module: Module::Commercial, action: Action::Edit })?;
+    require_permission(
+        &authed.principal,
+        Permission::Matrix {
+            module: Module::Commercial,
+            action: Action::Edit,
+        },
+    )?;
     let actor = authed.principal.user.id;
     let org_id = authed.principal.user.org_id;
     org_tx::with_org_tx(&state, org_id, actor, |mut tx| async move {
-        core_db::integrations::apply_pricing_feed_batch(&mut tx.tx, org_id, batch_id, Some(actor), chrono::Utc::now())
-            .await
-            .map_err(ApiError::from)?;
+        core_db::integrations::apply_pricing_feed_batch(
+            &mut tx.tx,
+            org_id,
+            batch_id,
+            Some(actor),
+            chrono::Utc::now(),
+        )
+        .await
+        .map_err(ApiError::from)?;
         Ok((tx, ()))
     })
     .await?;
     let outcomes = {
         let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
         core_db::set_org(&mut tx, org_id).await?;
-        let rows = core_db::integrations::list_pricing_feed_outcomes(&mut *tx, org_id, batch_id).await?;
+        let rows =
+            core_db::integrations::list_pricing_feed_outcomes(&mut *tx, org_id, batch_id).await?;
         tx.commit().await.map_err(ApiError::from)?;
         rows
     };
-        let unmatched_skus: Vec<String> = outcomes
+    let unmatched_skus: Vec<String> = outcomes
         .iter()
         .filter(|o| !o.matched)
         .map(|o| o.sku.clone().unwrap_or_default())

@@ -301,6 +301,7 @@ use utoipa::OpenApi;
         // role directory + preset lifecycle (Wave 13 lane 6, RB1)
         crate::routes::roles::list,
         crate::routes::roles::fork,
+        crate::routes::roles::update,
         crate::routes::roles::restore,
         crate::routes::templates::list,
         crate::routes::templates::get,
@@ -1281,6 +1282,7 @@ use utoipa::OpenApi;
         crate::routes::integrations::PricingFeedBatchResponse,
         crate::routes::integrations::PricingFeedApplyResponse,
         crate::routes::integrations::PricingFeedOutcomeView,
+        crate::routes::roles::UpdateRoleRequest,
         core_domain::entities::PluginPublisherVerification,
         core_domain::entities::PluginRating,
         core_domain::events::PluginPublisherVerified,

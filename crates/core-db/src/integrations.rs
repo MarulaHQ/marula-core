@@ -57,10 +57,7 @@ fn row_to_call_log(row: VoipCallLogRow) -> VoipCallLog {
     }
 }
 
-pub async fn insert_voip_call_log(
-    tx: &mut PgConnection,
-    model: &VoipCallLog,
-) -> DbResult<()> {
+pub async fn insert_voip_call_log(tx: &mut PgConnection, model: &VoipCallLog) -> DbResult<()> {
     sqlx::query(
         r#"INSERT INTO voip_call_logs
              (id, org_id, installation_id, call_id, direction, external_number, duration_seconds,
