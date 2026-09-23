@@ -3,7 +3,7 @@
 
 **Meridian Core API 0.1.0** — The single write surface for Project Meridian. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**465 paths · 634 operations · 916 schemas.**
+**482 paths · 652 operations · 950 schemas.**
 
 ## agent-proposals
 
@@ -282,6 +282,8 @@
 | `GET` | `/api/v1/clients/{id}/workflow-overrides` <a id="client_workflow_overrides_get"></a> | GET /api/clients/{id}/workflow-overrides — the client's resolved workflow: one entry per registry declaration with precedence outcome, provenance, renderable details (names + semantic status categories), and drift issues. | — |
 | `DELETE` | `/api/v1/clients/{id}/workflow-overrides/{key}` <a id="client_workflow_override_clear"></a> | DELETE /api/clients/{id}/workflow-overrides/{key} — remove the override so the client inherits the org default again. Distinct from an explicit disable; clearing an absent override is a no-op that still resolves. | — |
 | `PUT` | `/api/v1/clients/{id}/workflow-overrides/{key}` <a id="client_workflow_override_put"></a> | PUT /api/clients/{id}/workflow-overrides/{key} — set a value or record an explicit disable. Unknown keys, mistyped payloads, out-of-org references, and disallowed disables are typed 422s before anything persists. | [PutOverrideRequest](#schema-putoverriderequest) |
+| `GET` | `/api/v1/clients/org-map` <a id="clients_org_map_list"></a> | GET /api/clients/org-map — the durable operator mapping (settings view). | — |
+| `POST` | `/api/v1/clients/org-reconcile` <a id="clients_org_reconcile"></a> | POST /api/clients/org-reconcile — the connectors' org_map seam (public API): report an unmapped vendor org; the durable map resolves it instantly, otherwise deterministic label proposals queue reviewable candidates. Never a guess, never a silent auto-map. | [OrgReconcileRequest](#schema-orgreconcilerequest) |
 
 ## config-items
 
@@ -298,7 +300,11 @@
 | `DELETE` | `/api/v1/config-items/interfaces/{id}` <a id="config_items_delete_interface"></a> | DELETE /api/config-items/interfaces/{id} | — |
 | `GET` | `/api/v1/config-items/merge-candidates` <a id="config_items_list_candidates"></a> | GET /api/config-items/merge-candidates — the review queue. | — |
 | `POST` | `/api/v1/config-items/merge-candidates/{id}/accept` <a id="config_items_accept_candidate"></a> | POST /api/config-items/merge-candidates/{id}/accept — fold the candidate into the primary with the candidate's evidence attached. | — |
+| `POST` | `/api/v1/config-items/merge-candidates/{id}/defer` <a id="config_items_defer_candidate"></a> | POST /api/config-items/merge-candidates/{id}/defer — park the candidate out of the pending queue WITHOUT deciding it (reversible via restore; a feed upsert refreshes evidence but never un-defers silently). | — |
 | `POST` | `/api/v1/config-items/merge-candidates/{id}/reject` <a id="config_items_reject_candidate"></a> | POST /api/config-items/merge-candidates/{id}/reject — keep both items. | — |
+| `POST` | `/api/v1/config-items/merge-candidates/{id}/restore` <a id="config_items_restore_candidate"></a> | POST /api/config-items/merge-candidates/{id}/restore — un-defer: a parked candidate returns to the pending queue. | — |
+| `GET` | `/api/v1/config-items/merge-candidates/{id}/workbench` <a id="config_items_candidate_workbench"></a> | GET /api/config-items/merge-candidates/{id}/workbench — the guided merge workbench's read model: side-by-side cards across ALL ConfigSourceLinks, the field-by-field picker rows, the inline deterministic + decision evidence, and the threshold context. | — |
+| `POST` | `/api/v1/config-items/merge-candidates/batch` <a id="config_items_batch_candidates"></a> | POST /api/config-items/merge-candidates/batch — accept/reject/defer N candidates in ONE call. Every ACCEPT is an audited, individually undoable merge (per-candidate split substrate); a failed member never aborts the batch (per-item outcome, never a silent partial). | [BatchCandidateRequest](#schema-batchcandidaterequest) |
 | `POST` | `/api/v1/config-items/merges/{id}/split` <a id="config_items_split"></a> | POST /api/config-items/merges/{id}/split — undo a merge (IF7): links, interfaces, and field tiers ride back from the audit row's packet. | — |
 | `GET` | `/api/v1/config-items/precedence` <a id="config_items_list_precedence"></a> | GET /api/config-items/precedence — org overrides (shipped ADR defaults resolve in Rust when no row matches). | — |
 | `PUT` | `/api/v1/config-items/precedence` <a id="config_items_upsert_precedence"></a> | PUT /api/config-items/precedence — a per-type/per-source precedence override (CI5). Upserts by (layout, field, source). | [UpsertPrecedenceRequest](#schema-upsertprecedencerequest) |
@@ -314,6 +320,12 @@
 | `POST` | `/api/v1/connectors/{kind}` <a id="connectors_install"></a> | POST /api/v1/connectors/{kind} — the admin installs / re-consents. | [ConnectorInstallRequest](#schema-connectorinstallrequest) |
 | `POST` | `/api/v1/connectors/{kind}/test` <a id="connectors_test"></a> | POST /api/v1/connectors/{kind}/test — a provisioned canary through the adapter (slack/teams notifications; rewst trigger). | — |
 | `POST` | `/api/v1/connectors/voip/call-logs` <a id="connectors_voip_ingest"></a> | POST /api/v1/connectors/voip/call-logs — machine ingest of one call record (idempotent per provider call id). Requires the consents + the `calls.ingest` scope. | [VoipCallLogRequest](#schema-voipcalllogrequest) |
+
+## contacts
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `POST` | `/api/v1/contacts/feed-upsert` <a id="contacts_feed_upsert"></a> | POST /api/contacts/feed-upsert — the contact ingest seam (the CI2 pattern generalized): never blind-inserts; email/phone identity keys resolve the deterministic case; ambiguity queues reviewable candidates; the same org auto-merge threshold applies. | [ContactFeedUpsertRequest](#schema-contactfeedupsertrequest) |
 
 ## contracts
 
@@ -336,6 +348,14 @@
 | `POST` | `/api/v1/credit-notes/{id}/apply` <a id="credit_notes_apply"></a> | POST /api/credit-notes/{id}/apply — allocate part of the remaining credit onto an issued invoice. The allocation inserts a real payment receipt (provider `credit_note`) through the same apply path as ordinary payments, then moves the credit's counter in the SAME transaction (both compare-and-set: over-allocation is impossible). | [ApplyCreditNoteRequest](#schema-applycreditnoterequest) |
 | `POST` | `/api/v1/credit-notes/{id}/refund` <a id="credit_notes_refund"></a> | POST /api/credit-notes/{id}/refund — pay part of the remaining credit back to the client. v1 approves the refund locally (none-mode provider, exactly like charges); the amount may never exceed the remaining credit. | [RefundCreditNoteRequest](#schema-refundcreditnoterequest) |
 | `POST` | `/api/v1/credit-notes/{id}/void` <a id="credit_notes_void"></a> | POST /api/credit-notes/{id}/void — withdraw a note that has moved nothing. Terminal. | [VoidCreditNoteRequest](#schema-voidcreditnoterequest) |
+
+## dedupe
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/dedupe/workflow` <a id="dedupe_get_workflow"></a> | GET /api/dedupe/workflow — the org's workflow + the honest gate state. | — |
+| `PUT` | `/api/v1/dedupe/workflow` <a id="dedupe_put_workflow"></a> | PUT /api/dedupe/workflow — configure the intelligent dedupe workflow. The gate is the ADR 0011 §3 posture: enabling requires the org's decision model to be configured — the typed refusal is `dedupe_decision_not_configured`, never a silent turn-on. | [DedupeWorkflowRequest](#schema-dedupeworkflowrequest) |
+| `POST` | `/api/v1/dedupe/workflow/run` <a id="dedupe_run_workflow"></a> | POST /api/dedupe/workflow/run — the manual run (and the workbench's "run intelligent dedupe" trigger). Report-first: every suggestion is recorded suggestion-grade and visible in the workbench; in auto_merge mode ONLY the at/above-threshold folds apply (audited, undoable). | [DedupeRunRequest](#schema-deduperunrequest) |
 
 ## dispatch
 
@@ -388,6 +408,19 @@
 | `DELETE` | `/api/v1/documents/layouts/{id}` <a id="documents_delete_layout"></a> | DELETE /api/documents/layouts/{id} — custom layouts only; system layouts are a typed 409 (imports and the DMS seam rely on them). | — |
 | `PATCH` | `/api/v1/documents/layouts/{id}` <a id="documents_update_layout"></a> | PATCH /api/documents/layouts/{id} — instant-first; system layouts are editable (schema and branding), never deletable. | [UpdateLayoutRequest](#schema-updatelayoutrequest) |
 | `DELETE` | `/api/v1/documents/links/{id}` <a id="documents_delete_link"></a> | DELETE /api/documents/links/{id} | — |
+
+## entity-dedupe
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/entity-dedupe/candidates` <a id="entity_dedupe_list_candidates"></a> | GET /api/entity-dedupe/candidates — the client/contact review queue. | — |
+| `POST` | `/api/v1/entity-dedupe/candidates/{id}/accept` <a id="entity_dedupe_accept_candidate"></a> | POST /api/entity-dedupe/candidates/{id}/accept — contact: audited + undoable merge; client: writes the durable operator map. | — |
+| `POST` | `/api/v1/entity-dedupe/candidates/{id}/defer` <a id="entity_dedupe_defer_candidate"></a> | POST /api/entity-dedupe/candidates/{id}/defer — park without deciding. | — |
+| `POST` | `/api/v1/entity-dedupe/candidates/{id}/reject` <a id="entity_dedupe_reject_candidate"></a> | POST /api/entity-dedupe/candidates/{id}/reject — keep both rows (or keep the vendor org unmapped). | — |
+| `POST` | `/api/v1/entity-dedupe/candidates/{id}/restore` <a id="entity_dedupe_restore_candidate"></a> | POST /api/entity-dedupe/candidates/{id}/restore — un-defer. | — |
+| `GET` | `/api/v1/entity-dedupe/candidates/{id}/workbench` <a id="entity_dedupe_candidate_workbench"></a> | GET /api/entity-dedupe/candidates/{id}/workbench — the client/contact side of the guided merge workbench. | — |
+| `POST` | `/api/v1/entity-dedupe/candidates/batch` <a id="entity_dedupe_batch_candidates"></a> | POST /api/entity-dedupe/candidates/batch — accept/reject/defer N. | [EntityBatchRequest](#schema-entitybatchrequest) |
+| `POST` | `/api/v1/entity-dedupe/merges/{id}/split` <a id="entity_dedupe_split_merge"></a> | POST /api/entity-dedupe/merges/{id}/split — undo a contact merge (IF7). | — |
 
 ## events
 
@@ -1130,6 +1163,9 @@
 | <a id="schema-availabilitylistresponse"></a>`AvailabilityListResponse` | object |  |
 | <a id="schema-availabilityquery"></a>`AvailabilityQuery` | object |  |
 | <a id="schema-availabilitywindow"></a>`AvailabilityWindow` | object | One recurring weekly availability template: `weekday` (0 = Monday … 6 = Sunday), local wall-clock `[start_local, end_local)` in `timezone`, optionally bounded by an effective date range. This is a TEM |
+| <a id="schema-batchcandidateoutcome"></a>`BatchCandidateOutcome` | object |  |
+| <a id="schema-batchcandidaterequest"></a>`BatchCandidateRequest` | object |  |
+| <a id="schema-batchcandidateresponse"></a>`BatchCandidateResponse` | object |  |
 | <a id="schema-batchcreatedresponse"></a>`BatchCreatedResponse` | object |  |
 | <a id="schema-batchviewresponse"></a>`BatchViewResponse` | object |  |
 | <a id="schema-billingcandidateline"></a>`BillingCandidateLine` | object | One draft invoice-line candidate. This is a PREVIEW shape: nothing persists until Wave 9's invoice run. |
@@ -1200,13 +1236,14 @@
 | <a id="schema-cimerge"></a>`CiMerge` | object | An audited, undoable merge (the split substrate). |
 | <a id="schema-cimergecandidate"></a>`CiMergeCandidate` | object | A reviewable ambiguous match (ADR 0003): visible evidence, one-click accept/reject, auto-merge only above the org threshold. |
 | <a id="schema-cimergerequest"></a>`CiMergeRequest` | composite |  |
-| <a id="schema-cimergestatus"></a>`CiMergeStatus` | string | CI4: lifecycle of a reviewable merge candidate. |
+| <a id="schema-cimergestatus"></a>`CiMergeStatus` | string | CI4: lifecycle of a reviewable merge candidate. `deferred` parks a candidate out of the pending queue without deciding it (the workbench's batch defer; reversible — a feed upsert re-activates it via u |
 | <a id="schema-cisemanticclass"></a>`CiSemanticClass` | string | CI6: a semantic class is the behavior-bearing identity of a CI type. Layouts (types) are org-configurable and renameable; the class is not. |
 | <a id="schema-cisettingsview"></a>`CiSettingsView` | object |  |
 | <a id="schema-claimsharelinkrequest"></a>`ClaimShareLinkRequest` | object |  |
 | <a id="schema-client"></a>`Client` | object |  |
 | <a id="schema-clientcompletenessview"></a>`ClientCompletenessView` | object | The backend documentation-completeness read model — the weights live here; the web card renders the facts. |
 | <a id="schema-clientmutationresponse"></a>`ClientMutationResponse` | composite | Instant-first mutation response (IF2): client fields at the top level (unchanged shape) plus the additive `mutation` metadata. |
+| <a id="schema-clientorgmap"></a>`ClientOrgMap` | object | The durable operator mapping a reconciliation accept writes: one row per (source system, vendor org id), pointing at one Meridian client. |
 | <a id="schema-clientoverriderow"></a>`ClientOverrideRow` | object | The stored client row, as provenance on a resolved entry (who last set it and when — the audit subject; the append-only trail keeps the full history). |
 | <a id="schema-clientworkflowresolution"></a>`ClientWorkflowResolution` | object | The client's full resolved workflow: one entry per registry declaration, registry order preserved. |
 | <a id="schema-commentlistquery"></a>`CommentListQuery` | object |  |
@@ -1234,6 +1271,8 @@
 | <a id="schema-consentdiffview"></a>`ConsentDiffView` | object |  |
 | <a id="schema-consentview"></a>`ConsentView` | object | The consent screen payload — ONE component shared by every source (same shape the update re-consent flow shows). |
 | <a id="schema-contact"></a>`Contact` | object |  |
+| <a id="schema-contactfeedupsertrequest"></a>`ContactFeedUpsertRequest` | composite |  |
+| <a id="schema-contactfeedupsertresponse"></a>`ContactFeedUpsertResponse` | object |  |
 | <a id="schema-contract"></a>`Contract` | object | A commercial agreement with one client. Money fields are integer minor units (cents for USD) — floats are forbidden near amounts (§5). |
 | <a id="schema-contractdetail"></a>`ContractDetail` | composite | The contract aggregate as one view: the agreement plus its rate card and fee schedule. |
 | <a id="schema-contractfixedfee"></a>`ContractFixedFee` | object | Fixed-fee schedule entry: becomes a candidate line when `due_on` falls inside the evaluation window (and the effective window). |
@@ -1336,6 +1375,15 @@
 | <a id="schema-decisionsuggestionsresponse"></a>`DecisionSuggestionsResponse` | object |  |
 | <a id="schema-decisionsurfaceoverview"></a>`DecisionSurfaceOverview` | object |  |
 | <a id="schema-declarationview"></a>`DeclarationView` | object | Wire shape of one declaration. Kinds/options are flattened so generated clients can render editors directly from this payload. |
+| <a id="schema-dedupeentitykind"></a>`DedupeEntityKind` | string | The entity family a dedupe record binds. Clients ride reconciliation only (mapping decisions, not folds). |
+| <a id="schema-deduperunmode"></a>`DedupeRunMode` | string | What an automated pass DOES with its above-threshold suggestions. |
+| <a id="schema-deduperunoutcome"></a>`DedupeRunOutcome` | object |  |
+| <a id="schema-deduperunreport"></a>`DedupeRunReport` | object | One pass's outcome — the run report (persisted on the workflow row and delivered to the designated users as a `dedupe_report` notification). |
+| <a id="schema-deduperunrequest"></a>`DedupeRunRequest` | object |  |
+| <a id="schema-deduperunresponse"></a>`DedupeRunResponse` | object |  |
+| <a id="schema-dedupeworkflow"></a>`DedupeWorkflow` | object | One org's Jev dedupe workflow (the `dedupe_workflows` row). |
+| <a id="schema-dedupeworkflowrequest"></a>`DedupeWorkflowRequest` | object |  |
+| <a id="schema-dedupeworkflowview"></a>`DedupeWorkflowView` | object |  |
 | <a id="schema-definitionscope"></a>`DefinitionScope` | string | Visibility scope of a stored definition: `org` (published org-wide, admins only) or `self` (private to the creator). |
 | <a id="schema-deliveryattemptview"></a>`DeliveryAttemptView` | object |  |
 | <a id="schema-deliverylistquery"></a>`DeliveryListQuery` | object | GET /api/report-schedules/{id}/deliveries query. |
@@ -1373,7 +1421,19 @@
 | <a id="schema-emailverifyrequest"></a>`EmailVerifyRequest` | object |  |
 | <a id="schema-embedmutationresponse"></a>`EmbedMutationResponse` | composite |  |
 | <a id="schema-embedresolution"></a>`EmbedResolution` | object | The allowlist decision plus (optionally) the provider's own oEmbed embed HTML, fetched server-side. `html` is present only when `fetch=true` and the provider endpoint answers 2xx. |
+| <a id="schema-entitybatchoutcome"></a>`EntityBatchOutcome` | object |  |
+| <a id="schema-entitybatchrequest"></a>`EntityBatchRequest` | object |  |
+| <a id="schema-entitybatchresponse"></a>`EntityBatchResponse` | object |  |
+| <a id="schema-entitycandidateview"></a>`EntityCandidateView` | composite |  |
 | <a id="schema-entitykind"></a>`EntityKind` | string | Which entity family a batch targets. One batch = exactly one kind; the parent-before-child ordering across batches keeps foreign references resolvable without cross-batch transactions. D2 remainder ex |
+| <a id="schema-entitymerge"></a>`EntityMerge` | object | An audited, undoable contact merge (the `ci_merges` split substrate). |
+| <a id="schema-entitymergecandidate"></a>`EntityMergeCandidate` | object | A reviewable client/contact dedupe candidate (ADR 0003 visible evidence). For contact candidates both ids are set; for client reconciliation the candidate side is the VENDOR ORG (`vendor_org_id`/`vend |
+| <a id="schema-entitymergestatus"></a>`EntityMergeStatus` | string | Candidate lifecycle — mirrors `CiMergeStatus` (same queue mechanics). |
+| <a id="schema-entitysourcelink"></a>`EntitySourceLink` | object | A vendor record link for a contact (the CI2 link key generalized). |
+| <a id="schema-entityworkbenchdecision"></a>`EntityWorkbenchDecision` | object |  |
+| <a id="schema-entityworkbenchfieldrow"></a>`EntityWorkbenchFieldRow` | object |  |
+| <a id="schema-entityworkbenchside"></a>`EntityWorkbenchSide` | object |  |
+| <a id="schema-entityworkbenchview"></a>`EntityWorkbenchView` | object |  |
 | <a id="schema-escalationstep"></a>`EscalationStep` | object | One escalation ladder step as stored (`sla_escalation_steps`). |
 | <a id="schema-eventslistresponse"></a>`EventsListResponse` | object |  |
 | <a id="schema-expensemutationresponse"></a>`ExpenseMutationResponse` | object |  |
@@ -1453,6 +1513,7 @@
 | <a id="schema-linksview"></a>`LinksView` | object |  |
 | <a id="schema-listcandidatesquery"></a>`ListCandidatesQuery` | object |  |
 | <a id="schema-listconfigitemsquery"></a>`ListConfigItemsQuery` | object |  |
+| <a id="schema-listentitycandidatesquery"></a>`ListEntityCandidatesQuery` | object |  |
 | <a id="schema-listentriesquery"></a>`ListEntriesQuery` | object |  |
 | <a id="schema-listorgusersquery"></a>`ListOrgUsersQuery` | object |  |
 | <a id="schema-listratingsquery"></a>`ListRatingsQuery` | object |  |
@@ -1499,6 +1560,7 @@
 | <a id="schema-mergerequest"></a>`MergeRequest` | composite |  |
 | <a id="schema-mergeresolutions"></a>`MergeResolutions` | object |  |
 | <a id="schema-mergeresponse"></a>`MergeResponse` | object |  |
+| <a id="schema-mergeworkbenchview"></a>`MergeWorkbenchView` | object |  |
 | <a id="schema-mfatokenrequest"></a>`MfaTokenRequest` | object |  |
 | <a id="schema-mfaverifyrequest"></a>`MfaVerifyRequest` | object |  |
 | <a id="schema-moveappointmentrequest"></a>`MoveAppointmentRequest` | object |  |
@@ -1519,6 +1581,8 @@
 | <a id="schema-oncallblock"></a>`OnCallBlock` | object | An absolute UTC on-call rotation segment for one user. |
 | <a id="schema-orgbillingpreview"></a>`OrgBillingPreview` | object | Org-wide preview: every billable contract's evaluation for the window plus the grand total — the shape a Wave-9 invoice run will consume. |
 | <a id="schema-orgprofileresponse"></a>`OrgProfileResponse` | object |  |
+| <a id="schema-orgreconcilerequest"></a>`OrgReconcileRequest` | composite |  |
+| <a id="schema-orgreconcileresponse"></a>`OrgReconcileResponse` | object |  |
 | <a id="schema-orguser"></a>`OrgUser` | object | Directory view of one staff user (route-level DTO; `org_role` is the user's highest-precedence builtin role, `null` for custom-only). |
 | <a id="schema-orguserlistresponse"></a>`OrgUserListResponse` | object |  |
 | <a id="schema-orgusermutationresponse"></a>`OrgUserMutationResponse` | composite | Instant-first mutation response (IF2): the invited (still inactive) user at the top level plus the one-time setup token and the additive `mutation` metadata. |
@@ -1968,6 +2032,9 @@
 | <a id="schema-webhooksecretresponse"></a>`WebhookSecretResponse` | object | Returned by create ONLY — carries the signing secret in plaintext one final time. There is deliberately no read-back path. |
 | <a id="schema-webhookview"></a>`WebhookView` | object |  |
 | <a id="schema-wiplimitupdate"></a>`WipLimitUpdate` | object | WIP-cap patch input (0089): `Default` (field absent) = unchanged; JSON null = clear; a number = set. serde's `Option<Option>` mapping makes a present-but-null field UNREPRESENTABLE from JSON (null fol |
+| <a id="schema-workbenchdecision"></a>`WorkbenchDecision` | object | The suggestion-grade `decision_record_dedupe` judgment for this candidate, read from the append-only decision store. `None` (and therefore silent in the UI) whenever the decision model is unconfigured |
+| <a id="schema-workbenchfieldrow"></a>`WorkbenchFieldRow` | object |  |
+| <a id="schema-workbenchside"></a>`WorkbenchSide` | composite | One side of the workbench comparison: the item view plus its FULL tier state (observed/curated/field_sources) and identity keys. |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 26 operation groups; schema count 916 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 26 operation groups; schema count 950 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
