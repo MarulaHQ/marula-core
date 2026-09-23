@@ -78,3 +78,6 @@ website/public/docs/
 # /roadmap + the RSS feed; the JSON data mirrors them for the pages)
 website/content/*.json
 website/public/changelog.xml
+
+# designer pack zip
+meridian-designer-pack.zip
