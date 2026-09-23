@@ -1,0 +1,403 @@
+{
+  "version": 1,
+  "docsBase": "https://meridian.dev/docs",
+  "notes": "In-app help index (Wave 26 lane 2, ADR 0009 extension). Route keys are the web app's route families (apps/web/lib/help/route-keys.ts). Each doc path is site-relative under docs/site/ WITHOUT the .md extension; the checker (docs/site/scripts/check-docs-site.mjs) fails CI when a page moves or the audience tag drifts. Ranked newest-first by 'updated' in the help panel; audience filtering hides admin-only pages from members.",
+  "routes": {
+    "today": {
+      "docs": [
+        {
+          "path": "tutorials/first-ticket",
+          "audience": "both",
+          "updated": "2026-09-22",
+          "title": "Tutorial: your first ticket (in the UI)"
+        }
+      ]
+    },
+    "tickets": {
+      "docs": [
+        {
+          "path": "how-to/staff-work-a-ticket",
+          "audience": "both",
+          "updated": "2026-09-22",
+          "title": "How to work a ticket"
+        },
+        {
+          "path": "tutorials/first-ticket",
+          "audience": "both",
+          "updated": "2026-09-22",
+          "title": "Tutorial: your first ticket (in the UI)"
+        }
+      ]
+    },
+    "boards": {
+      "docs": [
+        {
+          "path": "how-to/staff-work-a-ticket",
+          "audience": "both",
+          "updated": "2026-09-22",
+          "title": "How to work a ticket"
+        },
+        {
+          "path": "how-to/admin-workflow-categories",
+          "audience": "admin",
+          "updated": "2026-09-22",
+          "title": "How to set workflow categories"
+        }
+      ]
+    },
+    "dispatch": {
+      "docs": [
+        {
+          "path": "how-to/staff-dispatch",
+          "audience": "both",
+          "updated": "2026-09-22",
+          "title": "How to dispatch from the board"
+        }
+      ]
+    },
+    "clients": {
+      "docs": [
+        {
+          "path": "tutorials/first-inventory-sync",
+          "audience": "both",
+          "updated": "2026-09-22",
+          "title": "Tutorial: your first inventory sync"
+        }
+      ]
+    },
+    "inventory": {
+      "docs": [
+        {
+          "path": "tutorials/first-inventory-sync",
+          "audience": "both",
+          "updated": "2026-09-22",
+          "title": "Tutorial: your first inventory sync"
+        }
+      ]
+    },
+    "billing": {
+      "docs": [
+        {
+          "path": "tutorials/first-invoice",
+          "audience": "admin",
+          "updated": "2026-09-22",
+          "title": "Tutorial: your first invoice"
+        }
+      ]
+    },
+    "sales": {
+      "docs": [
+        {
+          "path": "tutorials/first-invoice",
+          "audience": "admin",
+          "updated": "2026-09-22",
+          "title": "Tutorial: your first invoice"
+        }
+      ]
+    },
+    "approvals": {
+      "docs": [
+        {
+          "path": "how-to/admin-automation-rules",
+          "audience": "admin",
+          "updated": "2026-09-22",
+          "title": "How to author automation rules"
+        }
+      ]
+    },
+    "automations": {
+      "docs": [
+        {
+          "path": "how-to/admin-automation-rules",
+          "audience": "admin",
+          "updated": "2026-09-22",
+          "title": "How to author automation rules"
+        },
+        {
+          "path": "explanation/customizations-are-data",
+          "audience": "all",
+          "updated": "2026-09-22",
+          "title": "Customizations are data, not code"
+        }
+      ]
+    },
+    "calendar": {
+      "docs": [
+        {
+          "path": "how-to/admin-sla-calendars",
+          "audience": "admin",
+          "updated": "2026-09-22",
+          "title": "How to configure SLA calendars & escalation ladders"
+        }
+      ]
+    },
+    "dashboards": {
+      "docs": [
+        {
+          "path": "how-to/admin-dashboards-reports",
+          "audience": "admin",
+          "updated": "2026-09-22",
+          "title": "How to manage dashboards & report schedules"
+        }
+      ]
+    },
+    "reports": {
+      "docs": [
+        {
+          "path": "how-to/admin-dashboards-reports",
+          "audience": "admin",
+          "updated": "2026-09-22",
+          "title": "How to manage dashboards & report schedules"
+        }
+      ]
+    },
+    "scorecards": {
+      "docs": [
+        {
+          "path": "how-to/admin-dashboards-reports",
+          "audience": "admin",
+          "updated": "2026-09-22",
+          "title": "How to manage dashboards & report schedules"
+        }
+      ]
+    },
+    "assets": {
+      "docs": [
+        {
+          "path": "how-to/admin-imports",
+          "audience": "admin",
+          "updated": "2026-09-22",
+          "title": "How to run a dry-run import"
+        }
+      ]
+    },
+    "documents": {
+      "docs": [
+        {
+          "path": "how-to/admin-imports",
+          "audience": "admin",
+          "updated": "2026-09-22",
+          "title": "How to run a dry-run import"
+        }
+      ]
+    },
+    "provenance": {
+      "docs": [
+        {
+          "path": "explanation/provenance-vs-audit",
+          "audience": "both",
+          "updated": "2026-09-22",
+          "title": "Provenance vs audit: two append-only ledgers, different granularity"
+        }
+      ]
+    },
+    "audit": {
+      "docs": [
+        {
+          "path": "explanation/provenance-vs-audit",
+          "audience": "both",
+          "updated": "2026-09-22",
+          "title": "Provenance vs audit: two append-only ledgers, different granularity"
+        }
+      ]
+    },
+    "kb": {
+      "docs": [
+        {
+          "path": "explanation/kb-class-categories",
+          "audience": "both",
+          "updated": "2026-09-22",
+          "title": "Knowledge-base categories and the secret vault share one grant model"
+        }
+      ]
+    },
+    "imports": {
+      "docs": [
+        {
+          "path": "how-to/admin-imports",
+          "audience": "admin",
+          "updated": "2026-09-22",
+          "title": "How to run a dry-run import"
+        }
+      ]
+    },
+    "ai": {
+      "docs": [
+        {
+          "path": "tutorials/first-agent-run",
+          "audience": "admin",
+          "updated": "2026-09-22",
+          "title": "Tutorial: your first agent run"
+        },
+        {
+          "path": "how-to/admin-ai-access",
+          "audience": "admin",
+          "updated": "2026-09-22",
+          "title": "How to manage AI access"
+        },
+        {
+          "path": "explanation/ai-deny-by-default",
+          "audience": "both",
+          "updated": "2026-09-22",
+          "title": "AI: deny-by-default and the decision harness"
+        }
+      ]
+    },
+    "agent-platform": {
+      "docs": [
+        {
+          "path": "tutorials/first-agent-run",
+          "audience": "admin",
+          "updated": "2026-09-22",
+          "title": "Tutorial: your first agent run"
+        }
+      ]
+    },
+    "settings-general": {
+      "docs": [
+        {
+          "path": "how-to/admin-org-bootstrap",
+          "audience": "admin",
+          "updated": "2026-09-22",
+          "title": "How to bootstrap your first organization"
+        }
+      ]
+    },
+    "settings-team": {
+      "docs": [
+        {
+          "path": "how-to/admin-users-invites",
+          "audience": "admin",
+          "updated": "2026-09-22",
+          "title": "How to manage users and invites"
+        }
+      ]
+    },
+    "settings-api-keys": {
+      "docs": [
+        {
+          "path": "how-to/admin-api-keys",
+          "audience": "admin",
+          "updated": "2026-09-22",
+          "title": "How to manage API keys"
+        }
+      ]
+    },
+    "settings-integrations": {
+      "docs": [
+        {
+          "path": "how-to/admin-plugin-consent",
+          "audience": "admin",
+          "updated": "2026-09-22",
+          "title": "How to configure the plugin consent flow"
+        }
+      ]
+    },
+    "settings-fx": {
+      "docs": [
+        {
+          "path": "how-to/admin-fx-rates",
+          "audience": "admin",
+          "updated": "2026-09-22",
+          "title": "How to record FX rates & read reconciliation"
+        }
+      ]
+    },
+    "settings-portal": {
+      "docs": [
+        {
+          "path": "how-to/admin-portal-setup",
+          "audience": "admin",
+          "updated": "2026-09-22",
+          "title": "How to set up the portal"
+        }
+      ]
+    },
+    "settings-security": {
+      "docs": [
+        {
+          "path": "how-to/admin-sso",
+          "audience": "admin",
+          "updated": "2026-09-22",
+          "title": "How to connect an IdP (SSO)"
+        }
+      ]
+    },
+    "settings-sla": {
+      "docs": [
+        {
+          "path": "how-to/admin-sla-calendars",
+          "audience": "admin",
+          "updated": "2026-09-22",
+          "title": "How to configure SLA calendars & escalation ladders"
+        }
+      ]
+    },
+    "settings-workflow": {
+      "docs": [
+        {
+          "path": "how-to/admin-workflow-categories",
+          "audience": "admin",
+          "updated": "2026-09-22",
+          "title": "How to set workflow categories"
+        }
+      ]
+    },
+    "settings-preferences": {
+      "docs": [
+        {
+          "path": "how-to/get-help",
+          "audience": "both",
+          "updated": "2026-09-23",
+          "title": "How to get help inside Meridian"
+        }
+      ]
+    },
+    "settings-onboarding": {
+      "docs": [
+        {
+          "path": "tutorials/portal-onboarding",
+          "audience": "both",
+          "updated": "2026-09-22",
+          "title": "Tutorial: portal onboarding"
+        }
+      ]
+    },
+    "portal": {
+      "docs": [
+        {
+          "path": "tutorials/portal-onboarding",
+          "audience": "both",
+          "updated": "2026-09-22",
+          "title": "Tutorial: portal onboarding"
+        },
+        {
+          "path": "how-to/client-portal-tasks",
+          "audience": "both",
+          "updated": "2026-09-22",
+          "title": "How to use the portal (client-side tasks)"
+        }
+      ]
+    },
+    "search": {
+      "docs": [
+        {
+          "path": "how-to/staff-work-a-ticket",
+          "audience": "both",
+          "updated": "2026-09-22",
+          "title": "How to work a ticket"
+        }
+      ]
+    },
+    "default": {
+      "docs": [
+        {
+          "path": "how-to/get-help",
+          "audience": "both",
+          "updated": "2026-09-23",
+          "title": "How to get help inside Meridian"
+        }
+      ]
+    }
+  }
+}

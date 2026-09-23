@@ -3,7 +3,7 @@
 
 **Meridian Core API 0.1.0** — The single write surface for Project Meridian. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**482 paths · 652 operations · 950 schemas.**
+**491 paths · 661 operations · 959 schemas.**
 
 ## agent-proposals
 
@@ -567,6 +567,19 @@
 | `POST` | `/api/v1/on-call-blocks` <a id="on_call_create"></a> | POST /api/on-call-blocks — add a rotation segment (409 when stacking). | [CreateOnCallRequest](#schema-createoncallrequest) |
 | `DELETE` | `/api/v1/on-call-blocks/{id}` <a id="on_call_delete"></a> | DELETE /api/on-call-blocks/{id}?user_id= | — |
 
+## onboarding
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/onboarding` <a id="onboarding_summary"></a> | GET /api/onboarding — the caller's effective onboarding state: the org wizard's per-step flags + live gate checks, and (admin callers only) every active member's user-level onboarding state. | — |
+| `POST` | `/api/v1/onboarding/disable` <a id="onboarding_disable"></a> | POST /api/onboarding/disable — org-wide master switch (Settings → Onboarding). True disables every onboarding flow org-wide (both the wizard banner and member first-run); false re-enables — state is kept, so flows resume exactly where they were left. | [OnboardingDisableRequest](#schema-onboardingdisablerequest) |
+| `POST` | `/api/v1/onboarding/org/steps/{step}/complete` <a id="onboarding_org_step_complete"></a> | POST /api/onboarding/org/steps/{step}/complete — record server-gated completion. Owner/admin only (the wizard is an owner/admin flow). | — |
+| `POST` | `/api/v1/onboarding/org/steps/{step}/skip` <a id="onboarding_org_step_skip"></a> | POST /api/onboarding/org/steps/{step}/skip — owner/admin records the skip choice. `never: true` persists the dismissed flag ("never show this again"); false is the "skip for now" no-op (the step stays pending and resumable). | [OnboardingSkipRequest](#schema-onboardingskiprequest) |
+| `POST` | `/api/v1/onboarding/reset/org` <a id="onboarding_org_reset"></a> | POST /api/onboarding/reset/org — admin re-run of the org wizard: clears every per-step flag (the flows_disabled switch is untouched on purpose; re-running a disabled family stays silent until re-enabled). | — |
+| `POST` | `/api/v1/onboarding/reset/user` <a id="onboarding_user_reset"></a> | POST /api/onboarding/reset/user — re-run one member's first-run flow (admin re-trigger) or the CALLER's own. Clears that user's onboarding flags so every step resumes pending. | [OnboardingTriggerRequest](#schema-onboardingtriggerrequest) |
+| `POST` | `/api/v1/onboarding/user/steps/{step}/complete` <a id="onboarding_user_step_complete"></a> | POST /api/onboarding/user/steps/{step}/complete — the caller records progress on their OWN first-run flow. Profile/mfa gates are server-verified; orientation/defaults record on click (they are pure UI milestones by design). | — |
+| `POST` | `/api/v1/onboarding/user/steps/{step}/skip` <a id="onboarding_user_step_skip"></a> | POST /api/onboarding/user/steps/{step}/skip — self-scoped skip recording (same never/skip-for-now semantics as the org steps). | [OnboardingSkipRequest](#schema-onboardingskiprequest) |
+
 ## org
 
 | Method | Path | Operation | Request body |
@@ -1063,6 +1076,12 @@
 | `POST` | `/api/v1/timers/start` <a id="timers_start"></a> | POST /api/timers/start — starts (or switches to) a timer. If another session is running it is auto-paused with reason `switched` and stays in the working set; the DB's partial unique index is the backstop. Instant-first (IF1/IF2): idempotency-keyed and read-your-write. | [StartTimerRequest](#schema-starttimerrequest) |
 | `POST` | `/api/v1/timers/stop` <a id="timers_stop"></a> | POST /api/timers/stop — stops the session and materializes a time entry (rounded up to the minute) in the same transaction. | [StopTimerRequest](#schema-stoptimerrequest) |
 | `GET` | `/api/v1/timers/working-set` <a id="timers_working_set"></a> | GET /api/timers/working-set — recent sessions (running first): the docked working set the UI renders. | — |
+
+## users
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `PATCH` | `/api/v1/users/me` <a id="users_me_patch"></a> | Wave 26 onboarding leg (b): the per-user first-run "check your profile" step needs a self-editable name/timezone. Self-scoped: PATCH /api/v1/users/me changes ONLY the caller's own display name and timezone (email is immutable here by design), with an audit row in the same transaction. | [PatchMeRequest](#schema-patchmerequest) |
 
 ## webhooks
 
@@ -1578,6 +1597,14 @@
 | <a id="schema-notificationpage"></a>`NotificationPage` | object | One page of the inbox plus the cursor to continue with. |
 | <a id="schema-oidcpresetinfo"></a>`OidcPresetInfo` | object | One entry of the declarative first-party preset catalog. |
 | <a id="schema-oidcproviderinfo"></a>`OidcProviderInfo` | object |  |
+| <a id="schema-onboardingdisablerequest"></a>`OnboardingDisableRequest` | object |  |
+| <a id="schema-onboardingdisableresponse"></a>`OnboardingDisableResponse` | object |  |
+| <a id="schema-onboardingmemberview"></a>`OnboardingMemberView` | object |  |
+| <a id="schema-onboardingscopeview"></a>`OnboardingScopeView` | object |  |
+| <a id="schema-onboardingskiprequest"></a>`OnboardingSkipRequest` | object |  |
+| <a id="schema-onboardingstepview"></a>`OnboardingStepView` | object |  |
+| <a id="schema-onboardingsummary"></a>`OnboardingSummary` | object |  |
+| <a id="schema-onboardingtriggerrequest"></a>`OnboardingTriggerRequest` | object |  |
 | <a id="schema-oncallblock"></a>`OnCallBlock` | object | An absolute UTC on-call rotation segment for one user. |
 | <a id="schema-orgbillingpreview"></a>`OrgBillingPreview` | object | Org-wide preview: every billable contract's evaluation for the window plus the grand total — the shape a Wave-9 invoice run will consume. |
 | <a id="schema-orgprofileresponse"></a>`OrgProfileResponse` | object |  |
@@ -1602,6 +1629,7 @@
 | <a id="schema-patchalertsourcerequest"></a>`PatchAlertSourceRequest` | composite |  |
 | <a id="schema-patchappointmentrequest"></a>`PatchAppointmentRequest` | object |  |
 | <a id="schema-patchcontractrequest"></a>`PatchContractRequest` | composite |  |
+| <a id="schema-patchmerequest"></a>`PatchMeRequest` | object |  |
 | <a id="schema-patchorgrequest"></a>`PatchOrgRequest` | object |  |
 | <a id="schema-patchphaserequest"></a>`PatchPhaseRequest` | composite |  |
 | <a id="schema-patchportaluserrequest"></a>`PatchPortalUserRequest` | object |  |
@@ -2037,4 +2065,4 @@
 | <a id="schema-workbenchside"></a>`WorkbenchSide` | composite | One side of the workbench comparison: the item view plus its FULL tier state (observed/curated/field_sources) and identity keys. |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 26 operation groups; schema count 950 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 27 operation groups; schema count 959 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*

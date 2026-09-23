@@ -20,6 +20,7 @@ import { useEffect, useRef, useState } from "react";
 import { API_BASE, useAuth } from "../lib/api";
 import { BrandMark } from "./brand";
 import { NotificationDock } from "./notification-dock";
+import { HelpPanel } from "./help/help-panel";
 import { OutboxDock } from "./instant/outbox-dock";
 import { ConnectionBanner } from "./instant/connection-banner";
 import { isHeaderlessPath } from "./shell/chrome";
@@ -255,6 +256,7 @@ export function AppHeader() {
         <ConnectionBanner />
         <OutboxDock />
         <NotificationDock />
+        <HelpPanel />
         <ThemeToggle />
         <UserMenu />
       </div>

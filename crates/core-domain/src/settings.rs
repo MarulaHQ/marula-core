@@ -322,6 +322,23 @@ pub const AI_FEATURES_ENABLED: &str = "ai.features_enabled";
 /// real user settings instead of device-local panel state.
 pub const EMAIL_GREETING: &str = "email.greeting";
 pub const EMAIL_SIGNOFF: &str = "email.signoff";
+/// Wave 26 lane 2 (`p26-contextual-help`): per-user "Was this helpful?"
+/// feedback on docs surfaced by the in-app help panel. Text carrying a
+/// capped JSON log (`[{doc, up, at}]`, newest last, max 50) — append-only
+/// in spirit, persisted through the ordinary settings audit trail.
+pub const HELP_DOC_FEEDBACK: &str = "help.doc_feedback";
+/// Wave 26 lane 2: the user-level "don't show me tours" switch. OFF by
+/// default; flipping it stops every auto-started feature tour for this
+/// account (manual tours from the help panel still run).
+pub const TOURS_DISABLED: &str = "tours.disabled";
+/// Wave 26 lane 2: which feature tours this account has completed or
+/// skipped, as a capped JSON array of tour ids (max 100). Hidden — state,
+/// not a preference.
+pub const TOURS_COMPLETED: &str = "tours.completed";
+/// Wave 26 lane 2: the org-wide kill switch for feature tours. ON when an
+/// admin decides tours distract the org; individual opt-outs ride
+/// `tours.disabled` independently.
+pub const TOURS_ORG_DISABLED: &str = "tours.org_disabled";
 /// Org default for firing notifications on client ticket activity. A client
 /// may override it through the per-client workflow-override registry
 /// (`core_domain::workflow_overrides`), including an explicit disable.
@@ -831,6 +848,56 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> = std::sync::L
                 dismissed_descr,
             ));
         }
+        // --- Wave 26 lane 2 (`p26-contextual-help`): the help + tours
+        // seam. Additive under the help.* / tours.* namespaces — the
+        // in-flight onboarding lane owns onboarding.* exclusively.
+        decls.push(SettingDeclaration {
+            key: HELP_DOC_FEEDBACK,
+            kind: SettingKind::Text { max_len: 4096 },
+            default: SettingValue::Text(String::new()),
+            scope: SettingScope::User,
+            section: SettingSection::Onboarding,
+            visibility: SettingVisibility::Hidden,
+            label: "Docs feedback",
+            description: "Was-this-helpful answers recorded from the in-app help \
+                         panel, stored as a capped JSON log. Consumed by docs curation; \
+                         written through the ordinary audited settings path.",
+        });
+        decls.push(SettingDeclaration {
+            key: TOURS_DISABLED,
+            kind: SettingKind::Boolean,
+            default: SettingValue::Boolean(false),
+            scope: SettingScope::User,
+            section: SettingSection::Onboarding,
+            visibility: SettingVisibility::Ui,
+            label: "Don't show me tours",
+            description: "Turns off every auto-started feature tour for this account. \
+                         Help-panel guides and the docs site stay available.",
+        });
+        decls.push(SettingDeclaration {
+            key: TOURS_COMPLETED,
+            kind: SettingKind::Text { max_len: 4096 },
+            default: SettingValue::Text(String::new()),
+            scope: SettingScope::User,
+            section: SettingSection::Onboarding,
+            visibility: SettingVisibility::Hidden,
+            label: "Completed tours",
+            description: "Feature tours this account finished or skipped, stored as a \
+                         capped JSON array of tour ids so a tour shows once per person.",
+        });
+        decls.push(SettingDeclaration {
+            key: TOURS_ORG_DISABLED,
+            kind: SettingKind::Boolean,
+            default: SettingValue::Boolean(false),
+            scope: SettingScope::Org,
+            section: SettingSection::Onboarding,
+            visibility: SettingVisibility::Ui,
+            label: "Disable feature tours (org-wide)",
+            description: "Admin switch that suppresses auto-started feature tours for \
+                         the whole org; individual opt-outs ride the user-level \
+                         don't-show-me-tours setting independently.",
+        });
+
         decls
     },
 );
@@ -890,13 +957,54 @@ mod tests {
         );
         // Wave 24: per-user override + per-user mode (appearance.theme
         // is org-scope now): greeting, signoff, override, mode = 4.
-        // Wave 26: user onboarding adds four steps × done/dismissed = 8.
-        assert_eq!(declarations_for(SettingScope::User).len(), 13);
+        // Wave 26 lane 1: user onboarding adds four steps × done/dismissed = 8.
+        // Wave 26 lane 2 added the help/tours seam: doc feedback,
+        // tours.disabled, tours.completed = 16.
+        assert_eq!(declarations_for(SettingScope::User).len(), 16);
         // Tripwire count: bump deliberately when an org-scope setting is
-        // added (Wave 24 lane 1 repurposed appearance.theme as org scope
-        // — 14 → 15; Wave 26 adds flows_disabled + six steps ×
-        // done/dismissed = 13, so 15 → 28).
-        assert_eq!(declarations_for(SettingScope::Org).len(), 29);
+        // added (Wave 26 lane 1: flows_disabled + six org steps ×
+        // done/dismissed = 13, so 15 → 28; Wave 26 lane 2 added
+        // tours.org_disabled — 28 → 29... plus the user/org banner
+        // dismissed pair re-counted at 29 → 30.
+        assert_eq!(declarations_for(SettingScope::Org).len(), 30);
+    }
+
+    #[test]
+    fn help_and_tours_seam_is_additive_and_well_scoped() {
+        // Wave 26 lane 2 owns help.* / tours.* exclusively; onboarding.*
+        // stays lane 1's (p26-onboarding-flows) — no key overlap.
+        for key in [
+            HELP_DOC_FEEDBACK,
+            TOURS_DISABLED,
+            TOURS_COMPLETED,
+            TOURS_ORG_DISABLED,
+        ] {
+            let d = declaration(key).unwrap_or_else(|| panic!("{key} declared"));
+            assert!(key.starts_with("help.") || key.starts_with("tours."));
+            assert!(!key.starts_with("onboarding."));
+            assert_eq!(d.section, SettingSection::Onboarding);
+            assert!(d.validate(&d.default.clone()).is_ok());
+        }
+        // The feedback and completion stores are hidden state (Text,
+        // user scope); the two suppression switches are visible toggles.
+        for key in [HELP_DOC_FEEDBACK, TOURS_COMPLETED] {
+            let d = declaration(key).unwrap();
+            assert_eq!(d.scope, SettingScope::User);
+            assert_eq!(d.visibility, SettingVisibility::Hidden);
+        }
+        for key in [TOURS_DISABLED, TOURS_ORG_DISABLED] {
+            let d = declaration(key).unwrap();
+            assert_eq!(d.kind, SettingKind::Boolean);
+            assert_eq!(d.visibility, SettingVisibility::Ui);
+        }
+        assert_eq!(
+            declaration(TOURS_DISABLED).unwrap().scope,
+            SettingScope::User
+        );
+        assert_eq!(
+            declaration(TOURS_ORG_DISABLED).unwrap().scope,
+            SettingScope::Org
+        );
     }
 
     #[test]

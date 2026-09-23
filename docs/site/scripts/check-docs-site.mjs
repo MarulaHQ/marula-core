@@ -75,6 +75,70 @@ if (readFileSync(join(site, "reference/upgrade-matrix.md"), "utf8") !== before2)
   failed++;
 }
 
+// In-app help index manifest (Wave 26 lane 2, ADR 0009 extension):
+// every manifest doc path must exist, its title must match the page's
+// first heading, its audience must match the page's **Audience:** tag,
+// route keys must be unique, and the web app's imported copy must be
+// byte-identical — so a moved page or a drifted key FAILS CI instead of
+// going stale in-product.
+{
+  const manifestPath = join(site, "help-manifest.json");
+  const webCopy = join(root, "apps/web/lib/help/help-manifest.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  if (readFileSync(manifestPath, "utf8") !== readFileSync(webCopy, "utf8")) {
+    console.error(
+      "HELP-MANIFEST apps/web/lib/help/help-manifest.json is not byte-identical to docs/site/help-manifest.json — copy it again.",
+    );
+    failed++;
+  }
+  const seenKeys = new Set();
+  for (const [routeKey, entry] of Object.entries(manifest.routes)) {
+    if (seenKeys.has(routeKey)) {
+      console.error(`HELP-MANIFEST duplicate route key ${routeKey}`);
+      failed++;
+    }
+    seenKeys.add(routeKey);
+    for (const doc of entry.docs ?? []) {
+      const mdPath = join(site, `${doc.path}.md`);
+      if (!existsSync(mdPath)) {
+        console.error(
+          `HELP-MANIFEST route ${routeKey} -> ${doc.path}.md does not exist (moved page? update the manifest)`,
+        );
+        failed++;
+        continue;
+      }
+      const src = readFileSync(mdPath, "utf8");
+      const heading = src.match(/^#\s+(.+)$/m);
+      if (!heading || heading[1].trim() !== doc.title) {
+        console.error(
+          `HELP-MANIFEST route ${routeKey} -> ${doc.path}: title ${JSON.stringify(doc.title)} does not match the page heading${heading ? ` ${JSON.stringify(heading[1].trim())}` : " (none)"}`,
+        );
+        failed++;
+      }
+      // Explanation pages carry no audience tag (only how-to/tutorial
+      // pages must); a manifest entry for an untagged page must use "all".
+      const aud = src.match(/>\s*\*\*Audience:\*\*\s*([a-z]+)/);
+      if (!aud && doc.audience !== "all") {
+        console.error(
+          `HELP-MANIFEST route ${routeKey} -> ${doc.path}: audience ${JSON.stringify(doc.audience)} set for an untagged page — use "all" or fix the page`,
+        );
+        failed++;
+      } else if (aud && !aud[1].includes(doc.audience)) {
+        console.error(
+          `HELP-MANIFEST route ${routeKey} -> ${doc.path}: audience ${JSON.stringify(doc.audience)} not found in the page's **Audience:** tag`,
+        );
+        failed++;
+      }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(doc.updated ?? "")) {
+        console.error(
+          `HELP-MANIFEST route ${routeKey} -> ${doc.path}: 'updated' must be YYYY-MM-DD`,
+        );
+        failed++;
+      }
+    }
+  }
+}
+
 // Publishing path (ADR 0009): publish twice into disposable dirs and
 // assert the bundle is complete (every md page mirrored to html),
 // byte-deterministic, and free of dead in-bundle hrefs.

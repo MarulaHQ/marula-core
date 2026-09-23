@@ -20,6 +20,7 @@ import { TimerDock } from "../timer-dock";
 import { isHeaderlessPath } from "./chrome";
 import { NavRail } from "./nav-rail";
 import { ThemePresetSync } from "../theme-preset-sync";
+import { TourScheduler } from "../help/tour-scheduler";
 
 
 const RAIL_COLLAPSE_KEY = "meridian-rail-collapsed";
@@ -122,6 +123,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <main id="m-main-content" className="min-h-0 flex-1 overflow-y-auto">{children}</main>
         <TimerDock />
       </div>
+      <TourScheduler />
     </div>
   );
 }

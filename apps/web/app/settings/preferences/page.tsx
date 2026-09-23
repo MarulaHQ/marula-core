@@ -20,6 +20,7 @@ import type { Theme } from "@meridian/ui";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
+import { useToursState } from "../../../lib/help/help-settings";
 import { SettingsHeader } from "../../../components/settings/settings-shell";
 
 type GreetingKey = "email.greeting" | "email.signoff";
@@ -102,6 +103,7 @@ export default function UserPreferencesPage() {
   const [saved, setSaved] = useState(false);
   const greeting = useDebouncedUserSetting("email.greeting", authed);
   const signoff = useDebouncedUserSetting("email.signoff", authed);
+  const tours = useToursState(authed);
 
   useEffect(() => {
     if (auth.status !== "authed") return;
@@ -226,6 +228,31 @@ export default function UserPreferencesPage() {
             </div>
           );
         })}
+      </Card>
+
+      <Card className="p-5 grid gap-2" data-testid="pref-tours-card">
+        <h2 className="text-sm font-semibold">Feature tours</h2>
+        <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+          Short first-visit highlights (the work bar, the merge workbench).
+          Guides from the ? help panel always stay available.
+        </p>
+        <div className="mt-1 flex items-center justify-between gap-3">
+          <Label htmlFor="pref-tours-disabled">Don&apos;t show me tours</Label>
+          <input
+            id="pref-tours-disabled"
+            type="checkbox"
+            data-testid="pref-tours-disabled"
+            checked={tours.disabled}
+            onChange={(e) => void tours.setDisabled(e.target.checked)}
+            className="h-4 w-4 cursor-pointer"
+            disabled={!tours.loaded}
+          />
+        </div>
+        <FieldHint>
+          {tours.orgDisabled
+            ? "An admin has disabled tours org-wide; this switch stays available if that changes."
+            : "Off means tours start on surfaces you have not seen yet — once each."}
+        </FieldHint>
       </Card>
 
       <Card className="p-5 grid gap-2">
