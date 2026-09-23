@@ -3,7 +3,7 @@
 
 **Meridian Core API 0.1.0** — The single write surface for Project Meridian. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**491 paths · 661 operations · 959 schemas.**
+**506 paths · 680 operations · 986 schemas.**
 
 ## agent-proposals
 
@@ -953,6 +953,40 @@
 |---|---|---|---|
 | `POST` | `/api/v1/sso/exchange` <a id="sso_exchange"></a> | POST /api/auth/sso/exchange — swaps the single-use callback code for tokens (or a link confirmation). Codes die on first use or after 60s. | [SsoExchangeRequest](#schema-ssoexchangerequest) |
 
+## stock
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `POST` | `/api/v1/stock/adjust` <a id="stock_adjust"></a> | POST /api/stock/adjust — the signed counter-fix (NO serialized items; move the unit instead). | [AdjustRequest](#schema-adjustrequest) |
+| `POST` | `/api/v1/stock/consume` <a id="stock_consume"></a> | POST /api/stock/consume — the OUT leg charging a ticket's job. | [ConsumeRequest](#schema-consumerequest) |
+| `GET` | `/api/v1/stock/consumption-velocity` <a id="stock_consumption_velocity"></a> | GET /api/stock/consumption-velocity — the outbound-rate read model. | — |
+| `POST` | `/api/v1/stock/levels/thresholds` <a id="stock_thresholds_set"></a> | POST /api/stock/levels/thresholds — min/max/reorder per (item, location); NULL clears. Creates the level row on first touch, without moving stock. | [ThresholdsRequest](#schema-thresholdsrequest) |
+| `GET` | `/api/v1/stock/on-hand` <a id="stock_on_hand"></a> | GET /api/stock/on-hand — the stock-on-hand read model. | — |
+| `POST` | `/api/v1/stock/receive` <a id="stock_receive"></a> | POST /api/stock/receive — a positive leg into ONE location. Serialized items move one physical unit per ledger row (exactly one serial). | [ReceiveRequest](#schema-receiverequest) |
+| `POST` | `/api/v1/stock/ship-out` <a id="stock_ship_out"></a> | POST /api/stock/ship-out — OUT to a client or an on-site job, with optional carrier + tracking ref. | [ShipOutRequest](#schema-shipoutrequest) |
+| `POST` | `/api/v1/stock/transfer` <a id="stock_transfer"></a> | POST /api/stock/transfer — shrink one location, grow another. | [TransferRequest](#schema-transferrequest) |
+
+## stock-items
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/stock-items` <a id="stock_items_list"></a> | GET /api/stock-items. | — |
+| `POST` | `/api/v1/stock-items` <a id="stock_items_create"></a> | POST /api/stock-items — create through the instant-first write path. | [CreateStockItemRequest](#schema-createstockitemrequest) |
+| `GET` | `/api/v1/stock-items/{id}` <a id="stock_items_get"></a> | GET /api/stock-items/{id}. | — |
+| `PATCH` | `/api/v1/stock-items/{id}` <a id="stock_items_update"></a> | PATCH /api/stock-items/{id} — absent fields keep their value. | [UpdateStockItemRequest](#schema-updatestockitemrequest) |
+| `POST` | `/api/v1/stock-items/{id}/archive` <a id="stock_items_archive"></a> | POST /api/stock-items/{id}/archive — archival is a flag. | [ArchiveStockItemRequest](#schema-archivestockitemrequest) |
+| `GET` | `/api/v1/stock-items/{id}/movements` <a id="stock_item_movements"></a> | GET /api/stock-items/{id}/movements — THE traceability ledger read. | — |
+| `GET` | `/api/v1/stock-items/{id}/serials` <a id="stock_item_serials"></a> | GET /api/stock-items/{id}/serials — serialized WHERE-IT-IS-NOW. | — |
+
+## stock-locations
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/stock-locations` <a id="stock_locations_list"></a> | GET /api/stock-locations. | — |
+| `POST` | `/api/v1/stock-locations` <a id="stock_locations_create"></a> | POST /api/stock-locations. | [CreateStockLocationRequest](#schema-createstocklocationrequest) |
+| `GET` | `/api/v1/stock-locations/{id}` <a id="stock_locations_get"></a> | GET /api/stock-locations/{id}. | — |
+| `PATCH` | `/api/v1/stock-locations/{id}` <a id="stock_locations_update"></a> | PATCH /api/stock-locations/{id}. | [UpdateStockLocationRequest](#schema-updatestocklocationrequest) |
+
 ## tags
 
 | Method | Path | Operation | Request body |
@@ -1111,6 +1145,7 @@
 | <a id="schema-addchecklistitemrequest"></a>`AddChecklistItemRequest` | composite |  |
 | <a id="schema-addcommentrequest"></a>`AddCommentRequest` | composite |  |
 | <a id="schema-addmemberrequest"></a>`AddMemberRequest` | composite |  |
+| <a id="schema-adjustrequest"></a>`AdjustRequest` | composite |  |
 | <a id="schema-agentproposalpage"></a>`AgentProposalPage` | object | GET /api/agent-proposals envelope. |
 | <a id="schema-agentproposalview"></a>`AgentProposalView` | object | One IF8 proposal with the full snapshot the approval decision needs. |
 | <a id="schema-agentskilllist"></a>`AgentSkillList` | object |  |
@@ -1163,6 +1198,7 @@
 | <a id="schema-approvalstatus"></a>`ApprovalStatus` | string | Approval lifecycle of a time entry (Wave 14 lane 1): `draft` entries are still being worked on, `submitted` waits in the approver queue, `approved` entries are the only ones billing reads may consume, |
 | <a id="schema-approvestagedrequest"></a>`ApproveStagedRequest` | object |  |
 | <a id="schema-archivecatalogitemrequest"></a>`ArchiveCatalogItemRequest` | composite |  |
+| <a id="schema-archivestockitemrequest"></a>`ArchiveStockItemRequest` | composite |  |
 | <a id="schema-articledetail"></a>`ArticleDetail` | composite | The single-article read surface (GET): article fields at the top level plus the sanitized read-only HTML projection the web client renders server-side — the editor package never ships in bundles that  |
 | <a id="schema-articlelistquery"></a>`ArticleListQuery` | object |  |
 | <a id="schema-articlemutationresponse"></a>`ArticleMutationResponse` | composite | Instant-first mutation response (IF2). |
@@ -1289,6 +1325,7 @@
 | <a id="schema-connectortechniciansview"></a>`ConnectorTechniciansView` | object |  |
 | <a id="schema-consentdiffview"></a>`ConsentDiffView` | object |  |
 | <a id="schema-consentview"></a>`ConsentView` | object | The consent screen payload — ONE component shared by every source (same shape the update re-consent flow shows). |
+| <a id="schema-consumerequest"></a>`ConsumeRequest` | composite |  |
 | <a id="schema-contact"></a>`Contact` | object |  |
 | <a id="schema-contactfeedupsertrequest"></a>`ContactFeedUpsertRequest` | composite |  |
 | <a id="schema-contactfeedupsertresponse"></a>`ContactFeedUpsertResponse` | object |  |
@@ -1358,6 +1395,8 @@
 | <a id="schema-createsiterequest"></a>`CreateSiteRequest` | object |  |
 | <a id="schema-createstagerequest"></a>`CreateStageRequest` | composite | POST /api/pipeline/stages body. |
 | <a id="schema-createstatusrequest"></a>`CreateStatusRequest` | object |  |
+| <a id="schema-createstockitemrequest"></a>`CreateStockItemRequest` | composite | POST /api/stock-items. |
+| <a id="schema-createstocklocationrequest"></a>`CreateStockLocationRequest` | composite | POST /api/stock-locations. |
 | <a id="schema-createtagrequest"></a>`CreateTagRequest` | composite |  |
 | <a id="schema-createtaskrequest"></a>`CreateTaskRequest` | composite |  |
 | <a id="schema-createtaxonomynoderequest"></a>`CreateTaxonomyNodeRequest` | composite |  |
@@ -1538,6 +1577,7 @@
 | <a id="schema-listratingsquery"></a>`ListRatingsQuery` | object |  |
 | <a id="schema-listtaxonomyquery"></a>`ListTaxonomyQuery` | object |  |
 | <a id="schema-listtraveldraftsquery"></a>`ListTravelDraftsQuery` | object |  |
+| <a id="schema-locationlistquery"></a>`LocationListQuery` | object |  |
 | <a id="schema-loginrequest"></a>`LoginRequest` | object |  |
 | <a id="schema-loginresponse"></a>`LoginResponse` | object | Login outcome: tokens directly, or a short-lived MFA bridge token when any second factor is enrolled. Untagged so legacy clients that ignore `mfa_required` keep parsing the plain token pair they alway |
 | <a id="schema-loopmessage"></a>`LoopMessage` | object | One conversation message (`system` \| `user` \| `assistant` \| `tool`). |
@@ -1584,6 +1624,8 @@
 | <a id="schema-mfaverifyrequest"></a>`MfaVerifyRequest` | object |  |
 | <a id="schema-moveappointmentrequest"></a>`MoveAppointmentRequest` | object |  |
 | <a id="schema-moveboardrequest"></a>`MoveBoardRequest` | composite |  |
+| <a id="schema-movementlistquery"></a>`MovementListQuery` | object |  |
+| <a id="schema-movementmutationresponse"></a>`MovementMutationResponse` | object | Instant-first mutation response for ledger legs. |
 | <a id="schema-movespec"></a>`MoveSpec` | object | One move in a batch: the booking's new user and slot. |
 | <a id="schema-movestagerequest"></a>`MoveStageRequest` | composite | POST /api/pipeline/deals/{id}/stage body — one audited transition. |
 | <a id="schema-mutationmeta"></a>`MutationMeta` | object | Read-your-write metadata every mutation response carries (IF2), merged as the additive `mutation` object alongside the entity fields. |
@@ -1606,6 +1648,8 @@
 | <a id="schema-onboardingsummary"></a>`OnboardingSummary` | object |  |
 | <a id="schema-onboardingtriggerrequest"></a>`OnboardingTriggerRequest` | object |  |
 | <a id="schema-oncallblock"></a>`OnCallBlock` | object | An absolute UTC on-call rotation segment for one user. |
+| <a id="schema-onhandquery"></a>`OnHandQuery` | object |  |
+| <a id="schema-onhandrow"></a>`OnHandRow` | object | The stock-on-hand read model row (`qty leaking thresholds`). |
 | <a id="schema-orgbillingpreview"></a>`OrgBillingPreview` | object | Org-wide preview: every billable contract's evaluation for the window plus the grand total — the shape a Wave-9 invoice run will consume. |
 | <a id="schema-orgprofileresponse"></a>`OrgProfileResponse` | object |  |
 | <a id="schema-orgreconcilerequest"></a>`OrgReconcileRequest` | composite |  |
@@ -1774,6 +1818,7 @@
 | <a id="schema-ratinglistview"></a>`RatingListView` | object |  |
 | <a id="schema-ratingmineview"></a>`RatingMineView` | object |  |
 | <a id="schema-ratingsummary"></a>`RatingSummary` | object |  |
+| <a id="schema-receiverequest"></a>`ReceiveRequest` | composite | POST /api/stock/{receive\|consume\|adjust\|transfer\|ship-out} bodies. All quantities are `milli` thousandths of the item's unit (parity with quote lines); signed legs are normalized per kind below. |
 | <a id="schema-reconciliationquery"></a>`ReconciliationQuery` | object |  |
 | <a id="schema-recordpaymentrequest"></a>`RecordPaymentRequest` | composite |  |
 | <a id="schema-recordraterequest"></a>`RecordRateRequest` | composite |  |
@@ -1863,6 +1908,7 @@
 | <a id="schema-segmentend"></a>`SegmentEnd` | string | Why a timer segment ended. Preserved forever — the pause reason is billable-work metadata, not a transient UI state. |
 | <a id="schema-sendstatementrequest"></a>`SendStatementRequest` | composite | POST /api/invoices/{id}/dunning/statement body. |
 | <a id="schema-sendstatementresponse"></a>`SendStatementResponse` | object | POST /api/invoices/{id}/dunning/statement response. |
+| <a id="schema-seriallistquery"></a>`SerialListQuery` | object |  |
 | <a id="schema-sessioninfo"></a>`SessionInfo` | object |  |
 | <a id="schema-setchecklistitemrequest"></a>`SetChecklistItemRequest` | composite |  |
 | <a id="schema-setdependenciesrequest"></a>`SetDependenciesRequest` | object |  |
@@ -1878,6 +1924,7 @@
 | <a id="schema-setuserstatusrequest"></a>`SetUserStatusRequest` | composite |  |
 | <a id="schema-shareclaimmaterial"></a>`ShareClaimMaterial` | object | The unified claim response: the material exactly once (the claim consumes the link). Mirrors `SecretReveal` / `PasswordReveal` contents under one shape — `fields` carries `field_key` → plaintext. |
 | <a id="schema-sharesubjectkind"></a>`ShareSubjectKind` | string | Which vault subject a share link or rotation refers to. One-time share links cover BOTH the native secret records and the legacy byte- compatible password entries; rotation mirrors the same pair. |
+| <a id="schema-shipoutrequest"></a>`ShipOutRequest` | composite |  |
 | <a id="schema-similarticketcandidate"></a>`SimilarTicketCandidate` | object |  |
 | <a id="schema-similarticketsquery"></a>`SimilarTicketsQuery` | object |  |
 | <a id="schema-similarticketsresponse"></a>`SimilarTicketsResponse` | object |  |
@@ -1906,6 +1953,14 @@
 | <a id="schema-stagetype"></a>`StageType` | string | The kind of a pipeline stage. `won` / `lost` are terminal outcomes; deals on such a stage are closed. |
 | <a id="schema-starttimerrequest"></a>`StartTimerRequest` | composite |  |
 | <a id="schema-statementline"></a>`StatementLine` | object | One open invoice on the statement. |
+| <a id="schema-stockitemlistquery"></a>`StockItemListQuery` | object |  |
+| <a id="schema-stockitemmutationresponse"></a>`StockItemMutationResponse` | composite | Instant-first mutation response (IF2). |
+| <a id="schema-stockitemview"></a>`StockItemView` | object | The stock item as the CALLER may see it. `last_unit_cost_minor` is financial data — `null` without `financial:read` (RB2, ADR 0004). |
+| <a id="schema-stocklevelview"></a>`StockLevelView` | object | POST thresholds response: the fresh threshold row. |
+| <a id="schema-stocklocationmutationresponse"></a>`StockLocationMutationResponse` | composite |  |
+| <a id="schema-stocklocationview"></a>`StockLocationView` | object | Location view. |
+| <a id="schema-stockmovementview"></a>`StockMovementView` | object | Movement view (the traceability row the reads render). |
+| <a id="schema-stockserialview"></a>`StockSerialView` | object |  |
 | <a id="schema-stoptimerrequest"></a>`StopTimerRequest` | composite |  |
 | <a id="schema-submitentryrequest"></a>`SubmitEntryRequest` | object |  |
 | <a id="schema-submitresponse"></a>`SubmitResponse` | composite | Instant-first mutation response (IF2): the full entry snapshot (including its new approval state) plus the decision trail entry. |
@@ -1942,6 +1997,7 @@
 | <a id="schema-testresult"></a>`TestResult` | object |  |
 | <a id="schema-themepacklist"></a>`ThemePackList` | object |  |
 | <a id="schema-themepackview"></a>`ThemePackView` | object | One installed theme pack for the org. The `manifest` carries the FULL validated manifest snapshot (token overrides only); the ACTIVE pack is identified through the typed `appearance.theme` setting val |
+| <a id="schema-thresholdsrequest"></a>`ThresholdsRequest` | composite |  |
 | <a id="schema-ticket"></a>`Ticket` | object |  |
 | <a id="schema-ticketboardmoveresponse"></a>`TicketBoardMoveResponse` | composite | Same additive envelope as the status endpoint (plain ticket body). |
 | <a id="schema-ticketchecklistbatchresponse"></a>`TicketChecklistBatchResponse` | composite | Batch response: full updated checklist view + the appended notes in item order so the client reconciles in one round trip. |
@@ -1985,6 +2041,7 @@
 | <a id="schema-totpenrollbeginresponse"></a>`TotpEnrollBeginResponse` | object |  |
 | <a id="schema-totpenrollverifyrequest"></a>`TotpEnrollVerifyRequest` | object |  |
 | <a id="schema-transcriptionresponse"></a>`TranscriptionResponse` | object |  |
+| <a id="schema-transferrequest"></a>`TransferRequest` | composite |  |
 | <a id="schema-transitionedge"></a>`TransitionEdge` | object | One directed edge in a board's explicit transition matrix. Both ids must belong to statuses of the SAME board (enforced here, and by composite FKs in storage). |
 | <a id="schema-traveldraftmutationresponse"></a>`TravelDraftMutationResponse` | composite | Mutation envelope: draft fields at the top level plus the additive `mutation` metadata (IF2). |
 | <a id="schema-traveldraftview"></a>`TravelDraftView` | object | One travel/mileage draft. |
@@ -2027,6 +2084,8 @@
 | <a id="schema-updatesettingsrequest"></a>`UpdateSettingsRequest` | object |  |
 | <a id="schema-updatestagerequest"></a>`UpdateStageRequest` | composite | PATCH /api/pipeline/stages/{id} body. |
 | <a id="schema-updatestatusrequest"></a>`UpdateStatusRequest` | object |  |
+| <a id="schema-updatestockitemrequest"></a>`UpdateStockItemRequest` | composite | PATCH /api/stock-items/{id}. Absent fields keep their value; `Some(None)` clears an optional field. |
+| <a id="schema-updatestocklocationrequest"></a>`UpdateStockLocationRequest` | composite |  |
 | <a id="schema-updatetagrequest"></a>`UpdateTagRequest` | composite |  |
 | <a id="schema-updatetaxonomynoderequest"></a>`UpdateTaxonomyNodeRequest` | composite |  |
 | <a id="schema-updatetemplaterequest"></a>`UpdateTemplateRequest` | object | PUT /api/imports/templates/{id} request — all fields optional. |
@@ -2040,6 +2099,8 @@
 | <a id="schema-userskillsview"></a>`UserSkillsView` | object |  |
 | <a id="schema-valueview"></a>`ValueView` | object | One effective value: registry default overlaid by any stored override. |
 | <a id="schema-vaultentryview"></a>`VaultEntryView` | object | A vault entry as the asset detail page sees it: metadata only — reveal rides the audited `/passwords/{id}/reveal` endpoint. |
+| <a id="schema-velocitymutationless"></a>`VelocityMutationless` | object |  |
+| <a id="schema-velocityquery"></a>`VelocityQuery` | object |  |
 | <a id="schema-verdictresponse"></a>`VerdictResponse` | object |  |
 | <a id="schema-verifypublisherrequest"></a>`VerifyPublisherRequest` | object |  |
 | <a id="schema-verifystatus"></a>`VerifyStatus` | object |  |
@@ -2065,4 +2126,4 @@
 | <a id="schema-workbenchside"></a>`WorkbenchSide` | composite | One side of the workbench comparison: the item view plus its FULL tier state (observed/curated/field_sources) and identity keys. |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 27 operation groups; schema count 959 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 27 operation groups; schema count 986 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
