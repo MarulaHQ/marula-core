@@ -10,14 +10,14 @@
 > Canonical machine source: `design/tangerine/tangerine.json` (vendored from
 > `https://tweakcn.com/r/themes/tangerine.json`). Do not hand-edit hexes outside `packages/ui/src/tokens.css`.
 
-> **Status:** Active · **Overhaul applied:** 2026-09-15 (Wave 15 lane `p15-theme-tangerine` — full transformation, not token-only)
+> **Status:** Active · **Overhaul applied:** 2026-09-15 (Wave 15 lane `p15-theme-tangerine` — full overhaul, not token-only)
 > **Superseded identity:** "Workbench" (monochrome + Ember `#D64B0A`, 2px radius, no serif, cool neutral `#F4F5F7`/`#101216`)
 > **New identity:** **Tangerine** — warm-neutral light (`#E8EBED`), blue-slate dark (`#1C2433`), tangerine primary `#E05D38`, pill tags `999px`, Source Serif 4 headings, generous spacing, soft `rgba(0,0,0,.10)` shadows.
 > **Scope:** binding on all Meridian UI code, docs site, and marketplace surfaces.
 
 ## 1. Design stance
 
-**A workbench with presence.** Dense, keyboard-first surfaces remain; the Tangerine preset adds warmth (light canvas `#E8EBED`), an indigo-slate dark mode (`#1C2433`), and editorial craft (serif headings, pill badges, rounded controls). Color is purposeful: interactive affordances, status tags, and the chart ramp — never decorative gradients or illustration.
+**A workbench with presence.** Dense, keyboard-first surfaces remain. The Tangerine preset adds warmth (light canvas `#E8EBED`), an indigo-slate dark mode (`#1C2433`), and editorial craft (serif headings, pill badges, rounded controls). Color is purposeful: interactive affordances, status tags, and the chart ramp — never decorative gradients or illustration.
 
 ## 2. Identity definition
 
@@ -27,16 +27,16 @@
 | Temperature | **Light: warm neutral** (`#E8EBED`) · **Dark: blue-slate** (`#1C2433`) — per the preset, not a mirrored grey |
 | Headers | **Source Serif 4** for headings (h1–h6, card headers, dialog titles); **Inter** body; **JetBrains Mono** code/data with tabular numerals |
 | Corners | **0.75rem** on buttons, inputs, cards, tags; **pill tags (`999px`)** for status indicators |
-| Depth | Soft preset shadows (`rgba(0,0,0,.10)` scale) on overlays; visible 1px borders (`#DCDFE2` light / `#3D4354` dark) |
+| Depth | Soft preset shadows (`rgba(0,0,0,.10)` scale) on overlays. Visible 1px borders (`#DCDFE2` light / `#3D4354` dark) |
 | Feel | "Workbench with presence" |
 
 **Hard rules:**
-1. Every hex lives in `packages/ui/src/tokens.css` — the single hex source. The shadcn layer (`apps/web/app/globals.css`) bridges to `--m-*` variables for shared values and carries preset-only values verbatim as `oklch()`. No off-palette hexes in feature code; CI hex-scan enforces.
+1. Every hex lives in `packages/ui/src/tokens.css` — the single hex source. The shadcn layer (`apps/web/app/globals.css`) bridges to `--m-*` variables for shared values and carries preset-only values verbatim as `oklch()`. No off-palette hexes in feature code. CI hex-scan enforces.
 2. **Tangerine (`#E05D38`)** marks interactivity: primary buttons, links, focus rings (2px offset outline), active nav indicators.
 3. **Semantic status colors follow PSA conventions** and survive the swap: green success `#15803D`/`#4ADE80`, amber warning `#B45309`/`#FBBF24`, red danger `#B91C1C`/`#F87171`. The preset's `destructive` (`#EF4444`) applies to solid destructive buttons (shadcn `--destructive`), not status tags.
-4. **Colorful presence, not chaos.** Interactive elements, status pills, and the chart ramp carry color; surfaces stay neutral and text stays readable ink (`#333333` / `#E5E5E5`).
-5. **Both modes first-class.** Light and dark ship from the same token set; dark is the preset's own blue-slate family, not a mirrored grey.
-6. **Primary-button pairing note (spec tradeoff):** white on `#E05D38` ≈ 3.63:1 — the preset's own pairing; above the 3:1 large/UI floor, below normal-text AA. Accepted as the pinned tradeoff (documented in `tokens.test.ts`).
+4. **Colorful presence, not chaos.** Interactive elements, status pills, and the chart ramp carry color. Surfaces stay neutral and text stays readable ink (`#333333` / `#E5E5E5`).
+5. **Both modes first-class.** Light and dark ship from the same token set. Dark is the preset's own blue-slate family, not a mirrored grey.
+6. **Primary-button pairing note (spec tradeoff):** white on `#E05D38` ≈ 3.63:1 — the preset's own pairing. Above the 3:1 large/UI floor, below normal-text AA. Accepted as the pinned tradeoff (documented in `tokens.test.ts`).
 
 ---
 
@@ -45,7 +45,7 @@
 ### 3.0 Layering contract (single source of truth)
 
 - `packages/ui/src/tokens.css` — the **only** file that may declare hexes. Holds the primitive ramp + semantic `--m-*` layer.
-- `apps/web/app/globals.css` — shadcn/Tailwind variable layer. References `--m-*` for every value both layers share; preset-only values (accent tints, sidebar, muted scale) appear as verbatim `oklch()` copied from the vendored preset. The layers cannot drift because shared values are bridged, not redeclared.
+- `apps/web/app/globals.css` — shadcn/Tailwind variable layer. References `--m-*` for every value both layers share. Preset-only values (accent tints, sidebar, muted scale) appear as verbatim `oklch()` copied from the vendored preset. The layers cannot drift because shared values are bridged, not redeclared.
 - `packages/ui/src/tokens.ts` — `PALETTE` mirrors tokens.css hexes 1:1 (test-enforced).
 - Vendored canonical preset: `design/tangerine/tangerine.json`.
 
@@ -105,8 +105,8 @@ The Workbench Ember hexes (`#D64B0A` / `#FF8A4C`) are retired and CI-blacklisted
 | Role | Family | Weight | Notes |
 |---|---|---|---|
 | **UI / body / headings (default)** | **Inter**, system-ui fallback | 400 / 500 / 600 / 700 | 13px default. **Everything defaults to Inter** — including h1–h6 and `font-semibold` labels. next/font serves the webfont (`--font-sans`). |
-| Display headings (opt-in) | **Source Serif 4** | 600–700 | Only via the `font-heading` utility on genuinely large display titles. The app's h1–h6 are mostly small section labels (`text-sm font-semibold`) and stay Inter. Tailwind's `font-serif` maps to the same webfont. **OWNER DIKTAT 2026-09-18: mockup-v2 wins — `--font-serif` is defined but never rendered there, so Inter-only display type is the canonical bar. De-serif surface card display titles (commit titles/labels) back to Inter (`font-semibold`); Source Serif now appears ONLY where explicitly themed above (the AuthBrand wordmark, docs headers). Lanes must not treat serif display titles as the default.** |
-| Code / data / logs | **JetBrains Mono** | 400 | next/font (`--font-mono`); tabular numerals mandatory |
+| Display headings (opt-in) | **Source Serif 4** | 600–700 | Only via the `font-heading` utility on genuinely large display titles. The app's h1–h6 are mostly small section labels (`text-sm font-semibold`) and stay Inter. Tailwind's `font-serif` maps to the same webfont. **OWNER DIKTAT 2026-09-18: mockup-v2 wins — `--font-serif` is defined but never rendered there, so Inter-only display type is the canonical bar. De-serif surface card display titles (commit titles/labels) back to Inter (`font-semibold`). Source Serif now appears ONLY where explicitly themed above (the AuthBrand wordmark, docs headers). Lanes must not treat serif display titles as the default.** |
+| Code / data / logs | **JetBrains Mono** | 400 | next/font (`--font-mono`). Tabular numerals mandatory |
 
 The Workbench "no serif" rule is **superseded** (see override banner), but the practical
 contract is **Inter-first**: serif is an opt-in accent for display typography, never applied
@@ -116,10 +116,10 @@ sans). No decorative serif in body text.
 ## 5. Shape, density, motion
 
 - **Radius:** `0.75rem` on controls and containers; `999px` for pill tags; `50%` avatars/spinners only.
-- **Borders over shadows:** visible 1px borders on containers; the preset shadow scale (`rgba(0,0,0,.10)`) is reserved for overlays.
+- **Borders over shadows:** visible 1px borders on containers. The preset shadow scale (`rgba(0,0,0,.10)`) is reserved for overlays.
 - **Density:** 32px control height, 28px row height, 20px card padding — generous, not sparse.
 - **Motion:** transitions ≤120ms, transform/opacity only; `prefers-reduced-motion` collapses animations to 0.01ms. **Subtle, tasteful animation is encouraged — do not ship statically** (owner directive 2026-09-15): entrance/transition motion (fade-up reveals, staggered list entrances, panel slide-ins, hover micro-feedback, tab/filter morphs) brings pages and transitions to life. Constraints are performance, not austerity: transform/opacity only (never layout properties — no width/height/top/left animation), short and snappy (≤120ms, minimal easing, no spring physics), stagger ≤40ms/item, and everything collapses under `prefers-reduced-motion`.
-- **Keyboard-first:** 2px offset focus outline in `#E05D38`; inline shortcut hints; every primary flow mouse-independent.
+- **Keyboard-first:** 2px offset focus outline in `#E05D38`. Inline shortcut hints. Every primary flow mouse-independent.
 
 ---
 
@@ -129,15 +129,15 @@ sans). No decorative serif in body text.
 - **Status indicators:** pill tags (`999px`, weight 700, 11px) using §3.3 pairs — never squared.
 - **Tables:** sticky headers, 28px rows, hover via surface-hover mix.
 - **Cards:** `#FFFFFF` / `#2A3040`, 0.75rem radius, 1px border, 20px padding.
-- **Charts:** preset ramp §3.4; gridlines at border color; no gradients.
-- **Forms:** labels above fields; validation in danger color with icon — never color alone.
+- **Charts:** preset ramp §3.4. Gridlines at border color. No gradients.
+- **Forms:** labels above fields. Validation in danger color with icon — never color alone.
 - **Empty states:** one sentence + one action. No illustrations.
 
 ## 7. Logo / mark direction
 
 - Wordmark: "Meridian" in Source Serif 4 SemiBold.
-- Mark: meridian line crossing a globe wireframe; the meridian stroke carries `#E05D38` — one stroke of tangerine in an otherwise neutral mark.
-- No gradients; survives 16px favicon and single-color print.
+- Mark: meridian line crossing a globe wireframe. The meridian stroke carries `#E05D38` — one stroke of tangerine in an otherwise neutral mark.
+- No gradients. Survives 16px favicon and single-color print.
 
 ## 8. Voice
 
@@ -147,19 +147,24 @@ Dry, precise, documentation-grade — unchanged by the visual overhaul.
 
 **The Tangerine token set behind this file is generalized into a VERSIONED theme-token schema** (`THEME_TOKEN_SCHEMA_VERSION = 1`): a theme is a map of LIGHT/DARK values over the CLOSED semantic-role vocabulary (the §3 roles — background/surface/overlay/border/text tiers, accent/on-accent, destructive, the four status pairs, chart-1..5). Motion (§5), typography (§4), radius, and the shadow scale are NOT part of the vocabulary on purpose — no theme can restyle them, so docs/theme.md override rules win by construction.
 
-- **Built-in presets (shipped, selectable org-wide with per-user override):** `tangerine` (the pinned **default-v1**, byte-identical to tokens.css — zero visual change to Applied core surfaces), `slate` (neutral tool-grade grey), `copper` (brand-warm), `high_contrast` (accessibility). Machine source: `packages/ui/src/theme-tokens.ts` (frontend) + `crates/core-domain/src/theme_pack.rs` (backend boundary); application is a `data-preset` attribute on `<html>` (attribute-scoped token overrides at the same specificity — the unset attribute IS the Tangerine baseline, so nothing changes unless the org or user picks a preset).
-- **Settings keys (typed registry):** `appearance.theme` (ORG scope — preset id or `pack:<slug>`), `appearance.theme_override` (USER scope — `org_default` sentinel wins user→org, same precedence as the sticky AI model picks), `appearance.mode` (USER scope — system/light/dark, U6-safe supersedes of the flat old user `appearance.theme` key via migration 0097).
+- **Built-in presets** (shipped; an org picks one, any user can override it):
+  - `tangerine` — the pinned **default-v1**, byte-identical to tokens.css (zero visual change to Applied core surfaces)
+  - `slate` — neutral tool-grade grey
+  - `copper` — brand-warm
+  - `high_contrast` — the accessibility preset
+  Machine source: `packages/ui/src/theme-tokens.ts` (frontend) + `crates/core-domain/src/theme_pack.rs` (backend boundary). Application is a `data-preset` attribute on `<html>` (attribute-scoped token overrides at the same specificity — the unset attribute IS the Tangerine baseline, so nothing changes unless the org or user picks a preset).
+- **Settings keys (typed registry):** `appearance.theme` (ORG scope: preset id or `pack:<slug>`), `appearance.theme_override` (USER scope: the `org_default` sentinel wins user→org, same precedence as the sticky AI model picks), and `appearance.mode` (USER scope: system/light/dark, a U6-safe supersedes of the flat old user `appearance.theme` key via migration 0097).
 - **Theme packs (leg B) ride ADR 0009 V1** — marketplace registry / pinned GitHub / local zip staged imports, `artifact_kind: "theme"`, **zero capabilities** (the ingestion gate refuses capability declarations: topics restyle and nothing else). The manifest carries ONLY token overrides; **typed rejection of off-schema keys** (a `font_family` key is a 422 with the key named, never a silent ignore).
-- **Import by export (tweakcn / shadcn):** the pack manifest may be a RAW tweakcn export (the vendored `design/tangerine/tangerine.json` is the exemplar shape — `{ name, cssVars: { light, dark } }` over the shadcn variable vocabulary, frequently `oklch()`) or a shadcn registry-item theme (same `cssVars` shape). The ingestion seam coerces: identity from the export's `name` (version 1.0.0 + current schema version stamped), oklch → sRGB hex, shadcn variable names mapped onto schema roles (background/card/popover/border/foreground/secondary-foreground/muted-foreground/primary/primary-foreground/destructive/chart-N). Unmapped export variables (sidebar ramps, hover tints, radius, fonts) are DROPPED — the schema stays restyle-only; derived tones recompute client-side. The coerced manifest must pass the same validate() gate (contrast floors included), so an export whose converted basics fail AA is refused outright: upload your export file as the zip's `manifest.json` and it imports with no hand translation.
-- **Status pairs note:** shadcn/tweakcn exports carry no success/warning tags; the PSA status colors (§3.3) survive every pack — exactly per rule 3 above.
+- **Import by export (tweakcn / shadcn):** the pack manifest may be a RAW tweakcn export (the vendored `design/tangerine/tangerine.json` is the exemplar shape — `{ name, cssVars: { light, dark } }` over the shadcn variable vocabulary, frequently `oklch()`) or a shadcn registry-item theme (same `cssVars` shape). The ingestion seam coerces: identity from the export's `name` (version 1.0.0 + current schema version stamped), oklch → sRGB hex, shadcn variable names mapped onto schema roles (background/card/popover/border/foreground/secondary-foreground/muted-foreground/primary/primary-foreground/destructive/chart-N). Unmapped export variables (sidebar ramps, hover tints, radius, fonts) are DROPPED — the schema stays restyle-only. Derived tones recompute client-side. The coerced manifest must pass the same validate() gate (contrast floors included), so an export whose converted basics fail AA is refused outright: upload your export file as the zip's `manifest.json` and it imports with no hand translation.
+- **Status pairs note:** shadcn/tweakcn exports carry no success/warning tags. The PSA status colors (§3.3) survive every pack — exactly per rule 3 above.
 
 ## 9. Enforcement
 
-- Tokens live in `packages/ui/src/tokens.css` (+ `tokens.ts` PALETTE mirror); CI hex-scan (`.github/workflows/ci.yml`) fails on raw hex outside token files and blacklists the retired Workbench hexes.
-- **`@shadcn/lint` (Wave 25 lane 1) mechanizes the token layer for `apps/web`:** `pnpm turbo run lint` runs ESLint 9 + `@shadcn/lint` over 277 files with `settings.shadcn.componentImports` on `@meridian/ui`. At `error`: `no-raw-colors` (raw palette colors — succeeds the hex-scan posture) and `no-restyle` (permissive-correct `layout+typography` base with per-component contracts; component styling stays owned by `packages/ui/src/**`, Tiptap editor internals, and the recharts tooltip style props via explicit carve-outs). At `warn` pending post-Wave-25 sweeps: `no-inline-styles` (96 token-driven findings), `no-arbitrary-values` (1476, mostly the `text-[13px]` off-scale font size), `no-unknown-classes` (51 `m-wb-*` classes needing `@utility` declarations), `require-static-classes`. Every finding's error text appends this file + mockup v2 as the fix reference.
+- Tokens live in `packages/ui/src/tokens.css` (+ `tokens.ts` PALETTE mirror). CI hex-scan (`.github/workflows/ci.yml`) fails on raw hex outside token files and blacklists the retired Workbench hexes.
+- **`@shadcn/lint` (Wave 25 lane 1) mechanizes the token layer for `apps/web`:** `pnpm turbo run lint` runs ESLint 9 + `@shadcn/lint` over 277 files with `settings.shadcn.componentImports` on `@meridian/ui`. At `error`: `no-raw-colors` (raw palette colors — succeeds the hex-scan posture) and `no-restyle` (permissive-correct `layout+typography` base with per-component contracts. Component styling stays owned by `packages/ui/src/**`, Tiptap editor internals, and the recharts tooltip style props via explicit carve-outs). At `warn` pending post-Wave-25 sweeps: `no-inline-styles` (96 token-driven findings), `no-arbitrary-values` (1476, mostly the `text-[13px]` off-scale font size), `no-unknown-classes` (51 `m-wb-*` classes needing `@utility` declarations), `require-static-classes`. Every finding's error text appends this file + mockup v2 as the fix reference.
 - `packages/ui/tests/tokens.test.ts` proves hex-source uniqueness, PALETTE sync, dark-mode completeness, and WCAG floors.
 - `scripts/review-theme.mjs` asserts the generated layers against the vendored `design/tangerine/tangerine.json` (value-level comparison, dark-mode anchors, chart ramp). Wave 24 note: the per-theme hex-scan cross-checks the `no-raw-colors` settings (`apps/web/eslint.config.mjs`).
-- **`scripts/check-theme-packs.mjs` (Wave 24 leg C) — the PER-THEME gate:** runs the retired-hex blacklist AND the AA/3:1 floors over EVERY shipped built-in preset (both modes), plus any installed theme-pack manifests passed as CLI args / `THEME_PACK_MANIFESTS` (CI loops per installed theme); it enforces the closed role vocabulary, so an off-schema token in any theme is mechanically rejected, not applied.
-- Reference mockups: `design/mockups/meridian-ticket-workbench-html-mockup-v2.html` (+ `…-v2-light.png` / `…-v2-dark.png`) — **the canonical aesthetic reference** (includes the dark-mode toggle and both modes); the earlier v1 mockup is kept for history only. QA evidence under `design/qa-tangerine/`. Wave 25 lint evidence under `design/qa-p25-shadcn-lint/`.
+- **`scripts/check-theme-packs.mjs` (Wave 24 leg C) — the per-preset gate:** runs the retired-hex blacklist AND the AA/3:1 floors over EVERY shipped built-in preset, in both modes. It also scores any installed pack manifests passed as CLI args or via `THEME_PACK_MANIFESTS` (CI loops per installed theme). It enforces the closed role vocabulary, so an off-schema token in any theme is mechanically rejected, not applied.
+- Reference mockups: `design/mockups/meridian-ticket-workbench-html-mockup-v2.html` (+ `…-v2-light.png` / `…-v2-dark.png`) — **the canonical aesthetic reference** (includes the dark-mode toggle and both modes). The earlier v1 mockup is kept for history only. QA evidence under `design/qa-tangerine/`. Wave 25 lint evidence under `design/qa-p25-shadcn-lint/`.
 
 <!-- END -->

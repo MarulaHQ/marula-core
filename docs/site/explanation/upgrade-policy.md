@@ -18,8 +18,8 @@ document:
 ## Why four boundaries, exactly
 
 Compatibility is a property of boundaries, not of the whole system. The
-policy promises stability across exactly four surfaces — REST + WebSocket
-API, domain events & webhooks, the plugin API, and declared customizations —
+policy promises stability across exactly four surfaces (REST + WebSocket
+API, domain events & webhooks, the plugin API, and declared customizations)
 plus the documented read model. Everything else (physical tables, internal
 crate APIs, worker payloads) is explicitly *not* stable, ever.
 

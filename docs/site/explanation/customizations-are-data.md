@@ -1,7 +1,7 @@
 # Customizations are data, not code
 
-Everything an organization configures — custom fields, board statuses,
-automations, webhook subscriptions, settings registry values — lives as
+Everything an organization configures (custom fields, board statuses,
+automations, webhook subscriptions, settings registry values) lives as
 declarative rows bound to stable semantic primitives. This is the
 [`docs/upgrade-compatibility-policy.md`](../../upgrade-compatibility-policy.md)
 §5 position, and it is the load-bearing idea behind Meridian's upgrade

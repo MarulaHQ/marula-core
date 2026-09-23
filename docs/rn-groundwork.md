@@ -1,7 +1,6 @@
 # React Native groundwork — SEAM-ONLY (Wave 22 lane 1 `p22-ecosystem-stretch`)
 
-Status: **seam-only deliverable** — this lane documents the mobile seam;
-NO mobile app, no Expo/RN package, no `native` workspace member ships in
+Status: **seam-only deliverable** — this lane documents the mobile seam. NO mobile app, no Expo/RN package, no `native` workspace member ships in
 this lane (the Wave 22 row's scope: groundwork = the boundary + the
 contract, not an app).
 
@@ -18,9 +17,9 @@ Everything a future RN client consumes ALREADY exists and is pinned:
 
 ## What the seam IS NOT
 
-* no app target / storefront package in this lane;
+* no app target / storefront package in this lane.
 * no push-notification plumbing (FCM/APNs) — transport decisions stay
-  deferred;
+  deferred.
 * no marketplace v1 restructure: the RN client consumes the v1 pack
   formats exactly as the theming lane's consumers do (contract with the
   p24 theming lane holds).
@@ -30,7 +29,7 @@ Everything a future RN client consumes ALREADY exists and is pinned:
 1. The RN groundwork does NOT fork the SDK. Mobile reuses
    `packages/sdk` — regen flows stay the single pin + typed-source path.
 2. No mobile-specific migration endpoints: every screen ships from the
-   same IF contract; any new warp-down call must land here FIRST.
+   same IF contract. Any new warp-down call must land here FIRST.
 3. The typed payment_declined codes + AI typed refusals are THE reason
    the native shell can render honest states — a future RN lane must
    treat every typed reason as rendered copy, never swallowed.

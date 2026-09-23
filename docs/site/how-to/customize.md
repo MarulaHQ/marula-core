@@ -43,12 +43,13 @@ Because customizations are rows bound to stable primitives:
 
 1. Migrations that touch customized constructs carry the transform for those
    rows in the same transaction.
-2. The [upgrade preflight](upgrade.md) can tell you — before you upgrade —
+2. The [upgrade preflight](upgrade.md) can tell you, before you upgrade,
    exactly which of your customizations touch anything deprecated in the
    target version.
 
 ## What is NOT a customization surface
 
 Anything past the four stable boundaries (REST + WebSocket API, domain
-events & webhooks, plugin API, declared customizations) — physical tables,
-internal crate APIs, worker payloads — is explicitly not stable, ever.
+events & webhooks, plugin API, declared customizations) is explicitly not
+stable, ever: not physical tables, not internal crate APIs, not worker
+payloads.

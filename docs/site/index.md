@@ -3,8 +3,8 @@
 ![Meridian logo lockup](../../meridian-ci/logo/lockup-navy@2x.png)
 
 Meridian is an open-source PSA (professional services automation) core for
-MSPs: tickets, clients, billing, scheduling, docs, agents — self-hostable,
-extensible, and yours to leave with at any time.
+MSPs: tickets, clients, billing, scheduling, docs, agents — self-hostable
+and extensible, yours to leave with at any time.
 
 > "The core is open source. Host it yourself, fork it, break it, rebuild it.
 > You can leave with your whole system on any given day and you can extend it

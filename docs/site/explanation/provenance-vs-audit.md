@@ -34,13 +34,12 @@ human performed a change.
 
 `/audit` carries a different sentence:
 
-> "append-only ledger of security, administrative, and domain lifecycle
-> events"
+> "Append-only ledger of security, administrative and domain lifecycle events for the org."
 
-Event-level, with filters that show the shape: action-prefix chips
+Event-level, with filters that show the shape. Action-prefix chips
 (`auth.*`, `secret.*`, `plugin.*`, `portal.*`, `billing.*`), an actor
-UUID-or-prefix filter, from/to date range, Apply/Clear — and rows with
-human/system actor chips plus an Inspect detail expander, pagination.
+UUID-or-prefix filter, a from/to date range, and Apply/Clear. Rows carry
+human/system actor chips plus an Inspect detail expander and pagination.
 
 Audit answers **"what happened in the life of this org, as events"** —
 sign-ins and their outcomes, plugin mutations, billing events, invites,

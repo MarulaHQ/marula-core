@@ -11,8 +11,8 @@ byte-identical pair:
 
 Both pins are **compact single-line minified JSON**. The API serves
 pretty-printed JSON, so after `curl /openapi.json > packages/sdk/openapi.json`
-you must run `pnpm --filter @meridian/sdk generate` — it minifies the
-snapshot in place — before committing. Never commit the ~43k-line pretty
+you must run `pnpm --filter @meridian/sdk generate` (it minifies the
+snapshot in place) before committing. Never commit the ~43k-line pretty
 form; `scripts/check-openapi-pins.sh` fails it in CI.
 
 ## What the pin guarantees
