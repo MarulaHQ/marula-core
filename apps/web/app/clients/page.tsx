@@ -164,7 +164,7 @@ export default function ClientsPage() {
           }}
         >
           <DialogTrigger asChild>
-            <Button>New client</Button>
+            <Button data-testid="new-record">New client</Button>
           </DialogTrigger>
           <DialogContent title="New client" description="Create the client record, then add sites, contacts, and assets on its page.">
             <div className="grid gap-3 p-4">

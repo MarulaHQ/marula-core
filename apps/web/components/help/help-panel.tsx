@@ -209,6 +209,7 @@ export function HelpPanel() {
               variant="ghost"
               size="sm"
               data-testid="help-close"
+              data-shortcuts-close="1"
               aria-label="Close help"
               onClick={() => setOpen(false)}
               className="px-2"

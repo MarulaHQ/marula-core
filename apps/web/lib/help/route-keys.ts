@@ -41,6 +41,7 @@ export const ROUTE_KEY_RULES: readonly (readonly [RegExp, string])[] = [
   [/^\/portal/, "portal"],
   [/^\/settings\/onboarding/, "settings-onboarding"],
   [/^\/settings\/preferences/, "settings-preferences"],
+  [/^\/settings\/shortcuts/, "settings-shortcuts"],
   [/^\/settings\/team/, "settings-team"],
   [/^\/settings\/api-keys/, "settings-api-keys"],
   [/^\/settings\/integrations/, "settings-integrations"],

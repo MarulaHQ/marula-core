@@ -41,6 +41,8 @@ Audience tag: **both** unless a guide is staff-only by nature.
 
 - [Work a ticket](staff-work-a-ticket.md) — notes → approval → bill
 - [Dispatch from the board](staff-dispatch.md)
+- [Use the keyboard shortcuts](staff-keyboard-shortcuts.md) — the Alt
+  command registry, the hold-Alt overlay, and the ? cheat sheet
 - [Get help inside Meridian](get-help.md) — the ? help panel, guide
   search, and turning feature tours off
 

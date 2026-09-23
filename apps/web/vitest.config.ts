@@ -7,9 +7,15 @@
 // Non-purpose: no browser E2E here — that stays in the Playwright suite;
 // no backend contract testing — that lives in Rust integration tests.
 import { defineConfig } from "vitest/config";
+import path from "node:path";
 
 export default defineConfig({
   esbuild: { jsx: "automatic" },
+  resolve: {
+    // The lib layer uses "@/..." imports (tsconfig paths); tests that pull
+    // lib modules through the registry (Wave 29 commands) need the alias.
+    alias: { "@": path.resolve(__dirname) },
+  },
   test: {
     environment: "jsdom",
     setupFiles: ["./tests/setup.ts"],

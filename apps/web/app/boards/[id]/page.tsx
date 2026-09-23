@@ -135,7 +135,9 @@ function NewTicketDialog({
       }}
     >
       <DialogTrigger asChild>
-        <Button size="sm">New ticket</Button>
+        <Button size="sm" data-testid="new-record">
+          New ticket
+        </Button>
       </DialogTrigger>
       <DialogContent
         title="New ticket"

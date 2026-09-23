@@ -61,13 +61,22 @@ export const test = base.extend<Fixtures>({
 
 /** Log the demo owner in through the context's cookie jar (the Set-Cookie
  * session cookie from the login response lands in the browser's cookie
- * store, which the app's cookie-driven refresh rotation reads). */
+ * store, which the app's cookie-driven refresh rotation reads). Retries
+ * through the durable 30s wrong-password gate the auth flow seeds, same
+ * policy as apiLogin. */
 export async function loginContext(ctx: BrowserContext): Promise<TokenPair> {
-  const res = await ctx.request.post(`${API_URL}/api/v1/auth/login`, {
-    data: { email: DEMO_OWNER_EMAIL, password: DEMO_PASSWORD },
-  });
-  if (!res.ok()) throw new Error(`context login failed (${res.status()})`);
-  return (await res.json()) as TokenPair;
+  let lastStatus = 0;
+  let lastError = "";
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const res = await ctx.request.post(`${API_URL}/api/v1/auth/login`, {
+      data: { email: DEMO_OWNER_EMAIL, password: DEMO_PASSWORD },
+    });
+    if (res.ok()) return (await res.json()) as TokenPair;
+    lastError = await res.text();
+    if (res.status() !== 401) throw new Error(`context login failed (${res.status()})`);
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+  }
+  throw new Error(`context login failed after gate retries: ${lastError}`);
 }
 
 /** Seed the token pair + expiry hint + theme preset into a page's
