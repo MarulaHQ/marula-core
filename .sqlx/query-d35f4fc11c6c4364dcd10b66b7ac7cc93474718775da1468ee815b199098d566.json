@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE stock_levels SET low_stock_notified_at = now()\n                        WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d35f4fc11c6c4364dcd10b66b7ac7cc93474718775da1468ee815b199098d566"
+}

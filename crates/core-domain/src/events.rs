@@ -457,6 +457,20 @@ pub mod types {
     pub const PIPELINE_DEAL_CREATED: &str = "pipeline.deal_created";
     pub const PIPELINE_DEAL_UPDATED: &str = "pipeline.deal_updated";
     pub const PIPELINE_DEAL_STAGE_CHANGED: &str = "pipeline.deal_stage_changed";
+    /// Stock + consumables (Wave 32 lane 1, migration 0102). The
+    /// append-only `stock_movements` ledger is the traceability ground
+    /// truth; these are the consumer signals.
+    pub const STOCK_ITEM_CREATED: &str = "stock.item_created";
+    pub const STOCK_ITEM_UPDATED: &str = "stock.item_updated";
+    pub const STOCK_ITEM_ARCHIVED: &str = "stock.item_archived";
+    /// A ledger row landed (receive/consume/adjust/transfer/ship_out);
+    /// the payload carries the movement snapshot. Automation rules can
+    /// trigger on movements tied to a ticket (`ticket_id`).
+    pub const STOCK_MOVEMENT_RECORDED: &str = "stock.movement_recorded";
+    /// A per-location level dropped to/below its reorder threshold. The
+    /// notification center already notified (same commit); this is the
+    /// fan-out signal for dashboards and (ticket-scoped) automations.
+    pub const STOCK_LEVEL_LOW: &str = "stock.level_low";
     /// Dispatch v2 (TASKLIST Phase 3, Wave 9 lane 9): a field-service
     /// status push landed against an appointment (connector or staff);
     /// the `dispatch_status_updates` ledger is the ground truth.
@@ -2035,6 +2049,64 @@ pub struct CatalogItemArchived {
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub item_id: uuid::Uuid,
     pub name: String,
+}
+
+/// stock.item_created — an org-owned stock item (SKU or free-form part)
+/// entered the catalog. Snapshot is AFTER the write.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct StockItemCreated {
+    pub item: crate::entities::StockItem,
+}
+
+/// stock.item_updated — a stock item changed (any field including
+/// `active`). Snapshot is AFTER the write.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct StockItemUpdated {
+    pub item: crate::entities::StockItem,
+}
+
+/// stock.item_archived — a stock item was archived (`active = false`).
+/// Ledger history is never rewritten.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct StockItemArchived {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub item_id: uuid::Uuid,
+    pub name: String,
+}
+
+/// stock.movement_recorded — an append-only ledger row landed. The
+/// payload carries the full movement (signed milli delta, cost + ADR
+/// 0002 receipt FX lock on receive, traceability anchors).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct StockMovementRecorded {
+    pub movement: crate::entities::StockMovement,
+}
+
+/// stock.level_low — a per-location level dropped to/below its reorder
+/// point. The low-stock notification was written in the SAME commit; this
+/// event widens the fan-out. `stock_location_id` NULL = a named location
+/// was absent (never happens through the shipped write path).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct StockLevelLow {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub org_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub stock_item_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub stock_location_id: uuid::Uuid,
+    pub qty_milli: i64,
+    pub reorder_point_milli: i64,
+    pub item_name: String,
+    /// Set when the triggering movement was tied to a ticket so the
+    /// automation-rule matcher can evaluate ticket-scoped rules.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub ticket_id: Option<uuid::Uuid>,
+    pub occurred_at: DateTime<Utc>,
 }
 
 /// quote.created — a numbered quote document was created in draft with

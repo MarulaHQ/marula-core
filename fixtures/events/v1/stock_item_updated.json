@@ -1,0 +1,25 @@
+{
+  "event_type": "stock.item_updated",
+  "entity": "stock_item",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "item": {
+      "active": true,
+      "catalog_item_id": null,
+      "created_at": "2023-11-14T22:13:21Z",
+      "created_by": "00000000-0000-0000-0000-000000000004",
+      "currency": "USD",
+      "id": "00000000-0000-0000-0000-00000000003c",
+      "kind": "consumable",
+      "last_unit_cost_minor": 12000,
+      "name": "Cat6 patch cable box",
+      "org_id": "00000000-0000-0000-0000-000000000002",
+      "part_number": "C6-BOX-025",
+      "sku": "CAT6-BOX",
+      "unit": "box",
+      "updated_at": "2023-11-14T22:13:21Z"
+    }
+  }
+}

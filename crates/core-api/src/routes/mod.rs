@@ -116,6 +116,7 @@ pub mod secrets;
 pub mod settings;
 pub mod similar_tickets;
 pub mod sla_admin;
+pub mod stock;
 pub mod stripe_webhook;
 pub mod tags;
 pub mod taxonomy;
@@ -1733,6 +1734,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // (Wave 12 lane 2, migration 0060) — each module owns its own
         // router; mutations ride the IF1–IF3 envelope.
         .merge(catalog::routes(gen))
+        .merge(stock::routes(gen))
         .merge(quotes::routes(gen))
         .merge(pipeline::routes(gen))
         // currency & FX (ADR 0002, Wave 12 lane 10, migration 0066): the

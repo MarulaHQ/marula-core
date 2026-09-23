@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE stock_items SET active = false, updated_at = now()\n           WHERE org_id = $1 AND id = $2 AND active",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7888b766971c74ab0399e021aa064486d6b51fc60ff2db606ac6b20126a7cf38"
+}

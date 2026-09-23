@@ -8757,6 +8757,278 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/stock-items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/stock-items. */
+        get: operations["stock_items_list"];
+        put?: never;
+        /** POST /api/stock-items — create through the instant-first write path. */
+        post: operations["stock_items_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stock-items/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/stock-items/{id}. */
+        get: operations["stock_items_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** PATCH /api/stock-items/{id} — absent fields keep their value. */
+        patch: operations["stock_items_update"];
+        trace?: never;
+    };
+    "/api/v1/stock-items/{id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/stock-items/{id}/archive — archival is a flag. */
+        post: operations["stock_items_archive"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stock-items/{id}/movements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/stock-items/{id}/movements — THE traceability ledger read. */
+        get: operations["stock_item_movements"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stock-items/{id}/serials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/stock-items/{id}/serials — serialized WHERE-IT-IS-NOW. */
+        get: operations["stock_item_serials"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stock-locations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/stock-locations. */
+        get: operations["stock_locations_list"];
+        put?: never;
+        /** POST /api/stock-locations. */
+        post: operations["stock_locations_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stock-locations/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/stock-locations/{id}. */
+        get: operations["stock_locations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** PATCH /api/stock-locations/{id}. */
+        patch: operations["stock_locations_update"];
+        trace?: never;
+    };
+    "/api/v1/stock/adjust": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/stock/adjust — the signed counter-fix (NO serialized items;
+         *     move the unit instead).
+         */
+        post: operations["stock_adjust"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stock/consume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/stock/consume — the OUT leg charging a ticket's job. */
+        post: operations["stock_consume"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stock/consumption-velocity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/stock/consumption-velocity — the outbound-rate read model. */
+        get: operations["stock_consumption_velocity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stock/levels/thresholds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/stock/levels/thresholds — min/max/reorder per (item,
+         *     location); NULL clears. Creates the level row on first touch, without
+         *     moving stock.
+         */
+        post: operations["stock_thresholds_set"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stock/on-hand": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/stock/on-hand — the stock-on-hand read model. */
+        get: operations["stock_on_hand"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stock/receive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/stock/receive — a positive leg into ONE location. Serialized
+         *     items move one physical unit per ledger row (exactly one serial).
+         */
+        post: operations["stock_receive"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stock/ship-out": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/stock/ship-out — OUT to a client or an on-site job, with
+         *     optional carrier + tracking ref.
+         */
+        post: operations["stock_ship_out"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stock/transfer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/stock/transfer — shrink one location, grow another. */
+        post: operations["stock_transfer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tags": {
         parameters: {
             query?: never;
@@ -10283,6 +10555,19 @@ export interface components {
             /** Format: uuid */
             user_id: string;
         };
+        AdjustRequest: components["schemas"]["MutationParams"] & {
+            /** Format: uuid */
+            item_id: string;
+            /** Format: uuid */
+            location_id: string;
+            note?: string | null;
+            /**
+             * Format: int64
+             * @description SIGNED milli delta (negative = shrink). The counter adjustment is
+             *     the audit trail, not a rewrite.
+             */
+            qty_milli: number;
+        };
         /** @description GET /api/agent-proposals envelope. */
         AgentProposalPage: {
             next_cursor?: string | null;
@@ -10851,6 +11136,7 @@ export interface components {
             review_note?: string | null;
         };
         ArchiveCatalogItemRequest: components["schemas"]["MutationParams"];
+        ArchiveStockItemRequest: components["schemas"]["MutationParams"];
         /**
          * @description The single-article read surface (GET): article fields at the top
          *     level plus the sanitized read-only HTML projection the web client
@@ -12479,6 +12765,28 @@ export interface components {
             source_kind: string;
             source_url: string;
         };
+        ConsumeRequest: components["schemas"]["MutationParams"] & {
+            /** Format: uuid */
+            item_id: string;
+            /** Format: uuid */
+            location_id: string;
+            note?: string | null;
+            /**
+             * Format: int64
+             * @description MILLI to consume (positive; the ledger stores it negative).
+             */
+            qty_milli: number;
+            /**
+             * Format: uuid
+             * @description Serialized consumption moves ONE unit.
+             */
+            serial_id?: string | null;
+            /**
+             * Format: uuid
+             * @description The on-site job consuming the parts (traceability anchor).
+             */
+            ticket_id?: string | null;
+        };
         Contact: {
             /** Format: uuid */
             client_id: string;
@@ -13437,6 +13745,40 @@ export interface components {
              *     backstop; this route validates before the write.
              */
             wip_limit?: number | null;
+        };
+        /** @description POST /api/stock-items. */
+        CreateStockItemRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * Format: uuid
+             * @description Soft catalog link when a catalog line exists; absent = free-form
+             *     part (name/part_number carry the identity).
+             */
+            catalog_item_id?: string | null;
+            currency: string;
+            kind?: string;
+            /**
+             * Format: int64
+             * @description Optional opening cost reference at create (display only; locked
+             *     costs land with receive legs).
+             */
+            last_unit_cost_minor?: number | null;
+            name: string;
+            part_number?: string | null;
+            sku?: string | null;
+            unit?: string;
+        };
+        /** @description POST /api/stock-locations. */
+        CreateStockLocationRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * Format: uuid
+             * @description Whose van/truck (optional).
+             */
+            assigned_user_id?: string | null;
+            code?: string | null;
+            kind: string;
+            name: string;
+            /** Format: uuid */
+            parent_id?: string | null;
         };
         CreateTagRequest: components["schemas"]["MutationParams"] & {
             color?: string | null;
@@ -15874,6 +16216,10 @@ export interface components {
             /** Format: uuid */
             user_id?: string | null;
         };
+        LocationListQuery: {
+            active_only?: boolean | null;
+            kind?: string | null;
+        };
         LoginRequest: {
             email: string;
             password: string;
@@ -16480,6 +16826,15 @@ export interface components {
             /** Format: uuid */
             to_stage_id: string;
         };
+        MovementListQuery: {
+            /** Format: int64 */
+            limit?: number | null;
+        };
+        /** @description Instant-first mutation response for ledger legs. */
+        MovementMutationResponse: {
+            movement: components["schemas"]["StockMovementView"];
+            mutation: components["schemas"]["MutationMeta"];
+        };
         /**
          * @description Read-your-write metadata every mutation response carries (IF2), merged
          *     as the additive `mutation` object alongside the entity fields.
@@ -16605,7 +16960,7 @@ export interface components {
             user_id: string;
         };
         /** @enum {string} */
-        NotificationKind: "mention" | "assignment" | "sla_risk" | "sla_breach" | "escalation" | "missing_time" | "ticket_update" | "report_delivery" | "ai_cap_warn" | "secret_rotation" | "dedupe_report";
+        NotificationKind: "mention" | "assignment" | "sla_risk" | "sla_breach" | "escalation" | "missing_time" | "ticket_update" | "report_delivery" | "ai_cap_warn" | "secret_rotation" | "stock_low" | "dedupe_report";
         /** @description One page of the inbox plus the cursor to continue with. */
         NotificationPage: {
             items: components["schemas"]["Notification"][];
@@ -16656,6 +17011,38 @@ export interface components {
             starts_at: string;
             /** Format: uuid */
             user_id: string;
+        };
+        OnHandQuery: {
+            /** Format: uuid */
+            item_id?: string | null;
+            /** Format: int64 */
+            limit?: number | null;
+            /** Format: uuid */
+            location_id?: string | null;
+            /** @description true → only rows at/below the reorder point. */
+            low_only?: boolean | null;
+        };
+        /** @description The stock-on-hand read model row (`qty leaking thresholds`). */
+        OnHandRow: {
+            item_kind: string;
+            item_name: string;
+            location_kind: string;
+            location_name: string;
+            /** @description The instant-first low flag the UI + automations key on. */
+            low: boolean;
+            /** Format: int64 */
+            max_qty_milli?: number | null;
+            /** Format: int64 */
+            min_qty_milli?: number | null;
+            /** Format: int64 */
+            qty_milli: number;
+            /** Format: int64 */
+            reorder_point_milli?: number | null;
+            /** Format: uuid */
+            stock_item_id: string;
+            /** Format: uuid */
+            stock_location_id: string;
+            unit: string;
         };
         OnboardingDisableRequest: {
             disabled: boolean;
@@ -18851,6 +19238,32 @@ export interface components {
             count: number;
             mine?: null | components["schemas"]["RatingMineView"];
         };
+        /**
+         * @description POST /api/stock/{receive|consume|adjust|transfer|ship-out} bodies.
+         *     All quantities are `milli` thousandths of the item's unit (parity with
+         *     quote lines); signed legs are normalized per kind below.
+         */
+        ReceiveRequest: components["schemas"]["MutationParams"] & {
+            /** Format: uuid */
+            item_id: string;
+            /** Format: uuid */
+            location_id: string;
+            /** @description Optional receiving note. */
+            note?: string | null;
+            /**
+             * Format: int64
+             * @description MILLI of the item's unit; serialized items move 1000/serial.
+             */
+            qty_milli: number;
+            /** @description Serialized receives carry one entry per physical unit. */
+            serial_numbers?: string[] | null;
+            /**
+             * Format: int64
+             * @description Unit cost in the item's cost currency (locked at receipt on the
+             *     ledger row; ADR 0002 inventory-receipt lock moment).
+             */
+            unit_cost_minor?: number | null;
+        };
         ReconciliationQuery: {
             /** Format: int64 */
             limit?: number | null;
@@ -19962,6 +20375,13 @@ export interface components {
              */
             total_outstanding_minor: number;
         };
+        SerialListQuery: {
+            /** Format: int64 */
+            limit?: number | null;
+            /** Format: uuid */
+            location_id?: string | null;
+            status?: string | null;
+        };
         SessionInfo: {
             chain_root: boolean;
             /** Format: date-time */
@@ -20098,6 +20518,33 @@ export interface components {
          * @enum {string}
          */
         ShareSubjectKind: "secret_record" | "password";
+        ShipOutRequest: components["schemas"]["MutationParams"] & {
+            /** @description Optional carrier + tracking ref (deeplinked by later lanes). */
+            carrier?: string | null;
+            /**
+             * Format: uuid
+             * @description Ship-to client (fleet/loan delivery anchor).
+             */
+            client_id?: string | null;
+            /** Format: uuid */
+            item_id: string;
+            /** Format: uuid */
+            location_id: string;
+            note?: string | null;
+            /** Format: int64 */
+            qty_milli: number;
+            /**
+             * Format: uuid
+             * @description Serialized shipment moves ONE unit.
+             */
+            serial_id?: string | null;
+            /**
+             * Format: uuid
+             * @description The on-site job the shipment belongs to.
+             */
+            ticket_id?: string | null;
+            tracking_ref?: string | null;
+        };
         SimilarTicketCandidate: {
             /** @description `shadow` rows are recorded but drive nothing (no rerank applied). */
             mode?: string | null;
@@ -20418,6 +20865,134 @@ export interface components {
             outstanding_minor: number;
             /** Format: int64 */
             total_minor: number;
+        };
+        StockItemListQuery: {
+            /** @description `None` = all items (active + archived). */
+            active?: boolean | null;
+            /** Format: int64 */
+            limit?: number | null;
+            search?: string | null;
+        };
+        /** @description Instant-first mutation response (IF2). */
+        StockItemMutationResponse: components["schemas"]["StockItemView"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        /**
+         * @description The stock item as the CALLER may see it. `last_unit_cost_minor` is
+         *     financial data — `null` without `financial:read` (RB2, ADR 0004).
+         */
+        StockItemView: {
+            active: boolean;
+            /** Format: uuid */
+            catalog_item_id?: string | null;
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            currency: string;
+            /** Format: uuid */
+            id: string;
+            kind: string;
+            /**
+             * Format: int64
+             * @description `null` without `financial:read` (RB2).
+             */
+            last_unit_cost_minor?: number | null;
+            name: string;
+            /** Format: uuid */
+            org_id: string;
+            part_number?: string | null;
+            sku?: string | null;
+            unit: string;
+            updated_at: string;
+        };
+        /** @description POST thresholds response: the fresh threshold row. */
+        StockLevelView: {
+            /** Format: int64 */
+            max_qty_milli?: number | null;
+            /** Format: int64 */
+            min_qty_milli?: number | null;
+            /** Format: int64 */
+            qty_milli: number;
+            /** Format: int64 */
+            reorder_point_milli?: number | null;
+            /** Format: uuid */
+            stock_item_id: string;
+            /** Format: uuid */
+            stock_location_id: string;
+            updated_at: string;
+        };
+        StockLocationMutationResponse: components["schemas"]["StockLocationView"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        /** @description Location view. */
+        StockLocationView: {
+            active: boolean;
+            /** Format: uuid */
+            assigned_user_id?: string | null;
+            code?: string | null;
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            kind: string;
+            name: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            parent_id?: string | null;
+            updated_at: string;
+        };
+        /** @description Movement view (the traceability row the reads render). */
+        StockMovementView: {
+            /** Format: int64 */
+            base_cost_minor?: number | null;
+            carrier?: string | null;
+            /** Format: uuid */
+            client_id?: string | null;
+            /**
+             * Format: int64
+             * @description `null` without `financial:read` (RB2).
+             */
+            cost_minor?: number | null;
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            currency?: string | null;
+            /** Format: uuid */
+            from_location_id?: string | null;
+            fx_rate_date?: string | null;
+            /** @description ADR 0002 receipt FX lock fields (`null` for in-base movements). */
+            fx_rate_used?: string | null;
+            fx_source?: string | null;
+            /** Format: uuid */
+            id: string;
+            kind: string;
+            note?: string | null;
+            /** Format: int64 */
+            qty_milli: number;
+            /** Format: uuid */
+            serial_id?: string | null;
+            /** Format: uuid */
+            stock_item_id: string;
+            /** Format: uuid */
+            ticket_id?: string | null;
+            /** Format: uuid */
+            to_location_id?: string | null;
+            tracking_ref?: string | null;
+        };
+        StockSerialView: {
+            /** Format: uuid */
+            client_id?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            location_id?: string | null;
+            serial_number: string;
+            status: string;
+            /** Format: uuid */
+            stock_item_id: string;
+            /** Format: uuid */
+            ticket_id?: string | null;
+            updated_at: string;
         };
         StopTimerRequest: components["schemas"]["MutationParams"] & {
             billable?: boolean | null;
@@ -20765,6 +21340,18 @@ export interface components {
             source_kind: string;
             source_url: string;
             version: string;
+        };
+        ThresholdsRequest: components["schemas"]["MutationParams"] & {
+            /** Format: uuid */
+            item_id: string;
+            /** Format: uuid */
+            location_id: string;
+            /** Format: int64 */
+            max_qty_milli?: number | null;
+            /** Format: int64 */
+            min_qty_milli?: number | null;
+            /** Format: int64 */
+            reorder_point_milli?: number | null;
         };
         Ticket: {
             /** Format: uuid */
@@ -21349,6 +21936,22 @@ export interface components {
             surface: string;
             text: string;
         };
+        TransferRequest: components["schemas"]["MutationParams"] & {
+            /** Format: uuid */
+            from_location_id: string;
+            /** Format: uuid */
+            item_id: string;
+            note?: string | null;
+            /** Format: int64 */
+            qty_milli: number;
+            /**
+             * Format: uuid
+             * @description Serialized transfer moves ONE unit.
+             */
+            serial_id?: string | null;
+            /** Format: uuid */
+            to_location_id: string;
+        };
         /**
          * @description One directed edge in a board's explicit transition matrix. Both ids must
          *     belong to statuses of the SAME board (enforced here, and by composite FKs
@@ -21825,6 +22428,29 @@ export interface components {
              */
             wip_limit?: components["schemas"]["WipLimitUpdate"];
         };
+        /**
+         * @description PATCH /api/stock-items/{id}. Absent fields keep their value;
+         *     `Some(None)` clears an optional field.
+         */
+        UpdateStockItemRequest: components["schemas"]["MutationParams"] & {
+            /** @description Reactivating an archived item is a plain update. */
+            active?: boolean | null;
+            /** Format: uuid */
+            catalog_item_id?: string | null;
+            kind?: string | null;
+            name?: string | null;
+            part_number?: string | null;
+            sku?: string | null;
+            unit?: string | null;
+        };
+        UpdateStockLocationRequest: components["schemas"]["MutationParams"] & {
+            active?: boolean | null;
+            /** Format: uuid */
+            assigned_user_id?: string | null;
+            code?: string | null;
+            kind?: string | null;
+            name?: string | null;
+        };
         UpdateTagRequest: components["schemas"]["MutationParams"] & {
             /** @description Some → set (null clears); absent → no change. */
             color?: string | null;
@@ -21941,6 +22567,30 @@ export interface components {
             title: string;
             url?: string | null;
             username: string;
+        };
+        VelocityMutationless: {
+            /**
+             * Format: int64
+             * @description Average daily outbound rate in milli over the window.
+             */
+            avg_daily_milli: number;
+            /** Format: int64 */
+            consumed_milli: number;
+            item_name: string;
+            /** Format: uuid */
+            stock_item_id: string;
+            unit: string;
+        };
+        VelocityQuery: {
+            /** Format: uuid */
+            item_id?: string | null;
+            /** Format: int64 */
+            limit?: number | null;
+            /**
+             * Format: int64
+             * @description Lookback window in days (default 30; outbound legs summed).
+             */
+            window_days?: number | null;
         };
         VerdictResponse: {
             /**
@@ -39337,6 +39987,611 @@ export interface operations {
                 };
             };
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    stock_items_list: {
+        parameters: {
+            query?: {
+                /** @description `None` = all items (active + archived). */
+                active?: boolean | null;
+                search?: string | null;
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockItemView"][];
+                };
+            };
+        };
+    };
+    stock_items_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateStockItemRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockItemMutationResponse"];
+                };
+            };
+            /** @description SKU already exists or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    stock_items_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockItemView"];
+                };
+            };
+            /** @description not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    stock_items_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateStockItemRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockItemMutationResponse"];
+                };
+            };
+            /** @description not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description SKU already exists, version conflict, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    stock_items_archive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArchiveStockItemRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockItemMutationResponse"];
+                };
+            };
+            /** @description not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    stock_item_movements: {
+        parameters: {
+            query?: {
+                limit?: number | null;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockMovementView"][];
+                };
+            };
+        };
+    };
+    stock_item_serials: {
+        parameters: {
+            query?: {
+                location_id?: string | null;
+                status?: string | null;
+                limit?: number | null;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockSerialView"][];
+                };
+            };
+        };
+    };
+    stock_locations_list: {
+        parameters: {
+            query?: {
+                kind?: string | null;
+                active_only?: boolean | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockLocationView"][];
+                };
+            };
+        };
+    };
+    stock_locations_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateStockLocationRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockLocationMutationResponse"];
+                };
+            };
+            /** @description idempotency key reused or name conflicts */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    stock_locations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockLocationView"];
+                };
+            };
+            /** @description not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    stock_locations_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateStockLocationRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockLocationMutationResponse"];
+                };
+            };
+            /** @description not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    stock_adjust: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdjustRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MovementMutationResponse"];
+                };
+            };
+            /** @description insufficient stock or serialized item */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure (delta must be non-zero) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    stock_consume: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConsumeRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MovementMutationResponse"];
+                };
+            };
+            /** @description insufficient stock or invalid movement */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure (qty_milli must be positive) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    stock_consumption_velocity: {
+        parameters: {
+            query?: {
+                /** @description Lookback window in days (default 30; outbound legs summed). */
+                window_days?: number | null;
+                item_id?: string | null;
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VelocityMutationless"][];
+                };
+            };
+        };
+    };
+    stock_thresholds_set: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThresholdsRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockLevelView"];
+                };
+            };
+        };
+    };
+    stock_on_hand: {
+        parameters: {
+            query?: {
+                item_id?: string | null;
+                location_id?: string | null;
+                /** @description true → only rows at/below the reorder point. */
+                low_only?: boolean | null;
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnHandRow"][];
+                };
+            };
+        };
+    };
+    stock_receive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReceiveRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MovementMutationResponse"];
+                };
+            };
+            /** @description item or location not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description idempotency key reused, item archived, or invalid movement */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    stock_ship_out: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShipOutRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MovementMutationResponse"];
+                };
+            };
+            /** @description insufficient stock or invalid movement */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    stock_transfer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransferRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MovementMutationResponse"];
+                };
+            };
+            /** @description insufficient stock or invalid movement */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

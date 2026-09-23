@@ -28,6 +28,12 @@ pub enum NotificationKind {
     /// Secret rotation reminder (Wave 19 lane 3): the worker sweep
     /// claimed a record's `rotate_at` slot (at-most-once per schedule).
     SecretRotation,
+    /// Low-stock threshold transition (Wave 32 lane 1): a per-location
+    /// level dropped to/below its reorder point. Written in the SAME
+    /// commit as the movement ledger row; the notified flag prevents
+    /// repeats while the level stays low. The event stream carries the
+    /// wider fan-out signal (`stock.level_low`).
+    StockLow,
     /// The Jev intelligent-dedupe workflow's run report (Wave 22 lane 2):
     /// manual or scheduled passes over the merge queues report their
     /// outcome (suggestions above threshold, auto-merges applied) to the
@@ -64,6 +70,7 @@ impl NotificationKind {
             NotificationKind::AiCapWarn => "ai_cap_warn",
             NotificationKind::SecretRotation => "secret_rotation",
             NotificationKind::DedupeReport => "dedupe_report",
+            NotificationKind::StockLow => "stock_low",
         }
     }
 }
@@ -83,6 +90,7 @@ impl std::str::FromStr for NotificationKind {
             "ai_cap_warn" => Ok(NotificationKind::AiCapWarn),
             "secret_rotation" => Ok(NotificationKind::SecretRotation),
             "dedupe_report" => Ok(NotificationKind::DedupeReport),
+            "stock_low" => Ok(NotificationKind::StockLow),
             other => Err(crate::DomainError::Validation(format!(
                 "invalid notification kind: {other}"
             ))),
