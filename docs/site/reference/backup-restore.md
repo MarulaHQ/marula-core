@@ -3,7 +3,7 @@
 > **Audience:** site operator / MSP admin — you host Meridian yourself and
 > own its deployment.
 >
-> This is the first authored page of the `deploy/runbooks/` series; the
+> This is the first authored page of the `deploy/runbooks/` series. The
 > scaffold and future runbook index live at `deploy/runbooks/README.md`.
 
 Everything in Meridian lives in the Postgres database, and once S3
@@ -35,6 +35,9 @@ Notes the runbook enforces:
 - Dump as the table owner (`meridian`), not `meridian_app` — the
   RLS-constrained app role must never be able to read across tenants, which
   also means it cannot produce a complete dump.
+- Dump with a client that matches the server's major version. The backup
+  runner runs inside the postgres image on purpose; a diverged local
+  `pg_dump` refuses the archive outright.
 - If you run `OBJECT_STORE=s3` with Garage, the restic leg snapshots the
   garage data/meta volumes in the same window so attachments and rows stay
   as consistent as two separate stores allow — this is **not** atomic: a
@@ -55,8 +58,9 @@ Notes the runbook enforces:
 2. Enable WAL archiving by starting postgres with
    `-c archive_command='wal-g wal-push %p'` — compose-override file
    documented in `deploy/backup/compose.walg.example.yml`.
-3. `wal-g backup-push` runs on the scheduled nightly pass; retention via
-   `wal-g delete retain FULL <n>`.
+3. `wal-g backup-push` runs on the scheduled nightly pass. Retention via
+   `WALG_RETAIN_FULL` (the runner applies `wal-g delete retain FULL <n>`
+   after each push).
 4. **Alert on archive_command silence.** A broken archive pipe fails
    silently and quietly degrades you from "any second" back to "last night."
    If WAL shipping shows no progress for >24h (check the archiver's
@@ -76,8 +80,14 @@ Notes the runbook enforces:
    sh deploy/backup/restore.sh /tmp/meridian.dump
    ```
 
-   It restores into a scratch DB, checks the table count, and drops it —
-   a backup that has never restored is not a backup.
+   It restores into a scratch DB and asserts the restore is real: the schema
+   lands (with RLS enabled on every org-scoped table), and when the source
+   stack is reachable the row counts of every public table match, which catches
+   a dump that loses rows in transit. Set `PGDATABASE=meridian` (plus
+   `PGSOURCE_HOST`/`PGSOURCE_PORT` against a different server) to turn the
+   parity check on. Without it the leg stops after the schema checks. It
+   drops the scratch DB when done — a backup that has never restored is not
+   a backup.
 4. Restore the garage data/meta volumes or bucket contents if you use object storage.
 5. Start the services. Do **not** re-run migrations between restore and
    start unless the restored dump predates a schema change you have since
