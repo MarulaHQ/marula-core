@@ -1,9 +1,9 @@
 # Roadmap
 
 Meridian is developed in the open: the work lives in this repository's tracked
-task list and lands as reviewed pull requests. This file keeps the answer to
-the honest question behind it: what works today, what is being built now, and
-what we are pointed at next.
+task list and lands as reviewed pull requests. This file answers the question
+behind it: what works today, what is being built now, and where the next work
+goes.
 
 Three columns, no dates we do not own. When something ships, it moves down and
 the [changelog](CHANGELOG.md) records what changed.
@@ -17,14 +17,14 @@ the [changelog](CHANGELOG.md) records what changed.
 - **The money side.** Contracts, invoicing drawn from recorded time, quotes
   with a catalog, multi-currency with FX snapshots, the sales pipeline,
   approval queues, and a Stripe payment provider with typed decline reasons.
-- **Assistance with a leash.** AI help wherever admins grant it (ticket
+- **AI assistance, gated.** AI help, turned on where admins allow it (ticket
   notes, document drafts, email replies), per surface and per role, with your
   own keys in a sealed
   credential store, append-only usage accounting, and an agent that reads your
   tickets through consented tools and proposes changes for a human to approve.
 - **Secrets.** The password vault with category RBAC, one-time share links,
   rotation hooks, and streaming decryption for secret files.
-- **Integrations that converge.** NinjaOne, Hudu, IT Glue, ImmyBot, Microsoft
+- **Integrations.** NinjaOne, Hudu, IT Glue, ImmyBot, Microsoft
   365, Auvik, UniFi, 3CX, QuickBooks and Xero export: each source feeds one
   identity-keyed record with a merge queue, so the same device or
   contact never forks into duplicates.
@@ -41,9 +41,9 @@ the [changelog](CHANGELOG.md) records what changed.
 ## In flight
 
 - **Onboarding.** A first-run wizard for the org and a short orientation for
-  each new user, skippable at every step and turn-off-able org-wide.
-- **Help, in the product.** A help affordance on every surface that surfaces
-  the matching documentation, plus short guided tours on first visit.
+  each new user, skippable at every step and switchable off org-wide.
+- **Help, in the product.** A help affordance on every surface, showing the
+  documentation that matches, plus short guided tours on first visit.
 - **A keyboard standard.** One command registry so the same verb carries the
   same chord on every surface, an overlay and cheat sheet that read it, and a
   deeper accessibility pass across every shipped surface.
@@ -60,11 +60,11 @@ the [changelog](CHANGELOG.md) records what changed.
   satisfaction surveys on resolution, canned replies for ticket work.
 - **More of the plugin surface.** UI widgets, automation steps, and report
   renderers for plugins, with first-party reference plugins in the repo.
-- **Email that feels owned.** Per-board inbound and outbound identities, a
+- **Email identities.** Per-board inbound and outbound addresses, a
   settings surface for the whole mail system, and a branded notification
   wrapper.
 - **A second wave of product pages on this website.**
-- **An honest final audit.** Before the milestones above are called done, a
+- **A final audit.** Before the milestones above are called done, a
   full walk of every surface by someone who has not touched it before.
 
 Maintainers: this page and the [changelog](CHANGELOG.md) are maintained at

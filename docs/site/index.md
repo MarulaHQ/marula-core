@@ -35,6 +35,6 @@ one quadrant, and the quadrants stay in their lanes.
   positioning is quoted there and here from `MANIFESTO.md` verbatim, never
   re-synthesized.
 - What shipped and what is coming: [CHANGELOG.md](../../CHANGELOG.md) and
-  [ROADMAP.md](../../ROADMAP.md) at the repository root — the website's
+  [ROADMAP.md](../../ROADMAP.md) at the repository root. The website's
   [changelog](https://meridian.dev/changelog) (with an RSS feed) and
   [roadmap](https://meridian.dev/roadmap) pages build from these files.

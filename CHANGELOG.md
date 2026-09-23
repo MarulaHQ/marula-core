@@ -6,8 +6,7 @@ work was organized. This file follows the
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format, and versions
 follow [semantic versioning](https://semver.org/spec/v2.0.0.html). It is the
 single source for the changelog on [meridian.dev/changelog](https://meridian.dev/changelog):
-the website builds its page and feed from this file, so what you read there is
-exactly what the repository commits.
+the website builds its page and feed from this file, so the two never drift.
 
 Every change lands as a reviewed pull request. Contributions follow
 [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -16,19 +15,19 @@ Every change lands as a reviewed pull request. Contributions follow
 
 ### Added
 
-- A ticket workbench you can actually work in: three panes with inline notes,
+- A ticket workbench built for real work: three panes with inline notes,
   a time clock beside the work, scheduling and dispatch, editable contact
   fields, instant saves, and a layout that stacks into one column on narrow
   windows.
 - AI assistance wherever admins grant it: a note inside a ticket, a drafting
-  pass on a document, an email reply. Underneath sits a model catalog, your
-  own org or personal API keys in a sealed credential store, append-only usage
+  pass on a document, an email reply. The catalog behind it holds your own
+  org or personal API keys in a sealed credential store, append-only usage
   records with org and personal caps, and per-surface model picks that stick.
 - An AI agent that reads your tickets and knowledge base through scoped,
   consent-gated tools and proposes record changes for human approval. Every
   model call and tool call lands in the usage ledger and the audit log.
 - Suggestion surfaces for triage, dispatch, alerts, contract scope, billing
-  audits, and record matching. Suggestions stay suggestions: they apply only
+  audits, and record matching. They stay suggestions: they apply only
   above per-surface thresholds you configure, and nothing acts when no decision
   model is configured.
 - Theme system outside the default: a Tangerine start plus Slate and
@@ -48,8 +47,8 @@ Every change lands as a reviewed pull request. Contributions follow
 - The Tauri 2 desktop app for macOS with a signed bundle, automatic updates,
   and app icons regenerated from the brand source; a release and notarization
   runbook ships with the repo.
-- This website's self-host guide, and a documentation site that finally has
-  depth: howtos organized by task for admins and daily staff, tutorials that
+- This website's self-host guide, and a documentation site that covers the
+  product: howtos organized by task for admins and daily staff, tutorials that
   carry a first-timer through a first ticket, a first inventory sync, a first
   invoice, and a first agent run, and short explanations for why things work
   the way they do. Every page
@@ -64,8 +63,7 @@ Every change lands as a reviewed pull request. Contributions follow
   on the core flows, subtle motion that respects `prefers-reduced-motion`, and
   white-label portal branding.
 - The design system is enforced by lint on every build: raw colors and
-  off-contract styles fail CI, so the interface you see is the interface the
-  design system describes.
+  off-contract styles fail CI before they ship.
 - Documentation moved to a deterministic publishing pipeline: one renderer,
   byte-identical output, verified links, published straight from the markdown
   in this repository.
@@ -106,7 +104,7 @@ plan.
 
 ## [0.1.0] - 2026-08-26
 
-Stage 2, the daily driver: the open-core PSA core an MSP runs on.
+Stage 2, the daily driver: the open-core PSA an MSP runs on.
 
 ### Added
 
