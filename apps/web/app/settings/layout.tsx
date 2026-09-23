@@ -38,6 +38,7 @@ const GROUPS: NavGroup[] = [
       { href: "/settings/preferences", label: "Preferences" },
       { href: "/settings/notifications", label: "Notifications" },
       { href: "/settings/onboarding", label: "Onboarding" },
+      { href: "/settings/shortcuts", label: "Shortcuts" },
     ],
   },
   {

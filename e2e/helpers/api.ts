@@ -15,17 +15,30 @@ export interface TokenPair {
   expires_in: number;
 }
 
+/**
+ * Demo-owner login for fixtures. Retries briefly through the durable
+ * auth-gate lockout the "wrong password" e2e flow seeds (Wave 19 hardening:
+ * 30s backoff on one bad attempt) instead of cascading instant 401s through
+ * every later test. 401 bad-credential responses regenerate nothing server
+ * side; only credentials that were EVER correct clear the gate again.
+ */
 export async function apiLogin(
   email = DEMO_OWNER_EMAIL,
   password = DEMO_PASSWORD,
 ): Promise<TokenPair> {
-  const res = await fetch(`${API_URL}/api/v1/auth/login`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email, password }),
-  });
-  if (!res.ok) throw new Error(`login failed (${res.status}): ${await res.text()}`);
-  return (await res.json()) as TokenPair;
+  let lastError = "";
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const res = await fetch(`${API_URL}/api/v1/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    if (res.ok) return (await res.json()) as TokenPair;
+    lastError = await res.text();
+    if (res.status !== 401) throw new Error(`login failed (${res.status}): ${lastError}`);
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+  }
+  throw new Error(`login failed after gate retries: ${lastError}`);
 }
 
 export function authedFetch(token: string) {

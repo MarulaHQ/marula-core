@@ -63,20 +63,11 @@ function ThemeToggle() {
 /**
  * Unified-search entry: a quiet pill that reads like the mockup's search
  * field (placeholder + ⌘K) and jumps to /search. Results live on the
- * search page; the global ⌘K / Ctrl+K shortcut is preserved.
+ * search page. The global ⌘K / Ctrl+K chord now rides the Wave 29 command
+ * registry (components/shortcuts) — one dispatcher, no duplicate listener.
  */
 function SearchLauncher() {
   const router = useRouter();
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        router.push("/search");
-      }
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [router]);
   return (
     <button
       type="button"

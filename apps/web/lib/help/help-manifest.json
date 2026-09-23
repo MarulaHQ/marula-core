@@ -10,6 +10,12 @@
           "audience": "both",
           "updated": "2026-09-22",
           "title": "Tutorial: your first ticket (in the UI)"
+        },
+        {
+          "path": "how-to/staff-keyboard-shortcuts",
+          "audience": "both",
+          "updated": "2026-09-23",
+          "title": "How to use the keyboard shortcuts"
         }
       ]
     },
@@ -26,6 +32,12 @@
           "audience": "both",
           "updated": "2026-09-22",
           "title": "Tutorial: your first ticket (in the UI)"
+        },
+        {
+          "path": "how-to/staff-keyboard-shortcuts",
+          "audience": "both",
+          "updated": "2026-09-23",
+          "title": "How to use the keyboard shortcuts"
         }
       ]
     },
@@ -42,6 +54,12 @@
           "audience": "admin",
           "updated": "2026-09-22",
           "title": "How to set workflow categories"
+        },
+        {
+          "path": "how-to/staff-keyboard-shortcuts",
+          "audience": "both",
+          "updated": "2026-09-23",
+          "title": "How to use the keyboard shortcuts"
         }
       ]
     },
@@ -62,6 +80,12 @@
           "audience": "both",
           "updated": "2026-09-22",
           "title": "Tutorial: your first inventory sync"
+        },
+        {
+          "path": "how-to/staff-keyboard-shortcuts",
+          "audience": "both",
+          "updated": "2026-09-23",
+          "title": "How to use the keyboard shortcuts"
         }
       ]
     },
@@ -72,6 +96,12 @@
           "audience": "both",
           "updated": "2026-09-22",
           "title": "Tutorial: your first inventory sync"
+        },
+        {
+          "path": "how-to/staff-keyboard-shortcuts",
+          "audience": "both",
+          "updated": "2026-09-23",
+          "title": "How to use the keyboard shortcuts"
         }
       ]
     },
@@ -396,6 +426,26 @@
           "audience": "both",
           "updated": "2026-09-23",
           "title": "How to get help inside Meridian"
+        }
+      ]
+    },
+    "settings": {
+      "docs": [
+        {
+          "path": "how-to/staff-keyboard-shortcuts",
+          "audience": "both",
+          "updated": "2026-09-23",
+          "title": "How to use the keyboard shortcuts"
+        }
+      ]
+    },
+    "settings-shortcuts": {
+      "docs": [
+        {
+          "path": "how-to/staff-keyboard-shortcuts",
+          "audience": "both",
+          "updated": "2026-09-23",
+          "title": "How to use the keyboard shortcuts"
         }
       ]
     }

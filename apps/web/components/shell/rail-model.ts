@@ -123,6 +123,7 @@ export const RAIL_SECTIONS: RailSection[] = [
       { label: "FX rates", href: "/settings/fx" },
       { label: "Notifications", href: "/settings/notifications" },
       { label: "Preferences", href: "/settings/preferences" },
+      { label: "Shortcuts", href: "/settings/shortcuts" },
       { label: "Portal", href: "/settings/portal" },
       { label: "Mail", href: "/settings/mail" },
       { label: "Security", href: "/settings/security" },

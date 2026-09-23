@@ -228,6 +228,7 @@ impl SettingDeclaration {
                 APPEARANCE_THEME_OVERRIDE => THEME_OVERRIDE_OPTIONS,
                 APPEARANCE_MODE => MODE_OPTIONS,
                 AI_COMPLETION_PROVIDER => AI_PROVIDER_OPTIONS,
+                SHORTCUTS_PROFILE => SHORTCUT_PROFILE_OPTIONS,
                 _ => EMPTY_OPTIONS,
             }),
             _ => None,
@@ -339,6 +340,12 @@ pub const TOURS_COMPLETED: &str = "tours.completed";
 /// admin decides tours distract the org; individual opt-outs ride
 /// `tours.disabled` independently.
 pub const TOURS_ORG_DISABLED: &str = "tours.org_disabled";
+/// Wave 29 lane 1 (`p29-keyboard-shortcuts`): per-user keyboard-shortcut
+/// profile. 'default' runs the standard Alt-command registry; 'all_off'
+/// disables chords + the hold-Alt overlay for this account (the ?-cheatsheet
+/// stays reachable as a read-only reference). Per-command remapping lands
+/// later and extends this enumeration — the key itself is immutable.
+pub const SHORTCUTS_PROFILE: &str = "shortcuts.profile";
 /// Org default for firing notifications on client ticket activity. A client
 /// may override it through the per-client workflow-override registry
 /// (`core_domain::workflow_overrides`), including an explicit disable.
@@ -424,6 +431,10 @@ pub const THEME_PRESET_OPTIONS: &[&str] = &["tangerine", "slate", "high_contrast
 pub const MODE_OPTIONS: &[&str] = &["system", "light", "dark"];
 
 pub const THEME_OPTIONS: &[&str] = THEME_PRESET_OPTIONS;
+/// Keyboard-shortcut profiles (Wave 29 lane 1). 'custom' per-command
+/// remapping is reserved but not shipped: adding it later is an additive
+/// options extension, never a key change.
+pub const SHORTCUT_PROFILE_OPTIONS: &[&str] = &["default", "all_off"];
 /// The "follow the org theme" sentinel value of appearance.theme_override.
 pub const THEME_OVERRIDE_ORG_SENTINEL: &str = "org_default";
 /// Per-user override enumerates the presets + the org-default sentinel.
@@ -898,6 +909,24 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> = std::sync::L
                          don't-show-me-tours setting independently.",
         });
 
+        // --- Wave 29 lane 1 (`p29-keyboard-shortcuts`): the keyboard
+        // seam rides a NEW shortcuts.* namespace — it never touches
+        // onboarding.* or any other lane's keys.
+        decls.push(SettingDeclaration {
+            key: SHORTCUTS_PROFILE,
+            kind: SettingKind::Enumeration,
+            default: SettingValue::Text("default".into()),
+            scope: SettingScope::User,
+            section: SettingSection::General,
+            visibility: SettingVisibility::Ui,
+            label: "Keyboard shortcuts",
+            description: "How keyboard shortcuts behave for this account: the \
+                         default profile keeps the Alt-command registry on \
+                         (hold-Alt overlay + chords), 'all_off' disables chords \
+                         and the hold-Alt overlay for readers and presenters. \
+                         The ? cheat-sheet stays reachable either way.",
+        });
+
         decls
     },
 );
@@ -948,6 +977,29 @@ mod tests {
     }
 
     #[test]
+    fn shortcuts_seam_is_additive_and_well_scoped() {
+        // Wave 29 lane 1 owns shortcuts.* exclusively; other namespaces
+        // stay untouched.
+        let d = declaration(SHORTCUTS_PROFILE).unwrap_or_else(|| panic!("shortcuts.profile declared"));
+        assert!(SHORTCUTS_PROFILE.starts_with("shortcuts."));
+        assert_eq!(d.scope, SettingScope::User);
+        assert_eq!(d.visibility, SettingVisibility::Ui);
+        assert_eq!(d.kind, SettingKind::Enumeration);
+        // Default is valid per its own declaration.
+        d.validate(&d.default.clone()).unwrap_or_else(|e| panic!("default invalid: {e}"));
+        // Enumeration membership is enforced at the write gate.
+        for good in ["default", "all_off"] {
+            assert!(d.validate(&SettingValue::Text(good.into())).is_ok());
+        }
+        for bad in ["on", "custom", "", "All_Off"] {
+            assert!(d.validate(&SettingValue::Text(bad.into())).is_err());
+        }
+        // The lane owns no other keys; nothing under shortcuts.* has been
+        // reserved here twice (duplicates fail the registry test above).
+        assert!(declarations().iter().filter(|x| x.key.starts_with("shortcuts.")).count() == 1);
+    }
+
+    #[test]
     fn lookups_resolve() {
         assert!(declaration(GENERAL_EOD_HOUR).is_some());
         assert!(declaration("nope.nope").is_none());
@@ -960,7 +1012,8 @@ mod tests {
         // Wave 26 lane 1: user onboarding adds four steps × done/dismissed = 8.
         // Wave 26 lane 2 added the help/tours seam: doc feedback,
         // tours.disabled, tours.completed = 16.
-        assert_eq!(declarations_for(SettingScope::User).len(), 16);
+        // Wave 29 lane 1 added shortcuts.profile (user scope) = 17.
+        assert_eq!(declarations_for(SettingScope::User).len(), 17);
         // Tripwire count: bump deliberately when an org-scope setting is
         // added (Wave 26 lane 1: flows_disabled + six org steps ×
         // done/dismissed = 13, so 15 → 28; Wave 26 lane 2 added

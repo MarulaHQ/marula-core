@@ -328,3 +328,17 @@ body {
      --font-heading) — many h1–h6 in the app are small section labels
      (text-sm font-semibold) and must stay sans (docs/theme.md §4). */
 }
+
+/*
+ * Wave 29 lane 1 (`p29-keyboard-shortcuts`) — hold-Alt overlay motion.
+ * Opacity-only entrance ≤120ms with a small translateY; inert under
+ * reduced motion (overlay reuses .m-rise with its existing guard).
+ */
+.m-shortcut-overlay > div {
+  animation: m-rise 100ms cubic-bezier(0.2, 0, 0, 1) backwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .m-shortcut-overlay > div {
+    animation: none;
+  }
+}

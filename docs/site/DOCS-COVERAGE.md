@@ -80,7 +80,7 @@ Conventions for lane 2:
 
 Admin tasks: upgrade ✅ (exists) · customize ✅ (exists, extend with board/category editing) · manage users & invites · configure SLA calendars & escalation ladders · set workflow categories · author automation rules · manage API keys (show once → rotate via replacement → revoke) · connect an IdP (SSO) · set up the portal (users + exposure) · run a dry-run import with saved mappings · record FX rates & read reconciliation (per-kind, never summed) · configure the plugin consent flow · manage dashboards (widget grid) & report schedules.
 
-Staff tasks: work a ticket (notes → approve → bill) · dispatch from the board · use provenance on a record · use the provenance/audit distinction when explaining history · use KB class grant paths.
+Staff tasks: work a ticket (notes → approve → bill) · dispatch from the board · use provenance on a record · use the provenance/audit distinction when explaining history · use KB class grant paths · use the keyboard shortcuts (Alt registry, hold-Alt overlay, ? cheat sheet) ✅ Wave 29.
 
 Client tasks: portal sign-in · submit & follow requests · invoices · schedule.
 
