@@ -109,6 +109,30 @@ evidenced). If the score is below 5, clean it following the skill's loop
 This is not needed for code, code comments, logs, git messages, or prose inside
 `code` spans/fenced blocks — the scorer skips those too.
 
+## Env orchestration: ONE entry point for lane stack boots (BINDING, all lanes)
+
+Every lane that boots the demo/test stack — Playwright E2E checks, manual
+boot, openapi pin regen, scratch verification — routes through
+`scripts/e2e-stack.sh` (Wave 37 lane 1, `p37-env-orchestration`):
+
+- `scripts/e2e-stack.sh` up: per-run DB name + random high ports + run-id-keyed
+  container names (pgvector + Valkey), mechanical deterministic reseed
+  (seed-demo --force + auth-lockout/onboarding/tours reset), boots core-api +
+  realtime, and writes `e2e/.e2e-stack.env` (which Playwright's config and
+  `scripts/e2e-build-web.sh` read — never set NEXT_PUBLIC_API_URL/ports by
+  hand).
+- Teardown: `scripts/e2e-stack.sh down <RUN_ID>` — removes ONLY that run id's
+  processes/containers; never a parallel lane's DB. (E2E_FOREGROUND traps on
+  its own run id too.)
+- `scripts/dev-status.sh` shows every registered run (pids, ports, env
+  fingerprint) — check it BEFORE killing anything that looks like a straggler,
+  and never kill processes outside your own run id.
+- `scripts/regen-openapi-pins.sh` is the only sanctioned way to re-pin the
+  OpenAPI snapshots (compact byte-identical pair + SDK regen + gate).
+- Frontend verification stays frontend-tooling-only (typecheck/lint/targeted
+  Playwright), per ui-tranches_cargo_check_limits.
+- Flow-author rules (order independence, durable-gate login retry): `e2e/README.md`.
+
 ## Lane to-do lists (all agent worktrees)
 
 Every worktree lane decomposes its assigned scope into a to-do list using
