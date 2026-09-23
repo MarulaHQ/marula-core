@@ -3,8 +3,8 @@
 ![Meridian logo lockup](../../meridian-ci/logo/lockup-navy@2x.png)
 
 Meridian is an open-source PSA (professional services automation) core for
-MSPs: tickets, clients, billing, scheduling, docs, agents — self-hostable,
-extensible, and yours to leave with at any time.
+MSPs: tickets, clients, billing, scheduling, docs, agents. You can self-host it, extend it,
+and leave with the whole system.
 
 > "The core is open source. Host it yourself, fork it, break it, rebuild it.
 > You can leave with your whole system on any given day and you can extend it
@@ -34,3 +34,7 @@ one quadrant, and the quadrants stay in their lanes.
 - Public waitlist/marketing site: the separate `website/` package — product
   positioning is quoted there and here from `MANIFESTO.md` verbatim, never
   re-synthesized.
+- What shipped and what is coming: [CHANGELOG.md](../../CHANGELOG.md) and
+  [ROADMAP.md](../../ROADMAP.md) at the repository root — the website's
+  [changelog](https://meridian.dev/changelog) (with an RSS feed) and
+  [roadmap](https://meridian.dev/roadmap) pages build from these files.

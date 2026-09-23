@@ -17,6 +17,7 @@ const ROUTES = [
   "legal",
   "install",
   "changelog",
+  "roadmap",
   "features",
   "manifesto",
 ];
