@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n          EXISTS (SELECT 1 FROM clients\n                  WHERE org_id = $1)                             AS clients,\n          EXISTS (SELECT 1 FROM boards WHERE org_id = $1)        AS board,\n          EXISTS (SELECT 1 FROM tickets WHERE org_id = $1)       AS tickets,\n          EXISTS (SELECT 1 FROM user_invites WHERE org_id = $1)  AS invites,\n          -- A feeder is \"connected\" once a feed actually wrote: any config\n          -- source link proves a real feeder upsert happened (issued keys\n          -- with no writes do NOT satisfy the gate).\n          EXISTS (SELECT 1 FROM config_source_links\n                  WHERE org_id = $1)                             AS feeder,\n          -- AI gate mirrors the AI settings master switch\n          -- (`ai.features_enabled`). No stored override = default off.\n          EXISTS (\n            SELECT 1 FROM settings\n            WHERE scope = 'org' AND owner_id = $1\n              AND key = 'ai.features_enabled'\n              AND (value #>> '{}') IN ('true', '1')\n          )                                              AS ai\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "clients",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "board",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "tickets",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "invites",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "feeder",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "ai",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "9ebd03b0eb7d2541f060affea8650181e5148b40e3e047b3549bc03070e84485"
+}

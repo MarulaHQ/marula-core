@@ -804,6 +804,96 @@ pub async fn me(extensions: Extensions) -> ApiResult<Json<MeResponse>> {
     }))
 }
 
+/// Wave 26 onboarding leg (b): the per-user first-run "check your profile"
+/// step needs a self-editable name/timezone. Self-scoped: PATCH /api/v1/users/me
+/// changes ONLY the caller's own display name and timezone (email is
+/// immutable here by design), with an audit row in the same transaction.
+#[utoipa::path(operation_id = "users_me_patch", patch, path = "/api/v1/users/me",
+    tag = "auth", security(("bearer" = [])), request_body = PatchMeRequest,
+    responses((status = 200, body = MeResponse), (status = 422)))]
+pub async fn patch_me(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    axum::Json(req): axum::Json<PatchMeRequest>,
+) -> ApiResult<Json<MeResponse>> {
+    let authed: AuthedUser = crate::auth::middleware::authed(&extensions)?;
+    let (org_id, user_id) = (authed.principal.user.org_id, authed.principal.user.id);
+    if let Some(name) = &req.display_name {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err(ApiError::Validation("display_name cannot be empty".into()));
+        }
+    }
+    if req
+        .display_name
+        .as_deref()
+        .map(|n| n.trim().len() > 120)
+        .unwrap_or(false)
+    {
+        return Err(ApiError::Validation(
+            "display_name is limited to 120 characters".into(),
+        ));
+    }
+    if let Some(tz) = &req.timezone {
+        if tz.trim().is_empty() || tz.len() > 64 {
+            return Err(ApiError::Validation(
+                "timezone must be 1–64 characters".into(),
+            ));
+        }
+    }
+    crate::org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        core_db::users::update_profile(
+            &mut *ctx.tx,
+            user_id,
+            req.display_name.as_deref().map(str::trim),
+            req.timezone.as_deref().map(str::trim),
+        )
+        .await
+        .map_err(ApiError::from)?;
+        core_db::audit::insert(
+            &mut *ctx.tx,
+            &AuditEvent {
+                id: Uuid::now_v7(),
+                org_id,
+                actor: Actor::Human(user_id),
+                action: "user.profile_updated".into(),
+                entity_type: Some("user".into()),
+                entity_id: Some(user_id.to_string()),
+                detail: serde_json::json!({ "via": "onboarding" }),
+                ip: None,
+                occurred_at: chrono::Utc::now(),
+            },
+        )
+        .await?;
+        Ok((ctx, ()))
+    })
+    .await?;
+    let fresh = core_db::users::get_user(&state.pool, org_id, user_id)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(Json(MeResponse {
+        user_id: fresh.id,
+        org_id: fresh.org_id,
+        email: authed.principal.user.email.clone(),
+        display_name: fresh.display_name,
+        timezone: fresh.timezone,
+        permissions: authed
+            .principal
+            .permissions
+            .iter()
+            .map(|p| p.key())
+            .collect(),
+    }))
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct PatchMeRequest {
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub timezone: Option<String>,
+}
+
 fn principal(extensions: &Extensions) -> ApiResult<&core_domain::entities::Principal> {
     extensions
         .get::<AuthedUser>()

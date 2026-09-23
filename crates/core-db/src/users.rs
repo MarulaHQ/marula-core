@@ -121,6 +121,34 @@ where
     user_from_row(row)
 }
 
+/// Wave 26 onboarding: self-scoped profile edit (display name and/or
+/// timezone). Either parameter may be NULL to leave it untouched; the
+/// caller owns the validation and audit row.
+pub async fn update_profile<'e, E>(
+    executor: E,
+    user_id: Uuid,
+    display_name: Option<&str>,
+    timezone: Option<&str>,
+) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    sqlx::query!(
+        r#"UPDATE users
+           SET display_name = COALESCE($2, display_name),
+               timezone     = COALESCE($3, timezone),
+               updated_at   = now()
+           WHERE id = $1 AND is_active = true
+           "#,
+        user_id,
+        display_name,
+        timezone,
+    )
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
 pub async fn list_users<'e, E>(executor: E, org_id: Uuid) -> DbResult<Vec<User>>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,

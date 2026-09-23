@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM settings\n           WHERE org_id = $1\n             AND scope = 'user'\n             AND owner_id = $2\n             AND (key LIKE 'onboarding.user\\_%\\_done' OR key LIKE 'onboarding.user\\_%\\_dismissed')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1a7193228f826596124f47c74bc05b847cf6cf8554c24749e877ae3b7f0813ea"
+}

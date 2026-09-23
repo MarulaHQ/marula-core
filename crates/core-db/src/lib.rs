@@ -55,6 +55,7 @@ pub mod mfa;
 pub mod note_drafts;
 pub mod notifications;
 pub mod oidc;
+pub mod onboarding;
 pub mod org_config;
 pub mod org_exports;
 pub mod org_users;

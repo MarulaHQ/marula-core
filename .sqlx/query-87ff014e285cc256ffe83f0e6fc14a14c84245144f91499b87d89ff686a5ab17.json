@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM settings\n           WHERE org_id = $1\n             AND scope = 'org'\n             AND (key LIKE 'onboarding.org\\_%\\_done' OR key LIKE 'onboarding.org\\_%\\_dismissed')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "87ff014e285cc256ffe83f0e6fc14a14c84245144f91499b87d89ff686a5ab17"
+}

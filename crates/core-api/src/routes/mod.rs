@@ -87,6 +87,7 @@ pub mod loop_termination;
 pub mod manifest;
 pub mod notifications;
 pub mod oidc;
+pub mod onboarding;
 pub mod openapi;
 pub mod org_config;
 pub mod org_users;
@@ -464,6 +465,10 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
 
     let protected = Router::new()
         .route(&rp("/me"), get(auth_handlers::me))
+        .route(
+            &rp("/users/me"),
+            axum::routing::patch(auth_handlers::patch_me),
+        )
         // session management (security settings)
         .route(&rp("/auth/sessions"), get(auth_handlers::list_sessions))
         .route(
@@ -849,6 +854,27 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/notifications/{id}/read"),
             post(notifications::mark_read),
         )
+        // Wave 26 onboarding flows (org wizard + per-user first-run)
+        .route(&rp("/onboarding"), get(onboarding::get_summary))
+        .route(
+            &rp("/onboarding/org/steps/{step}/complete"),
+            post(onboarding::org_step_complete),
+        )
+        .route(
+            &rp("/onboarding/org/steps/{step}/skip"),
+            post(onboarding::org_step_skip),
+        )
+        .route(
+            &rp("/onboarding/user/steps/{step}/complete"),
+            post(onboarding::user_step_complete),
+        )
+        .route(
+            &rp("/onboarding/user/steps/{step}/skip"),
+            post(onboarding::user_step_skip),
+        )
+        .route(&rp("/onboarding/reset/org"), post(onboarding::org_reset))
+        .route(&rp("/onboarding/reset/user"), post(onboarding::user_reset))
+        .route(&rp("/onboarding/disable"), post(onboarding::disable))
         .route(
             &rp("/notification-preferences"),
             get(notifications::prefs_get).put(notifications::prefs_update),

@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n          EXISTS (SELECT 1 FROM totp_secrets\n                  WHERE user_id = $1 AND confirmed = true)\n          OR EXISTS (SELECT 1 FROM webauthn_credentials WHERE user_id = $1)\n        AS ready\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ready",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "741536e841ec33ec8869c3882451baa8f9f0b03af11c5426524fe9f98b63338c"
+}

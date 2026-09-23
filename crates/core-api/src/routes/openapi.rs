@@ -241,6 +241,15 @@ use utoipa::OpenApi;
         crate::routes::internal::sla_verdict,
         crate::routes::internal::effects,
         crate::routes::settings::get_registry,
+        crate::auth::handlers::patch_me,
+        crate::routes::onboarding::get_summary,
+        crate::routes::onboarding::org_step_complete,
+        crate::routes::onboarding::org_step_skip,
+        crate::routes::onboarding::user_step_complete,
+        crate::routes::onboarding::user_step_skip,
+        crate::routes::onboarding::org_reset,
+        crate::routes::onboarding::user_reset,
+        crate::routes::onboarding::disable,
         crate::routes::settings::org_values_get,
         // Restored: the PUT half of /api/settings/org was missing from this
         // list while the route stayed registered, so snapshots silently
@@ -1642,6 +1651,7 @@ use utoipa::OpenApi;
         (name = "timers", description = "Single-active-timer workflow + time entries"),
         (name = "notifications", description = "Notification center"),
         (name = "settings", description = "Typed settings registry: org + user scoped values"),
+        (name = "onboarding", description = "Wave 26 onboarding flows: org wizard + per-user first-run (skippable/disablable)"),
         (name = "audit", description = "Append-only audit log with filters + cursor pagination (admin)"),
         (name = "search", description = "Unified FTS search across tickets, comments and clients"),
         (name = "reports", description = "Operational reports + stored report definitions over the versioned read-model views"),

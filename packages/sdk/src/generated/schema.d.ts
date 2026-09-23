@@ -5034,6 +5034,175 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/onboarding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/onboarding — the caller's effective onboarding state: the org
+         *     wizard's per-step flags + live gate checks, and (admin callers only)
+         *     every active member's user-level onboarding state.
+         */
+        get: operations["onboarding_summary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/onboarding/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/onboarding/disable — org-wide master switch (Settings →
+         *     Onboarding). True disables every onboarding flow org-wide (both the
+         *     wizard banner and member first-run); false re-enables — state is kept,
+         *     so flows resume exactly where they were left.
+         */
+        post: operations["onboarding_disable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/onboarding/org/steps/{step}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/onboarding/org/steps/{step}/complete — record server-gated
+         *     completion. Owner/admin only (the wizard is an owner/admin flow).
+         */
+        post: operations["onboarding_org_step_complete"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/onboarding/org/steps/{step}/skip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/onboarding/org/steps/{step}/skip — owner/admin records the
+         *     skip choice. `never: true` persists the dismissed flag ("never show
+         *     this again"); false is the "skip for now" no-op (the step stays pending
+         *     and resumable).
+         */
+        post: operations["onboarding_org_step_skip"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/onboarding/reset/org": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/onboarding/reset/org — admin re-run of the org wizard: clears
+         *     every per-step flag (the flows_disabled switch is untouched on purpose;
+         *     re-running a disabled family stays silent until re-enabled).
+         */
+        post: operations["onboarding_org_reset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/onboarding/reset/user": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/onboarding/reset/user — re-run one member's first-run flow
+         *     (admin re-trigger) or the CALLER's own. Clears that user's onboarding
+         *     flags so every step resumes pending.
+         */
+        post: operations["onboarding_user_reset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/onboarding/user/steps/{step}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/onboarding/user/steps/{step}/complete — the caller records
+         *     progress on their OWN first-run flow. Profile/mfa gates are
+         *     server-verified; orientation/defaults record on click (they are pure
+         *     UI milestones by design).
+         */
+        post: operations["onboarding_user_step_complete"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/onboarding/user/steps/{step}/skip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/onboarding/user/steps/{step}/skip — self-scoped skip recording
+         *     (same never/skip-for-now semantics as the org steps).
+         */
+        post: operations["onboarding_user_step_skip"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/org": {
         parameters: {
             query?: never;
@@ -9878,6 +10047,28 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Wave 26 onboarding leg (b): the per-user first-run "check your profile"
+         *     step needs a self-editable name/timezone. Self-scoped: PATCH /api/v1/users/me
+         *     changes ONLY the caller's own display name and timezone (email is
+         *     immutable here by design), with an audit row in the same transaction.
+         */
+        patch: operations["users_me_patch"];
         trace?: never;
     };
     "/api/v1/webhooks": {
@@ -16466,6 +16657,61 @@ export interface components {
             /** Format: uuid */
             user_id: string;
         };
+        OnboardingDisableRequest: {
+            disabled: boolean;
+        };
+        OnboardingDisableResponse: {
+            disabled: boolean;
+        };
+        OnboardingMemberView: {
+            display_name: string;
+            email: string;
+            steps: components["schemas"]["OnboardingStepView"][];
+            /** @description Live: the member still has unresolved steps (drives re-trigger UX). */
+            unresolved: boolean;
+            /** Format: uuid */
+            user_id: string;
+        };
+        OnboardingScopeView: {
+            /** @description Org-wide master switch (Settings → Onboarding). */
+            disabled: boolean;
+            /**
+             * @description Legacy fallback: true while NO per-step flags exist yet but the old
+             *     flat key did (U6-safe supersede).
+             */
+            legacy_wizard_completed: boolean;
+            steps: components["schemas"]["OnboardingStepView"][];
+        };
+        OnboardingSkipRequest: {
+            /**
+             * @description true = "never show this again" (persists the dismissed flag);
+             *     false = plain "skip for now" (a no-op that intentionally records
+             *     nothing — the step stays pending and resumable).
+             */
+            never?: boolean;
+        };
+        OnboardingStepView: {
+            /** @description "never show this again" was recorded for this step. */
+            dismissed: boolean;
+            done: boolean;
+            resolved: boolean;
+            /** @description Server-verified live gate state right now. */
+            satisfied: boolean;
+            step: string;
+        };
+        OnboardingSummary: {
+            /** @description Populated for admin callers only. */
+            members: components["schemas"]["OnboardingMemberView"][];
+            org: components["schemas"]["OnboardingScopeView"];
+        };
+        OnboardingTriggerRequest: {
+            /**
+             * Format: uuid
+             * @description The member whose first-run flow is re-triggered (admin calls);
+             *     omitted means re-run the CALLER's own user onboarding.
+             */
+            user_id?: string | null;
+        };
         /**
          * @description Org-wide preview: every billable contract's evaluation for the window
          *     plus the grand total — the shape a Wave-9 invoice run will consume.
@@ -16730,6 +16976,10 @@ export interface components {
             /** @description When present, replaces the whole rate card. */
             rates?: components["schemas"]["RateSpec"][] | null;
             status?: null | components["schemas"]["ContractStatus"];
+        };
+        PatchMeRequest: {
+            display_name?: string | null;
+            timezone?: string | null;
         };
         PatchOrgRequest: {
             /**
@@ -31398,6 +31648,232 @@ export interface operations {
             };
         };
     };
+    onboarding_summary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingSummary"];
+                };
+            };
+        };
+    };
+    onboarding_disable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OnboardingDisableRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingDisableResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    onboarding_org_step_complete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description org wizard step id */
+                step: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingStepView"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description gate not yet satisfied */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    onboarding_org_step_skip: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description org wizard step id */
+                step: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OnboardingSkipRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingStepView"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    onboarding_org_reset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    onboarding_user_reset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OnboardingTriggerRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    onboarding_user_step_complete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description user onboarding step id */
+                step: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingStepView"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description gate not yet satisfied */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    onboarding_user_step_skip: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description user onboarding step id */
+                step: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OnboardingSkipRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingStepView"];
+                };
+            };
+        };
+    };
     org_profile_get: {
         parameters: {
             query?: never;
@@ -41546,6 +42022,35 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["TimerSession"][];
                 };
+            };
+        };
+    };
+    users_me_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchMeRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeResponse"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

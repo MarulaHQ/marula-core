@@ -20,6 +20,7 @@ import { Button, Card, EmptyState, Spinner, Tag } from "@meridian/ui";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { BoardNav } from "../../components/board-nav";
+import { OnboardingResumeBanner } from "../../components/onboarding/resume-banner";
 import { api, useRequireAuth } from "../../lib/api";
 import { runEnvelopeMutation } from "../../lib/envelope-write";
 import { dueBucket, dueLabel, fmtMins } from "../../lib/format";
@@ -212,6 +213,9 @@ export default function TodayPage() {
               {all.length} open · assigned to you · across all boards
             </span>
           </header>
+
+          {/* Wave 26 onboarding: sticky entry affordance above the attention strip */}
+          <OnboardingResumeBanner />
 
           {/* Attention strip: the day at a glance */}
           <div className="m-rise grid gap-3 sm:grid-cols-2 xl:grid-cols-4" style={{ animationDelay: "30ms" }}>

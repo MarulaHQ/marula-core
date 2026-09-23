@@ -198,11 +198,11 @@ impl SettingDeclaration {
                     ))
                 }
             };
-            if self.key == APPEARANCE_THEME {
-                // The org theme may also name an installed custom theme
-                // pack (`pack:<slug>`) — a dynamic id validated at
-                // install/uninstall time by the theme-pack seam; the bare
-                // shape (not free text) is checked here.
+            if self.key == APPEARANCE_THEME || self.key == APPEARANCE_THEME_OVERRIDE {
+                // The org theme AND the per-user override may name an
+                // installed custom theme pack (`pack:<slug>`) — a dynamic
+                // id validated at install/uninstall time by the theme-pack
+                // seam; the bare shape (not free text) is checked here.
                 if text.starts_with("pack:")
                     && crate::theme_pack::is_preset_or_pack_slug(&text[5..])
                 {
@@ -259,6 +259,51 @@ pub const APPEARANCE_MODE: &str = "appearance.mode";
 /// The org-scope setting key pointing at the active custom theme pack.
 pub const APPEARANCE_THEME_PACK: &str = "appearance.theme_pack";
 pub const ONBOARDING_WIZARD_COMPLETED: &str = "onboarding.wizard_completed";
+/// Org-wide master switch for the onboarding flow family (Settings →
+/// Onboarding). True silences the wizard banner AND user-level onboarding
+/// org-wide; recorded, never silent.
+pub const ONBOARDING_FLOWS_DISABLED: &str = "onboarding.flows_disabled";
+/// The owner dismissed the SETUP BANNER (a "later" that sticks across
+/// reloads; the wizard + Settings stay reachable).
+pub const ONBOARDING_ORG_BANNER_DISMISSED: &str = "onboarding.org_banner_dismissed";
+/// The member dismissed their own first-run prompt.
+pub const ONBOARDING_USER_BANNER_DISMISSED: &str = "onboarding.user_banner_dismissed";
+
+/// Canonical org wizard step ids (route module validates enumeration
+/// membership against this list).
+pub const ONBOARDING_ORG_STEPS: &[&str] =
+    &["clients", "board", "tickets", "invites", "feeder", "ai"];
+
+/// User onboarding step ids (counted flow family, per-user scope).
+pub const ONBOARDING_USER_STEPS: &[&str] = &["profile", "mfa", "orientation", "defaults"];
+
+/// Assistant for `onboarding.org_<step>_done` / `..._dismissed` key lookup.
+/// Each org wizard step has BOTH a done flag (server-gated completion) and
+/// a dismissed flag ("never show this again"); skip-for-now records
+/// nothing — the step simply stays pending and resumable.
+pub fn onboarding_org_step_key(step: &str, suffix: &str) -> String {
+    format!("onboarding.org_{step}_{suffix}")
+}
+
+pub fn onboarding_user_step_key(step: &str, suffix: &str) -> String {
+    format!("onboarding.user_{step}_{suffix}")
+}
+
+/// True when the dotted key belongs to the org wizard step flags.
+pub fn is_onboarding_org_step_key(key: &str) -> bool {
+    ONBOARDING_ORG_STEPS.iter().any(|step| {
+        key == onboarding_org_step_key(step, "done")
+            || key == onboarding_org_step_key(step, "dismissed")
+    })
+}
+
+/// True when the dotted key belongs to the user-level onboarding flags.
+pub fn is_onboarding_user_step_key(key: &str) -> bool {
+    ONBOARDING_USER_STEPS.iter().any(|step| {
+        key == onboarding_user_step_key(step, "done")
+            || key == onboarding_user_step_key(step, "dismissed")
+    })
+}
 pub const AI_COMPLETION_PROVIDER: &str = "ai.completion_provider";
 pub const AI_COMPLETION_MODEL: &str = "ai.completion_model";
 /// Admin policy flag (ADR 0008): whether users may add personal
@@ -403,9 +448,9 @@ const EMPTY_OPTIONS: &[&str] = &[];
 /// THE registry. Every user-visible setting appears exactly once here;
 /// append new declarations at the end and add a uniqueness test.
 /// `LazyLock` because defaults carry allocated strings (non-const).
-pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> =
-    std::sync::LazyLock::new(|| {
-        vec![
+pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> = std::sync::LazyLock::new(
+    || {
+        let mut decls = vec![
             SettingDeclaration {
                 key: GENERAL_EOD_HOUR,
                 kind: SettingKind::Integer { min: 0, max: 23 },
@@ -485,8 +530,10 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> =
                 section: SettingSection::Onboarding,
                 visibility: SettingVisibility::Hidden,
                 label: "First-run wizard completed",
-                description: "Set when the Tier-1 org wizard is finished or skipped. Skipping \
-                             changes nothing else — defaults already operate the org.",
+                description: "LEGACY (Wave 26): superseded by the per-step onboarding.org_* \
+                              flags. Still read as a U6-safe fallback: when no step flags \
+                              exist yet, true means every org wizard step is done. Skipping \
+                              changes nothing else — defaults already operate the org.",
             },
             SettingDeclaration {
                 key: AI_COMPLETION_PROVIDER,
@@ -648,11 +695,145 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> =
                 visibility: SettingVisibility::Ui,
                 label: "DMS sync connector (IT Glue / Hudu ↔ Meridian docs)",
                 description: "Operator-side toggle for the documentation-system sync: a \
-                             sync run that starts while this is off reports disabled \
-                             before touching a single Meridian record.",
+                              sync run that starts while this is off reports disabled \
+                               before touching a single Meridian record.",
             },
-        ]
-    });
+            SettingDeclaration {
+                key: ONBOARDING_ORG_BANNER_DISMISSED,
+                kind: SettingKind::Boolean,
+                default: SettingValue::Boolean(false),
+                scope: SettingScope::Org,
+                section: SettingSection::Onboarding,
+                visibility: SettingVisibility::Hidden,
+                label: "Setup banner dismissed",
+                description: "The owner explicitly dismissed the setup banner after at least                               looking at it ('later' is real: dismissal persists across                               reloads; the wizard itself and Settings → Onboarding both                               still reach the wizard). Cleared by reset/re-run.",
+            },
+            SettingDeclaration {
+                key: ONBOARDING_USER_BANNER_DISMISSED,
+                kind: SettingKind::Boolean,
+                default: SettingValue::Boolean(false),
+                scope: SettingScope::User,
+                section: SettingSection::Onboarding,
+                visibility: SettingVisibility::Hidden,
+                label: "First-run prompt dismissed",
+                description: "I have dismissed my own first-run prompt for now — persists                               across reloads (the flow itself still re-runs from Settings,                               and the profile menu keeps an entry point).",
+            },
+                        SettingDeclaration {
+                key: ONBOARDING_FLOWS_DISABLED,
+                kind: SettingKind::Boolean,
+                default: SettingValue::Boolean(false),
+                scope: SettingScope::Org,
+                section: SettingSection::Onboarding,
+                visibility: SettingVisibility::Ui,
+                label: "Disable onboarding flows org-wide",
+                description: "Silences the org setup wizard and every member's first-run \
+                              onboarding org-wide. State is kept, so re-enabling resumes \
+                              exactly where flows were left.",
+            },
+        ];
+
+        // --- Wave 26 onboarding: the flow family's typed flags. Every step        // is INDEPENDENTLY skippable — `done` records server-gated
+        // completion, `dismissed` records "never show this again" (both
+        // persisted choices, never a silent nag-loop). Dynamic step keys
+        // are leaked once at init so the registry stays &'static.
+        let flag_decl =
+            |key: String, scope: SettingScope, label: &str, descr: &str| SettingDeclaration {
+                key: Box::leak(key.into_boxed_str()),
+                kind: SettingKind::Boolean,
+                default: SettingValue::Boolean(false),
+                scope,
+                section: SettingSection::Onboarding,
+                visibility: SettingVisibility::Hidden,
+                label: Box::leak(label.to_string().into_boxed_str()),
+                description: Box::leak(descr.to_string().into_boxed_str()),
+            };
+        // (step, done-label, dismissed-label, done-description,
+        //  dismissed-description)
+        let org_steps: &[(&str, &str, &str, &str, &str)] = &[
+            ("clients",
+                "Clients added",
+                "Clients step dismissed",
+                "Set when the org has at least one client recorded (server-verified), or manually by the owner via the wizard's done action when satisfied.",
+                "Set when the owner pressed 'never show this again' on the clients step — recorded, not silent."),
+            ("board",
+                "First board configured",
+                "Board step dismissed",
+                "Set when the org has at least one ticket board (server-verified).",
+                "Set when the owner pressed 'never show this again' on the board step."),
+            ("tickets",
+                "First tickets raised",
+                "Tickets step dismissed",
+                "Set when the org has at least one ticket (server-verified).",
+                "Set when the owner pressed 'never show this again' on the tickets step."),
+            ("invites",
+                "Team invited",
+                "Invites step dismissed",
+                "Set when at least one member invite has been issued (server-verified).",
+                "Set when the owner pressed 'never show this again' on the invites step."),
+            ("feeder",
+                "Feeder connector connected",
+                "Feeder step dismissed",
+                "Set when a feeder source has actually written configuration records into the org (server-verified).",
+                "Set when the owner pressed 'never show this again' on the feeder step."),
+            ("ai",
+                "AI surfaces enabled",
+                "AI step dismissed",
+                "Set when the org has turned on its AI surfaces (server-verified against the AI settings master switch).",
+                "Set when the owner pressed 'never show this again' on the AI step."),
+        ];
+        for (step, done_label, dismissed_label, done_descr, dismissed_descr) in org_steps {
+            decls.push(flag_decl(
+                onboarding_org_step_key(step, "done"),
+                SettingScope::Org,
+                done_label,
+                done_descr,
+            ));
+            decls.push(flag_decl(
+                onboarding_org_step_key(step, "dismissed"),
+                SettingScope::Org,
+                dismissed_label,
+                dismissed_descr,
+            ));
+        }
+        let user_steps: &[(&str, &str, &str, &str, &str)] = &[
+            ("profile",
+                "Profile completed",
+                "Profile step dismissed",
+                "Set when your profile detail is complete (server-verified).",
+                "Set when 'never show this again' was pressed on the profile step."),
+            ("mfa",
+                "Second factor configured",
+                "Second-factor step dismissed",
+                "Set when a second factor has been enrolled (server-verified).",
+                "Set when 'never show this again' was pressed on the second-factor step."),
+            ("orientation",
+                "Orientation done",
+                "Orientation dismissed",
+                "Set after the 60-second product orientation is completed.",
+                "Set when 'never show this again' was pressed on the orientation."),
+            ("defaults",
+                "Personal defaults set",
+                "Personal-defaults step dismissed",
+                "Set after personal defaults (theme/mode/notifications) were saved or explicitly skipped.",
+                "Set when 'never show this again' was pressed on the personal-defaults step."),
+        ];
+        for (step, done_label, dismissed_label, done_descr, dismissed_descr) in user_steps {
+            decls.push(flag_decl(
+                onboarding_user_step_key(step, "done"),
+                SettingScope::User,
+                done_label,
+                done_descr,
+            ));
+            decls.push(flag_decl(
+                onboarding_user_step_key(step, "dismissed"),
+                SettingScope::User,
+                dismissed_label,
+                dismissed_descr,
+            ));
+        }
+        decls
+    },
+);
 
 /// All declarations, registry order preserved.
 pub fn declarations() -> &'static [SettingDeclaration] {
@@ -709,11 +890,13 @@ mod tests {
         );
         // Wave 24: per-user override + per-user mode (appearance.theme
         // is org-scope now): greeting, signoff, override, mode = 4.
-        assert_eq!(declarations_for(SettingScope::User).len(), 4);
+        // Wave 26: user onboarding adds four steps × done/dismissed = 8.
+        assert_eq!(declarations_for(SettingScope::User).len(), 13);
         // Tripwire count: bump deliberately when an org-scope setting is
         // added (Wave 24 lane 1 repurposed appearance.theme as org scope
-        // — 14 → 15).
-        assert_eq!(declarations_for(SettingScope::Org).len(), 15);
+        // — 14 → 15; Wave 26 adds flows_disabled + six steps ×
+        // done/dismissed = 13, so 15 → 28).
+        assert_eq!(declarations_for(SettingScope::Org).len(), 29);
     }
 
     #[test]

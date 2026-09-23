@@ -111,7 +111,9 @@ function AcceptInviteInner(): ReactNode {
       // navigation so AuthProvider re-bootstraps from the fresh tokens.
       saveTokens(data as components["schemas"]["TokenPair"]);
       setDone(true);
-      window.location.assign("/today");
+      // Wave 26: first-run starts here (profile/MFA/orientation/defaults,
+      // every step skippable); it lands on /today when resolved or skipped.
+      window.location.assign("/onboarding");
     } catch {
       setError(OFFLINE_RETRY_COPY);
     } finally {

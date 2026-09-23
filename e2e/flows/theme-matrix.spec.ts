@@ -7,13 +7,13 @@
 // the resolved --m-canvas/--m-accent values in the computed style, and
 
 // (typo'd/org-guarded values are 422-able server side so the UI is
- * never in a broken state).
+// never in a broken state).
 //
 // Non-purpose: arbitrary theme packs (restyle-only manifests are
 // mechanically enforced by scripts/check-theme-packs.mjs; the matrix
 // here covers the SHIPPED defaults only, mirroring the Playwright
 // light/dark posture from Wave 14 lane 8).
-import { expect, test } from "./helpers/harness";
+import { expect, test } from "../helpers/harness";
 
 const CANVAS_BY_PRESET: Record<string, string> = {
   tangerine: "#e8ebed",
