@@ -1,7 +1,8 @@
 # Meridian local stack.
 #
-# Purpose: one command brings up the full Stage-1 system — Postgres (pg17 +
-# pgvector), Redis, schema migration, core-api, realtime WS hub, worker.
+# Purpose: one command brings up the full Stage-1 system — Postgres (pg18 +
+# pgvector), Valkey (Redis-compatible), schema migration, core-api, realtime
+# WS hub, worker.
 #
 # Role split matters: migrations and the worker run as the TABLE OWNER
 # (`meridian`, RLS-bypassing — the relay must read every org's outbox),
@@ -14,8 +15,8 @@
 # Usage:
 #   docker compose -f deploy/docker-compose.yml up --build
 #
-# Ports: 15432 pg · 16379 redis · 8080 api · 8081 ws · 8082 worker-health
-#        · 3000 web · (stage2 profile) 9000/9001 minio · 1025/8025 mailpit
+# Ports: 15432 pg · 16379 valkey · 8080 api · 8081 ws · 8082 worker-health
+#        · 3000 web · (stage2 profile) 3900-3903 garage · 1025/8025 mailpit
 #        · (observability profile) 4317/4318 otel-collector · 3200 tempo
 #        · 3100 loki · 3001 grafana · 18899 metrics exposition
 #
@@ -47,7 +48,11 @@ x-default-logging: &default-logging
 
 services:
   postgres:
-    image: pgvector/pgvector:pg17
+    # PG18 (2026-09 decision): async I/O (io_method), skip scans, uuidv7(),
+    # RETURNING OLD/NEW, temporal constraints. Bumping an existing volume:
+    # dump/restore (`pg_dump meridian`) or pg_upgrade-in-place; 18's pg_upgrade
+    # retains optimizer statistics so no slow-plans grind after cutover.
+    image: pgvector/pgvector:pg18
     mem_limit: 1g
     cpus: 2.0
     logging: *default-logging
@@ -66,17 +71,20 @@ services:
       retries: 20
 
   redis:
-    image: redis:7-alpine
+    # Valkey (Redis 7 wire-compatible fork; drop-in for REDIS_URL). Service
+    # keeps the `redis` name so REDIS_URL / depends_on references are
+    # unaffected.
+    image: valkey/valkey:8-alpine
     mem_limit: 384m
     cpus: 1.0
     logging: *default-logging
     # Fail writes loudly (noeviction) rather than silently evicting queue
     # state; 192mb keeps the process inside its 384m ceiling.
-    command: ["redis-server", "--maxmemory", "192mb", "--maxmemory-policy", "noeviction"]
+    command: ["valkey-server", "--maxmemory", "192mb", "--maxmemory-policy", "noeviction"]
     ports:
       - "16379:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "valkey-cli", "ping"]
       interval: 3s
       timeout: 3s
       retries: 20
@@ -124,15 +132,15 @@ services:
       SMTP_HOST: ${SMTP_HOST:-mailpit}
       SMTP_PORT: ${SMTP_PORT:-1025}
       # Object storage (TASKLIST 2.14). Default stays the local-fs none
-      # mode so `up` without the stage2 profile needs no MinIO; flipping
-      # OBJECT_STORE=s3 (stage2 profile) points at the minio slot below.
+      # mode so `up` without the stage2 profile needs no garage; flipping
+      # OBJECT_STORE=s3 (stage2 profile) points at the garage slot below.
       OBJECT_STORE: ${OBJECT_STORE:-local}
       OBJECT_STORE_LOCAL_DIR: ${OBJECT_STORE_LOCAL_DIR:-/data/objects}
-      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://garage:3900}
       S3_BUCKET: ${S3_BUCKET:-meridian}
-      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_REGION: ${S3_REGION:-garage}
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-meridian}
-      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-meridian-dev-minio}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-meridian-dev-garage}
       MERIDIAN_MAX_UPLOAD_MB: ${MERIDIAN_MAX_UPLOAD_MB:-25}
       # OpenTelemetry (TASKLIST 2.18): empty ⇒ none mode (no OTel SDK, no
       # exporters). Set to http://otel-collector:4318 together with the
@@ -223,26 +231,37 @@ services:
   # ---- Stage-2 slots (not started by default; see --profile stage2) ----
 
   # Object storage for attachments when OBJECT_STORE=s3 (see core-api env).
-  # Buckets are NOT auto-created; once after first start:
-  #   docker run --rm --network meridian_default --entrypoint /bin/sh minio/mc \
-  #     -c "mc alias set m http://minio:9000 meridian meridian-dev-minio && mc mb --ignore-existing m/meridian"
-  minio:
+  # Garage (OSS S3-compat, Rust single binary) — replaces the MinIO sample
+  # (2026-09 decision; MinIO's community edition has degraded post-2025).
+  # Layout+bucket are NOT auto-created; once after first start:
+  #   docker compose --profile stage2 up -d garage
+  #   docker compose --profile stage2 exec garage garage status   # note NODE_ID
+  #   docker compose --profile stage2 exec garage garage layout assign -z dc1 -c <NODE_ID> -c 1
+  #   docker compose --profile stage2 exec garage garage layout apply --version 1
+  #   docker compose --profile stage2 exec garage garage bucket create meridian
+  #   docker compose --profile stage2 exec garage garage key create meridian
+  #   docker compose --profile stage2 exec garage garage bucket allow --read --write meridian --key meridian
+  # Put the key from `key create` into S3_ACCESS_KEY/S3_SECRET_ACCESS_KEY.
+  garage:
     mem_limit: 512m
     cpus: 1.0
     logging: *default-logging
-    image: minio/minio:latest
+    image: dxflrs/garage:v1.1.0
     profiles: ["stage2"]
-    command: ["server", "/data", "--console-address", ":9001"]
     environment:
-      MINIO_ROOT_USER: meridian
-      MINIO_ROOT_PASSWORD: meridian-dev-minio
+      GARAGE_DOMAIN_NAME: .localhost
+      GARAGE_RPC_SECRET: meridian-dev-garage-rpc
+      GARAGE_RPC_PUBLIC_ADDR: garage:3901
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "3900:3900"   # S3 API
+      - "3901:3901"   # inter-node RPC
+      - "3903:3903"   # admin API
     volumes:
-      - miniodata:/data
+      - garagedata:/var/lib/garage/data
+      - garagemeta:/var/lib/garage/meta
+      - ./garage.toml:/etc/garage.toml
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:9000/minio/health/live || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:3900/health || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 12
@@ -326,22 +345,86 @@ services:
       - tempo
       - loki
 
-  # GlitchTip slot — STUB ONLY (deliberately not wired): error tracking
-  # needs an upstream decision on DSN distribution (which surfaces get a
-  # DSN, self-host vs SaaS) before the error pipeline is designed. When
-  # wired: run glitchtip/glitchtip here and add a Sentry-compatible
-  # exporter/init in the services; until then no Meridian code references it.
-  # glitchtip:
-  #   image: glitchtip/glitchtip:latest
-  #   profiles: ["observability"]
-  #   environment:
-  #     DATABASE_URL: ...
-  #     SECRET_KEY: ...
-  #   ports:
-  #     - "8010:8000"
+  # GlitchTip error tracking (2026-09 decision: activate). Needs its own DB —
+  # once: `docker compose exec postgres createdb -U meridian glitchtip`.
+  # DSNs surface at http://localhost:8010. Code-side wiring (Sentry-compatible
+  # exporter/init in the services) remains a follow-up lane.
+  glitchtip:
+    mem_limit: 512m
+    cpus: 1.0
+    logging: *default-logging
+    image: glitchtip/glitchtip:latest
+    profiles: ["observability"]
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      DATABASE_URL: ${GLITCHTIP_DATABASE_URL:-postgres://meridian:meridian@postgres:5432/glitchtip}
+      REDIS_URL: ${GLITCHTIP_REDIS_URL:-redis://redis:6379/1}
+      SECRET_KEY: ${GLITCHTIP_SECRET_KEY:-glitchtip-dev-secret-change-me}
+      GLITCHTIP_DOMAIN: http://localhost:8010
+      EMAIL_BACKEND: django.core.mail.backends.console.EmailBackend
+    ports:
+      - "8010:8000"
+
+  # ClamAV daemon (2026-09 decision; --profile stage2): attachment/file
+  # scanning boundary (secrets file records, staged imports). Code-side
+  # wire-in on core-api's effect/step seams is a follow-up lane; the service
+  # is the deployment target. Port 3310 is the clamd TCP interface
+  # (PING→PONG). The image ships a built-in clamd healthcheck; expect a slow
+  # first boot while the signature DB loads.
+  clamav:
+    mem_limit: 2g
+    cpus: 1.0
+    logging: *default-logging
+    image: clamav/clamav:latest
+    profiles: ["stage2"]
+    ports:
+      - "13310:3310"
+    volumes:
+      - clamavdata:/var/lib/clamav
+
+  # ---- Backup slot (--profile backup): WAL-G (PG PITR) + restic snapshots ----
+  # Nightly runner: copy deploy/backup/{wal-g,restic}.env.example to the same
+  # names WITHOUT .example, fill in (point WALG_S3_PREFIX / RESTIC_REPOSITORY
+  # at Garage or any S3), then `docker compose --profile backup up -d --build backup`.
+  # restore.sh is the rehearsal leg — a backup that has never restored is not a backup.
+  backup:
+    mem_limit: 512m
+    cpus: 1.0
+    logging: *default-logging
+    build:
+      context: ..
+      dockerfile: deploy/backup/Dockerfile.backup
+      args: [INSTALL_WAL_G]
+    profiles: ["backup"]
+    depends_on:
+      - postgres
+    # env_file:            # <-- uncomment after copying the .example files
+    #   - ./backup/wal-g.env
+    #   - ./backup/restic.env
+    environment:
+      PGHOST: postgres
+      PGUSER: meridian
+      PGDATABASE: meridian
+      PGDUMPS_DIR: /pgdumps
+      # When OBJECT_STORE is the local none-mode, snapshot that dir too:
+      # extra hosts: core-api shares /data/objects — mount the named coreapi volume
+      # when it exists, else leave BACKUP_SOURCES unset for PG-only backups.
+    env_file:
+      - path: ./backup/wal-g.env
+        required: false
+      - path: ./backup/restic.env
+        required: false
+    volumes:
+      - backupdumps:/pgdumps
+    command: ["/bin/sh", "/opt/backup/backupd.sh"]
 
 volumes:
   pgdata:
-  miniodata:
+  garagedata:
+  garagemeta:
+  clamavdata:
+  backupdumps:
   tempodata:
   lokidata:

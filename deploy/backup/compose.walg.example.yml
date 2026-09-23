@@ -1,0 +1,16 @@
+# Compose override for WAL-G continuous archiving (PITR tier).
+# Usage alongside the default compose file only:
+#   docker compose --profile backup -f deploy/docker-compose.yml \
+#     -f deploy/backup/compose.walg.example.yml up -d --build backup
+# Requires wal-g.env (copy .example) with WALG_S3_PREFIX + credentials, and
+# the backup image built with --build-arg INSTALL_WAL_G=1.
+services:
+  postgres:
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=test ! -f /pgarch/skip && wal-g wal-push %p

@@ -15,10 +15,10 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        # pgvector/pgvector:pg17 — same image as prod; core-db integration
+        # pgvector/pgvector:pg18 — same image as prod; core-db integration
         # tests (crates/core-db/tests) attach to THIS service container via
         # DATABASE_URL below, so no Docker-in-Docker/testcontainers needed.
-        image: pgvector/pgvector:pg17
+        image: pgvector/pgvector:pg18
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: meridian_test
@@ -27,7 +27,7 @@ jobs:
           --health-cmd "pg_isready -U postgres"
           --health-interval 10s --health-timeout 5s --health-retries 5
       redis:
-        image: redis:7
+        image: valkey/valkey:8
         ports: ["6379:6379"]
     env:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/meridian_test
@@ -87,10 +87,10 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        # pgvector/pgvector:pg17 — prod parity. The gate runs the same
+        # pgvector/pgvector:pg18 — prod parity. The gate runs the same
         # assert_rls_coverage check core-api performs at boot, as a
         # standalone test target (fails CI independently of server start).
-        image: pgvector/pgvector:pg17
+        image: pgvector/pgvector:pg18
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: meridian_test
@@ -138,7 +138,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: pgvector/pgvector:pg17
+        image: pgvector/pgvector:pg18
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: meridian_test
@@ -147,7 +147,7 @@ jobs:
           --health-cmd "pg_isready -U postgres"
           --health-interval 10s --health-timeout 5s --health-retries 5
       redis:
-        image: redis:7
+        image: valkey/valkey:8
         ports: ["6379:6379"]
     env:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/meridian_test
@@ -175,9 +175,9 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        # pgvector/pgvector:pg17 — prod parity; the demo seed writes into
+        # pgvector/pgvector:pg18 — prod parity; the demo seed writes into
         # THIS service DB, so the suite runs against real seeded data.
-        image: pgvector/pgvector:pg17
+        image: pgvector/pgvector:pg18
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: meridian_test
@@ -186,7 +186,7 @@ jobs:
           --health-cmd "pg_isready -U postgres"
           --health-interval 10s --health-timeout 5s --health-retries 5
       redis:
-        image: redis:7
+        image: valkey/valkey:8
         ports: ["6379:6379"]
     env:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/meridian_test
@@ -237,9 +237,9 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        # pgvector/pgvector:pg17 — prod parity; the smoke measures the real
+        # pgvector/pgvector:pg18 — prod parity; the smoke measures the real
         # RLS-scoped ticket-list query path against this service DB.
-        image: pgvector/pgvector:pg17
+        image: pgvector/pgvector:pg18
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: meridian_perf
@@ -264,8 +264,8 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        # pgvector/pgvector:pg17 — prod parity with the fixture capture.
-        image: pgvector/pgvector:pg17
+        # pgvector/pgvector:pg18 — prod parity with the fixture capture.
+        image: pgvector/pgvector:pg18
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres

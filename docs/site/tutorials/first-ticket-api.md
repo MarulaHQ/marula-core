@@ -13,7 +13,7 @@ emitted.
 
 ## Prerequisites
 
-- Docker (for Postgres+pgvector, Redis, MinIO)
+- Docker (for Postgres+pgvector, Redis (Valkey), object storage (Garage, stage2))
 - Rust toolchain (see `rust-toolchain.toml`) and Node + pnpm
 
 ## 1. Start the stack

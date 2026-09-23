@@ -10,7 +10,7 @@
 #
 # Database selection mirrors the core-db test suites (handled inside the
 # test bootstrap, not here): DATABASE_URL / MERIDIAN_TEST_DATABASE_URL env
-# wins; otherwise a throwaway pgvector/pgvector:pg17 testcontainer spins up
+# wins; otherwise a throwaway pgvector/pgvector:pg18 testcontainer spins up
 # on a random host port (no PG port claims — the lane convention).
 set -eu
 

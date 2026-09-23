@@ -20,11 +20,11 @@ export CORS_ORIGIN="${CORS_ORIGIN:-http://localhost:3000}"
 # Local convenience: spin up a scratch Postgres when nothing is listening.
 if ! command -v pg_isready >/dev/null 2>&1 || ! pg_isready -q -d "$DATABASE_URL"; then
   if [ -z "${E2E_PG_CONTAINER:-}" ] && command -v docker >/dev/null 2>&1; then
-    echo "[e2e-stack] no DATABASE_URL reachable — starting scratch Postgres (pgvector:pg17)"
+    echo "[e2e-stack] no DATABASE_URL reachable — starting scratch Postgres (pgvector:pg18)"
     docker rm -f meridian-e2e-pg >/dev/null 2>&1 || true
     docker run -d --name meridian-e2e-pg \
       -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=meridian_test \
-      -p 5432:5432 pgvector/pgvector:pg17 >/dev/null
+      -p 5432:5432 pgvector/pgvector:pg18 >/dev/null
     if [ -z "${E2E_KEEP:-}" ]; then trap 'docker rm -f meridian-e2e-pg >/dev/null 2>&1 || true' EXIT; fi
     for _ in $(seq 1 30); do pg_isready -q -d "$DATABASE_URL" && break; sleep 1; done
     pg_isready -q -d "$DATABASE_URL" || { echo "[e2e-stack] scratch Postgres never became ready"; exit 1; }

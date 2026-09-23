@@ -29,8 +29,10 @@ this license with them via this directory.
 
 The local test app (ADR 0005) bundles real third-party binaries:
 
-- **PostgreSQL 17** — licensed under the PostgreSQL License
-  (https://www.postgresql.org/about/licence/).
+- **PostgreSQL 18** — licensed under the PostgreSQL License
+  (https://www.postgresql.org/about/licence/). (Bumped from 17 in 2026-09;
+  compose uses the `pgvector/pgvector:pg18` image, the desktop test app
+  embeds 18.)
 - **pgvector** — same license family
   (https://github.com/pgvector/pgvector — PostgreSQL License).
 - **Tauri** (shell/runtime) — MIT & Apache-2.0
@@ -77,7 +79,29 @@ visible):
 
 First-party skills written for this repo (rebuild-local-test-app) are ours.
 
-## 5. Design sources
+## 5. Self-host deployment stack (compose/helm services)
+
+The standard deployment ships small third-party services alongside the
+Meridian binaries. These run as separate processes — none are linked into
+Meridian's binaries — but they are part of what distributes:
+
+| Service | Project | License |
+|---|---|---|
+| Postgres 18 + pgvector | https://github.com/pgvector/pgvector | PostgreSQL License |
+| **Valkey** (replaced Redis in 2026-09) | https://github.com/valkey-io/valkey | BSD-3-Clause |
+| **Garage** (S3-compatible object storage; replaced MinIO in 2026-09) | https://garagehq.deuxfleurs.fr / https://git.deuxfleurs.fr/Deuxfleurs/garage | AGPL-3.0-or-later |
+| **ClamAV** (attachment/file scanning, stage2 profile; added 2026-09) | https://www.clamav.net / https://github.com/Cisco-Talos/clamav | GPL-3.0-or-later |
+| **GlitchTip** (Sentry-compatible error tracking, observability profile; activated 2026-09) | https://glitchtip.com / https://gitlab.com/glitchtip/glitchtip | BSD-3-Clause |
+| Mailpit (dev SMTP sink, stage2 profile) | https://github.com/axllent/mailpit | MIT |
+| OpenTelemetry Collector · Grafana Tempo · Grafana Loki · Grafana | https://github.com/open-telemetry/opentelemetry-collector-contrib, https://github.com/grafana | Apache-2.0 / AGPL-3.0 (while the self-host binaries stay unmodified, AGPL obligations do not extend to Meridian's code) |
+
+Removed entries: **MinIO** (was the compose S3 sample through 2026-09; its
+community edition degraded — AGPL, stripped web console, stalled releases).
+Redis 7 itself shipped under the dual RSALv2/SSPLv1 license in its
+pre-2025 form before Redis 8 re-opened to AGPL; we sidestepped both by
+standardizing on the Valkey fork.
+
+## 6. Design sources
 
 - **Tangerine theme** — generated from the tweakcn editor
   (https://tweakcn.com), vendored as `design/tangerine/tangerine.json` and
@@ -86,7 +110,7 @@ First-party skills written for this repo (rebuild-local-test-app) are ours.
   or internal research records (lazyweb citations live with each lane's
   `design/qa-*` evidence).
 
-## 6. Keeping this honest
+## 7. Keeping this honest
 
 Regenerate the inventories whenever dependencies move:
 

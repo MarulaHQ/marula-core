@@ -20,7 +20,7 @@ and the [backup/restore runbook](backup-restore.md).
 | realtime (WS hub) | 8081 | |
 | worker | 8082 | health port |
 | web console | 3000 | `NEXT_PUBLIC_API_URL` baked at build |
-| MinIO (stage2 profile) | 9000 / 9001 | object storage + console |
+| Garage (stage2 profile) | 3900-3903 | S3-compatible object storage (S3 API 3900, admin 3903) |
 | Mailpit (stage2 profile) | 1025 / 8025 | SMTP sink + web UI |
 | otel-collector (observability profile) | 4317 / 4318 / 18899 | OTLP gRPC/HTTP + Prometheus exposition |
 | Tempo (observability profile) | 3200 | traces |
@@ -47,9 +47,9 @@ test app additionally seeds the demo org the tutorials use
 ## Profiles
 
 - **Default:** everything above without the stage-2 slots.
-- **`--profile stage2`** adds object storage (MinIO) and the Mailpit email
+- **`--profile stage2`** adds object storage (Garage) and the Mailpit email
   sink. Default object storage is the local-fs none mode, so plain `up`
-  needs no MinIO; flip `OBJECT_STORE=s3` when you enable the profile.
+  needs no Garage; flip `OBJECT_STORE=s3` when you enable the profile.
 - **`--profile observability`** adds the OTel collector, Tempo, Loki,
   Grafana. Telemetry export is disabled by default: it activates only when
   `OTEL_EXPORTER_OTLP_ENDPOINT` is set (e.g. `http://otel-collector:4318`)

@@ -7,7 +7,7 @@
 ## Stage 0 — Scaffold
 
 **Status:** ~95% complete. Infra + backend services fully up; `apps/web`
-shipped and merged. Remaining: MinIO + Mailpit are declared compose slots
+shipped and merged. Remaining: Garage + Mailpit are declared compose slots
 (`--profile stage2`) but unexercised until their Stage-2 consumers land.
 
 ### What shipped

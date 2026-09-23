@@ -1,0 +1,16 @@
+FROM postgres:18-alpine
+
+# The backup runner: pg_dump (base image), restic (apk), optional WAL-G
+# (build-arg installs a pinned release from go-wal-g/wal-g releases).
+RUN apk add --no-cache restic bash
+ARG WALG_TAG=v1.1.2-DEB-dropdownlfs
+ARG INSTALL_WAL_G=0
+RUN if [ "$INSTALL_WAL_G" = "1" ]; then \
+      apk add --no-cache curl tar && \
+      curl -fsSL "https://github.com/wal-g/wal-g/releases/download/${WALG_TAG}/wal-g-pg-ubuntu-20.04-amd64.tar.gz" \
+        | tar -xz -C /usr/local/bin wal-g-pg-ubuntu-20.04-amd64 && \
+      mv /usr/local/bin/wal-g-pg-ubuntu-20.04-amd64 /usr/local/bin/wal-g && \
+      apk del curl tar; \
+    fi
+WORKDIR /opt/backup
+CMD ["/bin/sh", "/opt/backup/backupd.sh"]

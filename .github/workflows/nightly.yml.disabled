@@ -28,8 +28,8 @@ jobs:
     runs-on: ubuntu-latest
         services:
       postgres:
-        # pgvector/pgvector:pg17 — prod parity with the perf fixtures.
-        image: pgvector/pgvector:pg17
+        # pgvector/pgvector:pg18 — prod parity with the perf fixtures.
+        image: pgvector/pgvector:pg18
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: meridian_perf
@@ -38,7 +38,7 @@ jobs:
           --health-cmd "pg_isready -U postgres"
           --health-interval 10s --health-timeout 5s --health-retries 5
       redis:
-        image: redis:7
+        image: valkey/valkey:8
         ports: ["6379:6379"]
     env:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/meridian_perf
@@ -99,7 +99,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: pgvector/pgvector:pg17
+        image: pgvector/pgvector:pg18
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: meridian_perf
@@ -108,7 +108,7 @@ jobs:
           --health-cmd "pg_isready -U postgres"
           --health-interval 10s --health-timeout 5s --health-retries 5
       redis:
-        image: redis:7
+        image: valkey/valkey:8
         ports: ["6379:6379"]
     env:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/meridian_perf
