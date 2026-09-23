@@ -65,6 +65,7 @@ pub mod custom_fields;
 pub mod decision_config;
 pub mod decision_edge;
 pub mod decision_suggestions;
+pub mod dedupe;
 pub mod dev;
 pub mod dispatch;
 pub mod dispatch_connector;
@@ -72,6 +73,7 @@ pub mod document_attachments;
 pub mod documents;
 pub mod edge;
 pub mod email_admin;
+pub mod entity_dedupe;
 pub mod events;
 pub mod export;
 pub mod fx;
@@ -200,7 +202,8 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/internal/alerts/decision-ack",
             post(internal::alert_decision_ack),
-        );
+        )
+        .route("/internal/dedupe/run", post(dedupe::internal_run));
 
     let docs = openapi::scalar_router();
 
@@ -1715,6 +1718,8 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // feed write path), interfaces, curation, and the audited/undoable
         // merge queue; module owns its own router.
         .merge(config_items::routes(gen))
+        .merge(entity_dedupe::routes(gen))
+        .merge(dedupe::routes(gen))
         .merge(workflow_overrides::routes(gen))
         // dispatch connector (TASKLIST Phase 3, Wave 9 lane 9): scoped
         // machine surface — schedule reads + field-service status pushes;

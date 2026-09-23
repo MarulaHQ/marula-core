@@ -59,6 +59,23 @@ pub struct Contact {
     pub title: Option<String>,
     pub is_primary: bool,
     pub created_at: DateTime<Utc>,
+    /// CI5 tiers generalized to contacts (ADR 0003 extension): observed
+    /// feed-written fields, human-curated sticky fields, per-field source
+    /// provenance. Empty maps for pre-0101 rows.
+    #[cfg_attr(feature = "openapi", schema(value_type = serde_json::Value))]
+    #[serde(default)]
+    pub observed_fields: serde_json::Value,
+    #[cfg_attr(feature = "openapi", schema(value_type = serde_json::Value))]
+    #[serde(default)]
+    pub curated_fields: serde_json::Value,
+    #[cfg_attr(feature = "openapi", schema(value_type = serde_json::Value))]
+    #[serde(default)]
+    pub field_sources: serde_json::Value,
+    /// Merge tombstone: when set, this row was folded into the target and
+    /// only its audit row keeps it queryable.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    #[serde(default)]
+    pub merged_into_id: Option<ContactId>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

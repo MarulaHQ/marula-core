@@ -2296,6 +2296,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/clients/org-map": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/clients/org-map — the durable operator mapping (settings view). */
+        get: operations["clients_org_map_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/clients/org-reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/clients/org-reconcile — the connectors' org_map seam (public
+         *     API): report an unmapped vendor org; the durable map resolves it
+         *     instantly, otherwise deterministic label proposals queue reviewable
+         *     candidates. Never a guess, never a silent auto-map.
+         */
+        post: operations["clients_org_reconcile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/clients/{id}": {
         parameters: {
             query?: never;
@@ -2551,6 +2590,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/config-items/merge-candidates/batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/config-items/merge-candidates/batch — accept/reject/defer N
+         *     candidates in ONE call. Every ACCEPT is an audited, individually
+         *     undoable merge (per-candidate split substrate); a failed member never
+         *     aborts the batch (per-item outcome, never a silent partial).
+         */
+        post: operations["config_items_batch_candidates"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/config-items/merge-candidates/{id}/accept": {
         parameters: {
             query?: never;
@@ -2571,6 +2632,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/config-items/merge-candidates/{id}/defer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/config-items/merge-candidates/{id}/defer — park the candidate
+         *     out of the pending queue WITHOUT deciding it (reversible via restore;
+         *     a feed upsert refreshes evidence but never un-defers silently).
+         */
+        post: operations["config_items_defer_candidate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/config-items/merge-candidates/{id}/reject": {
         parameters: {
             query?: never;
@@ -2582,6 +2664,48 @@ export interface paths {
         put?: never;
         /** POST /api/config-items/merge-candidates/{id}/reject — keep both items. */
         post: operations["config_items_reject_candidate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config-items/merge-candidates/{id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/config-items/merge-candidates/{id}/restore — un-defer: a
+         *     parked candidate returns to the pending queue.
+         */
+        post: operations["config_items_restore_candidate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config-items/merge-candidates/{id}/workbench": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/config-items/merge-candidates/{id}/workbench — the guided
+         *     merge workbench's read model: side-by-side cards across ALL
+         *     ConfigSourceLinks, the field-by-field picker rows, the inline
+         *     deterministic + decision evidence, and the threshold context.
+         */
+        get: operations["config_items_candidate_workbench"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2827,6 +2951,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/contacts/feed-upsert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/contacts/feed-upsert — the contact ingest seam (the CI2
+         *     pattern generalized): never blind-inserts; email/phone identity keys
+         *     resolve the deterministic case; ambiguity queues reviewable candidates;
+         *     the same org auto-merge threshold applies.
+         */
+        post: operations["contacts_feed_upsert"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/contracts": {
         parameters: {
             query?: never;
@@ -3001,6 +3147,51 @@ export interface paths {
          *     nothing. Terminal.
          */
         post: operations["credit_notes_void"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dedupe/workflow": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/dedupe/workflow — the org's workflow + the honest gate state. */
+        get: operations["dedupe_get_workflow"];
+        /**
+         * PUT /api/dedupe/workflow — configure the intelligent dedupe workflow.
+         *     The gate is the ADR 0011 §3 posture: enabling requires the org's
+         *     decision model to be configured — the typed refusal is
+         *     `dedupe_decision_not_configured`, never a silent turn-on.
+         */
+        put: operations["dedupe_put_workflow"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dedupe/workflow/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/dedupe/workflow/run — the manual run (and the workbench's
+         *     "run intelligent dedupe" trigger). Report-first: every suggestion is
+         *     recorded suggestion-grade and visible in the workbench; in auto_merge
+         *     mode ONLY the at/above-threshold folds apply (audited, undoable).
+         */
+        post: operations["dedupe_run_workflow"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3595,6 +3786,151 @@ export interface paths {
         get: operations["documents_get_version"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entity-dedupe/candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/entity-dedupe/candidates — the client/contact review queue. */
+        get: operations["entity_dedupe_list_candidates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entity-dedupe/candidates/batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/entity-dedupe/candidates/batch — accept/reject/defer N. */
+        post: operations["entity_dedupe_batch_candidates"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entity-dedupe/candidates/{id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/entity-dedupe/candidates/{id}/accept — contact: audited +
+         *     undoable merge; client: writes the durable operator map.
+         */
+        post: operations["entity_dedupe_accept_candidate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entity-dedupe/candidates/{id}/defer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/entity-dedupe/candidates/{id}/defer — park without deciding. */
+        post: operations["entity_dedupe_defer_candidate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entity-dedupe/candidates/{id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/entity-dedupe/candidates/{id}/reject — keep both rows (or
+         *     keep the vendor org unmapped).
+         */
+        post: operations["entity_dedupe_reject_candidate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entity-dedupe/candidates/{id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/entity-dedupe/candidates/{id}/restore — un-defer. */
+        post: operations["entity_dedupe_restore_candidate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entity-dedupe/candidates/{id}/workbench": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/entity-dedupe/candidates/{id}/workbench — the client/contact
+         *     side of the guided merge workbench.
+         */
+        get: operations["entity_dedupe_candidate_workbench"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entity-dedupe/merges/{id}/split": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/entity-dedupe/merges/{id}/split — undo a contact merge (IF7). */
+        post: operations["entity_dedupe_split_merge"];
         delete?: never;
         options?: never;
         head?: never;
@@ -10620,6 +10956,27 @@ export interface components {
             /** Format: int32 */
             weekday: number;
         };
+        BatchCandidateOutcome: {
+            detail?: string | null;
+            /** Format: uuid */
+            id: string;
+            merge?: null | components["schemas"]["CiMerge"];
+            /** @description "applied" | "skipped" | "failed" */
+            outcome: string;
+        };
+        BatchCandidateRequest: {
+            /** @description accept | reject | defer */
+            action: string;
+            ids: string[];
+        };
+        BatchCandidateResponse: {
+            accepted: number;
+            deferred: number;
+            failed: number;
+            outcomes: components["schemas"]["BatchCandidateOutcome"][];
+            rejected: number;
+            skipped: number;
+        };
         BatchCreatedResponse: {
             /** Format: uuid */
             batch_id: string;
@@ -11592,10 +11949,12 @@ export interface components {
             reason?: string | null;
         };
         /**
-         * @description CI4: lifecycle of a reviewable merge candidate.
+         * @description CI4: lifecycle of a reviewable merge candidate. `deferred` parks a
+         *     candidate out of the pending queue without deciding it (the workbench's
+         *     batch defer; reversible — a feed upsert re-activates it via upsert).
          * @enum {string}
          */
-        CiMergeStatus: "pending" | "auto_merged" | "accepted" | "rejected";
+        CiMergeStatus: "pending" | "auto_merged" | "accepted" | "rejected" | "deferred";
         /**
          * @description CI6: a semantic class is the behavior-bearing identity of a CI type.
          *     Layouts (types) are org-configurable and renameable; the class is not.
@@ -11648,6 +12007,27 @@ export interface components {
          */
         ClientMutationResponse: components["schemas"]["Client"] & {
             mutation: components["schemas"]["MutationMeta"];
+        };
+        /**
+         * @description The durable operator mapping a reconciliation accept writes: one row
+         *     per (source system, vendor org id), pointing at one Meridian client.
+         */
+        ClientOrgMap: {
+            /** Format: uuid */
+            client_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            source_system: string;
+            /** Format: date-time */
+            updated_at: string;
+            vendor_label?: string | null;
+            vendor_org_id: string;
         };
         /**
          * @description The stored client row, as provenance on a resolved entry (who last set it
@@ -11913,17 +12293,53 @@ export interface components {
             client_id: string;
             /** Format: date-time */
             created_at: string;
+            curated_fields?: unknown;
             email?: string | null;
+            field_sources?: unknown;
             /** Format: uuid */
             id: string;
             is_primary: boolean;
+            /**
+             * Format: uuid
+             * @description Merge tombstone: when set, this row was folded into the target and
+             *     only its audit row keeps it queryable.
+             */
+            merged_into_id?: string | null;
             name: string;
+            /**
+             * @description CI5 tiers generalized to contacts (ADR 0003 extension): observed
+             *     feed-written fields, human-curated sticky fields, per-field source
+             *     provenance. Empty maps for pre-0101 rows.
+             */
+            observed_fields?: unknown;
             /** Format: uuid */
             org_id: string;
             phone?: string | null;
             /** Format: uuid */
             site_id?: string | null;
             title?: string | null;
+        };
+        ContactFeedUpsertRequest: components["schemas"]["MutationParams"] & {
+            /** Format: uuid */
+            client_id: string;
+            email?: string | null;
+            external_id: string;
+            name: string;
+            payload_ref?: string | null;
+            phone?: string | null;
+            source_guid?: string | null;
+            source_system: string;
+            title?: string | null;
+        };
+        ContactFeedUpsertResponse: {
+            auto_merged?: boolean;
+            contact: components["schemas"]["Contact"];
+            contradictions?: string[];
+            created_contact?: boolean;
+            mutation: components["schemas"]["MutationMeta"];
+            queued_candidates?: components["schemas"]["EntityMergeCandidate"][];
+            resolved_existing?: boolean;
+            source_link: components["schemas"]["EntitySourceLink"];
         };
         /**
          * @description A commercial agreement with one client. Money fields are integer minor
@@ -13266,6 +13682,119 @@ export interface components {
             visibility: string;
         };
         /**
+         * @description The entity family a dedupe record binds. Clients ride reconciliation
+         *     only (mapping decisions, not folds).
+         * @enum {string}
+         */
+        DedupeEntityKind: "contact" | "client";
+        /**
+         * @description What an automated pass DOES with its above-threshold suggestions.
+         * @enum {string}
+         */
+        DedupeRunMode: "report_only" | "auto_merge";
+        DedupeRunOutcome: {
+            /** Format: uuid */
+            candidate_id: string;
+            /**
+             * Format: double
+             * @description The recorded answer's probability/noul number, when one came back.
+             */
+            confidence?: number | null;
+            /** @description "auto_merged" | "suggested" | "below_threshold" | "quiet" */
+            disposition: string;
+            /** @description Human label pair ("A" ← "B") for the report body. */
+            label: string;
+            /** @description "config_items" | "contacts" | "clients" */
+            queue: string;
+        };
+        /**
+         * @description One pass's outcome — the run report (persisted on the workflow row and
+         *     delivered to the designated users as a `dedupe_report` notification).
+         */
+        DedupeRunReport: {
+            /** @description Suggestions whose answer sat at/above the workflow threshold. */
+            above_threshold: number;
+            asked: number;
+            auto_merged: number;
+            finished_at: string;
+            /** @description Per-candidate outcomes for the report/notification body. */
+            outcomes: components["schemas"]["DedupeRunOutcome"][];
+            queues_scanned: string[];
+            scanned: number;
+            started_at: string;
+            /**
+             * @description The asks the pass would have fired next run (the resource-efficiency
+             *     cap applies per run; a truncated pass is VISIBLE, never silent).
+             */
+            truncated: boolean;
+        };
+        DedupeRunRequest: {
+            /**
+             * @description Preview posture: fire the asks (suggestion-grade, recorded) but
+             *     stamp nothing, merge nothing, notify no one.
+             */
+            dry_run?: boolean;
+            entity_kinds?: string[] | null;
+        };
+        DedupeRunResponse: {
+            dry_run: boolean;
+            report: components["schemas"]["DedupeRunReport"];
+        };
+        /** @description One org's Jev dedupe workflow (the `dedupe_workflows` row). */
+        DedupeWorkflow: {
+            /**
+             * Format: double
+             * @description The workflow's own confidence dial: auto_merge folds only at/above
+             *     this; everything below stays queued for the workbench.
+             */
+            confidence_threshold: number;
+            /** Format: date-time */
+            created_at: string;
+            enabled: boolean;
+            entity_kinds: string[];
+            /**
+             * Format: int32
+             * @description Scheduled cadence; None = manual runs only (the workbench trigger).
+             */
+            interval_hours?: number | null;
+            last_result?: unknown;
+            /** Format: date-time */
+            last_run_at?: string | null;
+            mode: components["schemas"]["DedupeRunMode"];
+            /** Format: date-time */
+            next_run_at?: string | null;
+            notify_user_ids: string[];
+            /** Format: uuid */
+            org_id: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: uuid */
+            updated_by?: string | null;
+        };
+        DedupeWorkflowRequest: {
+            /** Format: double */
+            confidence_threshold: number;
+            enabled: boolean;
+            entity_kinds: string[];
+            /**
+             * Format: int32
+             * @description Scheduled cadence in hours (None = manual runs only).
+             */
+            interval_hours?: number | null;
+            /** @description report_only | auto_merge */
+            mode: string;
+            notify_user_ids: string[];
+        };
+        DedupeWorkflowView: {
+            /**
+             * @description The gate's honest state: whether the org's decision model is
+             *     configured right now (the workflow can be stored even when the
+             *     model later goes down — the RUN then degrades quiet, per ADR 0010).
+             */
+            decision_configured: boolean;
+            workflow: components["schemas"]["DedupeWorkflow"];
+        };
+        /**
          * @description Visibility scope of a stored definition: `org` (published org-wide,
          *     admins only) or `self` (private to the creator).
          * @enum {string}
@@ -13792,6 +14321,35 @@ export interface components {
             provider_id: string;
             provider_slug: string;
         };
+        EntityBatchOutcome: {
+            detail?: string | null;
+            /** Format: uuid */
+            id: string;
+            merge?: null | components["schemas"]["EntityMerge"];
+            /** @description "applied" | "skipped" | "failed" */
+            outcome: string;
+        };
+        EntityBatchRequest: {
+            /** @description accept | reject | defer */
+            action: string;
+            ids: string[];
+        };
+        EntityBatchResponse: {
+            accepted: number;
+            deferred: number;
+            failed: number;
+            outcomes: components["schemas"]["EntityBatchOutcome"][];
+            rejected: number;
+            skipped: number;
+        };
+        EntityCandidateView: components["schemas"]["EntityMergeCandidate"] & {
+            candidate_label?: string | null;
+            /**
+             * @description Human labels for the card: contact candidates carry both contact
+             *     names; client candidates carry the client name + vendor label.
+             */
+            primary_label: string;
+        };
         /**
          * @description Which entity family a batch targets. One batch = exactly one kind; the
          *     parent-before-child ordering across batches keeps foreign references
@@ -13801,6 +14359,130 @@ export interface components {
          * @enum {string}
          */
         EntityKind: "client" | "site" | "contact" | "board" | "ticket" | "time_entry" | "kb_category" | "kb_article";
+        /** @description An audited, undoable contact merge (the `ci_merges` split substrate). */
+        EntityMerge: {
+            /** Format: uuid */
+            candidate_id?: string | null;
+            /** Format: double */
+            confidence?: number | null;
+            entity_kind: components["schemas"]["DedupeEntityKind"];
+            evidence?: unknown;
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            merged_at: string;
+            /** Format: uuid */
+            merged_by?: string | null;
+            /** Format: uuid */
+            merged_entity_id: string;
+            moved?: unknown;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            primary_entity_id: string;
+            reason: string;
+            status: string;
+            /** Format: date-time */
+            undone_at?: string | null;
+            /** Format: uuid */
+            undone_by?: string | null;
+        };
+        /**
+         * @description A reviewable client/contact dedupe candidate (ADR 0003 visible
+         *     evidence). For contact candidates both ids are set; for client
+         *     reconciliation the candidate side is the VENDOR ORG
+         *     (`vendor_org_id`/`vendor_label`) and `candidate_entity_id` is NULL.
+         */
+        EntityMergeCandidate: {
+            /** Format: uuid */
+            candidate_entity_id?: string | null;
+            /** Format: double */
+            confidence: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            decided_at?: string | null;
+            /** Format: uuid */
+            decided_by?: string | null;
+            entity_kind: components["schemas"]["DedupeEntityKind"];
+            evidence?: unknown;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            primary_entity_id: string;
+            reason: string;
+            source_system?: string | null;
+            status: components["schemas"]["EntityMergeStatus"];
+            /** Format: date-time */
+            updated_at: string;
+            vendor_label?: string | null;
+            vendor_org_id?: string | null;
+        };
+        /**
+         * @description Candidate lifecycle — mirrors `CiMergeStatus` (same queue mechanics).
+         * @enum {string}
+         */
+        EntityMergeStatus: "pending" | "auto_merged" | "accepted" | "rejected" | "deferred";
+        /** @description A vendor record link for a contact (the CI2 link key generalized). */
+        EntitySourceLink: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            entity_id: string;
+            entity_kind: components["schemas"]["DedupeEntityKind"];
+            external_id: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            last_seen_at: string;
+            /** Format: uuid */
+            org_id: string;
+            payload_ref?: string | null;
+            source_guid?: string | null;
+            source_system: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        EntityWorkbenchDecision: {
+            answers: unknown;
+            mode: string;
+            model: string;
+            provider: string;
+            /** Format: date-time */
+            recorded_at: string;
+            surface: string;
+        };
+        EntityWorkbenchFieldRow: {
+            candidate_curated?: unknown;
+            candidate_observed?: unknown;
+            candidate_source?: unknown;
+            key: string;
+            primary_curated?: unknown;
+            primary_observed?: unknown;
+            primary_source?: unknown;
+        };
+        EntityWorkbenchSide: {
+            contact?: null | components["schemas"]["Contact"];
+            curated_fields: unknown;
+            field_sources: unknown;
+            observed_fields: unknown;
+            source_links: components["schemas"]["EntitySourceLink"][];
+        };
+        EntityWorkbenchView: {
+            /**
+             * Format: double
+             * @description The org's auto-merge threshold, surfaced inline (why was this
+             *     queued instead of auto-merged).
+             */
+            auto_merge_threshold: number;
+            candidate: components["schemas"]["EntityCandidateView"];
+            candidate_side: components["schemas"]["EntityWorkbenchSide"];
+            decision?: null | components["schemas"]["EntityWorkbenchDecision"];
+            fields: components["schemas"]["EntityWorkbenchFieldRow"][];
+            primary: components["schemas"]["EntityWorkbenchSide"];
+        };
         /** @description One escalation ladder step as stored (`sla_escalation_steps`). */
         EscalationStep: {
             /** Format: int64 */
@@ -14951,6 +15633,12 @@ export interface components {
              */
             semantic_class?: string | null;
         };
+        ListEntityCandidatesQuery: {
+            /** @description contact | client */
+            kind?: string | null;
+            /** @description pending | auto_merged | accepted | rejected | deferred */
+            status?: string | null;
+        };
         ListEntriesQuery: {
             /** Format: int64 */
             limit?: number;
@@ -15529,6 +16217,28 @@ export interface components {
             /** Format: uuid */
             survivor_id: string;
         };
+        MergeWorkbenchView: {
+            /**
+             * Format: double
+             * @description The org's auto-merge threshold — surfaced inline so the reviewer
+             *     sees WHY this row was queued instead of auto-merged.
+             */
+            auto_merge_threshold: number;
+            candidate: components["schemas"]["CandidateView"];
+            candidate_side: components["schemas"]["WorkbenchSide"];
+            decision?: null | components["schemas"]["WorkbenchDecision"];
+            /**
+             * @description The field-by-field picker's rows: the union of both sides'
+             *     observed/curated keys with per-side provenance.
+             */
+            fields: components["schemas"]["WorkbenchFieldRow"][];
+            primary: components["schemas"]["WorkbenchSide"];
+            /**
+             * @description The queued candidates this merge would ride along with (other
+             *     pending candidates sharing either side) so batch context is visible.
+             */
+            related_pending: components["schemas"]["CandidateView"][];
+        };
         MfaTokenRequest: {
             mfa_token: string;
         };
@@ -15704,7 +16414,7 @@ export interface components {
             user_id: string;
         };
         /** @enum {string} */
-        NotificationKind: "mention" | "assignment" | "sla_risk" | "sla_breach" | "escalation" | "missing_time" | "ticket_update" | "report_delivery" | "ai_cap_warn" | "secret_rotation";
+        NotificationKind: "mention" | "assignment" | "sla_risk" | "sla_breach" | "escalation" | "missing_time" | "ticket_update" | "report_delivery" | "ai_cap_warn" | "secret_rotation" | "dedupe_report";
         /** @description One page of the inbox plus the cursor to continue with. */
         NotificationPage: {
             items: components["schemas"]["Notification"][];
@@ -15780,6 +16490,17 @@ export interface components {
             name: string;
             slug: string;
             ticket_prefix: string;
+        };
+        OrgReconcileRequest: components["schemas"]["MutationParams"] & {
+            source_system: string;
+            vendor_label?: string | null;
+            vendor_org_id: string;
+        };
+        OrgReconcileResponse: {
+            /** @description Whether the vendor org was ALREADY mapped (idempotent no-op). */
+            already_mapped: boolean;
+            mutation: components["schemas"]["MutationMeta"];
+            queued_candidates: components["schemas"]["EntityCandidateView"][];
         };
         /**
          * @description Directory view of one staff user (route-level DTO; `org_role` is the
@@ -21106,6 +21827,40 @@ export interface components {
             /** @description `null` = unclassified entries. */
             work_type?: string | null;
         };
+        /**
+         * @description The suggestion-grade `decision_record_dedupe` judgment for this
+         *     candidate, read from the append-only decision store. `None` (and
+         *     therefore silent in the UI) whenever the decision model is
+         *     unconfigured — ADR 0010's degrade-quiet posture, never a 5xx.
+         */
+        WorkbenchDecision: {
+            answers: unknown;
+            mode: string;
+            model: string;
+            provider: string;
+            /** Format: date-time */
+            recorded_at: string;
+            surface: string;
+        };
+        WorkbenchFieldRow: {
+            candidate_curated?: unknown;
+            candidate_observed?: unknown;
+            candidate_source?: unknown;
+            key: string;
+            primary_curated?: unknown;
+            primary_observed?: unknown;
+            primary_source?: unknown;
+        };
+        /**
+         * @description One side of the workbench comparison: the item view plus its FULL tier
+         *     state (observed/curated/field_sources) and identity keys.
+         */
+        WorkbenchSide: components["schemas"]["ConfigItemView"] & {
+            curated_fields: unknown;
+            field_sources: unknown;
+            identity_keys: unknown;
+            observed_fields: unknown;
+        };
     };
     responses: never;
     parameters: never;
@@ -25310,6 +26065,55 @@ export interface operations {
             };
         };
     };
+    clients_org_map_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientOrgMap"][];
+                };
+            };
+        };
+    };
+    clients_org_reconcile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrgReconcileRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgReconcileResponse"];
+                };
+            };
+            /** @description idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     clients_get_one: {
         parameters: {
             query?: never;
@@ -25822,6 +26626,36 @@ export interface operations {
             };
         };
     };
+    config_items_batch_candidates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchCandidateRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchCandidateResponse"];
+                };
+            };
+            /** @description unknown batch action / empty id list */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     config_items_accept_candidate: {
         parameters: {
             query?: never;
@@ -25839,6 +26673,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CiMerge"];
+                };
+            };
+            /** @description candidate not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description candidate already decided */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    config_items_defer_candidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CiMergeCandidate"];
                 };
             };
             /** @description candidate not visible in scope */
@@ -25885,6 +26754,69 @@ export interface operations {
             };
             /** @description candidate already decided */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    config_items_restore_candidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CiMergeCandidate"];
+                };
+            };
+            /** @description candidate not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description candidate is not deferred */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    config_items_candidate_workbench: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MergeWorkbenchView"];
+                };
+            };
+            /** @description candidate not visible in scope */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -26360,6 +27292,36 @@ export interface operations {
             };
         };
     };
+    contacts_feed_upsert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContactFeedUpsertRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContactFeedUpsertResponse"];
+                };
+            };
+            /** @description idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     contracts_list: {
         parameters: {
             query?: {
@@ -26782,6 +27744,99 @@ export interface operations {
                 content?: never;
             };
             /** @description already void, has allocations, version conflict, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    dedupe_get_workflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DedupeWorkflowView"];
+                };
+            };
+            /** @description workflow not configured yet (typed unavailable state) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    dedupe_put_workflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DedupeWorkflowRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DedupeWorkflowView"];
+                };
+            };
+            /** @description dedupe_decision_not_configured — the decision model is not configured */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description threshold / schedule / entity kinds out of range */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    dedupe_run_workflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DedupeRunRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DedupeRunResponse"];
+                };
+            };
+            /** @description the workflow is disabled or its decision model is unconfigured */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -27962,6 +29017,263 @@ export interface operations {
             };
             /** @description document or version not visible in scope */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    entity_dedupe_list_candidates: {
+        parameters: {
+            query?: {
+                /** @description contact | client */
+                kind?: string | null;
+                /** @description pending | auto_merged | accepted | rejected | deferred */
+                status?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityCandidateView"][];
+                };
+            };
+        };
+    };
+    entity_dedupe_batch_candidates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntityBatchRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityBatchResponse"];
+                };
+            };
+            /** @description unknown batch action / empty id list */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    entity_dedupe_accept_candidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityMerge"];
+                };
+            };
+            /** @description candidate not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description candidate already decided */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    entity_dedupe_defer_candidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityMergeCandidate"];
+                };
+            };
+            /** @description candidate not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description candidate already decided */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    entity_dedupe_reject_candidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityMergeCandidate"];
+                };
+            };
+            /** @description candidate not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description candidate already decided */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    entity_dedupe_restore_candidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityMergeCandidate"];
+                };
+            };
+            /** @description candidate not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description candidate is not deferred */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    entity_dedupe_candidate_workbench: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityWorkbenchView"];
+                };
+            };
+            /** @description candidate not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    entity_dedupe_split_merge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityMerge"];
+                };
+            };
+            /** @description merge not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description merge already undone */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -40,6 +40,7 @@ pub mod document_layouts;
 pub mod document_links;
 pub mod documents;
 pub mod emails;
+pub mod entity_dedupe;
 pub mod export;
 pub mod federation;
 pub mod fx;

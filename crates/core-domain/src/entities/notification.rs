@@ -28,11 +28,16 @@ pub enum NotificationKind {
     /// Secret rotation reminder (Wave 19 lane 3): the worker sweep
     /// claimed a record's `rotate_at` slot (at-most-once per schedule).
     SecretRotation,
+    /// The Jev intelligent-dedupe workflow's run report (Wave 22 lane 2):
+    /// manual or scheduled passes over the merge queues report their
+    /// outcome (suggestions above threshold, auto-merges applied) to the
+    /// designated users.
+    DedupeReport,
 }
 
 impl NotificationKind {
     /// Every kind, stable order — drives preference screens and defaults.
-    pub const ALL: [NotificationKind; 10] = [
+    pub const ALL: [NotificationKind; 11] = [
         NotificationKind::Mention,
         NotificationKind::Assignment,
         NotificationKind::SlaRisk,
@@ -43,6 +48,7 @@ impl NotificationKind {
         NotificationKind::ReportDelivery,
         NotificationKind::AiCapWarn,
         NotificationKind::SecretRotation,
+        NotificationKind::DedupeReport,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -57,6 +63,7 @@ impl NotificationKind {
             NotificationKind::ReportDelivery => "report_delivery",
             NotificationKind::AiCapWarn => "ai_cap_warn",
             NotificationKind::SecretRotation => "secret_rotation",
+            NotificationKind::DedupeReport => "dedupe_report",
         }
     }
 }
@@ -75,6 +82,7 @@ impl std::str::FromStr for NotificationKind {
             "report_delivery" => Ok(NotificationKind::ReportDelivery),
             "ai_cap_warn" => Ok(NotificationKind::AiCapWarn),
             "secret_rotation" => Ok(NotificationKind::SecretRotation),
+            "dedupe_report" => Ok(NotificationKind::DedupeReport),
             other => Err(crate::DomainError::Validation(format!(
                 "invalid notification kind: {other}"
             ))),

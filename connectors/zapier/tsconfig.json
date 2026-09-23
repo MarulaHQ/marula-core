@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "ESNext",
+    // Bundler resolution matches @meridian/sdk's own tsconfig so the
+    // TypeScript-source package typechecks exactly as its authors ship it.
+    "moduleResolution": "bundler",
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    // In-repo resolution for the acceptance probe. Outside this repo the
+    // published `@meridian/sdk` package resolves normally — nothing here
+    // may import Meridian internals, only this specifier.
+    "paths": {
+      "@meridian/sdk": ["../../packages/sdk/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"]
+}

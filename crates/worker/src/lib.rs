@@ -25,6 +25,7 @@
 pub mod automations;
 pub mod config;
 pub mod decision;
+pub mod dedupe_sweep;
 pub mod delivery;
 pub mod effects;
 pub mod email;
@@ -253,6 +254,26 @@ pub async fn run(
             alive.store(false, Ordering::Relaxed);
             tracing::error!("rotation sweep exited; reporting unhealthy");
         });
+        // Jev intelligent-dedupe scheduled passes (Wave 22 lane 2): claims due
+        // `dedupe_workflows` orgs and dispatches the internal run seam (the
+        // runner itself is core-api's; this loop never touches domain tables).
+        {
+            let effects = std::sync::Arc::new(effects::ReqwestEffectApi::new(
+                config.internal_api_url.clone(),
+                config.internal_token.clone(),
+            ));
+            let dedupe_pool = pool.clone();
+            let dedupe_shutdown = shutdown.clone();
+            tokio::spawn(async move {
+                dedupe_sweep::run_dedupe_sweep(
+                    dedupe_pool,
+                    effects,
+                    config.eval_interval_secs,
+                    dedupe_shutdown,
+                )
+                .await;
+            });
+        }
     }
 
     // Signed-webhook delivery consumer: event stream → matched

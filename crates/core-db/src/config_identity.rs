@@ -540,6 +540,28 @@ pub async fn decide_candidate(
     Ok(r)
 }
 
+/// Re-opens a DEFERRED candidate (the workbench un-defer affordance).
+/// Decided rows stay decided — undo for accepts rides the merge's split.
+pub async fn restore_candidate(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    id: Uuid,
+) -> DbResult<CiMergeCandidate> {
+    let r = sqlx::query(&format!(
+        "UPDATE ci_merge_candidates
+         SET status = 'pending', decided_by = NULL, decided_at = NULL, updated_at = now()
+         WHERE org_id = $1 AND id = $2 AND status = 'deferred'
+         RETURNING {CANDIDATE_COLUMNS}"
+    ))
+    .bind(org_id)
+    .bind(id)
+    .fetch_optional(&mut *conn)
+    .await?
+    .map(row_to_candidate)
+    .ok_or(DbError::Conflict("candidate is not deferred".into()))?;
+    Ok(r)
+}
+
 // ---- CI4: merges (audit + undo substrate) ----------------------------------
 
 #[allow(clippy::too_many_arguments)]

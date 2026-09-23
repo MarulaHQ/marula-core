@@ -15,6 +15,7 @@ pub mod credit_note;
 pub mod docs_platform;
 pub mod documents;
 pub mod email;
+pub mod entity_dedupe;
 pub mod export;
 pub mod fx;
 pub mod invoice;

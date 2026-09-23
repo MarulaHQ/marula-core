@@ -187,6 +187,7 @@ pub async fn pack_installed(
 /// The mints-theme helper used at approval time: derives the pack row
 /// from the approved staged item's manifest (already validated by the
 /// plugin-host adapter).
+#[allow(clippy::too_many_arguments)]
 pub async fn install_from_staged(
     tx: &mut sqlx::PgConnection,
     org_id: Uuid,
@@ -238,8 +239,6 @@ pub async fn install_from_staged(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn conflict_message_names_the_active_pack() {
         // The delete guard is message-shaped contract: uninstalling the
