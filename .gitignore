@@ -71,3 +71,10 @@ skills-lock.json
 # website/scripts/sync-docs.mjs via docs/site/scripts/publish.mjs — the
 # markdown under docs/site stays the only source of truth, ADR 0009)
 website/public/docs/
+
+# Website public surface: generated at build time by
+# website/scripts/sync-public.mjs from root CHANGELOG.md + ROADMAP.md
+# (the two markdown files stay the only source of truth for /changelog +
+# /roadmap + the RSS feed; the JSON data mirrors them for the pages)
+website/content/*.json
+website/public/changelog.xml
