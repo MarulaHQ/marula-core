@@ -67,6 +67,7 @@ const GROUPS: NavGroup[] = [
       { href: "/settings/plugins", label: "Plugins" },
       { href: "/settings/agent-platform", label: "Agent platform" },
       { href: "/settings/ai", label: "AI & connectors" },
+      { href: "/settings/inventory", label: "Inventory & merge" },
     ],
   },
   {

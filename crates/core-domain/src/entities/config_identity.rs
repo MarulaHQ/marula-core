@@ -100,7 +100,9 @@ impl CiFieldTier {
     }
 }
 
-/// CI4: lifecycle of a reviewable merge candidate.
+/// CI4: lifecycle of a reviewable merge candidate. `deferred` parks a
+/// candidate out of the pending queue without deciding it (the workbench's
+/// batch defer; reversible — a feed upsert re-activates it via upsert).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
@@ -109,6 +111,7 @@ pub enum CiMergeStatus {
     AutoMerged,
     Accepted,
     Rejected,
+    Deferred,
 }
 
 impl CiMergeStatus {
@@ -118,6 +121,7 @@ impl CiMergeStatus {
             CiMergeStatus::AutoMerged => "auto_merged",
             CiMergeStatus::Accepted => "accepted",
             CiMergeStatus::Rejected => "rejected",
+            CiMergeStatus::Deferred => "deferred",
         }
     }
 
@@ -127,6 +131,7 @@ impl CiMergeStatus {
             "auto_merged" => CiMergeStatus::AutoMerged,
             "accepted" => CiMergeStatus::Accepted,
             "rejected" => CiMergeStatus::Rejected,
+            "deferred" => CiMergeStatus::Deferred,
             _ => return None,
         })
     }

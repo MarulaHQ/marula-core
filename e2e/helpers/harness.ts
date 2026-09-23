@@ -1,15 +1,16 @@
 // Authenticated session fixture (the "authed harness").
 //
-// The TokenPair is seeded into localStorage for every new page (the same
-// keys the app's AuthProvider reads), so tests skip the login round-trip.
-// The expiry hint is seeded the way the app's own refresh path writes it —
-// without it a full navigation triggers a proactive refresh race (see
-// scripts/lane7-verify.mjs).
+// Wave 19 lane 5 auth: the app keeps the TokenPair memory-only and rotates
+// via the httpOnly session cookie, so authentication is established by
+// logging the demo owner in through the browser context's request jar (the
+// Set-Cookie from /api/v1/auth/login lands in the page cookie store).
+// Theme keys are still seeded into localStorage (the pre-paint bootstrap
+// reads those).
 //
 // THEME MATRIX: the Playwright project name is the theme ("light" / "dark");
 // every test runs once per theme against the same seeded demo env.
-import { test as base, expect, type Page } from "@playwright/test";
-import { apiLogin, type TokenPair } from "./api";
+import { test as base, expect, type BrowserContext, type Page } from "@playwright/test";
+import { API_URL, DEMO_OWNER_EMAIL, DEMO_PASSWORD, apiLogin, type TokenPair } from "./api";
 
 export const TOKENS_KEY = "meridian-tokens";
 export const TOKENS_EXP_KEY = "meridian-tokens-exp";
@@ -47,11 +48,27 @@ export const test = base.extend<Fixtures>({
       viewport: { width: 1440, height: 900 },
     });
     const page = await ctx.newPage();
+    // Wave 19 lane 5 auth: the app keeps tokens memory-only and rotates via
+    // the httpOnly session cookie, so the browser context must OWN the
+    // session — log in through the context's request jar (shares the cookie
+    // store with pages) instead of seeding localStorage.
+    await loginContext(ctx);
     await seedAuth(page, ownerTokens, theme, preset);
     await use(page);
     await ctx.close();
   },
 });
+
+/** Log the demo owner in through the context's cookie jar (the Set-Cookie
+ * session cookie from the login response lands in the browser's cookie
+ * store, which the app's cookie-driven refresh rotation reads). */
+export async function loginContext(ctx: BrowserContext): Promise<TokenPair> {
+  const res = await ctx.request.post(`${API_URL}/api/v1/auth/login`, {
+    data: { email: DEMO_OWNER_EMAIL, password: DEMO_PASSWORD },
+  });
+  if (!res.ok()) throw new Error(`context login failed (${res.status()})`);
+  return (await res.json()) as TokenPair;
+}
 
 /** Seed the token pair + expiry hint + theme preset into a page's
  * localStorage (the project determines both). */

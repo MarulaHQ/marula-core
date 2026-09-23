@@ -310,7 +310,7 @@ use subtle::ConstantTimeEq;
 use uuid::Uuid;
 
 /// Constant-time bearer check against the configured internal token.
-fn require_internal_token(state: &AppState, headers: &HeaderMap) -> ApiResult<()> {
+pub(crate) fn require_internal_token(state: &AppState, headers: &HeaderMap) -> ApiResult<()> {
     let Some(expected) = state.config.internal_token.as_deref() else {
         // No token configured ⇒ surface disabled entirely.
         return Err(ApiError::NotFound);

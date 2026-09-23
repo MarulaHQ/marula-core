@@ -41,6 +41,7 @@ const STATUS_TONE: Record<CiMergeStatus, "neutral" | "success" | "warning" | "da
   auto_merged: "success",
   accepted: "success",
   rejected: "neutral",
+  deferred: "warning",
 };
 
 const ITEM_TONE: Record<string, "neutral" | "success" | "warning" | "danger"> = {
@@ -249,15 +250,22 @@ export default function InventoryPage(): ReactNode {
         </p>
       </header>
 
-      {/* ---- merge queue ---- */}
+      {/* ---- merge queue: the review surface moved to the workbench ---- */}
       <section className="grid gap-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-semibold" style={{ color: "var(--m-text)" }}>
             Merge queue
           </h2>
-          <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }} data-testid="merge-queue-count">
-            {pending.length} pending
-          </span>
+          <Link
+            href="/inventory/workbench"
+            className="rounded-full border px-3 py-1 text-[12px]"
+            style={{ borderColor: "var(--m-accent)", color: "var(--m-text)" }}
+            data-testid="open-workbench"
+          >
+            {pending.length > 0
+              ? `Open merge workbench (${pending.length} pending)`
+              : "Open merge workbench"}
+          </Link>
         </div>
         {actionError !== null && (
           <p className="text-xs" style={{ color: "var(--m-status-danger-fg)" }} role="alert" data-testid="merge-action-error">
@@ -270,8 +278,14 @@ export default function InventoryPage(): ReactNode {
           <EmptyState message="No pending merge candidates — the identity matcher found nothing ambiguous." />
         ) : (
           <div className="grid gap-2">
-            {pending.map((c) => (
-              <Card key={c.id} className="grid gap-2 p-4" data-testid={`merge-candidate-${c.id}`}>
+            {pending.slice(0, 3).map((c) => (
+              <Link
+                key={c.id}
+                href="/inventory/workbench"
+                data-testid={`merge-candidate-${c.id}`}
+                className="rounded-lg border p-3"
+                style={{ borderColor: "var(--m-border)" }}
+              >
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-sm font-medium">{c.primary_tag}</span>
                   <span style={{ color: "var(--m-text-muted)" }}>←</span>
@@ -279,32 +293,17 @@ export default function InventoryPage(): ReactNode {
                   <StatusTag tone={c.confidence >= 0.9 ? "success" : "warning"}>
                     {`${Math.round(c.confidence * 100)}% confidence`}
                   </StatusTag>
-                  <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+                  <span className="truncate text-[11px]" style={{ color: "var(--m-text-muted)" }}>
                     {c.reason}
                   </span>
                 </div>
-                <ul className="grid gap-0.5 text-[11px]" style={{ color: "var(--m-text-secondary)" }}>
-                  {evidenceSignals(c.evidence).map((sig, i) => (
-                    <li key={i} data-testid={`merge-evidence-${c.id}-${i}`}>
-                      {signalText(sig)}
-                    </li>
-                  ))}
-                  {evidenceSignals(c.evidence).length === 0 && (
-                    <li style={{ color: "var(--m-text-muted)" }}>
-                      Evidence detail not available for this candidate.
-                    </li>
-                  )}
-                </ul>
-                <div className="flex flex-wrap gap-2">
-                  <Button size="sm" disabled={busyId === c.id} onClick={() => void decide(c, true)} data-testid={`merge-accept-${c.id}`}>
-                    Accept merge
-                  </Button>
-                  <Button size="sm" variant="secondary" disabled={busyId === c.id} onClick={() => void decide(c, false)} data-testid={`merge-reject-${c.id}`}>
-                    Keep separate
-                  </Button>
-                </div>
-              </Card>
+              </Link>
             ))}
+            {pending.length > 3 && (
+              <p className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+                {`${pending.length - 3} more in the workbench…`}
+              </p>
+            )}
           </div>
         )}
       </section>

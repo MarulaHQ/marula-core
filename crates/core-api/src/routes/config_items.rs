@@ -1149,6 +1149,456 @@ pub async fn reject_candidate(
     Ok(Json(candidate))
 }
 
+// ---- merge workbench (Wave 22 lane 2, ADR 0003 extension) -------------------
+
+/// One side of the workbench comparison: the item view plus its FULL tier
+/// state (observed/curated/field_sources) and identity keys.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct WorkbenchSide {
+    #[serde(flatten)]
+    pub item: ConfigItemView,
+    pub observed_fields: Value,
+    pub curated_fields: Value,
+    pub field_sources: Value,
+    pub identity_keys: Value,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct WorkbenchFieldRow {
+    pub key: String,
+    pub primary_observed: Option<Value>,
+    pub primary_curated: Option<Value>,
+    pub primary_source: Option<Value>,
+    pub candidate_observed: Option<Value>,
+    pub candidate_curated: Option<Value>,
+    pub candidate_source: Option<Value>,
+}
+
+/// The suggestion-grade `decision_record_dedupe` judgment for this
+/// candidate, read from the append-only decision store. `None` (and
+/// therefore silent in the UI) whenever the decision model is
+/// unconfigured — ADR 0010's degrade-quiet posture, never a 5xx.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct WorkbenchDecision {
+    pub surface: String,
+    pub mode: String,
+    pub provider: String,
+    pub model: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = String))]
+    pub recorded_at: chrono::DateTime<chrono::Utc>,
+    pub answers: Value,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct MergeWorkbenchView {
+    pub candidate: CandidateView,
+    pub primary: WorkbenchSide,
+    pub candidate_side: WorkbenchSide,
+    /// The field-by-field picker's rows: the union of both sides'
+    /// observed/curated keys with per-side provenance.
+    pub fields: Vec<WorkbenchFieldRow>,
+    /// The queued candidates this merge would ride along with (other
+    /// pending candidates sharing either side) so batch context is visible.
+    pub related_pending: Vec<CandidateView>,
+    /// The org's auto-merge threshold — surfaced inline so the reviewer
+    /// sees WHY this row was queued instead of auto-merged.
+    pub auto_merge_threshold: f64,
+    pub decision: Option<WorkbenchDecision>,
+}
+
+/// GET /api/config-items/merge-candidates/{id}/workbench — the guided
+/// merge workbench's read model: side-by-side cards across ALL
+/// ConfigSourceLinks, the field-by-field picker rows, the inline
+/// deterministic + decision evidence, and the threshold context.
+#[utoipa::path(operation_id = "config_items_candidate_workbench", get, path = "/api/config-items/merge-candidates/{id}/workbench", tag = "config-items", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    responses((status = 200, body = MergeWorkbenchView),
+              (status = 404, description = "candidate not visible in scope")))]
+pub async fn candidate_workbench(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<MergeWorkbenchView>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, ci(Action::View))?;
+    let org_id = authed.principal.user.org_id;
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+
+    let candidate = core_db::config_identity::get_candidate(&mut tx, org_id, id).await?;
+    let primary = load_view(&mut tx, org_id, candidate.primary_config_item_id).await?;
+    let candidate_side = load_view(&mut tx, org_id, candidate.candidate_config_item_id).await?;
+
+    // The field-by-field picker rows: union of both sides' tier keys.
+    let mut keys: Vec<String> = Vec::new();
+    let mut push_keys = |v: &Value| {
+        if let Some(obj) = v.as_object() {
+            for k in obj.keys() {
+                if !keys.contains(k) {
+                    keys.push(k.clone());
+                }
+            }
+        }
+    };
+    for side in [&primary.item, &candidate_side.item] {
+        push_keys(&side.observed_fields);
+        push_keys(&side.curated_fields);
+    }
+    let mut fields = Vec::with_capacity(keys.len());
+    for key in keys {
+        fields.push(WorkbenchFieldRow {
+            key: key.clone(),
+            primary_observed: primary.item.observed_fields.get(&key).cloned(),
+            primary_curated: primary.item.curated_fields.get(&key).cloned(),
+            primary_source: primary.item.field_sources.get(&key).cloned(),
+            candidate_observed: candidate_side.item.observed_fields.get(&key).cloned(),
+            candidate_curated: candidate_side.item.curated_fields.get(&key).cloned(),
+            candidate_source: candidate_side.item.field_sources.get(&key).cloned(),
+        });
+    }
+    fields.sort_by(|a, b| a.key.cmp(&b.key));
+
+    // Related pending candidates sharing either side (batch context).
+    let related = core_db::config_identity::list_candidates(&mut tx, org_id, Some("pending"))
+        .await?
+        .into_iter()
+        .filter(|c| {
+            c.id != candidate.id
+                && (c.primary_config_item_id == candidate.primary_config_item_id
+                    || c.candidate_config_item_id == candidate.primary_config_item_id
+                    || c.primary_config_item_id == candidate.candidate_config_item_id
+                    || c.candidate_config_item_id == candidate.candidate_config_item_id)
+        })
+        .collect::<Vec<_>>();
+    let mut related_pending = Vec::with_capacity(related.len());
+    for c in related {
+        let primary_tag = get_asset(&mut *tx, org_id, c.primary_config_item_id)
+            .await
+            .map(|a| a.tag)
+            .unwrap_or_default();
+        let candidate_tag = get_asset(&mut *tx, org_id, c.candidate_config_item_id)
+            .await
+            .map(|a| a.tag)
+            .unwrap_or_default();
+        related_pending.push(CandidateView {
+            candidate: c,
+            primary_tag,
+            candidate_tag,
+        });
+    }
+
+    // The decision_record_dedupe suggestion (suggestion-grade, silent when
+    // unconfigured — ADR 0010 posture).
+    let decision = core_db::decision::latest_answers_for_entity(
+        &mut *tx,
+        org_id,
+        "decision_record_dedupe",
+        "ci_merge_candidate",
+        id,
+    )
+    .await?
+    .map(|row| WorkbenchDecision {
+        surface: row.surface,
+        mode: row.mode,
+        provider: row.provider,
+        model: row.model,
+        recorded_at: row.created_at,
+        answers: row.answers,
+    });
+
+    let threshold = core_db::config_identity::auto_merge_threshold(&mut tx, org_id).await?;
+    let candidate_view = {
+        let primary_tag = primary.item.tag.clone();
+        let candidate_tag = candidate_side.item.tag.clone();
+        CandidateView {
+            candidate,
+            primary_tag,
+            candidate_tag,
+        }
+    };
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(MergeWorkbenchView {
+        candidate: candidate_view,
+        primary: side_card(primary),
+        candidate_side: side_card(candidate_side),
+        fields,
+        related_pending,
+        auto_merge_threshold: threshold,
+        decision,
+    }))
+}
+
+fn side_card(view: ConfigItemView) -> WorkbenchSide {
+    WorkbenchSide {
+        observed_fields: view.item.observed_fields.clone(),
+        curated_fields: view.item.curated_fields.clone(),
+        field_sources: view.item.field_sources.clone(),
+        identity_keys: view.item.identity_keys.clone(),
+        item: view,
+    }
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct BatchCandidateRequest {
+    pub ids: Vec<Uuid>,
+    /// accept | reject | defer
+    pub action: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct BatchCandidateOutcome {
+    pub id: Uuid,
+    /// "applied" | "skipped" | "failed"
+    pub outcome: String,
+    /// The per-candidate audit row for accepts (each merge is individually
+    /// undoable via its split endpoint).
+    pub merge: Option<CiMerge>,
+    pub detail: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct BatchCandidateResponse {
+    pub accepted: usize,
+    pub rejected: usize,
+    pub deferred: usize,
+    pub skipped: usize,
+    pub failed: usize,
+    pub outcomes: Vec<BatchCandidateOutcome>,
+}
+
+/// POST /api/config-items/merge-candidates/batch — accept/reject/defer N
+/// candidates in ONE call. Every ACCEPT is an audited, individually
+/// undoable merge (per-candidate split substrate); a failed member never
+/// aborts the batch (per-item outcome, never a silent partial).
+#[utoipa::path(operation_id = "config_items_batch_candidates", post, path = "/api/config-items/merge-candidates/batch", tag = "config-items", security(("bearer" = [])),
+    request_body = BatchCandidateRequest,
+    responses((status = 200, body = BatchCandidateResponse),
+              (status = 422, description = "unknown batch action / empty id list")))]
+pub async fn batch_candidates(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Json(req): Json<BatchCandidateRequest>,
+) -> ApiResult<Json<BatchCandidateResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, ci(Action::Edit))?;
+    if req.ids.is_empty() {
+        return Err(ApiError::Validation("ids must not be empty".into()));
+    }
+    let action = req.action.trim().to_ascii_lowercase();
+    if !matches!(action.as_str(), "accept" | "reject" | "defer") {
+        return Err(ApiError::Validation(
+            "action must be one of accept | reject | defer".into(),
+        ));
+    }
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+
+    let action_kind = action.clone();
+    let mut outcomes = Vec::with_capacity(req.ids.len());
+    for id in &req.ids {
+        let action = action_kind.clone();
+        let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+            let candidate = core_db::config_identity::get_candidate(&mut ctx.tx, org_id, *id)
+                .await
+                .map_err(|e| instant::mutation_scope_err(e.into()))?;
+            if candidate.status != CiMergeStatus::Pending {
+                return Ok((
+                    ctx,
+                    BatchCandidateOutcome {
+                        id: *id,
+                        outcome: "skipped".into(),
+                        merge: None,
+                        detail: Some(format!("candidate is {}", candidate.status.as_str())),
+                    },
+                ));
+            }
+            match action.as_str() {
+                "accept" => {
+                    let merge = core_db::config_identity::merge_items(
+                        &mut ctx.tx,
+                        org_id,
+                        candidate.primary_config_item_id,
+                        candidate.candidate_config_item_id,
+                        Some(candidate.id),
+                        Some(candidate.confidence),
+                        &candidate.reason,
+                        &candidate.evidence,
+                        Some(user_id),
+                    )
+                    .await?;
+                    core_db::config_identity::decide_candidate(
+                        &mut ctx.tx,
+                        org_id,
+                        candidate.id,
+                        CiMergeStatus::Accepted.as_str(),
+                        user_id,
+                    )
+                    .await?;
+                    ctx.emit(
+                        types::CONFIG_ITEM_MERGED,
+                        "config_item",
+                        Some(candidate.primary_config_item_id.to_string().as_str()),
+                        &serde_json::to_value(core_domain::events::ConfigItemMerged {
+                            primary_config_item_id: candidate.primary_config_item_id,
+                            merged_config_item_id: candidate.candidate_config_item_id,
+                            org_id,
+                            candidate_id: Some(candidate.id),
+                            confidence: Some(candidate.confidence),
+                            reason: candidate.reason.clone(),
+                            auto: false,
+                            merged_by: Some(user_id),
+                            occurred_at: chrono::Utc::now(),
+                        })
+                        .unwrap_or_default(),
+                    )
+                    .await?;
+                    Ok((
+                        ctx,
+                        BatchCandidateOutcome {
+                            id: *id,
+                            outcome: "applied".into(),
+                            merge: Some(merge),
+                            detail: None,
+                        },
+                    ))
+                }
+                "reject" => {
+                    core_db::config_identity::decide_candidate(
+                        &mut ctx.tx,
+                        org_id,
+                        *id,
+                        CiMergeStatus::Rejected.as_str(),
+                        user_id,
+                    )
+                    .await?;
+                    Ok((
+                        ctx,
+                        BatchCandidateOutcome {
+                            id: *id,
+                            outcome: "applied".into(),
+                            merge: None,
+                            detail: None,
+                        },
+                    ))
+                }
+                _ => {
+                    core_db::config_identity::decide_candidate(
+                        &mut ctx.tx,
+                        org_id,
+                        *id,
+                        CiMergeStatus::Deferred.as_str(),
+                        user_id,
+                    )
+                    .await?;
+                    Ok((
+                        ctx,
+                        BatchCandidateOutcome {
+                            id: *id,
+                            outcome: "applied".into(),
+                            merge: None,
+                            detail: None,
+                        },
+                    ))
+                }
+            }
+        })
+        .await;
+        match outcome {
+            Ok(o) => outcomes.push(o),
+            Err(e) => outcomes.push(BatchCandidateOutcome {
+                id: *id,
+                outcome: "failed".into(),
+                merge: None,
+                detail: Some(e.to_string()),
+            }),
+        }
+    }
+
+    let mut resp = BatchCandidateResponse {
+        accepted: 0,
+        rejected: 0,
+        deferred: 0,
+        skipped: 0,
+        failed: 0,
+        outcomes,
+    };
+    for o in &resp.outcomes {
+        match (action_kind.as_str(), o.outcome.as_str()) {
+            (_, "applied") if action_kind == "accept" => resp.accepted += 1,
+            (_, "applied") if action_kind == "reject" => resp.rejected += 1,
+            (_, "applied") => resp.deferred += 1,
+            (_, "skipped") => resp.skipped += 1,
+            _ => resp.failed += 1,
+        }
+    }
+    Ok(Json(resp))
+}
+
+/// POST /api/config-items/merge-candidates/{id}/defer — park the candidate
+/// out of the pending queue WITHOUT deciding it (reversible via restore;
+/// a feed upsert refreshes evidence but never un-defers silently).
+#[utoipa::path(operation_id = "config_items_defer_candidate", post, path = "/api/config-items/merge-candidates/{id}/defer", tag = "config-items", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    responses((status = 200, body = CiMergeCandidate),
+              (status = 404, description = "candidate not visible in scope"),
+              (status = 409, description = "candidate already decided")))]
+pub async fn defer_candidate(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<CiMergeCandidate>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, ci(Action::Edit))?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+
+    let candidate = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        core_db::config_identity::get_candidate(&mut ctx.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        let candidate = core_db::config_identity::decide_candidate(
+            &mut ctx.tx,
+            org_id,
+            id,
+            CiMergeStatus::Deferred.as_str(),
+            user_id,
+        )
+        .await?;
+        Ok((ctx, candidate))
+    })
+    .await?;
+    Ok(Json(candidate))
+}
+
+/// POST /api/config-items/merge-candidates/{id}/restore — un-defer: a
+/// parked candidate returns to the pending queue.
+#[utoipa::path(operation_id = "config_items_restore_candidate", post, path = "/api/config-items/merge-candidates/{id}/restore", tag = "config-items", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    responses((status = 200, body = CiMergeCandidate),
+              (status = 404, description = "candidate not visible in scope"),
+              (status = 409, description = "candidate is not deferred")))]
+pub async fn restore_candidate(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<CiMergeCandidate>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, ci(Action::Edit))?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+
+    let candidate = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        let candidate = core_db::config_identity::restore_candidate(&mut ctx.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        Ok((ctx, candidate))
+    })
+    .await?;
+    Ok(Json(candidate))
+}
+
 /// POST /api/config-items/{id}/interfaces — record a NIC (ADR 0003
 /// lifecycle rule: NICs are attributes, not their own CIs).
 #[utoipa::path(operation_id = "config_items_add_interface", post, path = "/api/config-items/{id}/interfaces", tag = "config-items", security(("bearer" = [])),
@@ -1352,6 +1802,22 @@ pub fn routes(gen: crate::routes::ApiGeneration) -> Router<AppState> {
         .route(
             &format!("{base}/config-items/merge-candidates/{{id}}/reject"),
             post(reject_candidate),
+        )
+        .route(
+            &format!("{base}/config-items/merge-candidates/{{id}}/defer"),
+            post(defer_candidate),
+        )
+        .route(
+            &format!("{base}/config-items/merge-candidates/{{id}}/restore"),
+            post(restore_candidate),
+        )
+        .route(
+            &format!("{base}/config-items/merge-candidates/{{id}}/workbench"),
+            get(candidate_workbench),
+        )
+        .route(
+            &format!("{base}/config-items/merge-candidates/batch"),
+            post(batch_candidates),
         )
         .route(
             &format!("{base}/config-items/merges/{{id}}/split"),
