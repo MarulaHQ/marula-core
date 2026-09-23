@@ -1,7 +1,23 @@
 // Flow 13 — Contextual help (Wave 26 lane 2): the ? help panel opens on
 // representative surfaces with route-keyed content, tours run once per
 // surface, suppression persists across reload, and the session cap holds.
+//
+// ORDER-INDEPENDENCE (p37-env-orchestration, see e2e/README.md): the tour
+// state (tours.disabled / tours.completed) is per-user persisted settings —
+// an earlier run (or the light project before the dark one) may carry real
+// suppression/completion rows. Every test that ASSERTS on tour behavior
+// resets that state at its start and restores what it armed at its end, so
+// the flow makes no assumption about pristine demo rows.
 import { expect, test } from "../helpers/harness";
+import { authedFetch } from "../helpers/api";
+
+/** Reset THIS account's tours state to the seeded defaults (auto tours
+ * may start again) via the public settings API. */
+async function resetTourState(token: string) {
+  const put = authedFetch(token);
+  await put("/settings/user", { method: "PUT", body: { key: "tours.disabled", value: false } });
+  await put("/settings/user", { method: "PUT", body: { key: "tours.completed", value: "" } });
+}
 
 test("help panel opens on a representative surface with route-keyed content", async ({
   authedPage,
@@ -29,7 +45,11 @@ test("help panel content changes with the surface (settings/fx)", async ({
 
 test("tour cap: one auto-started tour per session, then suppression", async ({
   authedPage,
+  ownerTokens,
 }) => {
+  // Order-independence: a prior run may have armed tours suppression or
+  // marked tours completed — clear both so an auto tour MAY start.
+  await resetTourState(ownerTokens.access_token);
   // Fresh session: the first auto tour (Today surface) may start.
   await authedPage.goto("/today");
   await expect(authedPage.getByTestId("top-bar")).toBeVisible({ timeout: 30_000 });
@@ -57,6 +77,7 @@ test("tour cap: one auto-started tour per session, then suppression", async ({
 
 test("tour suppression persists across reload via the user setting", async ({
   authedPage,
+  ownerTokens,
 }) => {
   await authedPage.goto("/settings/preferences");
   await expect(authedPage.getByTestId("top-bar")).toBeVisible({ timeout: 30_000 });
@@ -72,4 +93,7 @@ test("tour suppression persists across reload via the user setting", async ({
   await expect(authedPage.getByTestId("top-bar")).toBeVisible({ timeout: 30_000 });
   await authedPage.waitForTimeout(2_000);
   await expect(authedPage.getByTestId("tour-overlay")).toHaveCount(0);
+  // RESTORE: suppression was armed FOR this test — clear it so a later run
+  // (dark project, next suite) starts from the seeded default again.
+  await resetTourState(ownerTokens.access_token);
 });
