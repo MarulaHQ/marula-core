@@ -3,7 +3,16 @@
 # NEXT_PUBLIC_API_URL is inlined at build time; the standalone server does
 # not copy .next/static or public itself, so this script does.
 set -euo pipefail
+# The e2e stack script (scripts/e2e-stack.sh) writes the per-run env to
+# e2e/.e2e-stack.env; a bundle built afterward must inline THE SAME values
+# (NEXT_PUBLIC_API_URL / NEXT_PUBLIC_WS_PORT) or drift creeps back in.
+if [ -f e2e/.e2e-stack.env ]; then
+  echo "[e2e-build-web] sourcing e2e/.e2e-stack.env (stack run present)"
+  set -a; . e2e/.e2e-stack.env; set +a
+  export NEXT_PUBLIC_WS_PORT="${E2E_WS_PORT:-}"
+fi
 export NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-http://localhost:8080}"
+export NEXT_PUBLIC_WS_PORT="${NEXT_PUBLIC_WS_PORT:-8081}"
 
 pnpm --filter @meridian/ui build
 pnpm --filter @meridian/web build

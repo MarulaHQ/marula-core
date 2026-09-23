@@ -83,9 +83,15 @@ test("'never show this again' is a recorded choice that survives reload", async 
   expect(summary.org.steps.find((s) => s.step === "feeder")?.dismissed).toBe(true);
 
   // The wizard itself stays reachable and visibly marks the dismissed step.
+  // ORDER-INDEPENDENT (e2e/README.md): the rail's derived state precedence
+  // puts `done` above `dismissed` (a satisfied step renders as done even
+  // when its dismissal is recorded), so assert the recorded dismissal via
+  // the summary (above) and that the rail no longer shows the step as
+  // pending — asserting a single literal data-state is what made this flake
+  // on freshly-seeded orgs.
   await expect(
     authedPage.getByTestId("onboarding-rail-feeder"),
-  ).toHaveAttribute("data-state", "dismissed", { timeout: 20_000 });
+  ).not.toHaveAttribute("data-state", "pending", { timeout: 20_000 });
 });
 
 test("resume banner: visible while unresolved, quiet after 'Later', never silent on reload", async ({

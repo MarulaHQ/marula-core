@@ -11,11 +11,35 @@
 // Local run (compose stack up + demo seeded):
 //   pnpm exec playwright test --config=e2e/playwright.config.ts
 import { defineConfig, devices } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import * as path from "node:path";
 import { MAX_RETRIES } from "./helpers/budget";
 
-const API_URL = process.env.E2E_API_URL ?? "http://localhost:8080";
-const WEB_PORT = process.env.E2E_WEB_PORT ?? "3000";
-const WEB_URL = process.env.E2E_WEB_URL ?? `http://localhost:${WEB_PORT}`;
+// RUN-TIME env file written by scripts/e2e-stack.sh (p37-env-orchestration):
+// per-run API/web/WS ports + addresses. Loading it here kills the
+// NEXT_PUBLIC_API_URL / port drift between manual boots and Playwright's
+// webServer (report class 2): when the stack script produced the file, its
+// values win; otherwise the historical defaults apply.
+function loadStackEnv(): Record<string, string> {
+  // resolved relative to THIS file (e2e/), independent of process cwd
+  const dir = typeof __dirname !== "undefined" ? __dirname : process.cwd();
+  try {
+    const raw = readFileSync(path.join(dir, ".e2e-stack.env"), "utf8");
+    const out: Record<string, string> = {};
+    for (const line of raw.split("\n")) {
+      const m = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim());
+      if (m) out[m[1]] = m[2];
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+const STACK_ENV = loadStackEnv();
+
+const API_URL = STACK_ENV.E2E_API_URL ?? process.env.E2E_API_URL ?? "http://localhost:8080";
+const WEB_PORT = STACK_ENV.E2E_WEB_PORT ?? process.env.E2E_WEB_PORT ?? "3000";
+const WEB_URL = STACK_ENV.E2E_WEB_URL ?? process.env.E2E_WEB_URL ?? `http://localhost:${WEB_PORT}`;
 const CI = Boolean(process.env.CI);
 
 export default defineConfig({
