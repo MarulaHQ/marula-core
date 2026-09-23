@@ -466,7 +466,8 @@ use core_domain::events::{
     ScorecardSettingsUpdated, SecretFolderCreated, SecretFolderDeleted, SecretFolderForked,
     SecretFolderUpdated, SecretGrantDeleted, SecretGrantUpdated, SecretRecordCreated,
     SecretRecordDeleted, SecretRecordUpdated, SecretRevealed, SecretRotationDue,
-    SecretShareLinkClaimed, SecretShareLinkCreated, SiteCreated, SiteUpdated, TagCreated,
+    SecretShareLinkClaimed, SecretShareLinkCreated, SiteCreated, SiteUpdated, StockItemArchived,
+    StockItemCreated, StockItemUpdated, StockLevelLow, StockMovementRecorded, TagCreated,
     TagDeleted, TagUpdated, TemplateCreated, TemplateRemoved, TemplateUpdated, TicketAssigned,
     TicketBoardMoved, TicketChecklistUpdated, TicketCommentAdded, TicketCostLineAdded,
     TicketCostLineRemoved, TicketCreated, TicketExpenseRecorded, TicketExpenseRemoved,
@@ -2815,6 +2816,70 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             }
         ),
     },
+    // -- stock + consumables (Wave 32 lane 1, migration 0102) ---------------
+    PublishedEvent {
+        event_type: types::STOCK_ITEM_CREATED,
+        entity: "stock_item",
+        variant: "default",
+        shape: typed_shape!(
+            StockItemCreated,
+            StockItemCreated {
+                item: sample_stock_item(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::STOCK_ITEM_UPDATED,
+        entity: "stock_item",
+        variant: "default",
+        shape: typed_shape!(
+            StockItemUpdated,
+            StockItemUpdated {
+                item: sample_stock_item(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::STOCK_ITEM_ARCHIVED,
+        entity: "stock_item",
+        variant: "default",
+        shape: typed_shape!(
+            StockItemArchived,
+            StockItemArchived {
+                item_id: su(60),
+                name: "Cat6 patch cable box".into(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::STOCK_MOVEMENT_RECORDED,
+        entity: "stock_movement",
+        variant: "default",
+        shape: typed_shape!(
+            StockMovementRecorded,
+            StockMovementRecorded {
+                movement: sample_stock_movement(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::STOCK_LEVEL_LOW,
+        entity: "stock_level",
+        variant: "default",
+        shape: typed_shape!(
+            StockLevelLow,
+            StockLevelLow {
+                org_id: su(2),
+                stock_item_id: su(60),
+                stock_location_id: su(62),
+                qty_milli: 800,
+                reorder_point_milli: 1_000,
+                item_name: "Cat6 patch cable box".into(),
+                ticket_id: None,
+                occurred_at: st(3),
+            }
+        ),
+    },
     PublishedEvent {
         event_type: types::CLIENT_WORKFLOW_OVERRIDE_CLEARED,
         entity: "client",
@@ -4072,6 +4137,55 @@ fn sample_catalog_item() -> CatalogItem {
         created_by: Some(su(4)),
         created_at: st(1),
         updated_at: st(1),
+    }
+}
+
+/// Representative stock item for stock samples (Wave 32 lane 1).
+fn sample_stock_item() -> core_domain::entities::StockItem {
+    use core_domain::entities::StockItem;
+    StockItem {
+        id: su(60),
+        org_id: su(2),
+        name: "Cat6 patch cable box".into(),
+        sku: Some("CAT6-BOX".into()),
+        catalog_item_id: None,
+        part_number: Some("C6-BOX-025".into()),
+        kind: "consumable".into(),
+        unit: "box".into(),
+        currency: "USD".into(),
+        last_unit_cost_minor: Some(12_000),
+        active: true,
+        created_by: Some(su(4)),
+        created_at: st(1),
+        updated_at: st(1),
+    }
+}
+
+/// Representative stock movement for stock samples (Wave 32 lane 1).
+fn sample_stock_movement() -> core_domain::entities::StockMovement {
+    use core_domain::entities::StockMovement;
+    StockMovement {
+        id: su(61),
+        org_id: su(2),
+        stock_item_id: su(60),
+        kind: "receive".into(),
+        from_location_id: None,
+        to_location_id: Some(su(62)),
+        qty_milli: 3_000,
+        cost_minor: Some(12_000),
+        currency: None,
+        fx_rate_used: None,
+        fx_rate_date: None,
+        fx_source: None,
+        base_cost_minor: None,
+        serial_id: None,
+        client_id: None,
+        ticket_id: None,
+        carrier: None,
+        tracking_ref: None,
+        note: None,
+        created_by: Some(su(4)),
+        created_at: st(3),
     }
 }
 

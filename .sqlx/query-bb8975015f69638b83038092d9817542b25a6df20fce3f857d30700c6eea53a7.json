@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE stock_locations\n             SET name = $3, kind = $4, code = $5, assigned_user_id = $6,\n                 active = $7, updated_at = now()\n           WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Uuid",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bb8975015f69638b83038092d9817542b25a6df20fce3f857d30700c6eea53a7"
+}

@@ -1,0 +1,48 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT i.id AS \"stock_item_id!\", i.name AS \"item_name!\", i.unit AS \"unit!\",\n                  COALESCE(out.qty_milli, 0) AS \"consumed_milli!\",\n                  CASE WHEN $3::int <= 0 THEN 0\n                       ELSE COALESCE(out.qty_milli, 0) / GREATEST($3::bigint, 1)::bigint END\n                     AS \"avg_daily_milli!: i64\"\n           FROM stock_items i\n           LEFT JOIN (\n             SELECT stock_item_id, SUM(-qty_milli)::bigint AS qty_milli\n             FROM stock_movements\n             WHERE org_id = $1 AND kind IN ('consume', 'ship_out')\n               AND created_at >= now() - make_interval(days => GREATEST($3::int, 1))\n             GROUP BY stock_item_id\n           ) out ON out.stock_item_id = i.id\n           WHERE i.org_id = $1\n           ORDER BY COALESCE(out.qty_milli, 0) DESC, i.name\n           LIMIT $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "stock_item_id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "item_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "unit!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "consumed_milli!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "avg_daily_milli!: i64",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "e8bdba147be6c605499497f51885cc3ad59578e30417da911a9d9c0a4ca91282"
+}

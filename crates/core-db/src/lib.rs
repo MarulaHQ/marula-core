@@ -84,6 +84,7 @@ pub mod secret_vault;
 pub mod settings;
 pub mod share_links;
 pub mod sla;
+pub mod stock;
 pub mod tags;
 pub mod taxonomy;
 pub mod templates;

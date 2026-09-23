@@ -1,0 +1,87 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO stock_serials (id, org_id, stock_item_id, serial_number,\n                                      location_id, status, created_by)\n           VALUES ($1, $2, $3, $4, $5, 'in_stock', $6)\n           ON CONFLICT (org_id, stock_item_id, lower(serial_number)) DO UPDATE\n             SET location_id = $5, status = 'in_stock', updated_at = now()\n           RETURNING id, org_id, stock_item_id, serial_number, location_id, status,\n                     ticket_id, client_id, created_by, created_at, updated_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "stock_item_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "serial_number",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "location_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "ticket_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 7,
+        "name": "client_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "4e39d9300546dac5c2b5ac02307c12fc92ad76d9b137963436ad8b51442c0efc"
+}

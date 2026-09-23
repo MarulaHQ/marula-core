@@ -1,0 +1,11 @@
+{
+  "event_type": "stock.item_archived",
+  "entity": "stock_item",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "item_id": "00000000-0000-0000-0000-00000000003c",
+    "name": "Cat6 patch cable box"
+  }
+}

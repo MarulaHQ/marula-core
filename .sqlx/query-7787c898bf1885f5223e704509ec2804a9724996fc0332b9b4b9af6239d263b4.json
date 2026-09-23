@@ -1,0 +1,145 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, org_id, stock_item_id, kind, from_location_id, to_location_id, qty_milli,\n                  cost_minor, currency, fx_rate_used, fx_rate_date, fx_source, base_cost_minor,\n                  serial_id, client_id, ticket_id, carrier, tracking_ref, note, created_by, created_at\n           FROM stock_movements\n           WHERE org_id = $1\n             AND ($2::uuid IS NULL OR stock_item_id = $2)\n             AND ($3::uuid IS NULL OR ticket_id = $3)\n           ORDER BY created_at DESC\n           LIMIT $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "stock_item_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "from_location_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "to_location_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 6,
+        "name": "qty_milli",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "cost_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "fx_rate_used",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "fx_rate_date",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 11,
+        "name": "fx_source",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "base_cost_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 13,
+        "name": "serial_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 14,
+        "name": "client_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 15,
+        "name": "ticket_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 16,
+        "name": "carrier",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 17,
+        "name": "tracking_ref",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 18,
+        "name": "note",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 19,
+        "name": "created_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 20,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "7787c898bf1885f5223e704509ec2804a9724996fc0332b9b4b9af6239d263b4"
+}

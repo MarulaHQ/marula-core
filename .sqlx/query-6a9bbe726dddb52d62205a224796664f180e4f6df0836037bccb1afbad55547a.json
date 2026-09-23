@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE stock_items SET last_unit_cost_minor = $3, updated_at = now()\n                WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6a9bbe726dddb52d62205a224796664f180e4f6df0836037bccb1afbad55547a"
+}

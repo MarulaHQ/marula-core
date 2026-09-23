@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE stock_levels SET low_stock_notified_at = NULL\n                WHERE org_id = $1 AND stock_item_id = $2 AND stock_location_id = $3\n                  AND qty_milli > reorder_point_milli",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8432558d8bc814b7a51302f6e01028b662f8c3af213b5895856b633aad4384d6"
+}
