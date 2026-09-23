@@ -16,8 +16,8 @@ is the truth.
 
 For the UI to be able to promise instant, the core provides:
 
-1. A typed `mutation` envelope on every mutation — sequence, version,
-   updated-at — so clients can reconcile deterministically.
+1. A typed `mutation` envelope on every mutation (sequence, version,
+   updated-at) so clients can reconcile deterministically.
 2. A typed error envelope (IF3) with machine-readable reason codes, so
    failure is as renderable as success.
 3. A transactional outbox emitting domain events once per mutation, with a

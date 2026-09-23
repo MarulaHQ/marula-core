@@ -25,7 +25,7 @@ paged (`?limit=&offset=`).
 ## Mutate through the instant-first envelope
 
 Every mutation returns the instant-first `mutation` envelope: a sequence
-number, version, and updated timestamp. Clients render optimistically and
+number plus a version and an updated timestamp. Clients render optimistically and
 reconcile against the authoritative response — never poll to "check if it
 worked".
 

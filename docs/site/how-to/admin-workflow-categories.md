@@ -27,7 +27,7 @@ workflow editor renders it:
 
 **Settings→Boards**: create boards, groups, members, checklist templates,
 with per-board group/default/Administer controls in the table. Note the
-copy's division of labor: "statuses, transitions, and custom fields stay
+copy's division of labor: "statuses, transitions and custom fields stay
 on Workflow" — board administration never touches behavior.
 
 ## 2. Edit the workflow per board
@@ -47,9 +47,7 @@ reorder arrows, delete. Two discipline rules:
 the category/subcategory tree (Add/Edit, Rename / Move / Retire, "Show
 retired" toggle). Its own banner says why this is safe:
 
-> "Classification only — SLA, workflow, automations and billing stay bound
-> to the four semantic status categories, so renaming or retiring a node
-> never changes behavior."
+> "Classification only — SLA, workflow, automations and billing stay bound to the four semantic status categories, so renaming or retiring a node never changes behavior."
 
 ## 4. Tags for org-wide AND-filters, boards for structure
 

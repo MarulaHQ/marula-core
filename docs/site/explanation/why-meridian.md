@@ -55,7 +55,7 @@
   first promise.
 - **The agent reads your docs** — the agent platform spec
   ([`docs/10-agent-platform.md`](../../10-agent-platform.md)) turns "you
-  ask" into skills, provenance, and safety invariants.
+  ask" into skills, provenance, safety invariants.
 - **Leave any day** — the [upgrade compatibility
   policy](upgrade-policy.md) and the [read model](../reference/read-model.md)
   are the mechanical form of ownership: your data, your views, your exit.

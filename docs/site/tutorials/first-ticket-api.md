@@ -64,7 +64,8 @@ curl -s -X POST localhost:8080/api/v1/tickets \
 ## 5. Work it
 
 In the web console, the ticket is one screen: notes, timer, conversation,
-and calendar live together. Start the timer, add a note, stop the timer.
+calendar live together in that one view. Start the timer, add a note, stop the
+timer.
 The rough notes become a proper time entry — no separate time-entry screen
 hunt.
 

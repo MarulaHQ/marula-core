@@ -19,10 +19,10 @@ Compatibility is a property of boundaries, not of the whole system. Exactly four
 
 | Surface | Contract | Stability rule |
 |---|---|---|
-| **REST + WebSocket API** | Path-versioned (`/api/v1`…); the generated OpenAPI spec (`utoipa`) is the contract, and `@meridian/sdk` is generated from a committed snapshot of it | A supported API version never breaks inside its support window; new versions are added alongside, never swapped in place |
-| **Domain events & webhooks** | Versioned envelope (`id`, `type`, `org_id`, `entity`, `occurred_at`, `payload_schema_ref`, `payload`) emitted once per mutation from the transactional outbox | Payload evolution is additive-only; consumers are required to tolerate unknown fields (documented contract); retired event types keep emitting alongside their replacements for one generation |
-| **Plugin API (PDK)** | Extism/WASM host functions; plugins declare their required `api_version` in the manifest | Host functions are add-only — new capability always means a new function, never a changed signature; the host supports PDK generations for one major cycle |
-| **Declared customizations** | Custom fields, board statuses (always bound to semantic categories), automations, webhook subscriptions, settings registry values | These are declarative rows, migrated as data under the same rules as §4; see §5 |
+| **REST + WebSocket API** | Path-versioned (`/api/v1`…). The generated OpenAPI spec (`utoipa`) is the contract, and `@meridian/sdk` is generated from a committed snapshot of it | A supported API version never breaks inside its support window. New versions are added alongside, never swapped in place |
+| **Domain events & webhooks** | Versioned envelope (`id`, `type`, `org_id`, `entity`, `occurred_at`, `payload_schema_ref`, `payload`) emitted once per mutation from the transactional outbox | Payload evolution is additive-only. Consumers are required to tolerate unknown fields (documented contract). Retired event types keep emitting alongside their replacements for one generation |
+| **Plugin API (PDK)** | Extism/WASM host functions. Plugins declare their required `api_version` in the manifest | Host functions are add-only — new capability always means a new function, never a changed signature. The host supports PDK generations for one major cycle |
+| **Declared customizations** | Custom fields, board statuses (always bound to semantic categories), automations, webhook subscriptions, settings registry values | These are declarative rows, migrated as data under the same rules as §4. See §5 |
 
 Plus the **documented read model**: a stable, versioned set of SQL views over operational data. This is the supported interface for direct SQL access and external reporting tools. It exists because "your database" is a promise — but the promise attaches to the views, not to the physical tables.
 
@@ -44,7 +44,7 @@ The migration chain (`crates/core-db/migrations`, SQLx) is forward-only and appe
 3. **Destructive steps are flagged and gated.** Any `DROP`/retype/truncate-class statement must carry the `--breaking` filename suffix (mechanically enforced by `scripts/check-migrations.sh`) and be documented with its data impact. Destructive migrations are only permitted during a major-release cycle, and only for constructs whose deprecation window (§3) has elapsed.
 4. **Expand, backfill, contract.** Within one major cycle: add the new shape → copy data in ordinary transactions → switch reads/writes → and only in the *next* major, drop the old shape. Compat views may bridge the gap where external readers exist (read model, §2).
 5. **Customization-aware.** A migration that touches any construct referenced by customization rows (custom field definitions, automation triggers/actions, webhook filters, settings keys) must carry the transform for those rows in the same transaction. CI cross-checks customization tables for references to anything a migration modifies (§8).
-6. **Release artifact.** Every release ships its accumulated migration bundle and the proven upgrade path (§1, commitment 2). Because the chain is linear, jumping N−2 → latest is running the intervening migrations; the engineering effort goes into making the *code-level* transition correct, which is what the CI matrix verifies.
+6. **Release artifact.** Every release ships its accumulated migration bundle and the proven upgrade path (§1, commitment 2). Because the chain is linear, jumping N−2 → latest is running the intervening migrations. The engineering effort goes into making the *code-level* transition correct, which is what the CI matrix verifies.
 
 ## 5. Customizations are data, not code
 
@@ -56,23 +56,23 @@ Everything an organization configures lives as declarative rows bound to stable 
 
 ## 6. Plugins & extensions
 
-- Plugins pin their PDK generation via `api_version` in the manifest. The host supports generations for one major cycle; a stale plugin gets an actionable diagnostic at load, not undefined behavior — the WASM boundary contains the failure.
-- Marketplace listings record the range of core versions each plugin was tested against. Staleness is made visible rather than impossible; third-party plugin behavior itself is outside this project's jurisdiction.
-- Connectors are ordinary web applications over the versioned API and signed webhooks; they inherit the API support window automatically.
+- Plugins pin their PDK generation via `api_version` in the manifest. The host supports generations for one major cycle. A stale plugin gets an actionable diagnostic at load, not undefined behavior — the WASM boundary contains the failure.
+- Marketplace listings record the range of core versions each plugin was tested against. Staleness is made visible rather than impossible. Third-party plugin behavior itself is outside this project's jurisdiction.
+- Connectors are ordinary web applications over the versioned API and signed webhooks. They inherit the API support window automatically.
 
 ## 7. Operators: what to expect at upgrade time
 
 1. Read the release notes section **"Breaking & deprecated"** (present in every release, even when empty).
 2. Optionally run the upgrade preflight (§5) against a backup.
 3. Apply migrations (automatic on container start or via `meridian-cli`).
-4. Supported jump distance: your version may be up to two releases behind; further jumps apply the same machinery sequentially.
+4. Supported jump distance: your version may be up to two releases behind. Further jumps apply the same machinery sequentially.
 
 ## 8. Enforcement
 
 Shipped and enforced today:
 
-- Migration safety lint: destructive statements rejected unless flagged `--breaking`; filename-shape check (`scripts/check-migrations.sh` in CI).
-- RLS coverage gate; fmt/clippy `-D warnings`; full test matrix; preview environment per PR.
+- Migration safety lint: destructive statements rejected unless flagged `--breaking`. Filename-shape check (`scripts/check-migrations.sh` in CI).
+- RLS coverage gate. Fmt/clippy `-D warnings`. Full test matrix. Preview environment per PR.
 
 Planned gates (tracked in `TASKLIST.md`):
 
@@ -82,10 +82,10 @@ Planned gates (tracked in `TASKLIST.md`):
 
 ## 9. Honest limits
 
-- No guarantee survives direct SQL against physical tables or imports of internal crates. The read model (§2) is the supported path; everything else is off-contract.
+- No guarantee survives direct SQL against physical tables or imports of internal crates. The read model (§2) is the supported path. Everything else is off-contract.
 - Very long upgrade chains accumulate cost. If sequential migration becomes impractical at some future major, a rebase path (export via the logical model, reload into a fresh install) will be provided — deliberately deferred until needed.
-- Third-party plugins and connectors are governed by their publishers; this policy bounds our surfaces and makes staleness visible, it cannot make third parties maintain their code.
+- Third-party plugins and connectors are governed by their publishers. This policy bounds our surfaces and makes staleness visible, it cannot make third parties maintain their code.
 
 ## 10. Adoption status
 
-This policy takes effect immediately for all new work; nothing in it invalidates existing migrations (the `--breaking` convention is already in use). Retrofit backlog — customization manifest export, upgrade preflight command, read-model views, deprecation metadata, N−2 CI matrix — is tracked in `TASKLIST.md` and targeted no later than public beta, when the first external upgrade population exists. Changes to this policy go through `docs/rfc/`.
+This policy takes effect immediately for all new work. Nothing in it invalidates existing migrations (the `--breaking` convention is already in use). A retrofit backlog (customization manifest export, upgrade preflight command, read-model views, deprecation metadata, N−2 CI matrix) is tracked in `TASKLIST.md` and targeted no later than public beta, when the first external upgrade population exists. Changes to this policy go through `docs/rfc/`.

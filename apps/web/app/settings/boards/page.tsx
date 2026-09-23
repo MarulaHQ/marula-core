@@ -596,7 +596,7 @@ export default function BoardAdminPage() {
       ) : null}
 
       <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-        Statuses, transitions, and custom fields stay on{" "}
+        Statuses, transitions and custom fields stay on{" "}
         <Link href="/settings/workflow" className="underline decoration-[var(--m-border)] underline-offset-2">
           Workflow
         </Link>

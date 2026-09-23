@@ -114,8 +114,8 @@ export function OnboardingWelcomeHero({
           Welcome! Pick your look
         </h2>
         <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-          Light or dark — plus any theme preset you like, and any extra themes your admin added.
-          Clicking previews instantly and saves to your account.
+          Light or dark, plus any theme preset you like and any pack your admin added. Clicking a
+          preview applies it right away and saves it to your account.
         </p>
       </div>
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4" data-testid="onboarding-welcome-modes">

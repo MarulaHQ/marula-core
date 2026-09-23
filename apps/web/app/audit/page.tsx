@@ -114,7 +114,7 @@ export default function AuditPage() {
       <header>
         <h1 className="text-lg font-semibold">Audit trail</h1>
         <p className="mt-1 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-          Append-only ledger of security, administrative, and domain lifecycle events.
+          Append-only ledger of security, administrative and domain lifecycle events for the org.
           Every row expands in place to its structured detail.
         </p>
       </header>

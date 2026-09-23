@@ -35,8 +35,7 @@ tools — connector link-state is discussed step 4.
 
 ## 3. From device to asset
 
-The **/devices** page is the full inventory view ("Every managed asset in
-the org. Open one for its detail, links, and vault"). Open a device and
+The **/devices** page is the full inventory view. Open a device and
 convert it to a managed asset: asset detail's Fields panel (name, status,
 site, type) is the owning surface, with Lifecycle panel (ownership,
 depreciation, purchase cost and currency, salvage, rental metadata).

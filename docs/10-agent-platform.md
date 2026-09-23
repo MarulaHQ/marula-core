@@ -14,21 +14,20 @@ HTTP connectors are the actual **extensions** consuming it.
 - The MCP server (`crates/mcp-server`) is a separately deployable adapter whose
   tool catalog derives mechanically from OpenAPI + the capability registry at
   build time. Zero hand-written tools, zero business logic.
-- Tool writes ride Stage 4–5; reads land with the MCP crate in Stage 3.
+- Tool writes ride Stage 4–5. Reads land with the MCP crate in Stage 3.
 
 ## 2. Typed settings registry (Tier 1 — lands Stages 1–2)
 
 Every user-visible setting is declared once in a typed registry
 (`key, kind, default, scope: org|user, visibility, validation`). UI renders
-settings pages FROM the registry; code reads settings THROUGH it. No ad-hoc
+settings pages FROM the registry. Code reads settings THROUGH it. No ad-hoc
 env/config reads for behavior a user can change. Ships with Meridian's own
 settings hub (org settings + user preferences pages).
 
 ## 3. Three-tier onboarding
 
 1. **Org wizard** (Stages 1–2): first-run flow — org profile, business-hours
-   calendar, default board + statuses, admin invite. Idempotent, skippable;
-   org works untouched if skipped entirely (defaults-first).
+   calendar, default board + statuses, admin invite. Idempotent, skippable. Org works untouched if skipped entirely (defaults-first).
 2. **Module activation flows** (Stage 3–4): per-module guided setup (SLA
    policies, portal, invoicing, KB…), each documenting its "none" mode.
 3. **Guided playbooks** (Stage 4–5): day-to-day recipes (triage queue, EOD time
@@ -39,7 +38,7 @@ settings hub (org settings + user preferences pages).
 - `AgentSkill`: versioned declarative manifest (id, version, capabilities,
   prompts/rules). Stored, diffable, rollback-able.
 - Rules evaluate in layers before EVERY tool call:
-  platform → org → role/skill → session consent. Deny wins; evaluation is
+  platform → org → role/skill → session consent. Deny wins. Evaluation is
   logged.
 - **Agent actions on a user's behalf default to approval.** Because writes are
   autosaved and instantly reconciled, an agent acting "on your behalf" must not
@@ -58,22 +57,23 @@ Append-only audit records actor provenance for humans AND agents alike:
 `{actor_kind: human|agent|mcp|plugin, actor_id, skill_version, session_id,
 tool, scopes_used, decision}`. Audit is queryable in the admin UI.
 
-- **"Who did this" is a query, not a sift.** Because undo, autosave, and agent
-  actions keep many small events flowing, the audit is exposed as a queryable
-  provenance read model indexed by who, which record/field, before and after
-  value, actor (human, agent, API key, undo), session/skill and rule-set hash,
-  and when — never a raw-log scan (see [`instant-first.md`](instant-first.md)).
+- **"Who did this" is a query, not a sift.** Undo, autosave and agent actions
+  keep many small events flowing, so the audit is exposed as a queryable
+  provenance read model: which record and field changed, what the before and
+  after values were, who acted (human, agent, API key, undo), the
+  session/skill and rule-set hash, and when — never a raw-log scan (see
+  [`instant-first.md`](instant-first.md)).
 - Undo of a change emits a normal audited "reverted field X to its value at T"
-  event; the trail is always append-only and undo never rewrites it.
+  event. The trail is always append-only and undo never rewrites it.
 
 ## 6. Documents
 
 Documents keep immutable version history (`DocumentVersion`: append-only,
-diffable, restorable). Restores create NEW versions; history is never rewritten.
+diffable, restorable). Restores create NEW versions. History is never rewritten.
 
 ## 7. Safety invariants (binding)
 
-1. Capability scopes are deny-by-default; consent is explicit per install/session.
+1. Capability scopes are deny-by-default. Consent is explicit per install/session.
 2. Every invocation is audit-logged (no silent calls).
-3. The widget registry decides what may render; props are JSON-Schema validated.
+3. The widget registry decides what may render. Props are JSON-Schema validated.
 4. Rate/resource limits enforced host-side, not by convention.
