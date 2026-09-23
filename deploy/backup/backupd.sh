@@ -7,7 +7,6 @@
 # (the loop is `wait until next date`, not `sleep`).
 set -ue
 BACKUP_AT="${BACKUP_AT:-03:00}"
-SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 BACKUP_HOST="${PGHOST:-postgres}"
 BACKUP_PORT="${PGPORT:-5432}"
 BACKUP_USER="${PG_USER:-meridian}"
@@ -31,6 +30,12 @@ run_once() {
   if [ -n "${WALG_S3_PREFIX:-}" ]; then
     log "wal-g backup-push"
     if ! wal-g backup-push; then log "ERROR: wal-g backup-push failed"; fi
+    # Retention: cull stale full backups when configured (env template ships 4).
+    if [ -n "${WALG_RETAIN_FULL:-}" ]; then
+      if ! wal-g delete retain FULL "$WALG_RETAIN_FULL"; then
+        log "ERROR: wal-g delete retain FULL $WALG_RETAIN_FULL failed"
+      fi
+    fi
   else
     mkdir -p "${PGDUMPS_DIR:-/pgdumps}"
     log "pg_dump nightly"
@@ -42,8 +47,9 @@ run_once() {
   fi
   # restic layer: snapshot the object store (LocalFsStore dir or garage data) + dumps
   if [ -n "${RESTIC_REPOSITORY:-}" ]; then
-    log "restic backup of [$BACKUP_SOURCES]"
-    if ! restic backup $BACKUP_SOURCES; then log "ERROR: restic backup failed"; fi
+    log "restic backup of ${BACKUP_SOURCES:-}"
+    # shellcheck disable=SC2086 # BACKUP_SOURCES is an intentional word list
+    if ! restic backup ${BACKUP_SOURCES:-}; then log "ERROR: restic backup failed"; fi
     if ! restic forget --keep-daily "${RESTIC_KEEP_DAILY:-7}" --keep-weekly "${RESTIC_KEEP_WEEKLY:-4}" --prune; then
       log "ERROR: restic forget/prune failed"
     fi
