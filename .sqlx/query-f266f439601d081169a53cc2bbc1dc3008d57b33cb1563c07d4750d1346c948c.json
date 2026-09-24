@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO client_loans\n             (id, org_id, client_id, contract_id, agreement_ref, out_at, expected_return_at,\n              returned_at, status, is_lease, lease_cycle, lease_cost_minor, lease_currency,\n              notes, return_notes, issued_by)\n           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Timestamptz",
+        "Date",
+        "Timestamptz",
+        "Text",
+        "Bool",
+        "Text",
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f266f439601d081169a53cc2bbc1dc3008d57b33cb1563c07d4750d1346c948c"
+}

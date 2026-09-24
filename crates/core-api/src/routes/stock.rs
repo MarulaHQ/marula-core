@@ -148,6 +148,10 @@ pub struct CreateStockItemRequest {
     pub part_number: Option<String>,
     #[serde(default = "default_consumable")]
     pub kind: String,
+    /// Wave 32 lane 3: flag the item as a tool (serialized-only, eligible
+    /// for tool checkout + kit membership).
+    #[serde(default)]
+    pub is_tool: bool,
     #[serde(default = "default_each")]
     pub unit: String,
     pub currency: String,
@@ -179,6 +183,8 @@ pub struct UpdateStockItemRequest {
     #[serde(default)]
     pub part_number: Option<Option<String>>,
     pub kind: Option<String>,
+    /// Flag/unflag the item as a tool (it must be serialized to flag).
+    pub is_tool: Option<bool>,
     pub unit: Option<String>,
     /// Reactivating an archived item is a plain update.
     pub active: Option<bool>,
@@ -216,6 +222,7 @@ pub struct StockItemView {
     #[schema(nullable = true)]
     pub part_number: Option<String>,
     pub kind: String,
+    pub is_tool: bool,
     pub unit: String,
     pub currency: String,
     /// `null` without `financial:read` (RB2).
@@ -240,6 +247,7 @@ impl StockItemView {
             catalog_item_id: item.catalog_item_id,
             part_number: item.part_number,
             kind: item.kind,
+            is_tool: item.is_tool,
             unit: item.unit,
             currency: item.currency,
             last_unit_cost_minor: financial.then_some(item.last_unit_cost_minor).flatten(),
@@ -884,6 +892,70 @@ pub async fn update_location(
     Ok(Json(outcome.into_response()?))
 }
 
+/// The ledger side-effects every movement-producing route shares (lane-1
+/// stock ops + lane-3 tools/loans): the low-stock notification + fan-out
+/// event for a transition INTO low, then the per-leg
+/// `stock.movement_recorded` event. Same commit as the ledger append.
+pub(crate) async fn emit_movement_side_effects(
+    ctx: &mut crate::org_tx::OrgTx<'_>,
+    org_id: Uuid,
+    movement: &core_domain::entities::StockMovement,
+    low: Option<&core_db::stock::LowInfo>,
+) -> ApiResult<()> {
+    if let Some(low) = low {
+        let recipients =
+            core_db::stock::low_stock_recipients(&mut ctx.tx, org_id, low.stock_location_id)
+                .await?;
+        for recipient in recipients {
+            core_db::notifications::insert(
+                &mut *ctx.tx,
+                Uuid::now_v7(),
+                org_id,
+                recipient,
+                core_domain::entities::NotificationKind::StockLow.as_str(),
+                movement.ticket_id,
+                &format!("Low stock: {}", low.item_name),
+                Some(
+                    format!(
+                        "The level at {} fell to {} (reorder point {}).",
+                        low.stock_location_id, low.qty_milli, low.reorder_point_milli
+                    )
+                    .as_str(),
+                ),
+            )
+            .await?;
+        }
+        ctx.emit(
+            core_domain::events::types::STOCK_LEVEL_LOW,
+            "stock_level",
+            Some(low.stock_item_id.to_string().as_str()),
+            &serde_json::to_value(core_domain::events::StockLevelLow {
+                org_id,
+                stock_item_id: low.stock_item_id,
+                stock_location_id: low.stock_location_id,
+                qty_milli: low.qty_milli,
+                reorder_point_milli: low.reorder_point_milli,
+                item_name: low.item_name.clone(),
+                ticket_id: movement.ticket_id,
+                occurred_at: movement.created_at,
+            })
+            .unwrap_or_else(|_| serde_json::json!({})),
+        )
+        .await?;
+    }
+    ctx.emit(
+        core_domain::events::types::STOCK_MOVEMENT_RECORDED,
+        "stock_movement",
+        Some(movement.id.to_string().as_str()),
+        &serde_json::to_value(core_domain::events::StockMovementRecorded {
+            movement: movement.clone(),
+        })
+        .unwrap_or_else(|_| serde_json::json!({})),
+    )
+    .await?;
+    Ok(())
+}
+
 // --- items / locations handlers --------------------------------------------
 
 /// GET /api/stock-items.
@@ -998,6 +1070,7 @@ pub async fn create_item(
         catalog_item_id: req.catalog_item_id,
         part_number: req.part_number.clone(),
         kind: req.kind.clone(),
+        is_tool: req.is_tool,
         unit: req.unit.clone(),
         currency: req.currency.clone(),
         last_unit_cost_minor: None,
@@ -1156,6 +1229,9 @@ pub async fn update_item(
         }
         if let Some(kind) = &req.kind {
             item.kind = kind.clone();
+        }
+        if let Some(is_tool) = req.is_tool {
+            item.is_tool = is_tool;
         }
         if let Some(unit) = &req.unit {
             item.unit = unit.clone();
@@ -1423,47 +1499,7 @@ async fn ledger_apply(
         let ledger_out = core_db::stock::record_movement(&mut ctx.tx, &input).await?;
         let movement = ledger_out.movement;
 
-        if let Some(low) = ledger_out.low {
-            let recipients =
-                core_db::stock::low_stock_recipients(&mut ctx.tx, org_id, low.stock_location_id)
-                    .await?;
-            for recipient in recipients {
-                core_db::notifications::insert(
-                    &mut *ctx.tx,
-                    Uuid::now_v7(),
-                    org_id,
-                    recipient,
-                    core_domain::entities::NotificationKind::StockLow.as_str(),
-                    movement.ticket_id,
-                    &format!("Low stock: {}", low.item_name),
-                    Some(
-                        format!(
-                            "The level at {} fell to {} (reorder point {}).",
-                            low.stock_location_id, low.qty_milli, low.reorder_point_milli
-                        )
-                        .as_str(),
-                    ),
-                )
-                .await?;
-            }
-            ctx.emit(
-                core_domain::events::types::STOCK_LEVEL_LOW,
-                "stock_level",
-                Some(low.stock_item_id.to_string().as_str()),
-                &serde_json::to_value(core_domain::events::StockLevelLow {
-                    org_id,
-                    stock_item_id: low.stock_item_id,
-                    stock_location_id: low.stock_location_id,
-                    qty_milli: low.qty_milli,
-                    reorder_point_milli: low.reorder_point_milli,
-                    item_name: low.item_name.clone(),
-                    ticket_id: movement.ticket_id,
-                    occurred_at: movement.created_at,
-                })
-                .unwrap_or_else(|_| serde_json::json!({})),
-            )
-            .await?;
-        }
+        emit_movement_side_effects(&mut ctx, org_id, &movement, ledger_out.low.as_ref()).await?;
 
         let write_seq = instant::entity_seq(
             &mut ctx,
@@ -1472,17 +1508,6 @@ async fn ledger_apply(
                 entity_id: movement.id,
                 version: None,
             },
-        )
-        .await?;
-
-        ctx.emit(
-            core_domain::events::types::STOCK_MOVEMENT_RECORDED,
-            "stock_movement",
-            Some(movement.id.to_string().as_str()),
-            &serde_json::to_value(core_domain::events::StockMovementRecorded {
-                movement: movement.clone(),
-            })
-            .unwrap_or_else(|_| serde_json::json!({})),
         )
         .await?;
 

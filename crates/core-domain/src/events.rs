@@ -490,6 +490,23 @@ pub mod types {
     /// rollups (ADR 0002 FX snapshot locked on the bill). Draft recording
     /// is audited but emits nothing.
     pub const PURCHASE_BILL_POSTED: &str = "purchase.bill_posted";
+    /// Tools + toolboxes + client loans (Wave 32 lane 3, migration 0104).
+    /// The checkout/loan rows reference the append-only movement ledger;
+    /// these events are the consumer signals on top of the per-leg
+    /// `stock.movement_recorded` events.
+    pub const TOOL_KIT_CREATED: &str = "tool.kit_created";
+    pub const TOOL_KIT_UPDATED: &str = "tool.kit_updated";
+    /// A tool checkout completed (one or more physical units left stock
+    /// into a holder's hands). The payload carries the header + lines.
+    pub const TOOL_CHECKOUT_COMPLETED: &str = "tool.checkout_completed";
+    /// A checkout check-in landed (all or some lines returned); the
+    /// payload carries the updated header + lines.
+    pub const TOOL_CHECKIN_COMPLETED: &str = "tool.checkin_completed";
+    /// A client loan was issued (devices left stock to a client, and/or
+    /// existing assets were placed under the agreement).
+    pub const LOAN_ISSUED: &str = "loan.issued";
+    /// A client loan was returned (all or some lines came back).
+    pub const LOAN_RETURNED: &str = "loan.returned";
     /// Dispatch v2 (TASKLIST Phase 3, Wave 9 lane 9): a field-service
     /// status push landed against an appointment (connector or staff);
     /// the `dispatch_status_updates` ledger is the ground truth.
@@ -2193,6 +2210,55 @@ pub struct PurchaseReceiptRecorded {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct PurchaseBillPosted {
     pub bill: crate::entities::PurchaseBill,
+}
+
+/// tool.kit_created — a toolbox/kit entered the registry. Snapshot is
+/// AFTER the write.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ToolKitCreated {
+    pub kit: crate::entities::ToolKit,
+}
+
+/// tool.kit_updated — a kit's metadata (name/code/note/active) changed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ToolKitUpdated {
+    pub kit: crate::entities::ToolKit,
+}
+
+/// tool.checkout_completed — tools left stock into a holder's hands. One
+/// physical unit per line; each line rode its own ledger leg.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ToolCheckoutCompleted {
+    pub checkout: crate::entities::ToolCheckout,
+    pub lines: Vec<crate::entities::ToolCheckoutLine>,
+}
+
+/// tool.checkin_completed — an open checkout moved toward "returned";
+/// some or all lines came back (the header snapshot says which state).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ToolCheckinCompleted {
+    pub checkout: crate::entities::ToolCheckout,
+    pub lines: Vec<crate::entities::ToolCheckoutLine>,
+}
+
+/// loan.issued — devices were issued to a client under an agreement.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct LoanIssued {
+    pub loan: crate::entities::ClientLoan,
+    pub lines: Vec<crate::entities::ClientLoanLine>,
+}
+
+/// loan.returned — some or all loaned devices came back.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct LoanReturned {
+    pub loan: crate::entities::ClientLoan,
+    pub lines: Vec<crate::entities::ClientLoanLine>,
 }
 
 /// quote.created — a numbered quote document was created in draft with

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE client_loans SET return_notes = $3, updated_at = now()\n               WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f852fca29ed1ba9ed3898d14bd806edcb76f91572748dfc4f2169be2947c875e"
+}

@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tool_checkout_lines\n                 SET returned_at = $4, return_condition = $5, return_notes = $6,\n                     movement_in_id = $7, updated_at = now()\n               WHERE org_id = $1 AND id = $2 AND checkout_id = $3 AND returned_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Timestamptz",
+        "Text",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a01d250e5f5a88817e8913db0e7f8749d278e31206ffe8c9976e5c0b1b2f46eb"
+}

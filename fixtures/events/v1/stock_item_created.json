@@ -12,6 +12,7 @@
       "created_by": "00000000-0000-0000-0000-000000000004",
       "currency": "USD",
       "id": "00000000-0000-0000-0000-00000000003c",
+      "is_tool": false,
       "kind": "consumable",
       "last_unit_cost_minor": 12000,
       "name": "Cat6 patch cable box",

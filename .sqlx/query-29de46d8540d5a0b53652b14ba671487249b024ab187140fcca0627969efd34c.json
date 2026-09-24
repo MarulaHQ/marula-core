@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, org_id, name, sku, catalog_item_id, part_number, kind, unit, currency,\n                  last_unit_cost_minor, active, created_by, created_at, updated_at\n           FROM stock_items WHERE org_id = $1 AND id = $2",
+  "query": "INSERT INTO tool_checkout_lines\n             (id, org_id, checkout_id, stock_item_id, serial_id, movement_out_id)\n           VALUES ($1, $2, $3, $4, $5, $6)\n           RETURNING id, org_id, checkout_id, stock_item_id, serial_id, movement_out_id,\n                     movement_in_id, returned_at, return_condition, return_notes,\n                     created_at, updated_at",
   "describe": {
     "columns": [
       {
@@ -15,67 +15,61 @@
       },
       {
         "ordinal": 2,
-        "name": "name",
-        "type_info": "Text"
+        "name": "checkout_id",
+        "type_info": "Uuid"
       },
       {
         "ordinal": 3,
-        "name": "sku",
-        "type_info": "Text"
+        "name": "stock_item_id",
+        "type_info": "Uuid"
       },
       {
         "ordinal": 4,
-        "name": "catalog_item_id",
+        "name": "serial_id",
         "type_info": "Uuid"
       },
       {
         "ordinal": 5,
-        "name": "part_number",
-        "type_info": "Text"
+        "name": "movement_out_id",
+        "type_info": "Uuid"
       },
       {
         "ordinal": 6,
-        "name": "kind",
-        "type_info": "Text"
+        "name": "movement_in_id",
+        "type_info": "Uuid"
       },
       {
         "ordinal": 7,
-        "name": "unit",
-        "type_info": "Text"
+        "name": "returned_at",
+        "type_info": "Timestamptz"
       },
       {
         "ordinal": 8,
-        "name": "currency",
+        "name": "return_condition",
         "type_info": "Text"
       },
       {
         "ordinal": 9,
-        "name": "last_unit_cost_minor",
-        "type_info": "Int8"
+        "name": "return_notes",
+        "type_info": "Text"
       },
       {
         "ordinal": 10,
-        "name": "active",
-        "type_info": "Bool"
-      },
-      {
-        "ordinal": 11,
-        "name": "created_by",
-        "type_info": "Uuid"
-      },
-      {
-        "ordinal": 12,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 13,
+        "ordinal": 11,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
         "Uuid",
         "Uuid"
       ]
@@ -84,18 +78,16 @@
       false,
       false,
       false,
-      true,
-      true,
-      true,
       false,
       false,
       false,
       true,
-      false,
+      true,
+      true,
       true,
       false,
       false
     ]
   },
-  "hash": "43e044b4f69fc44a304493c17fcea39ed28b1e75567fbd538bac0fb4d4562e37"
+  "hash": "29de46d8540d5a0b53652b14ba671487249b024ab187140fcca0627969efd34c"
 }

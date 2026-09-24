@@ -1,0 +1,128 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, org_id, client_id, contract_id, agreement_ref, out_at,\n                  expected_return_at, returned_at, status, is_lease, lease_cycle,\n                  lease_cost_minor, lease_currency, notes, return_notes, issued_by,\n                  created_at, updated_at\n           FROM client_loans\n           WHERE org_id = $1\n             AND ($2::text IS NULL OR status = $2)\n             AND ($3::uuid IS NULL OR client_id = $3)\n             AND (NOT $4::boolean\n                  OR (returned_at IS NULL AND expected_return_at < current_date))\n           ORDER BY created_at DESC\n           LIMIT $5",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "client_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "contract_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "agreement_ref",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "out_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "expected_return_at",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 7,
+        "name": "returned_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "is_lease",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "lease_cycle",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "lease_cost_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "lease_currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "notes",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "return_notes",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 15,
+        "name": "issued_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 16,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 17,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "51e1426e211582a5307f99d413b45f197897569435620696b182bc86d99ba9d2"
+}

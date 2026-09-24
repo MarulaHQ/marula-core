@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tool_checkouts\n                 SET return_notes = $3, updated_at = now()\n               WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0a48cf8927cf698c2cdcd5d3ab481442088d52835c9011892f8bc0de6926fe7c"
+}

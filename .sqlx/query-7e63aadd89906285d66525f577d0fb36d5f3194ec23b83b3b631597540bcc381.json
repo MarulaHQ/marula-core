@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM tool_kit_members\n           WHERE org_id = $1 AND kit_id = $2 AND id = $3\n           RETURNING stock_item_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "stock_item_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7e63aadd89906285d66525f577d0fb36d5f3194ec23b83b3b631597540bcc381"
+}

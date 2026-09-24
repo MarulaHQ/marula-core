@@ -1,0 +1,67 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT si.id AS stock_item_id, si.name AS item_name,\n                  ss.location_id, sl.name::text AS \"location_name?\",\n                  count(ss.id) FILTER (WHERE ss.status = 'in_stock') AS \"available_units!\",\n                  count(ss.id) FILTER (WHERE ss.status = 'checked_out') AS \"checked_out_units!\",\n                  count(ss.id) FILTER (WHERE ss.status = 'loaned') AS \"loaned_units!\",\n                  count(ss.id) FILTER (WHERE ss.status = 'out') AS \"out_units!\"\n           FROM stock_serials ss\n           JOIN stock_items si ON si.id = ss.stock_item_id AND si.org_id = ss.org_id\n           LEFT JOIN stock_locations sl ON sl.id = ss.location_id\n           WHERE ss.org_id = $1 AND si.is_tool\n             AND ($2::uuid IS NULL OR ss.location_id = $2)\n             AND ($3::uuid IS NULL OR ss.stock_item_id = $3)\n           GROUP BY si.id, si.name, ss.location_id, sl.name\n           ORDER BY si.name, sl.name NULLS LAST\n           LIMIT $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "stock_item_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "item_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "location_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "location_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "available_units!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "checked_out_units!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "loaned_units!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "out_units!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "732a29a226aee06c4d1b644c93d2ebbe9ed9df8b3fff392f3fe241b5e32f6ca7"
+}

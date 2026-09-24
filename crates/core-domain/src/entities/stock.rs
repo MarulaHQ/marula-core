@@ -34,8 +34,23 @@ pub fn is_valid_location_kind(kind: &str) -> bool {
 
 /// Movement kinds on the append-only ledger. Deltas are SIGNED in the
 /// ledger (`qty_milli`), direction is derived from the kind:
-/// receive/transfer → into stock; consume/ship_out → out; adjust → ±.
-pub const MOVEMENT_KINDS: [&str; 5] = ["receive", "consume", "adjust", "transfer", "ship_out"];
+/// receive/transfer/checkin/loan_return → into stock;
+/// consume/ship_out/checkout/loan → out; adjust → ±.
+///
+/// Wave 32 lane 3 extended the vocabulary additively (the sanctioned
+/// extension path from lane 1): `checkout`/`checkin` are tool checkout
+/// legs, `loan`/`loan_return` are client-loan legs (both carry the client).
+pub const MOVEMENT_KINDS: [&str; 9] = [
+    "receive",
+    "consume",
+    "adjust",
+    "transfer",
+    "ship_out",
+    "checkout",
+    "checkin",
+    "loan",
+    "loan_return",
+];
 
 /// One org-owned stock item: a catalog-linked SKU or a free-form part.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -55,6 +70,9 @@ pub struct StockItem {
     pub part_number: Option<String>,
     /// serialized = one physical unit per serial; consumable = counts.
     pub kind: String,
+    /// Wave 32 lane 3: a tool is a serialized item tracked per physical
+    /// unit and eligible for tool checkout + kit membership.
+    pub is_tool: bool,
     pub unit: String,
     pub currency: String,
     /// Most recent receipt's locked unit cost (display; the ledger keeps
@@ -88,6 +106,11 @@ impl StockItem {
         if self.kind != "consumable" && self.kind != "serialized" {
             return Err(DomainError::Validation(
                 "stock item kind must be consumable or serialized".into(),
+            ));
+        }
+        if self.is_tool && self.kind != "serialized" {
+            return Err(DomainError::Validation(
+                "a tool must be a serialized item (one physical unit per serial)".into(),
             ));
         }
         crate::money::CurrencyCode::new(&self.currency)?;
@@ -266,13 +289,31 @@ impl StockMovement {
                     "receive requires a destination location and positive quantity".into(),
                 ));
             }
-            "consume" | "ship_out"
+            "consume" | "ship_out" | "checkout" | "loan"
                 if self.from_location_id.is_none()
                     || self.to_location_id.is_some()
                     || self.qty_milli >= 0 =>
             {
                 return Err(DomainError::Validation(
-                    "consume/ship_out require a source location and negative quantity".into(),
+                    "consume/ship_out/checkout/loan require a source location and negative quantity"
+                        .into(),
+                ));
+            }
+            "checkin" | "loan_return"
+                if self.from_location_id.is_some()
+                    || self.to_location_id.is_none()
+                    || self.qty_milli <= 0 =>
+            {
+                return Err(DomainError::Validation(
+                    "checkin/loan_return require a destination location and positive quantity"
+                        .into(),
+                ));
+            }
+            // Client-loan legs always carry their client (the destination
+            // is a client, not a location).
+            "loan" | "loan_return" if self.client_id.is_none() => {
+                return Err(DomainError::Validation(
+                    "loan movements require a client".into(),
                 ));
             }
             "adjust" if self.from_location_id.is_some() == self.to_location_id.is_some() => {
@@ -343,8 +384,8 @@ impl StockSerial {
 /// these helpers so milli math never branches on floats.
 pub fn signed_delta(kind: &str, abs_qty_milli: i64) -> Option<i64> {
     match kind {
-        "receive" | "transfer" => Some(abs_qty_milli.max(0)),
-        "consume" | "ship_out" => Some(-abs_qty_milli.max(0)),
+        "receive" | "transfer" | "checkin" | "loan_return" => Some(abs_qty_milli.max(0)),
+        "consume" | "ship_out" | "checkout" | "loan" => Some(-abs_qty_milli.max(0)),
         "adjust" => Some(abs_qty_milli),
         _ => None,
     }
@@ -363,6 +404,7 @@ mod tests {
             catalog_item_id: None,
             part_number: Some("C6-305M".into()),
             kind: "consumable".into(),
+            is_tool: false,
             unit: "box".into(),
             currency: "USD".into(),
             last_unit_cost_minor: Some(12000),
@@ -440,5 +482,43 @@ mod tests {
         let mut i = i;
         i.unit = "hour".into();
         assert!(i.validate().is_err());
+    }
+
+    #[test]
+    fn tool_must_be_serialized() {
+        let mut i = item();
+        i.is_tool = true;
+        assert!(
+            i.validate().is_err(),
+            "a consumable cannot be flagged as a tool"
+        );
+        i.kind = "serialized".into();
+        i.validate().unwrap();
+    }
+
+    #[test]
+    fn checkout_movement_direction_discipline() {
+        let mut m = movement();
+        m.kind = "checkout".into();
+        m.qty_milli = -1_000;
+        m.from_location_id = Some(Uuid::now_v7());
+        m.to_location_id = None;
+        m.serial_id = Some(Uuid::now_v7());
+        m.validate().unwrap();
+
+        m.kind = "checkin".into();
+        m.qty_milli = 1_000;
+        m.from_location_id = None;
+        m.to_location_id = Some(Uuid::now_v7());
+        m.validate().unwrap();
+
+        // A loan leg must carry its client.
+        m.kind = "loan".into();
+        m.qty_milli = -1_000;
+        m.from_location_id = Some(Uuid::now_v7());
+        m.to_location_id = None;
+        assert!(m.validate().is_err());
+        m.client_id = Some(Uuid::now_v7());
+        m.validate().unwrap();
     }
 }

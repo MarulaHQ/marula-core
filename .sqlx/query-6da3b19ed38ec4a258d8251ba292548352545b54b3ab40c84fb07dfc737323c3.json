@@ -1,0 +1,100 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO client_loan_lines\n             (id, org_id, loan_id, stock_item_id, serial_id, device_asset_id, movement_out_id)\n           VALUES ($1, $2, $3, $4, $5, $6, $7)\n           RETURNING id, org_id, loan_id, stock_item_id, serial_id, device_asset_id,\n                     movement_out_id, movement_in_id, returned_at, return_condition,\n                     return_notes, created_at, updated_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "loan_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "stock_item_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "serial_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "device_asset_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 6,
+        "name": "movement_out_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 7,
+        "name": "movement_in_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 8,
+        "name": "returned_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "return_condition",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "return_notes",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 12,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "6da3b19ed38ec4a258d8251ba292548352545b54b3ab40c84fb07dfc737323c3"
+}

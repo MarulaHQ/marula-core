@@ -1,0 +1,54 @@
+{
+  "event_type": "tool.checkout_completed",
+  "entity": "tool_checkout",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "checkout": {
+      "checked_out_by": "00000000-0000-0000-0000-000000000004",
+      "created_at": "2023-11-14T22:13:23Z",
+      "due_at": "2023-11-14T22:13:23Z",
+      "from_location_id": "00000000-0000-0000-0000-00000000003e",
+      "holder_user_id": "00000000-0000-0000-0000-000000000004",
+      "id": "00000000-0000-0000-0000-000000000047",
+      "kit_id": "00000000-0000-0000-0000-000000000046",
+      "notes": "Van kit for the north route",
+      "org_id": "00000000-0000-0000-0000-000000000002",
+      "return_notes": null,
+      "returned_at": null,
+      "status": "open",
+      "updated_at": "2023-11-14T22:13:23Z"
+    },
+    "lines": [
+      {
+        "checkout_id": "00000000-0000-0000-0000-000000000047",
+        "created_at": "2023-11-14T22:13:23Z",
+        "id": "00000000-0000-0000-0000-000000000048",
+        "movement_in_id": "00000000-0000-0000-0000-000000000041",
+        "movement_out_id": "00000000-0000-0000-0000-000000000040",
+        "org_id": "00000000-0000-0000-0000-000000000002",
+        "return_condition": "good",
+        "return_notes": null,
+        "returned_at": "2023-11-14T22:13:24Z",
+        "serial_id": "00000000-0000-0000-0000-00000000003f",
+        "stock_item_id": "00000000-0000-0000-0000-00000000003c",
+        "updated_at": "2023-11-14T22:13:24Z"
+      },
+      {
+        "checkout_id": "00000000-0000-0000-0000-000000000047",
+        "created_at": "2023-11-14T22:13:23Z",
+        "id": "00000000-0000-0000-0000-000000000049",
+        "movement_in_id": null,
+        "movement_out_id": "00000000-0000-0000-0000-000000000040",
+        "org_id": "00000000-0000-0000-0000-000000000002",
+        "return_condition": null,
+        "return_notes": null,
+        "returned_at": null,
+        "serial_id": "00000000-0000-0000-0000-000000000042",
+        "stock_item_id": "00000000-0000-0000-0000-00000000003c",
+        "updated_at": "2023-11-14T22:13:23Z"
+      }
+    ]
+  }
+}
