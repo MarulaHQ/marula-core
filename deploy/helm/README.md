@@ -2,7 +2,8 @@
 
 Values-driven chart mirroring `deploy/docker-compose.yml`: Postgres
 (pgvector image, prod parity; or external), Redis, migrations (pre-upgrade
-hook), core-api, realtime, worker, web; Mailpit and MinIO (pending Garage swap) as opt-in
+hook), core-api, realtime, worker, web; Mailpit and Garage (HEADLESS stateful
+service + layout-bootstrap job, replacing the MinIO sample) as opt-in
 profiles; optional ingress.
 
 Image policy (TASKLIST U10b): every image reference is digest-pinned —

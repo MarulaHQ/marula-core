@@ -11,7 +11,7 @@
 //!   2. `DATABASE_URL`                — CI service-container Postgres; when
 //!      set, tests attach directly and never touch Docker (no dind needed).
 //!   3. Neither set                    — spin up a testcontainers
-//!      `pgvector/pgvector:pg17` container locally.
+//!      `pgvector/pgvector:pg18` container locally.
 //!
 //! Notes:
 //! - The env URL must point at a *privileged* role: the harness derives the
@@ -81,7 +81,7 @@ async fn bootstrap() -> &'static Bootstrap {
                     _container: None,
                 };
             }
-            // No env: spin up a throwaway pgvector/pgvector:pg17 container
+            // No env: spin up a throwaway pgvector/pgvector:pg18 container
             // (same image as prod). The container is NAMED and marked
             // reusable: local reruns attach to the same instance instead of
             // leaking an orphan per run (statics are never dropped at
@@ -92,9 +92,9 @@ async fn bootstrap() -> &'static Bootstrap {
             // a stale instance with:
             //   docker rm -f meridian-core-db-tests-pg17
             let container_name = std::env::var("MERIDIAN_TEST_PG_NAME")
-                .unwrap_or_else(|_| "meridian-core-db-tests-pg17".to_string());
+                .unwrap_or_else(|_| "meridian-core-db-tests-pg18".to_string());
             let request = ContainerRequest::from(
-                GenericImage::new("pgvector/pgvector", "pg17")
+                GenericImage::new("pgvector/pgvector", "pg18")
                     .with_wait_for(WaitFor::message_on_stderr(
                         "database system is ready to accept connections",
                     ))

@@ -1,4 +1,29 @@
 {{- if .Values.postgresql.deploy -}}
+{{- /* Postgres StatefulSet + headless Service run as EARLY pre-install
+hooks (weight -5): the migrate hook needs the DNS name up before it can
+apply the chain. Recreated on upgrade; data persists in the PVC. */}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "meridian.fullname" . }}-postgres
+  labels:
+    {{- include "meridian.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: {{ include "meridian.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: postgres
+  ports:
+    - name: pg
+      port: 5432
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -6,6 +31,10 @@ metadata:
   labels:
     {{- include "meridian.labels" . | nindent 4 }}
     app.kubernetes.io/component: postgres
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation
 spec:
   serviceName: {{ include "meridian.fullname" . }}-postgres
   replicas: 1
@@ -38,8 +67,11 @@ spec:
             - name: pg
               containerPort: 5432
           volumeMounts:
+            # PG18 images use pg_ctlcluster-style major-version dirs under
+            # the volume root — mount the VOLUME ROOT (see
+            # docs/site/reference/pg18-upgrade.md).
             - name: data
-              mountPath: /var/lib/postgresql/data
+              mountPath: /var/lib/postgresql
           readinessProbe:
             exec:
               command: ["pg_isready", "-U", {{ .Values.postgresql.ownerUser | quote }}, "-d", {{ .Values.postgresql.database | quote }}]
@@ -74,6 +106,7 @@ metadata:
     {{- include "meridian.labels" . | nindent 4 }}
   annotations:
     helm.sh/hook: pre-install
+    helm.sh/hook-weight: "-4"
     helm.sh/hook-delete-policy: before-hook-creation
 spec:
   backoffLimit: 5
@@ -98,12 +131,8 @@ spec:
           args:
             - |
               until pg_isready -h {{ include "meridian.fullname" . }}-postgres -U {{ .Values.postgresql.ownerUser }} -q; do sleep 2; done
-              psql -h {{ include "meridian.fullname" . }}-postgres -U {{ .Values.postgresql.ownerUser }} -d {{ .Values.postgresql.database }} -v ON_ERROR_STOP=1 <<SQL
-              DO \$\$ BEGIN
-                IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{{ .Values.postgresql.appUser }}') THEN
-                  CREATE ROLE {{ .Values.postgresql.appUser }} LOGIN PASSWORD :'app_password';
-                END IF;
-              END \$\$;
-              SQL
-              psql -h {{ include "meridian.fullname" . }}-postgres -U {{ .Values.postgresql.ownerUser }} -d {{ .Values.postgresql.database }} -c "ALTER ROLE {{ .Values.postgresql.appUser }} PASSWORD '$APP_PASSWORD'"
+              # psql :'var' interpolation does NOT expand inside a DO block
+              # (dollar-quoted body) — interpolate via the shell instead.
+              psql -h {{ include "meridian.fullname" . }}-postgres -U {{ .Values.postgresql.ownerUser }} -d {{ .Values.postgresql.database }} -v ON_ERROR_STOP=1 -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{{ .Values.postgresql.appUser }}') THEN CREATE ROLE {{ .Values.postgresql.appUser }} LOGIN; END IF; END \$\$;"
+              psql -h {{ include "meridian.fullname" . }}-postgres -U {{ .Values.postgresql.ownerUser }} -d {{ .Values.postgresql.database }} -v ON_ERROR_STOP=1 -c "ALTER ROLE {{ .Values.postgresql.appUser }} WITH LOGIN PASSWORD '$APP_PASSWORD'"
 {{- end }}

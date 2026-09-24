@@ -56,7 +56,7 @@ images:
 # production installs should bring their own Postgres.
 postgresql:
   deploy: true
-  image: pgvector/pgvector:pg17
+  image: pgvector/pgvector:pg18
   database: meridian
   ownerUser: meridian
   ownerPassword: ""
@@ -115,24 +115,39 @@ mailpit:
   enabled: false
   image: axllent/mailpit:latest
 
-# Object storage: local-fs (single replica, PVC) or S3/MinIO.
+# Object storage: local-fs (single replica, PVC) or S3/Garage.
 objectStore:
   mode: local
   localDir: /data/objects
   s3:
     endpoint: ""
     bucket: meridian
-    region: us-east-1
+    # empty = follow the in-chart Garage region (garage.s3Region)
+    region: ""
     accessKeyId: ""
     secretAccessKey: ""
 
-minio:
+# ---------------------------------------------------------------- garage --
+# Garage (S3-compatible object storage; 2026-09 MinIO replacement). Deployed
+# only in objectStore.mode=s3 with garage.enabled — a single-node StatefulSet
+# fronted by a headless RPC service, bootstrapped by a layout Job (assign +
+# apply + bucket create + key grant). The S3 access key itself is
+# operator-provisioned (garage key create) — values carry its ID.
+# capacity is bytes (e.g. 200_000_000_000 for a 200GB ceiling).
+garage:
   enabled: false
-  image: minio/minio:latest
-  rootUser: meridian
-  rootPassword: ""
+  # createS3Key: the bootstrap Job creates the "meridian" access key and
+  # prints its secret to the job logs (shown once) — copy it into
+  # objectStore.s3.secretAccessKey. Keep false when you pre-provision keys.
+  image: dxflrs/garage:v1.1.0
+  rpcSecret: ""
+  adminToken: "change-me-garage-admin-token"
+  zone: dc1
+  capacity: "200000000000"
+  s3Region: garage
   storage:
-    size: 20Gi
+    size: 200Gi
+    metaSize: 2Gi
 
 # OpenTelemetry: empty endpoint = none mode.
 otel:

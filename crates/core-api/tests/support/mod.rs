@@ -46,13 +46,13 @@ async fn bootstrap() -> &'static Bootstrap {
                 };
             }
             let request = testcontainers::ContainerRequest::from(
-                testcontainers::GenericImage::new("pgvector/pgvector", "pg17")
+                testcontainers::GenericImage::new("pgvector/pgvector", "pg18")
                     .with_wait_for(testcontainers::core::WaitFor::message_on_stderr(
                         "database system is ready to accept connections",
                     ))
                     .with_exposed_port(testcontainers::core::ContainerPort::Tcp(5432)),
             )
-            .with_container_name("meridian-mail-harness-pg17")
+            .with_container_name("meridian-mail-harness-pg18")
             .with_reuse(testcontainers::core::ReuseDirective::Always)
             .with_env_var("POSTGRES_USER", "meridian")
             .with_env_var("POSTGRES_PASSWORD", "meridian")

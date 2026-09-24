@@ -4,7 +4,7 @@
 //!   1. `MERIDIAN_TEST_DATABASE_URL` — explicit override, tried first.
 //!   2. `DATABASE_URL`                — CI service container.
 //!   3. Neither set                   — reusable local testcontainer
-//!      (`pgvector/pgvector:pg17`, prod parity).
+//!      (`pgvector/pgvector:pg18`, prod parity).
 //!
 //! The schema is reset + migrated once per test-binary process, making the
 //! fixed deterministic UUIDs safe across runs. Pools are created per call
@@ -47,13 +47,13 @@ async fn bootstrap() -> &'static Bootstrap {
                 };
             }
             let request = ContainerRequest::from(
-                GenericImage::new("pgvector/pgvector", "pg17")
+                GenericImage::new("pgvector/pgvector", "pg18")
                     .with_wait_for(WaitFor::message_on_stderr(
                         "database system is ready to accept connections",
                     ))
                     .with_exposed_port(ContainerPort::Tcp(5432)),
             )
-            .with_container_name("meridian-email-db-tests-pg17")
+            .with_container_name("meridian-email-db-tests-pg18")
             .with_reuse(ReuseDirective::Always)
             .with_env_var("POSTGRES_USER", "meridian")
             .with_env_var("POSTGRES_PASSWORD", "meridian")

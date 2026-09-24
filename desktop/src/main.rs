@@ -126,16 +126,27 @@ async fn spawn_next_server(
 /// The migration set requires the `vector` extension (migration 0062).
 /// Stock Postgres binaries don't ship pgvector; copy the library AND the
 /// extension control/SQL scripts from a Homebrew install into the
-/// embedded installation before first use.
-fn ensure_pgvector(installation_dir: &Path) -> anyhow::Result<()> {
+/// embedded installation before first use, matched to the PINNED major —
+/// dylibs are per-major ABI, so a @17 copy into an 18 install hard-fails
+/// at CREATE EXTENSION time (p36-infra-transition cut: two version dirs
+/// now share installation_dir; directory order is arbitrary).
+fn ensure_pgvector(installation_dir: &Path, pinned_major: &str) -> anyhow::Result<()> {
     // postgresql_embedded installs into a versioned subdirectory
-    // (e.g. installation_dir/17.11.0); find the actual root.
+    // (e.g. installation_dir/18.6.0) next to retained older majors (e.g.
+    // installation_dir/17.11.0); resolve the pinned one explicitly.
     let versioned = std::fs::read_dir(installation_dir)?
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .find(|p| p.join("bin/initdb").exists())
+        .find(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with(pinned_major))
+                && p.join("bin/initdb").exists()
+        })
         .with_context(|| {
-            format!("no Postgres installation root with bin/initdb under {installation_dir:?}")
+            format!(
+                "no Postgres installation root for major {pinned_major} with bin/initdb under {installation_dir:?}"
+            )
         })?;
     let lib_dir = versioned.join("lib");
     let ext_dir = versioned.join("share/extension");
@@ -146,19 +157,33 @@ fn ensure_pgvector(installation_dir: &Path) -> anyhow::Result<()> {
     if control.exists() && dests.iter().all(|d| d.exists()) {
         return Ok(());
     }
+    let brew = PathBuf::from("/opt/homebrew/opt/pgvector/lib");
+    let brew_usr = PathBuf::from("/usr/local/opt/pgvector/lib");
     let lib_candidates = [
-        PathBuf::from("/opt/homebrew/opt/pgvector/lib/postgresql@17/vector.dylib"),
-        PathBuf::from("/opt/homebrew/opt/pgvector/lib/postgresql@18/vector.dylib"),
-        PathBuf::from("/opt/homebrew/opt/pgvector/lib/vector.dylib"),
-        PathBuf::from("/opt/homebrew/opt/pgvector/lib/vector.so"),
-        PathBuf::from("/usr/local/opt/pgvector/lib/vector.dylib"),
+        brew.clone()
+            .join(format!("postgresql@{pinned_major}/vector.dylib")),
+        brew_usr
+            .clone()
+            .join(format!("postgresql@{pinned_major}/vector.dylib")),
+        brew.join("vector.dylib"),
+        brew_usr.join("vector.dylib"),
     ];
+    let brew_share = PathBuf::from("/opt/homebrew/opt/pgvector/share");
+    let brew_usr_share = PathBuf::from("/usr/local/opt/pgvector/share");
     let share_candidates = [
-        PathBuf::from("/opt/homebrew/opt/pgvector/share/postgresql@17/extension"),
-        PathBuf::from("/opt/homebrew/opt/pgvector/share/postgresql@18/extension"),
-        PathBuf::from("/opt/homebrew/opt/pgvector/share/extension"),
-        PathBuf::from("/usr/local/opt/pgvector/share/extension"),
+        brew_share
+            .clone()
+            .join(format!("postgresql@{pinned_major}/extension")),
+        brew_usr_share
+            .clone()
+            .join(format!("postgresql@{pinned_major}/extension")),
+        brew_share.join("postgresql@18/extension"),
+        brew_share.clone().join("extension"),
+        brew_usr_share.join("postgresql@18/extension"),
+        brew_usr_share.join("extension"),
     ];
+    // Explicit major preference only: a @17 library or control/SQL set would
+    // install a 17-ABI extension into an 18 server — never silently shipped.
     let src_lib = lib_candidates
         .iter()
         .find(|p| p.exists())
@@ -221,14 +246,125 @@ async fn role_exists(pool: &sqlx::PgPool, role: &str) -> anyhow::Result<bool> {
         .is_some())
 }
 
+/// Cluster major of an existing pgdata directory (PG_VERSION), if present.
+fn pgdata_major(pgdata: &Path) -> Option<String> {
+    std::fs::read_to_string(pgdata.join("PG_VERSION"))
+        .ok()
+        .map(|v| v.trim().to_string())
+}
+
+/// Binaries dir of an installed version under the installation dir matching
+/// `major` (the crate layouts clusters as installation_dir/{version}/bin).
+fn install_bin_dir(installation_dir: &Path, major: &str) -> Option<PathBuf> {
+    std::fs::read_dir(installation_dir)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .find(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with(major))
+                && p.join("bin").join("pg_ctl").exists()
+        })
+        .map(|p| p.join("bin"))
+}
+
+async fn run_checked(mut cmd: tokio::process::Command, what: &str) -> anyhow::Result<()> {
+    let out = cmd.output().await?;
+    if !out.status.success() {
+        return Err(anyhow::anyhow!(
+            "{what} exited with {}: {}{}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr),
+            String::from_utf8_lossy(&out.stdout)
+        ));
+    }
+    Ok(())
+}
+
+/// Cut an existing embedded PG17 cluster to PG18 before the 18 setup() runs:
+/// the 18 binaries refuse to start a 17 cluster's data directory. Strategy
+/// (matches deploy/runbooks/pg17-to-pg18.md, dump/restore leg): start the
+/// old cluster with ITS OWN retained binaries, pg_dumpall it, stop it, and
+/// archive the pgdata directory for rollback — bootstrap then initializes a
+/// fresh 18 cluster and replays the dump. Returns the dump path to replay
+/// after the new cluster is up; Ok(None) means nothing to cut.
+async fn cut_pg17_to_pg18(root: &Path) -> anyhow::Result<Option<PathBuf>> {
+    let pgdata = root.join("pgdata");
+    if pgdata_major(&pgdata).as_deref() != Some("17") {
+        return Ok(None);
+    }
+    let old_bin = install_bin_dir(&root.join("pginstall"), "17").with_context(|| {
+        "PG17 cluster found but the PG17 binaries are gone — if this data must be \
+         kept, install the previous app build once (it re-downloads the 17 bitness) \
+         or move pgdata aside manually"
+    })?;
+    let dump = root.join("pg17-restore.sql");
+    let old_port = free_port(15499);
+
+    let mut start = tokio::process::Command::new(old_bin.join("pg_ctl"));
+    start
+        .arg("-D")
+        .arg(&pgdata)
+        .arg("-l")
+        .arg(root.join("pg17-cut.log"))
+        .args(["-w", "start", "-o"])
+        .arg(format!("-p {old_port} -c listen_addresses=127.0.0.1"));
+    run_checked(start, "starting the PG17 cluster for its pre-cut dump").await?;
+
+    let mut dumpall = tokio::process::Command::new(old_bin.join("pg_dumpall"));
+    dumpall
+        .env("PGPASSWORD", "postgres")
+        .args(["-h", "127.0.0.1", "-U", "postgres"])
+        .arg("-p")
+        .arg(old_port.to_string())
+        .arg("-f")
+        .arg(&dump);
+    run_checked(dumpall, "pg_dumpall of the PG17 cluster").await?;
+
+    let mut stop = tokio::process::Command::new(old_bin.join("pg_ctl"));
+    stop.arg("-D")
+        .arg(&pgdata)
+        .args(["-m", "fast", "-w", "stop"]);
+    run_checked(stop, "stopping the PG17 cluster").await?;
+
+    let archived = root.join("pgdata-pg17.bak");
+    let _ = std::fs::remove_dir_all(&archived);
+    std::fs::rename(&pgdata, &archived)
+        .context("archiving the PG17 pgdata (rollback keeps the previous data)")?;
+    tracing::info!(
+        dir = %archived.display(),
+        "PG17 cluster archived; the PG18 cluster will receive the dump replay"
+    );
+    Ok(Some(dump))
+}
+
+/// Replay a pg17 cut dump into the freshly initialized PG18 cluster. Runs
+/// before the role/database bootstrap so an already-cut dump is authoritative.
+async fn replay_pg17_dump(root: &Path, dump: &Path, pg_port: u16) -> anyhow::Result<()> {
+    let new_bin = install_bin_dir(&root.join("pginstall"), "18")
+        .context("PG18 binaries missing right after setup — unexpected")?;
+    let mut psql = tokio::process::Command::new(new_bin.join("psql"));
+    psql.env("PGPASSWORD", "postgres")
+        .args(["-h", "127.0.0.1", "-U", "postgres", "-d", "postgres"])
+        .arg("-p")
+        .arg(pg_port.to_string())
+        .args(["-v", "ON_ERROR_STOP=1", "-f"])
+        .arg(dump);
+    run_checked(psql, "replaying the PG17 dump into the PG18 cluster").await?;
+    let _ = std::fs::remove_file(dump);
+    tracing::info!("PG17 → PG18 cut complete (pg_dumpall replay)");
+    Ok(())
+}
+
 async fn bootstrap_backend() -> anyhow::Result<(Backend, String, String)> {
     let root = data_root();
     std::fs::create_dir_all(&root)?;
     let pg_port = free_port(PREFERRED_PG_PORT);
 
     let mut settings = postgresql_embedded::Settings::default();
-    // Pin PG17 for parity with deploy/docker-compose.yml (pgvector/pgvector:pg17).
-    if let Ok(v) = postgresql_embedded::VersionReq::parse("17") {
+    // Pin PG18 for parity with deploy/docker-compose.yml (pgvector/pgvector:pg18).
+    if let Ok(v) = postgresql_embedded::VersionReq::parse("18") {
         settings.version = v;
     }
     settings.username = "postgres".into();
@@ -238,12 +374,18 @@ async fn bootstrap_backend() -> anyhow::Result<(Backend, String, String)> {
     settings.temporary = false;
     settings.port = pg_port;
 
+    // A pre-18 embedded cluster cannot boot under the 18 binaries — cut it
+    // first (pg_dumpall replay; the old directory is archived for rollback).
+    let cut_dump = cut_pg17_to_pg18(&root)
+        .await
+        .context("PG17 → PG18 cut preflight")?;
+
     let mut postgresql = postgresql_embedded::PostgreSQL::new(settings);
     postgresql
         .setup()
         .await
         .context("setting up the embedded Postgres (first run downloads the binaries)")?;
-    ensure_pgvector(&root.join("pginstall"))?;
+    ensure_pgvector(&root.join("pginstall"), "18")?;
     postgresql
         .start()
         .await
@@ -252,6 +394,11 @@ async fn bootstrap_backend() -> anyhow::Result<(Backend, String, String)> {
 
     let super_url = postgresql.settings().url("postgres");
     let super_pool = sqlx::postgres::PgPool::connect(&super_url).await?;
+    if let Some(dump) = cut_dump {
+        replay_pg17_dump(&root, &dump, pg_port)
+            .await
+            .context("replaying the archived PG17 cluster into the PG18 cluster")?;
+    }
     // Parity with deploy/docker-compose.yml: migrations and the worker run
     // as the TABLE OWNER `meridian`; migration 0001 itself provisions the
     // RLS-constrained `meridian_app` role the API connects as. Compose's

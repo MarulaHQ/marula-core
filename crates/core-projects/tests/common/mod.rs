@@ -42,9 +42,9 @@ async fn bootstrap() -> &'static Bootstrap {
                 };
             }
             let container_name = std::env::var("MERIDIAN_TEST_PG_NAME")
-                .unwrap_or_else(|_| "meridian-projects-tests-pg17".to_string());
+                .unwrap_or_else(|_| "meridian-projects-tests-pg18".to_string());
             let request = ContainerRequest::from(
-                GenericImage::new("pgvector/pgvector", "pg17")
+                GenericImage::new("pgvector/pgvector", "pg18")
                     .with_wait_for(WaitFor::message_on_stderr(
                         "database system is ready to accept connections",
                     ))

@@ -1,11 +1,11 @@
-// Meridian backend image builder.
-//
-// Purpose: one parameterized image for all Rust binaries (core-api,
-// realtime, worker, meridian-cli). Build with --build-arg BIN=<name>.
-// Non-purpose: no frontend build here; apps/web gets its own image when
-// it lands.
-//
-// Build context is the repository root (workspace Cargo.toml lives there).
+# Meridian backend image builder.
+#
+# Purpose: one parameterized image for all Rust binaries (core-api,
+# realtime, worker, meridian-cli). Build with --build-arg BIN=<name>.
+# Non-purpose: no frontend build here; apps/web gets its own image when
+# it lands.
+#
+# Build context is the repository root (workspace Cargo.toml lives there).
 # syntax=docker/dockerfile:1
 
 FROM rust:1-bookworm AS build
@@ -13,21 +13,45 @@ ARG BIN=core-api
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+COPY connectors ./connectors
+# desktop is a workspace member; cargo needs every member manifest present
+# to resolve the workspace graph even when building a different BIN.
+COPY desktop/Cargo.toml /src/desktop/Cargo.toml
+COPY desktop/build.rs /src/desktop/build.rs
+COPY desktop/src /src/desktop/src
+# sqlx offline query cache (macros resolve without a database at build).
+COPY .sqlx /src/.sqlx
+# core-api includes the generated OpenAPI pins from packages/sdk.
+COPY packages/sdk/openapi.json /src/packages/sdk/openapi.json
 # BuildKit cache mounts: the cargo registry and target dir persist across
 # image builds on the same builder, so lockfile-only changes don't trigger
 # a full re-download/recompile. The binary is copied out of the mount in
 # the same RUN (cache mounts are not visible to later layers).
+# -p scope is required: the workspace root is itself a package
+# (meridian-cli), so a bare --bin selects the root's default-run set and
+# finds nothing for the member binaries. The CLI's executable is named
+# `meridian`, everything else matches its package name.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \
-    cargo build --release --bin ${BIN} \
-    && mkdir -p /out && cp target/release/${BIN} /out/${BIN}
+    OUTEXE=$([ "$BIN" = "meridian-cli" ] && echo meridian || echo "$BIN") \
+    && cargo build --release --package ${BIN} \
+    && mkdir -p /out && cp target/release/${OUTEXE} /out/${BIN}
 
 FROM debian:bookworm-slim
-ARG BIN=core-api
+# Minimal runtime: the static binary + trusts for outbound TLS only — no
+# shell tools beyond the base image (healthchecks use the binaries'
+# /healthz over the network, or pg_isready/valkey-cli in their own images).
+# Non-root: the services bind >1024 ports only.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl \
-    && rm -rf /var/lib/apt/lists/*
-COPY --from=build /out/${BIN} /usr/local/bin/${BIN}
-# Shell form so ${BIN} resolves at build time per service.
-ENTRYPOINT /usr/local/bin/${BIN}
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    # Fixed numeric UID: Kubernetes runAsNonRoot cannot verify a named user.
+    && useradd --system --no-create-home --uid 10001 app
+ARG BIN=core-api
+# Normalized fixed name: ARGs are baked into shell-form ENTRYPOINT strings
+# at build time but are NOT available as runtime env — exec-form with the
+# literal path is the reliable contract (compose passes BIN via build args).
+COPY --from=build /out/${BIN} /usr/local/bin/meridian
+USER 10001
+ENTRYPOINT ["/usr/local/bin/meridian"]
 CMD []

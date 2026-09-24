@@ -18,6 +18,19 @@ spec:
       containers:
         - name: migrate
           image: {{ include "meridian.image" (dict "ctx" . "image" .Values.images.cli "key" "cli") }}
+          # Explicit subcommand: the runtime image entrypoint is the bare
+          # `meridian` binary (p36 Dockerfile normalization), which prints
+          # help and exits nonzero with no args. The retry loop covers the
+          # window where postgres is created (hook weight -5) but its pod
+          # has not passed readiness yet.
+          command: ["sh", "-c"]
+          args:
+            - |
+              for i in $(seq 1 60); do
+                /usr/local/bin/meridian migrate && exit 0
+                echo "postgres not ready, retry $i"; sleep 5
+              done
+              exit 1
           env:
             - name: DATABASE_URL
               value: {{ include "meridian.dbUrl" . | quote }}
