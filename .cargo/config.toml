@@ -8,4 +8,7 @@ target-dir = "/Users/iordn/Documents/GitHub/meridian-open-psa-core/.kilo/target-
 # 12GB, mostly rewritten each run). Incremental buys nothing for one-shot test
 # binary builds, so it is disabled workspace-wide; ordinary `cargo check`
 # turnarounds are unaffected (they were already hitting .rmeta reuse).
-cargo-incremental = false
+# 2026-09-24 fix: `cargo-incremental` was not a real cargo key (silently
+# ignored, so incremental stayed ON and the caches kept regrowing). The
+# correct `build.incremental` key is used below.
+incremental = false
