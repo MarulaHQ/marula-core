@@ -5,11 +5,22 @@
  * Per route x theme x viewport: exact one h1, alt text on every image, one
  * meta description, meta viewport present, no horizontal overflow, no
  * console/page errors, main landmark present.
+ *
+ * The matrix grows with each new route (wave 34 lane 7 added the six phase-2
+ * module pages); /features folded into /compare and 308s, so it is not a
+ * route here. CHECK_SITE_ORIGIN overrides the origin when a parallel lane
+ * already holds :3100 (the default port stays :3100).
  */
 import { chromium } from "playwright";
 
 const ROUTES = [
   "",
+  "ticketing",
+  "billing",
+  "client-portal",
+  "integrations",
+  "developers",
+  "compare",
   "agents",
   "open-source",
   "hosted",
@@ -18,10 +29,9 @@ const ROUTES = [
   "install",
   "changelog",
   "roadmap",
-  "features",
   "manifesto",
 ];
-const ORIGIN = "http://localhost:3100";
+const ORIGIN = process.env.CHECK_SITE_ORIGIN ?? "http://localhost:3100";
 const VIEWPORTS = [
   { name: "m390", width: 390, height: 844, isMobile: true, hasTouch: true },
   { name: "t768", width: 768, height: 1024 },
@@ -62,16 +72,11 @@ for (const theme of ["light", "dark"]) {
       }));
       const label = `${theme} ${route || "/"} ${vp.name}`;
 
-      if (vp.name !== "m390" || route !== "features") {
-        if (theme === "light") {
-          line(`${label} h1==1`, check.h1 === 1);
-          line(`${label} desc==1`, check.descriptions === 1);
-          line(`${label} viewport`, check.viewport === 1);
-          line(`${label} main`, check.main);
-        }
-      } else {
-        // features table page: h1 is inside main too; keep the same rule
+      if (theme === "light") {
         line(`${label} h1==1`, check.h1 === 1);
+        line(`${label} desc==1`, check.descriptions === 1);
+        line(`${label} viewport`, check.viewport === 1);
+        line(`${label} main`, check.main);
       }
       line(`${label} alt`, check.missingAlt === 0);
       line(`${label} overflow`, !check.overflow);
