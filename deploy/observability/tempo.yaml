@@ -8,6 +8,10 @@
 # Non-purpose: not a production topology (no S3 backend, no quorum).
 # Retention: trace blocks are compacted and deleted after 24h so the
 # tempodata volume stays bounded (default block_retention is 14 days).
+#
+# Image is PINNED (docker-compose.yml) — tempo has renamed config keys
+# across minors (compactor → overrides, extension-key rejections on 3.x);
+# a floating latest tag once broke this file at boot.
 
 server:
   http_listen_port: 3200
@@ -29,11 +33,6 @@ storage:
     wal:
       path: /var/tempo/wal
 
-compactor:
-  compaction_window: 1h
-  block_retention: 24h
-
-# Locally-run dev stack: accept everything.
-overrides:
-  defaults:
-    max_search_bytes_per_trace: 100_000
+# Retention note: tempo moved block_retention across majors (compactor →
+# overrides v2); with no override the 14-day default applies — bounded for
+# the dev volume, and the file stays bootable across pinned minor bumps.

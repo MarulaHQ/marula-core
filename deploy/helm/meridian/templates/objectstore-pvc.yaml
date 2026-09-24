@@ -1,6 +1,6 @@
 {{/* Local-fs object storage PVC for core-api when objectStore.mode=local
-(single-replica evaluation mode; S3/MinIO mode does not use this). */}}
-{{- if and (not .Values.minio.enabled) (eq .Values.objectStore.mode "local") -}}
+(single-replica evaluation mode; S3/Garage mode does not use this). */}}
+{{- if and (not .Values.garage.enabled) (eq .Values.objectStore.mode "local") -}}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

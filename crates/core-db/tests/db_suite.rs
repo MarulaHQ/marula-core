@@ -1,5 +1,5 @@
 //! End-to-end core-db query-layer tests against a real Postgres 17
-//! (pgvector/pgvector:pg17, prod parity).
+//! (pgvector/pgvector:pg18, prod parity).
 //!
 //! Purpose: prove the SQL layer — org seeding defaults, users/roles,
 //! session lifecycle with replay rejection, ticket number allocation,
@@ -7141,7 +7141,7 @@ fn embedding(seed: f32) -> Vec<f32> {
 async fn search_vector_migration_shape_extension_table_and_rls() {
     let db = test_db().await;
 
-    // The pgvector extension is installed (dev/prod run pgvector/pgvector:pg17;
+    // The pgvector extension is installed (dev/prod run pgvector/pgvector:pg18;
     // migration 0062 enables it explicitly for stock-PG-with-extension too).
     let ext: Option<String> =
         sqlx::query_scalar("SELECT extname FROM pg_extension WHERE extname = 'vector'")

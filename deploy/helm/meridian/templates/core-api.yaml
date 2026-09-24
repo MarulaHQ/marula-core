@@ -63,12 +63,14 @@ spec:
             - name: OBJECT_STORE
               value: {{ .Values.objectStore.mode | quote }}
             {{- if eq .Values.objectStore.mode "s3" }}
+            {{- /* endpoint/region default to the in-chart Garage slot when
+            unset (an operator-supplied external S3/R2 endpoint wins). */}}
             - name: S3_ENDPOINT
-              value: {{ required "objectStore.s3.endpoint required in s3 mode" .Values.objectStore.s3.endpoint | quote }}
+              value: {{ .Values.objectStore.s3.endpoint | default (printf "http://%s-garage:3900" (include "meridian.fullname" .)) | quote }}
             - name: S3_BUCKET
               value: {{ .Values.objectStore.s3.bucket | quote }}
             - name: S3_REGION
-              value: {{ .Values.objectStore.s3.region | quote }}
+              value: {{ .Values.objectStore.s3.region | default .Values.garage.s3Region | quote }}
             - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
@@ -103,7 +105,7 @@ spec:
               containerPort: 8080
           readinessProbe:
             httpGet:
-              path: /healthz
+              path: /api/v1/health
               port: {{ .Values.coreApi.bindAddr | regexFind ":\\d+$" | trimPrefix ":" }}
             initialDelaySeconds: 5
             periodSeconds: 5
