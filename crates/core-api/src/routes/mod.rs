@@ -101,6 +101,7 @@ pub mod portal_v2;
 pub mod presence;
 pub mod projects;
 pub mod provenance;
+pub mod purchasing;
 pub mod quotes;
 pub mod recurring;
 pub mod report_defs;
@@ -1735,6 +1736,11 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // router; mutations ride the IF1–IF3 envelope.
         .merge(catalog::routes(gen))
         .merge(stock::routes(gen))
+        // purchasing + vendors (Wave 32 lane 2, migration 0103): vendors,
+        // purchase orders with typed receipt states, receipts posting
+        // into the lane-1 stock ledger, external deeplinks, and the bill
+        // → project cost rollup hook.
+        .merge(purchasing::routes(gen))
         .merge(quotes::routes(gen))
         .merge(pipeline::routes(gen))
         // currency & FX (ADR 0002, Wave 12 lane 10, migration 0066): the

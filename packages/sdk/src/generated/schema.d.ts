@@ -3964,6 +3964,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/external-links/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** DELETE /api/external-links/{id} */
+        delete: operations["external_links_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/fx/rates": {
         parameters: {
             query?: never;
@@ -6945,6 +6962,26 @@ export interface paths {
         patch: operations["projects_patch"];
         trace?: never;
     };
+    "/api/v1/projects/{id}/cost-rollup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/projects/{id}/cost-rollup — posted PO bills in base currency
+         *     (ADR 0002 locked) plus the project budget for comparison.
+         */
+        get: operations["projects_cost_rollup"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{id}/phases": {
         parameters: {
             query?: never;
@@ -7158,6 +7195,231 @@ export interface paths {
          *     the appointments EXCLUDE constraint is the concurrency backstop.
          */
         post: operations["public_scheduling_link_book"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/purchase-orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/purchase-orders */
+        get: operations["purchase_orders_list"];
+        put?: never;
+        /** POST /api/purchase-orders */
+        post: operations["purchase_orders_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/purchase-orders/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/purchase-orders/{id} — header + lines + receipts + bill. */
+        get: operations["purchase_orders_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** PATCH /api/purchase-orders/{id} — draft-only header edits. */
+        patch: operations["purchase_orders_update"];
+        trace?: never;
+    };
+    "/api/v1/purchase-orders/{id}/bill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/purchase-orders/{id}/bill */
+        get: operations["purchase_orders_get_bill"];
+        /** PUT /api/purchase-orders/{id}/bill — record or edit the draft bill. */
+        put: operations["purchase_orders_record_bill"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/purchase-orders/{id}/bill/post": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/purchase-orders/{id}/bill/post — the rollup moment: locks
+         *     the ADR 0002 FX snapshot and stamps `posted_at`.
+         */
+        post: operations["purchase_orders_post_bill"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/purchase-orders/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/purchase-orders/{id}/cancel — draft|ordered, nothing received. */
+        post: operations["purchase_orders_cancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/purchase-orders/{id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/purchase-orders/{id}/close — received|partially_received →
+         *     closed; the close disposition is the typed under-receipt record.
+         */
+        post: operations["purchase_orders_close"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/purchase-orders/{id}/deeplinks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/purchase-orders/{id}/deeplinks — the one-click open list:
+         *     vendor portal links first, then PO-level links, then per-line links
+         *     (with their line context), each https-validated at write time.
+         */
+        get: operations["purchase_orders_deeplinks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/purchase-orders/{id}/lines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/purchase-orders/{id}/lines — draft-only line add. */
+        post: operations["purchase_orders_add_line"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/purchase-orders/{id}/lines/{line_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** DELETE /api/purchase-orders/{id}/lines/{line_id} — draft-only. */
+        delete: operations["purchase_orders_delete_line"];
+        options?: never;
+        head?: never;
+        /** PATCH /api/purchase-orders/{id}/lines/{line_id} — draft-only line edit. */
+        patch: operations["purchase_orders_update_line"];
+        trace?: never;
+    };
+    "/api/v1/purchase-orders/{id}/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/purchase-orders/{id}/links */
+        get: operations["purchase_orders_list_links"];
+        put?: never;
+        /**
+         * POST /api/purchase-orders/{id}/links — PO-level or (with `line_id`) a
+         *     per-line order/tracking URL.
+         */
+        post: operations["purchase_orders_add_link"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/purchase-orders/{id}/order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/purchase-orders/{id}/order — draft → ordered. */
+        post: operations["purchase_orders_send"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/purchase-orders/{id}/receive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/purchase-orders/{id}/receive — the receipt that posts into
+         *     the lane-1 movement ledger at `location_id`.
+         */
+        post: operations["purchase_orders_receive"];
         delete?: never;
         options?: never;
         head?: never;
@@ -10343,6 +10605,78 @@ export interface paths {
         patch: operations["users_me_patch"];
         trace?: never;
     };
+    "/api/v1/vendors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/vendors */
+        get: operations["vendors_list"];
+        put?: never;
+        /** POST /api/vendors */
+        post: operations["vendors_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vendors/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/vendors/{id} — entity + contacts + links. */
+        get: operations["vendors_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** PATCH /api/vendors/{id} */
+        patch: operations["vendors_update"];
+        trace?: never;
+    };
+    "/api/v1/vendors/{id}/contacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/vendors/{id}/contacts */
+        get: operations["vendors_list_contacts"];
+        put?: never;
+        /** POST /api/vendors/{id}/contacts — replace-on-write. */
+        post: operations["vendors_replace_contacts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vendors/{id}/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/vendors/{id}/links */
+        get: operations["vendors_list_links"];
+        put?: never;
+        /** POST /api/vendors/{id}/links */
+        post: operations["vendors_add_link"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/webhooks": {
         parameters: {
             query?: never;
@@ -10555,6 +10889,8 @@ export interface components {
             /** Format: uuid */
             user_id: string;
         };
+        /** @description POST /purchase-orders/{id}/lines body: the line plus IF1 params. */
+        AddOrderLineRequest: components["schemas"]["OrderLineInput"] & components["schemas"]["MutationParams"];
         AdjustRequest: components["schemas"]["MutationParams"] & {
             /** Format: uuid */
             item_id: string;
@@ -11492,6 +11828,10 @@ export interface components {
             /** Format: date-time */
             started_at: string;
         };
+        BillMutationResponse: {
+            bill: components["schemas"]["PurchaseBill"];
+            mutation: components["schemas"]["MutationMeta"];
+        };
         /**
          * @description One draft invoice-line candidate. This is a PREVIEW shape: nothing
          *     persists until Wave 9's invoice run.
@@ -12033,6 +12373,9 @@ export interface components {
              */
             user_id?: string | null;
         };
+        CancelOrderRequest: components["schemas"]["MutationParams"] & {
+            reason?: string | null;
+        };
         CandidateView: components["schemas"]["CiMergeCandidate"] & {
             candidate_tag: string;
             primary_tag: string;
@@ -12527,6 +12870,9 @@ export interface components {
             client_id: string;
             entries: components["schemas"]["OverrideEntry"][];
         };
+        /** @enum {string} */
+        CloseKind: "full" | "short";
+        CloseOrderRequest: components["schemas"]["MutationParams"];
         CommentListQuery: {
             kind?: null | components["schemas"]["NoteKind"];
         };
@@ -12840,6 +13186,10 @@ export interface components {
             resolved_existing?: boolean;
             source_link: components["schemas"]["EntitySourceLink"];
         };
+        ContactsMutationResponse: {
+            contacts: components["schemas"]["VendorContact"][];
+            mutation: components["schemas"]["MutationMeta"];
+        };
         /**
          * @description A commercial agreement with one client. Money fields are integer minor
          *     units (cents for USD) — floats are forbidden near amounts (§5).
@@ -13081,8 +13431,11 @@ export interface components {
             to_kind: string;
         };
         CreateAssetRequest: components["schemas"]["MutationParams"] & {
-            /** Format: uuid */
-            client_id: string;
+            /**
+             * Format: uuid
+             * @description Required for client-scoped assets; absent for internal-org ones.
+             */
+            client_id?: string | null;
             fields?: unknown;
             /**
              * @description Free-text connector-compat column (typed classification rides
@@ -13096,6 +13449,12 @@ export interface components {
             layout_id?: string | null;
             lifecycle?: null | components["schemas"]["AssetLifecycleInput"];
             name: string;
+            /**
+             * @description client | internal_org (migration 0103). Defaults to `client` when
+             *     a client_id is present — internal-org assets (the MSP's own gear)
+             *     carry no client, never a fake one.
+             */
+            scope?: string | null;
             /** Format: uuid */
             site_id?: string | null;
             status?: string;
@@ -13425,6 +13784,21 @@ export interface components {
             starts_at: string;
             /** Format: uuid */
             user_id?: string | null;
+        };
+        CreateOrderRequest: components["schemas"]["MutationParams"] & {
+            /** @description Absent → the vendor's default currency. */
+            currency?: string | null;
+            /** Format: date */
+            expected_at?: string | null;
+            lines?: components["schemas"]["OrderLineInput"][];
+            notes?: string | null;
+            /** @description Absent → generated `PO-NNNNNN` from the org sequence. */
+            number?: string | null;
+            /** Format: uuid */
+            project_id?: string | null;
+            /** Format: uuid */
+            vendor_id: string;
+            vendor_reference?: string | null;
         };
         CreatePasswordRequest: components["schemas"]["MutationParams"] & {
             /**
@@ -13888,6 +14262,18 @@ export interface components {
             user_id?: string | null;
             vehicle: string;
         };
+        CreateVendorRequest: components["schemas"]["MutationParams"] & {
+            account_number?: string | null;
+            code?: string | null;
+            /** @description Initial contact list (replace-on-write semantics). */
+            contacts?: components["schemas"]["VendorContactInput"][];
+            default_currency?: string | null;
+            email?: string | null;
+            name: string;
+            notes?: string | null;
+            phone?: string | null;
+            website?: string | null;
+        };
         CreateViewRequest: {
             is_default?: boolean;
             name: string;
@@ -14327,12 +14713,36 @@ export interface components {
             decision_configured: boolean;
             workflow: components["schemas"]["DedupeWorkflow"];
         };
+        /** @description One resolved one-click link on a PO, in open order. */
+        DeeplinkEntry: {
+            carrier?: string | null;
+            kind: components["schemas"]["ExternalLinkKind"];
+            label?: string | null;
+            line_description?: string | null;
+            /** Format: uuid */
+            line_id?: string | null;
+            /** Format: int32 */
+            line_position?: number | null;
+            /** Format: uuid */
+            link_id: string;
+            /** @description vendor | purchase_order | purchase_order_line */
+            subject: string;
+            url: string;
+        };
+        DeeplinkVendor: {
+            account_number?: string | null;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            website?: string | null;
+        };
         /**
          * @description Visibility scope of a stored definition: `org` (published org-wide,
          *     admins only) or `self` (private to the creator).
          * @enum {string}
          */
         DefinitionScope: "org" | "self";
+        DeleteOrderLineRequest: components["schemas"]["MutationParams"];
         DeliveryAttemptView: {
             /** Format: int32 */
             attempt: number;
@@ -14391,8 +14801,12 @@ export interface components {
         DeviceAsset: {
             /** Format: int64 */
             base_purchase_cost_minor?: number | null;
-            /** Format: uuid */
-            client_id: string;
+            /**
+             * Format: uuid
+             * @description NULL for internal-org assets; the DB CHECK (migration 0103) ties
+             *     `scope` and `client_id` together structurally.
+             */
+            client_id?: string | null;
             /** Format: date-time */
             created_at: string;
             /** @description CI5: human-set tier; sticky forever, never auto-overwritten. */
@@ -14461,6 +14875,12 @@ export interface components {
             rental_vendor?: string | null;
             /** Format: int64 */
             salvage_value_minor?: number | null;
+            /**
+             * @description client | internal_org (migration 0103): the MSP's OWN equipment
+             *     rides the SAME DeviceAsset lifecycle under an org-scoped row —
+             *     client_id NULL, never a fake client record.
+             */
+            scope?: string;
             /** Format: uuid */
             site_id?: string | null;
             status: string;
@@ -15315,6 +15735,35 @@ export interface components {
         ExternalDocumentMutationResponse: components["schemas"]["KbExternalDocument"] & {
             mutation: components["schemas"]["MutationMeta"];
         };
+        /**
+         * @description A typed external URL bound to a subject (vendor / PO / PO line /
+         *     device asset). No polymorphic FK — the write path checks that the
+         *     subject row exists in the org.
+         */
+        ExternalLink: {
+            /** @description Carrier that owns a tracking page (kind = tracking). */
+            carrier?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["ExternalLinkKind"];
+            label?: string | null;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            subject_id: string;
+            subject_kind: components["schemas"]["ExternalLinkSubject"];
+            /** Format: date-time */
+            updated_at: string;
+            url: string;
+        };
+        /** @enum {string} */
+        ExternalLinkKind: "order_portal" | "tracking" | "invoice" | "other";
+        /** @enum {string} */
+        ExternalLinkSubject: "vendor" | "purchase_order" | "purchase_order_line" | "device_asset";
         FavoriteRequest: {
             /** Format: uuid */
             board_id: string;
@@ -16145,6 +16594,10 @@ export interface components {
          * @enum {string}
          */
         LinkKind: "document" | "password" | "client" | "ticket" | "kb_article" | "asset" | "secret";
+        LinkMutationResponse: {
+            link: components["schemas"]["ExternalLink"];
+            mutation: components["schemas"]["MutationMeta"];
+        };
         LinksView: {
             from: Record<string, never>[];
             rollup: components["schemas"]["TicketRollup"];
@@ -16182,6 +16635,14 @@ export interface components {
             /** Format: uuid */
             user_id?: string | null;
         };
+        ListOrdersQuery: {
+            /** Format: uuid */
+            project_id?: string | null;
+            q?: string | null;
+            status?: string | null;
+            /** Format: uuid */
+            vendor_id?: string | null;
+        };
         ListOrgUsersQuery: {
             /**
              * Format: int64
@@ -16215,6 +16676,10 @@ export interface components {
             status?: string | null;
             /** Format: uuid */
             user_id?: string | null;
+        };
+        ListVendorsQuery: {
+            include_inactive?: boolean;
+            q?: string | null;
         };
         LocationListQuery: {
             active_only?: boolean | null;
@@ -17098,6 +17563,22 @@ export interface components {
              *     omitted means re-run the CALLER's own user onboarding.
              */
             user_id?: string | null;
+        };
+        OrderLineInput: {
+            /** Format: uuid */
+            catalog_item_id?: string | null;
+            description: string;
+            /** Format: int32 */
+            position?: number | null;
+            /** Format: int64 */
+            qty_ordered_milli: number;
+            /** Format: uuid */
+            stock_item_id?: string | null;
+            /** Format: int64 */
+            unit_cost_minor: number;
+        };
+        OrderMutationResponse: components["schemas"]["PurchaseOrderDetail"] & {
+            mutation: components["schemas"]["MutationMeta"];
         };
         /**
          * @description Org-wide preview: every billable contract's evaluation for the window
@@ -18353,6 +18834,17 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        ProjectCostRollupView: {
+            base_currency: string;
+            bills: components["schemas"]["RollupBillView"][];
+            budget_currency?: string | null;
+            /** Format: int64 */
+            budget_minor?: number | null;
+            /** Format: int64 */
+            po_bill_base_minor: number;
+            /** Format: uuid */
+            project_id: string;
+        };
         /**
          * @description The instantiation result: the applied project plus the expansion
          *     counts (clients render "created N phases, M tasks" without refetching).
@@ -18685,6 +19177,202 @@ export interface components {
              * @description Page size, clamped to [1, 200] (default 100).
              */
             limit?: number | null;
+        };
+        /**
+         * @description The vendor bill: recorded as a draft, posted (FX-locked) into project
+         *     cost rollups.
+         */
+        PurchaseBill: {
+            /** Format: int64 */
+            amount_minor: number;
+            /** Format: int64 */
+            base_amount_minor?: number | null;
+            bill_number?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            currency: string;
+            /** Format: date */
+            fx_rate_date?: string | null;
+            fx_rate_used?: string | null;
+            fx_source?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: date-time */
+            posted_at?: string | null;
+            /** Format: uuid */
+            purchase_order_id: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /** @description One purchase order header. */
+        PurchaseOrder: {
+            cancel_reason?: string | null;
+            /** Format: date-time */
+            cancelled_at?: string | null;
+            close_kind?: null | components["schemas"]["CloseKind"];
+            /** Format: date-time */
+            closed_at?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** @description ISO 4217; every line cost is in this currency. */
+            currency: string;
+            /** Format: date */
+            expected_at?: string | null;
+            /** Format: uuid */
+            id: string;
+            notes?: string | null;
+            number: string;
+            /** Format: date-time */
+            ordered_at?: string | null;
+            /** Format: uuid */
+            org_id: string;
+            /**
+             * Format: uuid
+             * @description Cost-object hook for project cost rollups (NULL = unassigned).
+             */
+            project_id?: string | null;
+            status: components["schemas"]["PurchaseOrderStatus"];
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: uuid */
+            vendor_id: string;
+            /** @description The vendor's own order reference. */
+            vendor_reference?: string | null;
+        };
+        PurchaseOrderDeeplinks: {
+            links: components["schemas"]["DeeplinkEntry"][];
+            number: string;
+            /** Format: uuid */
+            order_id: string;
+            vendor: components["schemas"]["DeeplinkVendor"];
+        };
+        PurchaseOrderDetail: {
+            bill?: null | components["schemas"]["PurchaseBill"];
+            lines: components["schemas"]["PurchaseOrderLineView"][];
+            order: components["schemas"]["PurchaseOrder"];
+            receipts: components["schemas"]["PurchaseReceiptView"][];
+            totals?: null | components["schemas"]["PurchaseOrderRollup"];
+        };
+        /** @description One PO line: quantity at milli precision, cost in minor units. */
+        PurchaseOrderLine: {
+            /** Format: uuid */
+            catalog_item_id?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            description: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: int32 */
+            position: number;
+            /** Format: uuid */
+            purchase_order_id: string;
+            /** Format: int64 */
+            qty_ordered_milli: number;
+            /** Format: int64 */
+            qty_received_milli: number;
+            receipt_state: components["schemas"]["ReceiptState"];
+            /** Format: uuid */
+            stock_item_id?: string | null;
+            /** Format: int64 */
+            unit_cost_minor: number;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /** @description Ledger-visible PO line (cost fields are `financial:read`-gated). */
+        PurchaseOrderLineView: {
+            /** Format: uuid */
+            catalog_item_id?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            description: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: int64 */
+            ordered_amount_minor?: number | null;
+            /** Format: int32 */
+            position: number;
+            /** Format: uuid */
+            purchase_order_id: string;
+            /** Format: int64 */
+            qty_ordered_milli: number;
+            /** Format: int64 */
+            qty_received_milli: number;
+            receipt_state: components["schemas"]["ReceiptState"];
+            /** Format: int64 */
+            received_amount_minor?: number | null;
+            /** Format: uuid */
+            stock_item_id?: string | null;
+            /** Format: int64 */
+            unit_cost_minor?: number | null;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /**
+         * @description The rolled-up money on a PO: ordered and received amounts in the PO
+         *     currency, integer minor units.
+         */
+        PurchaseOrderRollup: {
+            /** Format: int64 */
+            ordered_minor: number;
+            /** Format: int64 */
+            received_minor: number;
+        };
+        /** @enum {string} */
+        PurchaseOrderStatus: "draft" | "ordered" | "partially_received" | "received" | "closed" | "cancelled";
+        /** @description One receipt document: goods that landed at a location against a PO. */
+        PurchaseReceipt: {
+            carrier?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            location_id: string;
+            note?: string | null;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            purchase_order_id: string;
+            /** Format: date-time */
+            received_at: string;
+            tracking_ref?: string | null;
+        };
+        /** @description One receipt line: what moved, and the ledger row it posted. */
+        PurchaseReceiptLine: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: uuid
+             * @description The lane-1 append-only ledger row this line posted.
+             */
+            movement_id?: string | null;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            po_line_id: string;
+            /** Format: int64 */
+            qty_milli: number;
+            /** Format: uuid */
+            receipt_id: string;
+        };
+        /**
+         * @description A receipt document with its traceability lines (each stamps the
+         *     lane-1 ledger `movement_id` it posted).
+         */
+        PurchaseReceiptView: components["schemas"]["PurchaseReceipt"] & {
+            lines: components["schemas"]["PurchaseReceiptLine"][];
         };
         /**
          * @description The checkpoint cursor of a push session: what the server has committed
@@ -19238,6 +19926,40 @@ export interface components {
             count: number;
             mine?: null | components["schemas"]["RatingMineView"];
         };
+        ReceiptMutationResponse: {
+            mutation: components["schemas"]["MutationMeta"];
+            order: components["schemas"]["PurchaseOrderDetail"];
+            receipt: components["schemas"]["PurchaseReceiptView"];
+        };
+        /** @enum {string} */
+        ReceiptState: "pending" | "partial" | "complete" | "over";
+        ReceiveLineInput: {
+            /** Format: uuid */
+            line_id: string;
+            /** Format: int64 */
+            qty_milli: number;
+            /**
+             * @description Serialized stock items only: one serial per unit (qty_milli must be
+             *     `count × 1000`). Each serial posts its own ledger row + receipt line.
+             */
+            serial_numbers?: string[] | null;
+        };
+        ReceiveOrderRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * @description Explicit acknowledgement for an over-receipt; absent/false refuses
+             *     with a typed 409.
+             */
+            allow_over_receipt?: boolean;
+            carrier?: string | null;
+            lines: components["schemas"]["ReceiveLineInput"][];
+            /**
+             * Format: uuid
+             * @description Where the goods landed (lane-1 stock location).
+             */
+            location_id: string;
+            note?: string | null;
+            tracking_ref?: string | null;
+        };
         /**
          * @description POST /api/stock/{receive|consume|adjust|transfer|ship-out} bodies.
          *     All quantities are `milli` thousandths of the item's unit (parity with
@@ -19267,6 +19989,15 @@ export interface components {
         ReconciliationQuery: {
             /** Format: int64 */
             limit?: number | null;
+        };
+        RecordBillRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * Format: int64
+             * @description Absent → the received total from the PO lines.
+             */
+            amount_minor?: number | null;
+            bill_number?: string | null;
+            currency?: string | null;
         };
         RecordPaymentRequest: components["schemas"]["MutationParams"] & {
             /**
@@ -19372,6 +20103,9 @@ export interface components {
              * @description New root category (must be a root of this org).
              */
             parent_id: string;
+        };
+        ReplaceContactsRequest: components["schemas"]["MutationParams"] & {
+            contacts: components["schemas"]["VendorContactInput"][];
         };
         ReplaceLadderRequest: {
             steps: components["schemas"]["LadderStepSpec"][];
@@ -19719,6 +20453,20 @@ export interface components {
             presets: components["schemas"]["PresetView"][];
             /** @description Every org role: presets (system rows) + org-created custom roles. */
             roles: components["schemas"]["RoleView"][];
+        };
+        RollupBillView: {
+            /** Format: int64 */
+            amount_minor: number;
+            /** Format: int64 */
+            base_amount_minor?: number | null;
+            /** Format: uuid */
+            bill_id: string;
+            currency: string;
+            /** Format: date-time */
+            posted_at?: string | null;
+            /** Format: uuid */
+            purchase_order_id: string;
+            purchase_order_number: string;
         };
         /**
          * @description Wire format selector for an import payload.
@@ -22243,6 +22991,14 @@ export interface components {
             icon?: string;
             name: string;
         };
+        UpdateOrderRequest: components["schemas"]["MutationParams"] & {
+            /** Format: date */
+            expected_at?: string | null;
+            notes?: string | null;
+            /** Format: uuid */
+            project_id?: string | null;
+            vendor_reference?: string | null;
+        };
         UpdatePasswordRequest: components["schemas"]["MutationParams"] & {
             /**
              * Format: date-time
@@ -22476,6 +23232,17 @@ export interface components {
             /** Format: int32 */
             time_gap_min_minutes: number;
         };
+        UpdateVendorRequest: components["schemas"]["MutationParams"] & {
+            account_number?: string | null;
+            active?: boolean | null;
+            code?: string | null;
+            default_currency?: string | null;
+            email?: string | null;
+            name?: string | null;
+            notes?: string | null;
+            phone?: string | null;
+            website?: string | null;
+        };
         UpdateWebhookRequest: {
             enabled?: boolean | null;
             event_types?: string[] | null;
@@ -22591,6 +23358,64 @@ export interface components {
              * @description Lookback window in days (default 30; outbound legs summed).
              */
             window_days?: number | null;
+        };
+        /** @description One org-owned supplier/reseller. */
+        Vendor: {
+            /** @description The vendor's account number for THIS org. */
+            account_number?: string | null;
+            active: boolean;
+            code?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** @description ISO 4217 default for POs to this vendor. */
+            default_currency: string;
+            email?: string | null;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            notes?: string | null;
+            /** Format: uuid */
+            org_id: string;
+            phone?: string | null;
+            /** Format: date-time */
+            updated_at: string;
+            website?: string | null;
+        };
+        /** @description A typed contact on a vendor. */
+        VendorContact: {
+            /** Format: date-time */
+            created_at: string;
+            email?: string | null;
+            /** Format: uuid */
+            id: string;
+            is_primary: boolean;
+            name: string;
+            /** Format: uuid */
+            org_id: string;
+            phone?: string | null;
+            role?: string | null;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: uuid */
+            vendor_id: string;
+        };
+        VendorContactInput: {
+            email?: string | null;
+            is_primary?: boolean;
+            name?: string;
+            phone?: string | null;
+            role?: string | null;
+        };
+        /** @description Vendor detail: the entity plus its typed contacts and external links. */
+        VendorDetail: {
+            contacts: components["schemas"]["VendorContact"][];
+            links: components["schemas"]["ExternalLink"][];
+            vendor: components["schemas"]["Vendor"];
+        };
+        VendorMutationResponse: components["schemas"]["Vendor"] & {
+            mutation: components["schemas"]["MutationMeta"];
         };
         VerdictResponse: {
             /**
@@ -23968,6 +24793,8 @@ export interface operations {
         parameters: {
             query?: {
                 client_id?: string | null;
+                /** @description client | internal_org (migration 0103). */
+                scope?: string | null;
                 layout_id?: string | null;
                 /** @description Substring over tag, name, and custom fields. */
                 q?: string | null;
@@ -30221,6 +31048,32 @@ export interface operations {
             };
         };
     };
+    external_links_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description link not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     fx_rates_list: {
         parameters: {
             query?: {
@@ -35887,6 +36740,34 @@ export interface operations {
             };
         };
     };
+    projects_cost_rollup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectCostRollupView"];
+                };
+            };
+            /** @description project not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     projects_list_phases: {
         parameters: {
             query?: never;
@@ -36408,6 +37289,582 @@ export interface operations {
                 content?: never;
             };
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    purchase_orders_list: {
+        parameters: {
+            query?: {
+                status?: string | null;
+                vendor_id?: string | null;
+                project_id?: string | null;
+                q?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseOrder"][];
+                };
+            };
+        };
+    };
+    purchase_orders_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateOrderRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderMutationResponse"];
+                };
+            };
+            /** @description vendor or project not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description order number already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    purchase_orders_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseOrderDetail"];
+                };
+            };
+            /** @description order not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    purchase_orders_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateOrderRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderMutationResponse"];
+                };
+            };
+            /** @description order not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description order is not a draft */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    purchase_orders_get_bill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseBill"];
+                };
+            };
+            /** @description no bill recorded for this order */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    purchase_orders_record_bill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordBillRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BillMutationResponse"];
+                };
+            };
+            /** @description order not billable yet, or the bill is already posted */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    purchase_orders_post_bill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CloseOrderRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BillMutationResponse"];
+                };
+            };
+            /** @description no bill recorded */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the bill is already posted */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    purchase_orders_cancel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CancelOrderRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderMutationResponse"];
+                };
+            };
+            /** @description order already received goods or is terminal */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    purchase_orders_close: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CloseOrderRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderMutationResponse"];
+                };
+            };
+            /** @description order is not in a closable state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    purchase_orders_deeplinks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseOrderDeeplinks"];
+                };
+            };
+            /** @description order not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    purchase_orders_add_line: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrderLineInput"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderMutationResponse"];
+                };
+            };
+            /** @description order is not a draft */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description line validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    purchase_orders_delete_line: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteOrderLineRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderMutationResponse"];
+                };
+            };
+            /** @description order or line not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description order is not a draft */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    purchase_orders_update_line: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddOrderLineRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderMutationResponse"];
+                };
+            };
+            /** @description order or line not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description order is not a draft or the line already received goods */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    purchase_orders_list_links: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExternalLink"][];
+                };
+            };
+        };
+    };
+    purchase_orders_add_link: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLinkRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkMutationResponse"];
+                };
+            };
+            /** @description order or line not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description line not in this order, or non-https url */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    purchase_orders_send: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CloseOrderRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderMutationResponse"];
+                };
+            };
+            /** @description order is not a draft or has no lines */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    purchase_orders_receive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReceiveOrderRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceiptMutationResponse"];
+                };
+            };
+            /** @description order or location not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description order not receivable, over-receipt without acknowledgement, or a line without a stock item */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description serial numbers inconsistent with the received quantity */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -43301,6 +44758,238 @@ export interface operations {
                     "application/json": components["schemas"]["MeResponse"];
                 };
             };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    vendors_list: {
+        parameters: {
+            query?: {
+                q?: string | null;
+                include_inactive?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Vendor"][];
+                };
+            };
+        };
+    };
+    vendors_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateVendorRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VendorMutationResponse"];
+                };
+            };
+            /** @description vendor code already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    vendors_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VendorDetail"];
+                };
+            };
+            /** @description vendor not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    vendors_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateVendorRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VendorMutationResponse"];
+                };
+            };
+            /** @description vendor not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description vendor code already exists or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    vendors_list_contacts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VendorContact"][];
+                };
+            };
+        };
+    };
+    vendors_replace_contacts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplaceContactsRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContactsMutationResponse"];
+                };
+            };
+            /** @description vendor not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    vendors_list_links: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExternalLink"][];
+                };
+            };
+        };
+    };
+    vendors_add_link: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLinkRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkMutationResponse"];
+                };
+            };
+            /** @description vendor not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the url must be https */
             422: {
                 headers: {
                     [name: string]: unknown;

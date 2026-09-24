@@ -460,21 +460,23 @@ use core_domain::events::{
     PodVisibilityUpdated, ProjectCreated, ProjectMilestoneCompleted, ProjectPhaseCompleted,
     ProjectPhaseCreated, ProjectPhaseUpdated, ProjectTaskCompleted, ProjectTaskCreated,
     ProjectTaskUpdated, ProjectTemplateRemoved, ProjectTemplateUpdated, ProjectUpdated,
-    ProjectViewRemoved, ProjectViewUpdated, QuoteAccepted, QuoteConverted, QuoteCreated,
-    QuoteDeclined, QuoteExpired, QuoteSent, QuoteUpdated, RoleForked, RoleRestored,
-    SchedulingLinkCreated, SchedulingLinkRevoked, SchedulingLinkScheduled, SchedulingLinkViewed,
-    ScorecardSettingsUpdated, SecretFolderCreated, SecretFolderDeleted, SecretFolderForked,
-    SecretFolderUpdated, SecretGrantDeleted, SecretGrantUpdated, SecretRecordCreated,
-    SecretRecordDeleted, SecretRecordUpdated, SecretRevealed, SecretRotationDue,
-    SecretShareLinkClaimed, SecretShareLinkCreated, SiteCreated, SiteUpdated, StockItemArchived,
-    StockItemCreated, StockItemUpdated, StockLevelLow, StockMovementRecorded, TagCreated,
-    TagDeleted, TagUpdated, TemplateCreated, TemplateRemoved, TemplateUpdated, TicketAssigned,
-    TicketBoardMoved, TicketChecklistUpdated, TicketCommentAdded, TicketCostLineAdded,
-    TicketCostLineRemoved, TicketCreated, TicketExpenseRecorded, TicketExpenseRemoved,
-    TicketLinkChanged, TicketMerged, TicketReverted, TicketStatusChanged, TicketTagsChanged,
-    TimeEntryApprovalApproved, TimeEntryApprovalRejected, TimeEntryApprovalSubmitted,
-    TimeEntryCreated, TimerPaused, TimerStarted, TimerStopped, TravelDraftSubmitted, UserActivated,
-    UserDeactivated, UserInvited, UserRoleChanged,
+    ProjectViewRemoved, ProjectViewUpdated, PurchaseBillPosted, PurchaseOrderCreated,
+    PurchaseOrderStatusChanged, PurchaseOrderUpdated, PurchaseReceiptRecorded, QuoteAccepted,
+    QuoteConverted, QuoteCreated, QuoteDeclined, QuoteExpired, QuoteSent, QuoteUpdated, RoleForked,
+    RoleRestored, SchedulingLinkCreated, SchedulingLinkRevoked, SchedulingLinkScheduled,
+    SchedulingLinkViewed, ScorecardSettingsUpdated, SecretFolderCreated, SecretFolderDeleted,
+    SecretFolderForked, SecretFolderUpdated, SecretGrantDeleted, SecretGrantUpdated,
+    SecretRecordCreated, SecretRecordDeleted, SecretRecordUpdated, SecretRevealed,
+    SecretRotationDue, SecretShareLinkClaimed, SecretShareLinkCreated, SiteCreated, SiteUpdated,
+    StockItemArchived, StockItemCreated, StockItemUpdated, StockLevelLow, StockMovementRecorded,
+    TagCreated, TagDeleted, TagUpdated, TemplateCreated, TemplateRemoved, TemplateUpdated,
+    TicketAssigned, TicketBoardMoved, TicketChecklistUpdated, TicketCommentAdded,
+    TicketCostLineAdded, TicketCostLineRemoved, TicketCreated, TicketExpenseRecorded,
+    TicketExpenseRemoved, TicketLinkChanged, TicketMerged, TicketReverted, TicketStatusChanged,
+    TicketTagsChanged, TimeEntryApprovalApproved, TimeEntryApprovalRejected,
+    TimeEntryApprovalSubmitted, TimeEntryCreated, TimerPaused, TimerStarted, TimerStopped,
+    TravelDraftSubmitted, UserActivated, UserDeactivated, UserInvited, UserRoleChanged,
+    VendorCreated, VendorUpdated,
 };
 use core_domain::money::{CurrencyCode, Money};
 use core_domain::policy::BoardRole;
@@ -2880,6 +2882,92 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             }
         ),
     },
+    // -- purchasing + vendors (Wave 32 lane 2, migration 0103) --------------
+    PublishedEvent {
+        event_type: types::VENDOR_CREATED,
+        entity: "vendor",
+        variant: "default",
+        shape: typed_shape!(
+            VendorCreated,
+            VendorCreated {
+                vendor: sample_vendor(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::VENDOR_UPDATED,
+        entity: "vendor",
+        variant: "default",
+        shape: typed_shape!(
+            VendorUpdated,
+            VendorUpdated {
+                vendor: sample_vendor(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PURCHASE_ORDER_CREATED,
+        entity: "purchase_order",
+        variant: "default",
+        shape: typed_shape!(
+            PurchaseOrderCreated,
+            PurchaseOrderCreated {
+                order: sample_purchase_order(),
+                lines: vec![sample_purchase_order_line()],
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PURCHASE_ORDER_UPDATED,
+        entity: "purchase_order",
+        variant: "default",
+        shape: typed_shape!(
+            PurchaseOrderUpdated,
+            PurchaseOrderUpdated {
+                order: sample_purchase_order(),
+                lines: vec![sample_purchase_order_line()],
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PURCHASE_ORDER_STATUS_CHANGED,
+        entity: "purchase_order",
+        variant: "default",
+        shape: typed_shape!(
+            PurchaseOrderStatusChanged,
+            PurchaseOrderStatusChanged {
+                order_id: su(71),
+                number: "PO-000123".into(),
+                from: "partially_received".into(),
+                to: "closed".into(),
+                close_kind: Some("short".into()),
+                occurred_at: st(5),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PURCHASE_RECEIPT_RECORDED,
+        entity: "purchase_receipt",
+        variant: "default",
+        shape: typed_shape!(
+            PurchaseReceiptRecorded,
+            PurchaseReceiptRecorded {
+                receipt: sample_purchase_receipt(),
+                lines: vec![sample_purchase_receipt_line()],
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::PURCHASE_BILL_POSTED,
+        entity: "purchase_bill",
+        variant: "default",
+        shape: typed_shape!(
+            PurchaseBillPosted,
+            PurchaseBillPosted {
+                bill: sample_purchase_bill(),
+            }
+        ),
+    },
     PublishedEvent {
         event_type: types::CLIENT_WORKFLOW_OVERRIDE_CLEARED,
         entity: "client",
@@ -4186,6 +4274,124 @@ fn sample_stock_movement() -> core_domain::entities::StockMovement {
         note: None,
         created_by: Some(su(4)),
         created_at: st(3),
+    }
+}
+
+/// Representative vendor for purchasing samples (Wave 32 lane 2).
+fn sample_vendor() -> core_domain::entities::Vendor {
+    use core_domain::entities::Vendor;
+    Vendor {
+        id: su(70),
+        org_id: su(2),
+        name: "CDW Canada".into(),
+        code: Some("CDW".into()),
+        email: Some("orders@cdw.example".into()),
+        phone: Some("+1-800-555-0100".into()),
+        website: Some("https://www.cdw.example".into()),
+        account_number: Some("ACCT-7788".into()),
+        default_currency: "USD".into(),
+        notes: None,
+        active: true,
+        created_by: Some(su(4)),
+        created_at: st(1),
+        updated_at: st(1),
+    }
+}
+
+/// Representative purchase order (ordered, one line pending) for samples.
+fn sample_purchase_order() -> core_domain::entities::PurchaseOrder {
+    use core_domain::entities::{PurchaseOrder, PurchaseOrderStatus};
+    PurchaseOrder {
+        id: su(71),
+        org_id: su(2),
+        vendor_id: su(70),
+        number: "PO-000123".into(),
+        status: PurchaseOrderStatus::Ordered,
+        currency: "USD".into(),
+        vendor_reference: Some("CDW-88213".into()),
+        project_id: Some(su(35)),
+        notes: None,
+        ordered_at: Some(st(2)),
+        expected_at: Some(sd(28)),
+        closed_at: None,
+        close_kind: None,
+        cancelled_at: None,
+        cancel_reason: None,
+        created_by: Some(su(4)),
+        created_at: st(1),
+        updated_at: st(2),
+    }
+}
+
+/// Representative purchase order line for purchasing samples.
+fn sample_purchase_order_line() -> core_domain::entities::PurchaseOrderLine {
+    use core_domain::entities::{PurchaseOrderLine, ReceiptState};
+    PurchaseOrderLine {
+        id: su(72),
+        org_id: su(2),
+        purchase_order_id: su(71),
+        stock_item_id: Some(su(60)),
+        catalog_item_id: None,
+        description: "Cat6 patch cable box".into(),
+        qty_ordered_milli: 10_000,
+        qty_received_milli: 0,
+        unit_cost_minor: 12_000,
+        receipt_state: ReceiptState::Pending,
+        position: 0,
+        created_at: st(1),
+        updated_at: st(1),
+    }
+}
+
+/// Representative receipt document for purchasing samples.
+fn sample_purchase_receipt() -> core_domain::entities::PurchaseReceipt {
+    use core_domain::entities::PurchaseReceipt;
+    PurchaseReceipt {
+        id: su(73),
+        org_id: su(2),
+        purchase_order_id: su(71),
+        location_id: su(62),
+        carrier: Some("UPS".into()),
+        tracking_ref: Some("1Z999AA10123456784".into()),
+        note: None,
+        received_at: st(3),
+        created_by: Some(su(4)),
+        created_at: st(3),
+    }
+}
+
+/// Representative receipt line for purchasing samples.
+fn sample_purchase_receipt_line() -> core_domain::entities::PurchaseReceiptLine {
+    use core_domain::entities::PurchaseReceiptLine;
+    PurchaseReceiptLine {
+        id: su(74),
+        org_id: su(2),
+        receipt_id: su(73),
+        po_line_id: su(72),
+        qty_milli: 4_000,
+        movement_id: Some(su(61)),
+        created_at: st(3),
+    }
+}
+
+/// Representative posted vendor bill for purchasing samples.
+fn sample_purchase_bill() -> core_domain::entities::PurchaseBill {
+    use core_domain::entities::PurchaseBill;
+    PurchaseBill {
+        id: su(75),
+        org_id: su(2),
+        purchase_order_id: su(71),
+        bill_number: Some("INV-55621".into()),
+        amount_minor: 48_000,
+        currency: "USD".into(),
+        fx_rate_used: None,
+        fx_rate_date: None,
+        fx_source: None,
+        base_amount_minor: None,
+        posted_at: Some(st(4)),
+        created_by: Some(su(4)),
+        created_at: st(3),
+        updated_at: st(4),
     }
 }
 

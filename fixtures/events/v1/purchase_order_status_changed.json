@@ -1,0 +1,15 @@
+{
+  "event_type": "purchase.order_status_changed",
+  "entity": "purchase_order",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "close_kind": "short",
+    "from": "partially_received",
+    "number": "PO-000123",
+    "occurred_at": "2023-11-14T22:13:25Z",
+    "order_id": "00000000-0000-0000-0000-000000000047",
+    "to": "closed"
+  }
+}

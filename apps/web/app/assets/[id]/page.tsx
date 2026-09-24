@@ -210,7 +210,7 @@ export default function AssetDetailPage() {
   const refreshContext = useCallback(async () => {
     void api.api.GET("/api/v1/documents/layouts").then(({ data }) => setLayouts(data ?? []));
     const a = await api.api.GET("/api/v1/assets/{id}", { params: { path: { id: assetId } } });
-    if (a.data !== undefined) {
+    if (a.data !== undefined && a.data.client_id != null) {
       void api.api
         .GET("/api/v1/clients/{id}/sites", { params: { path: { id: a.data.client_id } } })
         .then(({ data }) => setSites(data ?? []));
@@ -468,13 +468,19 @@ export default function AssetDetailPage() {
   return (
     <div className="mx-auto grid w-full grid-cols-1 max-w-[1400px] gap-6 p-4 md:p-6">
       <div className="m-entity-rise">
-        <Link
-          href={`/clients/${asset.client_id}`}
-          className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2"
-          style={{ color: "var(--m-text-secondary)" }}
-        >
-          ← Client
-        </Link>
+        {asset.client_id != null ? (
+          <Link
+            href={`/clients/${asset.client_id}`}
+            className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2"
+            style={{ color: "var(--m-text-secondary)" }}
+          >
+            ← Client
+          </Link>
+        ) : (
+          <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+            Internal org asset
+          </span>
+        )}
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <h1 className="text-lg font-semibold">{asset.name}</h1>
           <span className="font-mono text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
@@ -761,9 +767,13 @@ export default function AssetDetailPage() {
             <h2 className="p-4 pb-2 text-sm font-semibold">At a glance</h2>
             <dl className="grid gap-1 px-4 pb-4 text-[13px]">
               <GlanceRow label="Client">
-                <Link href={`/clients/${asset.client_id}`} className="underline decoration-[var(--m-border)] underline-offset-2">
-                  {asset.client_id.slice(0, 8)}…
-                </Link>
+                {asset.client_id != null ? (
+                  <Link href={`/clients/${asset.client_id}`} className="underline decoration-[var(--m-border)] underline-offset-2">
+                    {asset.client_id.slice(0, 8)}…
+                  </Link>
+                ) : (
+                  "Internal org"
+                )}
               </GlanceRow>
               <GlanceRow label="Site">
                 {asset.site_id != null
@@ -888,7 +898,7 @@ export default function AssetDetailPage() {
         ) : null}
         <EntityPicker
           open={linkPickerOpen}
-          clientId={asset.client_id}
+          clientId={asset.client_id ?? undefined}
           onPick={(t) => void addLink(t)}
           onClose={() => setLinkPickerOpen(false)}
         />

@@ -1,0 +1,25 @@
+{
+  "event_type": "vendor.created",
+  "entity": "vendor",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "vendor": {
+      "account_number": "ACCT-7788",
+      "active": true,
+      "code": "CDW",
+      "created_at": "2023-11-14T22:13:21Z",
+      "created_by": "00000000-0000-0000-0000-000000000004",
+      "default_currency": "USD",
+      "email": "orders@cdw.example",
+      "id": "00000000-0000-0000-0000-000000000046",
+      "name": "CDW Canada",
+      "notes": null,
+      "org_id": "00000000-0000-0000-0000-000000000002",
+      "phone": "+1-800-555-0100",
+      "updated_at": "2023-11-14T22:13:21Z",
+      "website": "https://www.cdw.example"
+    }
+  }
+}
