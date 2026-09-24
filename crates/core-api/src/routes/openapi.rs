@@ -1880,7 +1880,30 @@ fn canonicalize_paths(spec: &mut serde_json::Value) {
     }
 }
 
+/// The document builds ONCE per process, on a dedicated thread with a
+/// generous stack. Utoipa's generated builder recurses per component, and
+/// at roughly a thousand schemas its frames exceed a tokio worker's 2 MiB
+/// stack (the route aborted with a stack overflow when Wave 32 lane 3 took
+/// the schema count from 986 to 1020). Building off the worker keeps the
+/// route safe as the surface grows, and the process cache keeps every
+/// request cheap.
+static OPENAPI_DOC: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+
 pub fn openapi_json() -> serde_json::Value {
+    OPENAPI_DOC
+        .get_or_init(|| {
+            std::thread::Builder::new()
+                .name("openapi-doc-build".into())
+                .stack_size(32 * 1024 * 1024)
+                .spawn(build_openapi_json)
+                .expect("spawn openapi document builder")
+                .join()
+                .expect("openapi document build")
+        })
+        .clone()
+}
+
+fn build_openapi_json() -> serde_json::Value {
     let mut value = ApiDoc::openapi()
         .to_pretty_json()
         .unwrap_or_else(|_| "{}".to_string())
