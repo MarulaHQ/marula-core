@@ -2275,6 +2275,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/client-loans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/client-loans. */
+        get: operations["client_loans_list"];
+        put?: never;
+        /** POST /api/client-loans — instant-first (IF1/IF2). */
+        post: operations["client_loans_issue"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/client-loans/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/client-loans/{id}. */
+        get: operations["client_loans_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/client-loans/{id}/return": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/client-loans/{id}/return — instant-first (IF1/IF2). */
+        post: operations["client_loans_return"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/clients": {
         parameters: {
             query?: never;
@@ -9142,6 +9194,26 @@ export interface paths {
         patch: operations["stock_locations_update"];
         trace?: never;
     };
+    "/api/v1/stock-serials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/stock-serials — WHERE IS IT NOW, per serialized unit (tools
+         *     and loaned devices; each row carries its live holder or client).
+         */
+        get: operations["stock_serials_whereabouts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/stock/adjust": {
         parameters: {
             query?: never;
@@ -10583,6 +10655,162 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tool-checkouts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/tool-checkouts. */
+        get: operations["tool_checkouts_list"];
+        put?: never;
+        /** POST /api/tool-checkouts — instant-first (IF1/IF2). */
+        post: operations["tool_checkouts_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tool-checkouts/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/tool-checkouts/{id}. */
+        get: operations["tool_checkouts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tool-checkouts/{id}/checkin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/tool-checkouts/{id}/checkin — instant-first (IF1/IF2). */
+        post: operations["tool_checkouts_checkin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tool-kits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/tool-kits. */
+        get: operations["tool_kits_list"];
+        put?: never;
+        /** POST /api/tool-kits — instant-first (IF1/IF2). */
+        post: operations["tool_kits_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tool-kits/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/tool-kits/{id}. */
+        get: operations["tool_kits_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** PATCH /api/tool-kits/{id} — instant-first (IF1/IF2). */
+        patch: operations["tool_kits_update"];
+        trace?: never;
+    };
+    "/api/v1/tool-kits/{id}/availability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/tool-kits/{id}/availability — can the kit go out here? */
+        get: operations["tool_kits_availability"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tool-kits/{id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/tool-kits/{id}/members — add a member tool to the kit. */
+        post: operations["tool_kits_add_member"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tool-kits/{id}/members/{member_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** DELETE /api/tool-kits/{id}/members/{member_id}. */
+        delete: operations["tool_kits_remove_member"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tools/availability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/tools/availability — in-stock counts per tool item + location. */
+        get: operations["tools_availability"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/me": {
         parameters: {
             query?: never;
@@ -10884,6 +11112,16 @@ export interface components {
              */
             draft_key?: string | null;
             kind: components["schemas"]["NoteKind"];
+        };
+        /** @description POST /api/tool-kits/{id}/members. */
+        AddKitMemberRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * Format: int64
+             * @description Whole units of the member tool (defaults to one unit = 1000 milli).
+             */
+            qty_milli?: number | null;
+            /** Format: uuid */
+            stock_item_id: string;
         };
         AddMemberRequest: components["schemas"]["MutationParams"] & {
             /** Format: uuid */
@@ -12539,6 +12777,24 @@ export interface components {
              */
             ticket_id?: string | null;
         };
+        CheckinLineRequest: {
+            /** Format: uuid */
+            line_id: string;
+            /** @description good | fair | damaged. */
+            return_condition?: string | null;
+            return_notes?: string | null;
+        };
+        /** @description POST /api/tool-checkouts/{id}/checkin. */
+        CheckinRequest: components["schemas"]["MutationParams"] & {
+            /** @description Lines to return; empty/absent = every outstanding unit. */
+            lines?: components["schemas"]["CheckinLineRequest"][];
+            notes?: string | null;
+            /**
+             * Format: uuid
+             * @description Where the tools land; absent = the checkout's own location.
+             */
+            to_location_id?: string | null;
+        };
         /**
          * @description One line of a ticket's pre-close checklist. Items instantiated from the
          *     board's template carry `template_item_id`; those are REQUIRED when the
@@ -12640,6 +12896,24 @@ export interface components {
             /** @description Mirrors `boards.require_checklist_close`. */
             require_checklist_close: boolean;
             template?: null | components["schemas"]["ChecklistTemplate"];
+        };
+        CheckoutItemRequest: {
+            /** Format: uuid */
+            serial_id?: string | null;
+            /** Format: uuid */
+            stock_item_id: string;
+        };
+        CheckoutListQuery: {
+            /** Format: uuid */
+            holder_user_id?: string | null;
+            /** Format: uuid */
+            kit_id?: string | null;
+            /** Format: int64 */
+            limit?: number | null;
+            /** @description Only open checkouts past their due date. */
+            overdue_only?: boolean | null;
+            /** @description open | returned (absent = both). */
+            status?: string | null;
         };
         /** @description POST /imports/batches/{id}/chunks request body. */
         ChunkRequest: components["schemas"]["RowsPayload"] & {
@@ -12820,6 +13094,66 @@ export interface components {
              *     (never a silent zero and never a padded 100).
              */
             score: number;
+        };
+        ClientLoanDetailResponse: {
+            lines: components["schemas"]["ClientLoanLineView"][];
+            loan: components["schemas"]["ClientLoanView"];
+        };
+        ClientLoanLineView: {
+            /**
+             * Format: uuid
+             * @description The device's row in the client's fleet (instantiated on issue for
+             *     stock-sourced devices; ADR 0003 identity keys converge later feeds).
+             */
+            device_asset_id?: string | null;
+            /** @description True when the device came from org stock (rode the ledger). */
+            from_stock: boolean;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            movement_in_id?: string | null;
+            /** Format: uuid */
+            movement_out_id?: string | null;
+            return_condition?: string | null;
+            return_notes?: string | null;
+            returned_at?: string | null;
+            /** Format: uuid */
+            serial_id?: string | null;
+            /** Format: uuid */
+            stock_item_id?: string | null;
+        };
+        ClientLoanMutationResponse: {
+            lines: components["schemas"]["ClientLoanLineView"][];
+            loan: components["schemas"]["ClientLoanView"];
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        ClientLoanView: {
+            agreement_ref?: string | null;
+            /** Format: uuid */
+            client_id: string;
+            /** Format: uuid */
+            contract_id?: string | null;
+            created_at: string;
+            expected_return_at: string;
+            /** Format: uuid */
+            id: string;
+            is_lease: boolean;
+            /** Format: uuid */
+            issued_by?: string | null;
+            /** Format: int64 */
+            lease_cost_minor?: number | null;
+            lease_currency?: string | null;
+            lease_cycle?: string | null;
+            notes?: string | null;
+            /** Format: uuid */
+            org_id: string;
+            out_at: string;
+            /** @description Derived: open past the expected return date. */
+            overdue: boolean;
+            return_notes?: string | null;
+            returned_at?: string | null;
+            status: string;
+            updated_at: string;
         };
         /**
          * @description Instant-first mutation response (IF2): client fields at the top level
@@ -13531,6 +13865,26 @@ export interface components {
             /** @description Stable per-org handle; derived from the name when omitted. */
             slug?: string | null;
         };
+        /** @description POST /api/tool-checkouts. */
+        CreateCheckoutRequest: components["schemas"]["MutationParams"] & {
+            /** @description When the tools are due back (RFC 3339). */
+            due_at: string;
+            /** Format: uuid */
+            from_location_id: string;
+            /** Format: uuid */
+            holder_user_id: string;
+            /**
+             * @description Individual tools; an absent serial auto-picks the oldest in-stock
+             *     unit at the checkout location.
+             */
+            items?: components["schemas"]["CheckoutItemRequest"][];
+            /**
+             * Format: uuid
+             * @description Set for a whole-kit (toolbox) checkout; `items` must then be empty.
+             */
+            kit_id?: string | null;
+            notes?: string | null;
+        };
         CreateClientRequest: components["schemas"]["MutationParams"] & {
             name: string;
             notes?: string | null;
@@ -13759,6 +14113,12 @@ export interface components {
              * @description Window end (inclusive), ISO date.
              */
             to: string;
+        };
+        /** @description POST /api/tool-kits. */
+        CreateKitRequest: components["schemas"]["MutationParams"] & {
+            code?: string | null;
+            name: string;
+            note?: string | null;
         };
         CreateLayoutRequest: components["schemas"]["MutationParams"] & {
             description?: string;
@@ -14129,6 +14489,11 @@ export interface components {
              */
             catalog_item_id?: string | null;
             currency: string;
+            /**
+             * @description Wave 32 lane 3: flag the item as a tool (serialized-only, eligible
+             *     for tool checkout + kit membership).
+             */
+            is_tool?: boolean;
             kind?: string;
             /**
              * Format: int64
@@ -16385,6 +16750,33 @@ export interface components {
              */
             total_minor: number;
         };
+        /** @description POST /api/client-loans. */
+        IssueLoanRequest: components["schemas"]["MutationParams"] & {
+            /** @description Free-form contract/agreement reference when no contract row exists. */
+            agreement_ref?: string | null;
+            /** Format: uuid */
+            client_id: string;
+            /**
+             * Format: uuid
+             * @description Agreement anchor where a contract row exists.
+             */
+            contract_id?: string | null;
+            expected_return_at: string;
+            /**
+             * @description When true the lease terms below are required and stamp the issued
+             *     asset's 0061 rental fields.
+             */
+            is_lease?: boolean;
+            items: components["schemas"]["LoanItemRequest"][];
+            /** Format: int64 */
+            lease_cost_minor?: number | null;
+            lease_currency?: string | null;
+            /** @description monthly | quarterly | annual. */
+            lease_cycle?: string | null;
+            notes?: string | null;
+            /** @description Defaults to now. */
+            out_at?: string | null;
+        };
         /** @description One issued invoice: the document plus its lines. */
         IssuedInvoice: {
             invoice: components["schemas"]["Invoice"];
@@ -16540,6 +16932,57 @@ export interface components {
             url: string;
             url_kind: components["schemas"]["ExternalDocUrlKind"];
         };
+        KitAvailabilityMemberView: {
+            /** Format: int64 */
+            available_units: number;
+            item_name: string;
+            ready: boolean;
+            /** Format: int64 */
+            required_units: number;
+            /** Format: uuid */
+            stock_item_id: string;
+        };
+        /** @description GET /api/tool-kits/{id}/availability?location_id= */
+        KitAvailabilityQuery: {
+            /** Format: uuid */
+            location_id?: string | null;
+        };
+        KitAvailabilityResponse: {
+            /** Format: uuid */
+            kit_id: string;
+            /** Format: uuid */
+            location_id?: string | null;
+            members: components["schemas"]["KitAvailabilityMemberView"][];
+            /** @description True when every member has enough in-stock units at the location. */
+            ready: boolean;
+        };
+        KitDetailResponse: {
+            kit: components["schemas"]["ToolKitView"];
+            members: components["schemas"]["KitMemberView"][];
+        };
+        KitListQuery: {
+            /** @description `true` = active kits only; absent = all. */
+            active?: boolean | null;
+            /** Format: int64 */
+            limit?: number | null;
+        };
+        KitMemberView: {
+            /** Format: uuid */
+            id: string;
+            is_serialized: boolean;
+            is_tool: boolean;
+            item_name: string;
+            item_sku?: string | null;
+            /** Format: int64 */
+            qty_milli: number;
+            /** Format: uuid */
+            stock_item_id: string;
+        };
+        KitMutationWithMembersResponse: {
+            kit: components["schemas"]["ToolKitView"];
+            members: components["schemas"]["KitMemberView"][];
+            mutation: components["schemas"]["MutationMeta"];
+        };
         LadderStepSpec: {
             /**
              * Format: int64
@@ -16680,6 +17123,35 @@ export interface components {
         ListVendorsQuery: {
             include_inactive?: boolean;
             q?: string | null;
+        };
+        /**
+         * @description One device to issue: from org stock (item + optional serial) or an
+         *     existing fleet asset.
+         */
+        LoanItemRequest: {
+            /** Format: uuid */
+            device_asset_id?: string | null;
+            /** Format: uuid */
+            serial_id?: string | null;
+            /** Format: uuid */
+            stock_item_id?: string | null;
+        };
+        LoanListQuery: {
+            /** Format: uuid */
+            client_id?: string | null;
+            /** Format: int64 */
+            limit?: number | null;
+            /** @description Only open loans past their expected return. */
+            overdue_only?: boolean | null;
+            /** @description open | returned (absent = both). */
+            status?: string | null;
+        };
+        LoanReturnLineRequest: {
+            /** Format: uuid */
+            line_id: string;
+            /** @description good | fair | damaged. */
+            return_condition?: string | null;
+            return_notes?: string | null;
         };
         LocationListQuery: {
             active_only?: boolean | null;
@@ -20386,6 +20858,17 @@ export interface components {
         RestoreRoleRequest: components["schemas"]["MutationParams"];
         RestoreTemplateRequest: components["schemas"]["MutationParams"];
         RetireTaxonomyNodeRequest: components["schemas"]["MutationParams"];
+        /** @description POST /api/client-loans/{id}/return. */
+        ReturnLoanRequest: components["schemas"]["MutationParams"] & {
+            /** @description Lines to return; empty/absent = every outstanding device. */
+            lines?: components["schemas"]["LoanReturnLineRequest"][];
+            notes?: string | null;
+            /**
+             * Format: uuid
+             * @description Required when any returned device came from stock.
+             */
+            to_location_id?: string | null;
+        };
         /** @description What the revert restored. */
         RevertDetail: {
             /** @description Record fields whose values were restored. */
@@ -21639,6 +22122,7 @@ export interface components {
             currency: string;
             /** Format: uuid */
             id: string;
+            is_tool: boolean;
             kind: string;
             /**
              * Format: int64
@@ -22661,6 +23145,144 @@ export interface components {
         TokenRequest: {
             token: string;
         };
+        ToolAvailabilityQuery: {
+            /** Format: uuid */
+            item_id?: string | null;
+            /** Format: int64 */
+            limit?: number | null;
+            /** Format: uuid */
+            location_id?: string | null;
+        };
+        ToolAvailabilityView: {
+            /** Format: int64 */
+            available_units: number;
+            /** Format: int64 */
+            checked_out_units: number;
+            item_name: string;
+            /** Format: int64 */
+            loaned_units: number;
+            /** Format: uuid */
+            location_id?: string | null;
+            location_name?: string | null;
+            /** Format: int64 */
+            out_units: number;
+            /** Format: uuid */
+            stock_item_id: string;
+        };
+        ToolCheckoutDetailResponse: {
+            checkout: components["schemas"]["ToolCheckoutView"];
+            lines: components["schemas"]["ToolCheckoutLineView"][];
+        };
+        ToolCheckoutLineView: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            movement_in_id?: string | null;
+            /** Format: uuid */
+            movement_out_id: string;
+            return_condition?: string | null;
+            return_notes?: string | null;
+            returned_at?: string | null;
+            /** Format: uuid */
+            serial_id: string;
+            /** Format: uuid */
+            stock_item_id: string;
+        };
+        ToolCheckoutMutationResponse: {
+            checkout: components["schemas"]["ToolCheckoutView"];
+            lines: components["schemas"]["ToolCheckoutLineView"][];
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        ToolCheckoutView: {
+            /** Format: uuid */
+            checked_out_by?: string | null;
+            created_at: string;
+            due_at: string;
+            /** Format: uuid */
+            from_location_id: string;
+            /** Format: uuid */
+            holder_user_id: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            kit_id?: string | null;
+            notes?: string | null;
+            /** Format: uuid */
+            org_id: string;
+            /** @description Derived: open past the due date. */
+            overdue: boolean;
+            return_notes?: string | null;
+            returned_at?: string | null;
+            status: string;
+            updated_at: string;
+        };
+        ToolKitMutationResponse: components["schemas"]["ToolKitView"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        ToolKitView: {
+            active: boolean;
+            code?: string | null;
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            note?: string | null;
+            /** Format: uuid */
+            org_id: string;
+            updated_at: string;
+        };
+        ToolSerialWhereaboutsView: {
+            /** Format: uuid */
+            checkout_id?: string | null;
+            /**
+             * Format: uuid
+             * @description Open loan client, when the unit is on a client loan.
+             */
+            client_id?: string | null;
+            created_at: string;
+            due_at?: string | null;
+            expected_return_at?: string | null;
+            /**
+             * Format: uuid
+             * @description Open checkout holder, when the unit is checked out.
+             */
+            holder_user_id?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** @description True when the item is a flagged tool (checkout-eligible). */
+            is_tool: boolean;
+            item_name: string;
+            /** Format: uuid */
+            loan_id?: string | null;
+            /** Format: uuid */
+            location_id?: string | null;
+            location_name?: string | null;
+            /** @description Derived: checked-out past due, or loaned past its expected return. */
+            overdue: boolean;
+            serial_number: string;
+            status: string;
+            /** Format: uuid */
+            stock_item_id: string;
+            updated_at: string;
+        };
+        ToolSerialsQuery: {
+            /** Format: uuid */
+            holder_user_id?: string | null;
+            /** Format: uuid */
+            item_id?: string | null;
+            /** Format: int64 */
+            limit?: number | null;
+            /** Format: uuid */
+            location_id?: string | null;
+            /** @description Only units past their checkout due date or loan expected return. */
+            overdue_only?: boolean | null;
+            /** @description in_stock | out | checked_out | loaned. */
+            status?: string | null;
+            /** @description `true` = tools only; `false` = devices only; absent = both. */
+            tool_only?: boolean | null;
+        };
         TotpDisableRequest: {
             /** @description Current TOTP code or a recovery code. */
             code: string;
@@ -22985,6 +23607,13 @@ export interface components {
             /** @description Upgrade the pinned version (explicit, never automatic). */
             version?: string | null;
         };
+        /** @description PATCH /api/tool-kits/{id} — absent fields keep their value. */
+        UpdateKitRequest: components["schemas"]["MutationParams"] & {
+            active?: boolean | null;
+            code?: string | null;
+            name?: string | null;
+            note?: string | null;
+        };
         UpdateLayoutRequest: components["schemas"]["MutationParams"] & {
             description?: string;
             fields?: components["schemas"]["LayoutField"][];
@@ -23193,6 +23822,8 @@ export interface components {
             active?: boolean | null;
             /** Format: uuid */
             catalog_item_id?: string | null;
+            /** @description Flag/unflag the item as a tool (it must be serialized to flag). */
+            is_tool?: boolean | null;
             kind?: string | null;
             name?: string | null;
             part_number?: string | null;
@@ -27735,6 +28366,136 @@ export interface operations {
                 };
                 content?: never;
             };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    client_loans_list: {
+        parameters: {
+            query?: {
+                /** @description open | returned (absent = both). */
+                status?: string | null;
+                client_id?: string | null;
+                /** @description Only open loans past their expected return. */
+                overdue_only?: boolean | null;
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientLoanDetailResponse"][];
+                };
+            };
+        };
+    };
+    client_loans_issue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IssueLoanRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientLoanMutationResponse"];
+                };
+            };
+            /** @description client / contract / device not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description device not in stock / already on an open loan / incomplete lease terms */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    client_loans_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientLoanDetailResponse"];
+                };
+            };
+            /** @description not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    client_loans_return: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReturnLoanRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientLoanMutationResponse"];
+                };
+            };
+            /** @description not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description already returned / missing return location for stock devices */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -41792,6 +42553,36 @@ export interface operations {
             };
         };
     };
+    stock_serials_whereabouts: {
+        parameters: {
+            query?: {
+                item_id?: string | null;
+                location_id?: string | null;
+                /** @description in_stock | out | checked_out | loaned. */
+                status?: string | null;
+                holder_user_id?: string | null;
+                /** @description `true` = tools only; `false` = devices only; absent = both. */
+                tool_only?: boolean | null;
+                /** @description Only units past their checkout due date or loan expected return. */
+                overdue_only?: boolean | null;
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolSerialWhereaboutsView"][];
+                };
+            };
+        };
+    };
     stock_adjust: {
         parameters: {
             query?: never;
@@ -44733,6 +45524,378 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TimerSession"][];
+                };
+            };
+        };
+    };
+    tool_checkouts_list: {
+        parameters: {
+            query?: {
+                /** @description open | returned (absent = both). */
+                status?: string | null;
+                holder_user_id?: string | null;
+                kit_id?: string | null;
+                /** @description Only open checkouts past their due date. */
+                overdue_only?: boolean | null;
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolCheckoutDetailResponse"][];
+                };
+            };
+        };
+    };
+    tool_checkouts_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCheckoutRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolCheckoutMutationResponse"];
+                };
+            };
+            /** @description item, kit, or location not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description kit not ready / unit already out / not a tool */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tool_checkouts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolCheckoutDetailResponse"];
+                };
+            };
+            /** @description not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tool_checkouts_checkin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheckinRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolCheckoutMutationResponse"];
+                };
+            };
+            /** @description not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description already returned / line not on this checkout */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tool_kits_list: {
+        parameters: {
+            query?: {
+                /** @description `true` = active kits only; absent = all. */
+                active?: boolean | null;
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolKitView"][];
+                };
+            };
+        };
+    };
+    tool_kits_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateKitRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolKitMutationResponse"];
+                };
+            };
+            /** @description kit name already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tool_kits_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KitDetailResponse"];
+                };
+            };
+            /** @description not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tool_kits_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateKitRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolKitMutationResponse"];
+                };
+            };
+            /** @description not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tool_kits_availability: {
+        parameters: {
+            query?: {
+                location_id?: string | null;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KitAvailabilityResponse"];
+                };
+            };
+            /** @description not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tool_kits_add_member: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddKitMemberRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KitMutationWithMembersResponse"];
+                };
+            };
+            /** @description kit or item not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description item is not a tool / already a member */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tool_kits_remove_member: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                member_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KitDetailResponse"];
+                };
+            };
+            /** @description kit or member not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tools_availability: {
+        parameters: {
+            query?: {
+                location_id?: string | null;
+                item_id?: string | null;
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolAvailabilityView"][];
                 };
             };
         };
