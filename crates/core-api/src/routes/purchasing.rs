@@ -646,7 +646,7 @@ fn contacts_from_input(
     inputs: &[VendorContactInput],
 ) -> ApiResult<Vec<VendorContact>> {
     let mut contacts = Vec::with_capacity(inputs.len());
-    for (idx, input) in inputs.iter().enumerate() {
+    for input in inputs {
         let now = chrono::Utc::now();
         let contact = VendorContact {
             id: Uuid::now_v7(),
@@ -662,7 +662,6 @@ fn contacts_from_input(
         };
         contact.validate().map_err(ApiError::from)?;
         contacts.push(contact);
-        let _ = idx;
     }
     if contacts.iter().filter(|c| c.is_primary).count() > 1 {
         return Err(ApiError::Validation(
@@ -2664,7 +2663,6 @@ pub async fn receive_order(
         core_db::purchasing::insert_receipt(&mut *ctx.tx, &receipt).await?;
 
         let mut receipt_lines: Vec<PurchaseReceiptLine> = Vec::new();
-        let mut movements: Vec<core_domain::entities::StockMovement> = Vec::new();
         let mut movement_count = 0usize;
         for plan in &planned {
             // Serialized: one ledger row per serial (one receipt line
@@ -2754,7 +2752,6 @@ pub async fn receive_order(
                     .unwrap_or_else(|_| serde_json::json!({})),
                 )
                 .await?;
-                movements.push(movement);
                 receipt_lines.push(receipt_line);
             }
             core_db::purchasing::bump_line_received(
@@ -2834,7 +2831,6 @@ pub async fn receive_order(
             )
             .await?,
         };
-        let _ = movements;
         Ok((ctx, MutationOutcome::Applied(response)))
     })
     .await?;

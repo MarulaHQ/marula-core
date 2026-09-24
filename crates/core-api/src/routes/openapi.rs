@@ -1817,7 +1817,7 @@ fn canonicalize_paths(spec: &mut serde_json::Value) {
     };
     let renamed: Vec<String> = paths
         .keys()
-        .filter(|k| k.starts_with("/api/") && !k.starts_with("/api/v"))
+        .filter(|k| k.starts_with("/api/") && !k.starts_with("/api/v1/"))
         .cloned()
         .collect();
     for old in renamed {
