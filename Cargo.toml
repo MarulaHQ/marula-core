@@ -25,27 +25,27 @@ members = [
     "crates/meridian-cli",
     # Wave 9 adapters lane: first-party Apache-2.0 connector crates
     # (public-API-only edge adapters; separate license from the AGPL core).
-    "connectors/qbo-export-sync",
-    "connectors/xero-export-sync",
+    # All first-party extensions live under plugins/ (ADR 0013): connectors
+    # are HTTP adapters, wasm/ holds the Extism plugins.
+    "plugins/connectors/qbo-export-sync",
+    "plugins/connectors/xero-export-sync",
     # DMS sync-connector lane (2026-09-10): external documentation-system
-    # adapter (IT Glue / Hudu exports + generic REST), public-API-only.
-    "connectors/dms-sync",
+    # adapter (Hudu exports + generic REST), public-API-only.
+    "plugins/connectors/dms-sync",
     # CI feeder lane (Wave 12 lane 8, ADR 0003 CI7): configuration-item
-    # feeder adapters (NinjaOne / IT Glue / Auvik) writing through
-    # ConfigSourceLink over the public feed-upsert seam, public-API-only.
-    "connectors/ci-feeders",
+    # feeder adapters (NinjaOne) writing through ConfigSourceLink over the
+    # public feed-upsert seam, public-API-only.
+    "plugins/connectors/ci-feeders",
     # Adapters tranche 2 (Wave 12 lane 9): shared live-REST transport
     # primitives (vendor auth, native pagination, org→client mapping)
-    # + the M365 Graph, ImmyBot, and IT Glue live connectors.
-    "connectors/adapters-core",
-    "connectors/it-glue",
-    "connectors/m365-graph",
-    "connectors/immybot",
-    "connectors/app-bridges",
+    # + the M365 Graph live connector.
+    "plugins/connectors/adapters-core",
+    "plugins/connectors/m365-graph",
+    "plugins/connectors/app-bridges",
     # Wave 22 lane 3 (ecosystem/SDK review): UniFi inventory connector
     # + the 3CX agentic call-control adapter riding the VoIP seam.
-    "connectors/unifi",
-    "connectors/threecx",
+    "plugins/connectors/unifi",
+    "plugins/connectors/threecx",
 ]
 
 # Desktop lane (2026-09-13, ADR 0005): lighter release profile for the

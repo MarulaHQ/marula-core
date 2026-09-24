@@ -3,7 +3,7 @@ name = "ci-feeders"
 version = "0.1.0"
 edition.workspace = true
 license = "Apache-2.0"
-description = "First-party configuration-item feeder adapters (NinjaOne RMM, IT Glue docs, Auvik NMS) for Project Meridian — ADR 0003 CI7 over the public API only (Apache-2.0)"
+description = "First-party configuration-item feeder adapters (NinjaOne RMM; the public mapper surface marketplace feeders build on) for Project Meridian — ADR 0003 CI7 over the public API only (Apache-2.0)"
 
 [dependencies]
 adapters-core = { path = "../adapters-core" }

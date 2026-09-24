@@ -3,13 +3,14 @@
 //! carries) onto the vendor-neutral [`FeederRecord`] with deterministic
 //! identity keys. Pure functions: a live transport only needs to fetch
 //! the vendor JSON and call in.
+//!
+//! Marketplace connectors outside this repo reuse the same surface:
+//! [`attributes_of`], [`first_str`], [`observed_fields`], [`string_list`]
+//! and [`NormalizeError`] are public so a feeder author never forks the
+//! identity-key path (ADR 0013).
 
-pub mod auvik;
-pub mod it_glue;
 pub mod ninjaone;
 
-pub use auvik::map_device as map_auvik_device;
-pub use it_glue::map_configuration as map_it_glue_configuration;
 pub use ninjaone::map_device as map_ninjaone_device;
 
 use serde_json::{Map, Value};
@@ -28,8 +29,8 @@ pub enum NormalizeError {
 
 /// Strips a JSON:API envelope down to its `attributes` object when the
 /// payload wraps one, else returns the object itself (both shapes are
-/// common across IT Glue surfaces).
-pub(crate) fn attributes_of<'a>(
+/// common across vendor surfaces).
+pub fn attributes_of<'a>(
     value: &'a Value,
     vendor: &'static str,
 ) -> Result<&'a Map<String, Value>, NormalizeError> {
@@ -51,4 +52,4 @@ pub(crate) fn attributes_of<'a>(
 /// Vendor-field extraction is ONE definition consumed by every adapter
 /// (the CI3 identity-key path must not diverge between connectors):
 /// `adapters_core::vendor_fields` (Wave 15 lane 4).
-pub(crate) use adapters_core::{first_str, observed_fields, string_list};
+pub use adapters_core::{first_str, observed_fields, string_list};

@@ -443,8 +443,8 @@ export default function IntegrationsSettingsPage() {
         <div className="p-4 grid gap-2">
           <h2 className="text-sm font-semibold">DMS sync connector</h2>
           <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            The document-management sync connector (<code>connectors/dms-sync</code>, live IT
-            Glue / Hudu pulls via the adapters line) runs operator-side today — it is a
+            The document-management sync connector (<code>plugins/connectors/dms-sync</code>, live
+            Hudu pulls via the adapters line) runs operator-side today — it is a
             standalone crate pushing through the public feed-upsert seam, not an in-org
             configurable integration, so there is nothing to enable or disable here yet.
           </p>

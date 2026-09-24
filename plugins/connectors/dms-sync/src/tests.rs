@@ -1,7 +1,8 @@
 //! Contract + conformance tests for the DMS sync connector:
 //!
-//! * fixture round-trips — the sample IT Glue / Hudu exports parse,
-//!   sync, and render back out with their semantics intact;
+//! * fixture round-trips — the sample Hudu export parses, syncs, and
+//!   renders back out with its semantics intact (the IT Glue suite lives
+//!   in the marketplace connector repo);
 //! * engine semantics — first-sync creates, second-sync updates (no
 //!   twins), foreign deterministic matches become reviewable merge
 //!   candidates, curated fields beat observed churn, links surface
@@ -20,39 +21,24 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::identity::Identity;
-use crate::model::{Credential, DmsSnapshot, LinkEndpoint, LinkKind, Relation, SyncRecord};
+use crate::model::{DmsSnapshot, LinkKind, SyncRecord};
 use crate::push;
-use crate::sink::NoneDmsSink;
 use crate::sink::{
     AssetCreate, AssetRecord, AssetUpdate, ClientRecord, CredentialCreate, CredentialReceipt,
     DmsSink, DocumentCreate, DocumentRecord, DocumentUpdate, LayoutRecord, LinkCreate, LinkRecord,
     NewLayout, SinkError,
 };
 use crate::source::hudu::{HuduExport, HuduExportFiles};
-use crate::source::it_glue::{ItGlueExport, ItGlueExportFiles};
 use crate::source::DmsSource;
 use crate::state::MemorySyncState;
 use crate::state::{LedgerEntry, SyncState};
-use crate::sync::{ApplyMode, SyncConfig, SyncEngine, SOURCE_REF_KEY};
+use crate::sync::{SyncConfig, SyncEngine, SOURCE_REF_KEY};
 
 // ---- fixtures -------------------------------------------------------------------
 
-fn it_glue_fixture() -> Value {
-    serde_json::from_str(include_str!("../tests/fixtures/it_glue_export.json"))
-        .expect("it glue fixture")
-}
 
 fn hudu_fixture() -> Value {
     serde_json::from_str(include_str!("../tests/fixtures/hudu_export.json")).expect("hudu fixture")
-}
-
-fn it_glue_files(value: &Value) -> ItGlueExportFiles {
-    ItGlueExportFiles {
-        organizations: value.get("organizations.json").cloned(),
-        flexible_asset_types: value.get("flexible_asset_types.json").cloned(),
-        flexible_assets: value.get("flexible_assets.json").cloned(),
-        configurations: value.get("configurations.json").cloned(),
-    }
 }
 
 fn hudu_files(value: &Value) -> HuduExportFiles {
@@ -63,12 +49,6 @@ fn hudu_files(value: &Value) -> HuduExportFiles {
         websites: value.get("websites").cloned(),
         passwords: value.get("passwords").cloned(),
     }
-}
-
-fn it_glue_snapshot() -> DmsSnapshot {
-    ItGlueExport::new(it_glue_files(&it_glue_fixture()))
-        .pull()
-        .expect("parse it glue export")
 }
 
 fn hudu_snapshot() -> DmsSnapshot {
@@ -340,83 +320,6 @@ async fn run_with_config(
 // ---- source parser tests -----------------------------------------------------------
 
 #[test]
-fn it_glue_export_parses_layouts_records_and_client_scope() {
-    let snapshot = it_glue_snapshot();
-
-    assert_eq!(snapshot.source, "it-glue");
-    // Two flexible asset types parsed as layouts.
-    assert_eq!(snapshot.layouts.len(), 2);
-    let runbook = &snapshot.layouts[0];
-    assert_eq!(runbook.name, "Runbook");
-    assert_eq!(runbook.fields.len(), 3);
-    assert_eq!(runbook.fields[0].kind.as_str(), "text");
-    assert!(runbook.fields[0].required);
-    assert_eq!(runbook.fields[1].kind.as_str(), "email");
-    assert_eq!(runbook.fields[2].kind.as_str(), "date");
-
-    // Documents: 2 runbooks; the password-typed asset is NOT extracted
-    // by default (vault boundary: extraction is opt-in at the source).
-    let documents: Vec<&SyncRecord> = snapshot
-        .records
-        .iter()
-        .filter(|r| r.kind == LinkKind::Document)
-        .collect();
-    assert_eq!(documents.len(), 2);
-    assert_eq!(documents[0].title, "Exchange runbook");
-    assert_eq!(
-        documents[0].fields.get("owner_email").map(String::as_str),
-        Some("ops@acme.test")
-    );
-
-    // Configurations parse as identity-bearing assets.
-    let assets: Vec<&SyncRecord> = snapshot
-        .records
-        .iter()
-        .filter(|r| r.kind == LinkKind::Asset)
-        .collect();
-    assert_eq!(assets.len(), 2);
-    let exchange = assets[0];
-    assert_eq!(exchange.external_id, "301");
-    assert_eq!(
-        exchange.fields.get("serial").map(String::as_str),
-        Some("SN-EXCH-001")
-    );
-    let identity = exchange.identity("it-glue");
-    assert_eq!(identity.primary.kind.as_str(), "guid");
-    assert!(identity
-        .alternates
-        .iter()
-        .any(|k| k.kind.as_str() == "serial" && k.value == "SN-EXCH-001"));
-
-    // Client scope rides the snapshot.
-    assert_eq!(
-        snapshot.client_refs.get("101").map(String::as_str),
-        Some("Acme Corp")
-    );
-    assert_eq!(documents[0].client_ref.as_deref(), Some("101"));
-
-    // Credentials: empty by default.
-    assert!(snapshot.credentials.is_empty());
-}
-
-#[test]
-fn it_glue_credentials_are_opt_in_and_debug_redacted() {
-    let snapshot = ItGlueExport::new(it_glue_files(&it_glue_fixture()))
-        .include_credentials()
-        .pull()
-        .expect("parse");
-
-    assert_eq!(snapshot.credentials.len(), 1);
-    let credential = &snapshot.credentials[0];
-    assert_eq!(credential.title, "Firewall console");
-    assert_eq!(credential.secret, "s3cr3t-vault-material");
-    // The secret NEVER survives a Debug format (log-line safety).
-    let rendered = format!("{credential:?}");
-    assert!(!rendered.contains("s3cr3t-vault-material"));
-    assert!(rendered.contains("[REDACTED]"));
-}
-
-#[test]
 fn hudu_export_parses_with_identity_bearing_assets() {
     let snapshot = hudu_snapshot();
 
@@ -517,45 +420,6 @@ fn meridian_snapshot_from(snapshot: &DmsSnapshot) -> push::MeridianSnapshot {
 }
 
 #[test]
-fn round_trip_it_glue_export_preserves_semantics() {
-    let snapshot = it_glue_snapshot();
-    let rendered = push::render_it_glue_export(&meridian_snapshot_from(&snapshot));
-
-    let files = ItGlueExportFiles {
-        organizations: rendered.file("organizations").cloned(),
-        flexible_asset_types: rendered.file("flexible_asset_types").cloned(),
-        flexible_assets: rendered.file("flexible_assets").cloned(),
-        configurations: rendered.file("configurations").cloned(),
-    };
-    let round_tripped = ItGlueExport::new(files).pull().expect("re-parse");
-
-    // Every original record survives the round trip with its fields
-    // (matched by title: the rendered ids are Meridian uuids, not the
-    // external id space).
-    for record in &snapshot.records {
-        let matching = round_tripped
-            .records
-            .iter()
-            .find(|r| r.title == record.title)
-            .unwrap_or_else(|| panic!("record {:?} lost in round trip", record.title));
-        for (key, value) in &record.fields {
-            assert_eq!(
-                matching.fields.get(key).map(String::as_str),
-                Some(value.as_str()),
-                "field {key} lost for record {:?}",
-                record.title
-            );
-        }
-    }
-    for name in snapshot.client_refs.values() {
-        assert!(
-            round_tripped.client_refs.values().any(|n| n == name),
-            "client {name} lost in round trip"
-        );
-    }
-}
-
-#[test]
 fn round_trip_hudu_export_preserves_semantics() {
     let snapshot = hudu_snapshot();
     let rendered = push::render_hudu_export(&meridian_snapshot_from(&snapshot));
@@ -590,289 +454,6 @@ fn round_trip_hudu_export_preserves_semantics() {
 }
 
 // ---- engine conformance ---------------------------------------------------------
-
-#[tokio::test]
-async fn engine_first_sync_creates_assets_documents_and_connector_layouts() {
-    let snapshot = it_glue_snapshot();
-    let sink = MockSink::with_clients();
-    let state = MemorySyncState::new();
-
-    let report = run_apply(&snapshot, &sink, &state).await;
-
-    // 2 documents + 2 assets created; the password-typed flexible asset
-    // is neither (vault boundary holds at the source).
-    assert_eq!(report.documents_created, 2, "report: {report:?}");
-    assert_eq!(report.assets_created, 2);
-    // Connector org layouts: Runbook + Passwords types, plus the two
-    // synthesized configuration types (Server, Firewall).
-    assert_eq!(report.layouts_created.len(), 4, "report: {report:?}");
-    assert!(report
-        .layouts_created
-        .iter()
-        .any(|slug| slug == "it-glue-runbook"));
-    assert!(report
-        .layouts_created
-        .iter()
-        .any(|slug| slug == "it-glue-server"));
-    assert!(report.layouts_mapped_system.is_empty());
-    assert!(report.errors.is_empty(), "errors: {:?}", report.errors);
-    assert!(report.merge_candidates.is_empty());
-
-    // Provenance: created assets carry the source_ref identity handle.
-    let exchange = sink
-        .lock()
-        .assets
-        .iter()
-        .find(|a| a.name == "EXCH-01")
-        .expect("exchange asset")
-        .clone();
-    let identity = snapshot
-        .records
-        .iter()
-        .find(|r| r.external_id == "301")
-        .expect("record")
-        .identity("it-glue");
-    assert_eq!(
-        exchange.fields.get("source_ref").and_then(Value::as_str),
-        Some(identity.handle().as_str())
-    );
-    // The ledger owns every created record.
-    assert!(state
-        .lookup(&format!("asset:{}", identity.handle()))
-        .is_some());
-    assert!(
-        sink.lock().vault.is_empty(),
-        "no credential crossed the seam"
-    );
-}
-
-#[tokio::test]
-async fn engine_second_sync_updates_its_own_records_never_twins() {
-    let mut snapshot = it_glue_snapshot();
-    let sink = MockSink::with_clients();
-    let state = MemorySyncState::new();
-
-    let first = run_apply(&snapshot, &sink, &state).await;
-    assert_eq!(first.assets_created, 2);
-    assert_eq!(first.documents_created, 2);
-
-    // Second run, unchanged source: nothing happens.
-    let second = run_apply(&snapshot, &sink, &state).await;
-    assert_eq!(second.assets_created, 0, "no twins on unchanged re-sync");
-    assert_eq!(second.assets_updated, 0);
-    assert_eq!(second.documents_created, 0);
-    assert_eq!(second.documents_updated, 0);
-
-    // Changed source content: the same record updates, still no twin.
-    let exchange = snapshot
-        .records
-        .iter_mut()
-        .find(|r| r.external_id == "301")
-        .expect("exchange");
-    exchange
-        .fields
-        .insert("primary_ip".to_string(), "10.0.0.9".to_string());
-    let third = run_apply(&snapshot, &sink, &state).await;
-    assert_eq!(third.assets_created, 0, "twin created!");
-    assert_eq!(third.assets_updated, 1, "own record must update in place");
-    let locked = sink.lock();
-    assert_eq!(
-        locked.assets.iter().filter(|a| a.name == "EXCH-01").count(),
-        1
-    );
-    assert_eq!(
-        locked
-            .assets
-            .iter()
-            .find(|a| a.name == "EXCH-01")
-            .and_then(|a| a.fields.get("primary_ip"))
-            .and_then(Value::as_str),
-        Some("10.0.0.9")
-    );
-}
-
-#[tokio::test]
-async fn engine_foreign_serial_match_is_a_reviewable_merge_candidate() {
-    let snapshot = it_glue_snapshot();
-    // A foreign (human-created) Meridian asset already owns this serial.
-    let foreign = AssetRecord {
-        id: Uuid::from_u128(9_001),
-        client_id: acme(),
-        tag: "SRV-LEGACY".into(),
-        name: "Old server".into(),
-        status: "active".into(),
-        layout_id: None,
-        fields: json!({ "serial": "SN-EXCH-001" }),
-    };
-    let sink = MockSink::with_clients().with_asset(foreign);
-    let state = MemorySyncState::new();
-
-    let report = run_apply(&snapshot, &sink, &state).await;
-    assert_eq!(
-        report.assets_created, 1,
-        "only the non-matching asset creates"
-    );
-    assert_eq!(report.merge_candidates.len(), 1, "report: {report:?}");
-    let candidate = &report.merge_candidates[0];
-    assert_eq!(candidate.external_id, "301");
-    assert!(candidate.matched_on.contains("serial"));
-    // The matching key itself is the evidence; field diffs may be empty
-    // when the foreign record shares only the matched key.
-    assert_eq!(
-        candidate.meridian_label,
-        "asset \"Old server\" (SRV-LEGACY)"
-    );
-    // Never a silent overwrite: the foreign record is untouched.
-    let locked = sink.lock();
-    let foreign = locked
-        .assets
-        .iter()
-        .find(|a| a.id == Uuid::from_u128(9_001))
-        .expect("foreign");
-    assert!(foreign.fields.get("hostname").is_none());
-}
-
-#[tokio::test]
-async fn engine_auto_link_adopts_and_only_fills_empty_fields() {
-    let snapshot = it_glue_snapshot();
-    let foreign = AssetRecord {
-        id: Uuid::from_u128(9_001),
-        client_id: acme(),
-        tag: "SRV-LEGACY".into(),
-        name: "Old server".into(),
-        status: "active".into(),
-        layout_id: None,
-        // Populated conflicting value + empty slots to fill.
-        fields: json!({ "serial": "SN-EXCH-001", "os": "Human-typed OS" }),
-    };
-    let sink = MockSink::with_clients().with_asset(foreign);
-    let state = MemorySyncState::new();
-    let config = SyncConfig {
-        auto_link_conflicts: true,
-        ..Default::default()
-    };
-
-    let report = run_with_config(config, &snapshot, &sink, &state).await;
-    assert_eq!(
-        report.merge_candidates.len(),
-        0,
-        "adoption on: no candidate"
-    );
-    let locked = sink.lock();
-    let adopted = locked
-        .assets
-        .iter()
-        .find(|a| a.id == Uuid::from_u128(9_001))
-        .expect("adopted");
-    // Empty hostname filled; the populated os value is NOT overwritten.
-    assert_eq!(
-        adopted.fields.get("hostname").and_then(Value::as_str),
-        Some("exch01.acme.test")
-    );
-    assert_eq!(
-        adopted.fields.get("os").and_then(Value::as_str),
-        Some("Human-typed OS"),
-        "curated populated value must survive adoption"
-    );
-    // Provenance stamped: the connector now owns the record.
-    let identity = snapshot
-        .records
-        .iter()
-        .find(|r| r.external_id == "301")
-        .expect("record")
-        .identity("it-glue");
-    assert_eq!(
-        adopted.fields.get("source_ref").and_then(Value::as_str),
-        Some(identity.handle().as_str())
-    );
-}
-
-#[tokio::test]
-async fn engine_curated_field_beats_observed_source_value() {
-    let mut snapshot = it_glue_snapshot();
-    let sink = MockSink::with_clients();
-    let state = MemorySyncState::new();
-
-    let first = run_apply(&snapshot, &sink, &state).await;
-    assert_eq!(first.assets_created, 2);
-
-    // A human edits the sink record (curated), then the source moves.
-    {
-        let mut locked = sink.lock();
-        let exchange = locked
-            .assets
-            .iter_mut()
-            .find(|a| a.name == "EXCH-01")
-            .expect("asset");
-        exchange
-            .fields
-            .as_object_mut()
-            .expect("object")
-            .insert("os".into(), json!("Human-typed OS"));
-    }
-    let exchange = snapshot
-        .records
-        .iter_mut()
-        .find(|r| r.external_id == "301")
-        .expect("record");
-    exchange
-        .fields
-        .insert("os".to_string(), "Windows Server 2025".to_string());
-
-    let report = run_apply(&snapshot, &sink, &state).await;
-    // The curated value survives; the source value is the evidence.
-    assert_eq!(report.curated_conflicts.len(), 1, "report: {report:?}");
-    let conflict = &report.curated_conflicts[0];
-    assert_eq!(conflict.field, "os");
-    assert_eq!(conflict.curated_value, "Human-typed OS");
-    assert_eq!(conflict.source_value, "Windows Server 2025");
-    assert_eq!(
-        sink.lock()
-            .assets
-            .iter()
-            .find(|a| a.name == "EXCH-01")
-            .and_then(|a| a.fields.get("os"))
-            .and_then(Value::as_str),
-        Some("Human-typed OS")
-    );
-}
-
-#[tokio::test]
-async fn engine_credentials_never_reach_sink_unless_mapped() {
-    let mut snapshot = it_glue_snapshot();
-    snapshot.credentials.push(Credential {
-        external_id: "cred-1".into(),
-        client_ref: Some("101".into()),
-        title: "Router admin".into(),
-        username: "admin".into(),
-        url: String::new(),
-        secret: "super-secret-material".into(),
-        notes: None,
-        expires_at: None,
-    });
-
-    // Default: vault boundary holds — counted and skipped, no sink call.
-    let sink = MockSink::with_clients();
-    let state = MemorySyncState::new();
-    let report = run_apply(&snapshot, &sink, &state).await;
-    assert_eq!(report.credentials_skipped, 1);
-    assert_eq!(report.credentials_mapped, 0);
-    assert!(sink.lock().vault.is_empty(), "credential reached the sink!");
-
-    // Explicit mapping: the audited vault path is exercised exactly once.
-    let sink_mapped = MockSink::with_clients();
-    let state_mapped = MemorySyncState::new();
-    let config = SyncConfig {
-        map_credentials: true,
-        ..Default::default()
-    };
-    let report = run_with_config(config, &snapshot, &sink_mapped, &state_mapped).await;
-    assert_eq!(report.credentials_mapped, 1);
-    let vault = sink_mapped.lock().vault.clone();
-    assert_eq!(vault.len(), 1);
-    assert_eq!(vault[0].1, "super-secret-material");
-}
-
 #[tokio::test]
 async fn engine_maps_system_layout_only_when_schema_fits() {
     let snapshot = hudu_snapshot();
@@ -949,128 +530,6 @@ async fn engine_maps_system_layout_only_when_schema_fits() {
     assert_eq!(report.assets_created, 1);
     assert!(sink.lock().assets.iter().any(|a| a.name == "WS-FIN-01"));
 }
-
-#[tokio::test]
-async fn engine_unresolved_link_is_surfaced_never_invented() {
-    let mut snapshot = it_glue_snapshot();
-    // A relation whose target does not exist in the source either.
-    snapshot.relations.push(Relation {
-        from: LinkEndpoint {
-            external_id: "201".into(),
-            kind: LinkKind::Document,
-        },
-        to: LinkEndpoint {
-            external_id: "ghost-404".into(),
-            kind: LinkKind::Asset,
-        },
-    });
-
-    let sink = MockSink::with_clients();
-    let state = MemorySyncState::new();
-    let report = run_apply(&snapshot, &sink, &state).await;
-
-    assert_eq!(report.unresolved_links.len(), 1);
-    assert_eq!(report.unresolved_links[0].missing, "to");
-    assert!(
-        sink.lock().links.is_empty(),
-        "a broken link must not be invented"
-    );
-}
-
-#[tokio::test]
-async fn engine_resolves_and_creates_links_between_synced_records() {
-    let mut snapshot = it_glue_snapshot();
-    // Document 201 (a runbook) relates to configuration 301 (its server).
-    snapshot.relations.push(Relation {
-        from: LinkEndpoint {
-            external_id: "201".into(),
-            kind: LinkKind::Document,
-        },
-        to: LinkEndpoint {
-            external_id: "301".into(),
-            kind: LinkKind::Asset,
-        },
-    });
-
-    let sink = MockSink::with_clients();
-    let state = MemorySyncState::new();
-    let report = run_apply(&snapshot, &sink, &state).await;
-
-    assert!(report.unresolved_links.is_empty(), "report: {report:?}");
-    assert_eq!(report.links_created, 1);
-    // A second run sees the existing link (idempotent, no duplicate).
-    let second = run_apply(&snapshot, &sink, &state).await;
-    assert_eq!(second.links_existing, 1);
-    assert_eq!(second.links_created, 0);
-    assert_eq!(sink.lock().links.len(), 1);
-}
-
-#[tokio::test]
-async fn engine_none_mode_reports_without_writes() {
-    let snapshot = it_glue_snapshot();
-    let state = MemorySyncState::new();
-    let engine = SyncEngine::new(SyncConfig::default());
-    let report = engine
-        .run(&snapshot, &NoneDmsSink, &state)
-        .await
-        .expect("none mode is a report, not an error");
-    assert!(!report.dry_run);
-    assert_eq!(report.records_skipped, snapshot.records.len());
-    assert!(
-        report.errors.iter().any(|e| e.error.contains("none mode")),
-        "report: {report:?}"
-    );
-
-    // And the sink itself is honest: Disabled means zero network.
-    let err = NoneDmsSink
-        .create_asset(&AssetCreate {
-            client_id: acme(),
-            tag: "t".into(),
-            name: "n".into(),
-            layout_id: None,
-            fields: json!({}),
-            idempotency_key: "k".into(),
-            change_note: String::new(),
-        })
-        .await
-        .expect_err("disabled");
-    assert!(matches!(err, SinkError::Disabled));
-}
-
-#[tokio::test]
-async fn engine_dry_run_writes_nothing() {
-    let snapshot = it_glue_snapshot();
-    let sink = MockSink::with_clients();
-    let state = MemorySyncState::new();
-    let config = SyncConfig {
-        apply: ApplyMode::DryRun,
-        ..Default::default()
-    };
-    let report = run_with_config(config, &snapshot, &sink, &state).await;
-    assert!(report.dry_run);
-    assert_eq!(report.assets_created, 2, "report: {report:?}");
-    assert!(sink.lock().assets.is_empty(), "dry run wrote to the sink!");
-    assert!(sink.lock().documents.is_empty());
-    // The ledger is untouched too.
-    assert!(state.lookup("asset:guid:it-glue:301").is_none());
-}
-
-#[tokio::test]
-async fn engine_unmapped_client_scope_is_reported_not_guessed() {
-    let mut snapshot = it_glue_snapshot();
-    for record in &mut snapshot.records {
-        // Point everything at an organization the Meridian org has no
-        // client for.
-        record.client_ref = Some("999".into());
-    }
-    let sink = MockSink::with_clients();
-    let state = MemorySyncState::new();
-    let report = run_apply(&snapshot, &sink, &state).await;
-    assert_eq!(report.unmapped_clients.len(), 4, "report: {report:?}");
-    assert_eq!(report.assets_created, 0);
-    assert_eq!(report.documents_created, 0);
-}
-
 #[test]
 fn identity_keys_are_deterministic_and_ordered() {
     let mut fields = BTreeMap::new();
