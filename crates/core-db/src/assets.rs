@@ -283,14 +283,14 @@ where
              purchase_date = COALESCE($10, purchase_date),
              purchase_cost_minor = COALESCE($11, purchase_cost_minor),
              purchase_currency = COALESCE($12, purchase_currency),
-             purchase_fx_rate_used = COALESCE($17::text, purchase_fx_rate_used),
-             purchase_fx_rate_date = COALESCE($18, purchase_fx_rate_date),
-             purchase_fx_source = COALESCE($19::text, purchase_fx_source),
-             base_purchase_cost_minor = COALESCE($20, base_purchase_cost_minor),
-             depreciation_method = COALESCE($13, depreciation_method),
-             useful_life_months = COALESCE($14, useful_life_months),
-             salvage_value_minor = COALESCE($15, salvage_value_minor),
-             depreciation_rate_bps = COALESCE($16, depreciation_rate_bps),
+             purchase_fx_rate_used = COALESCE($13::numeric, purchase_fx_rate_used),
+             purchase_fx_rate_date = COALESCE($14, purchase_fx_rate_date),
+             purchase_fx_source = COALESCE($15::text, purchase_fx_source),
+             base_purchase_cost_minor = COALESCE($16, base_purchase_cost_minor),
+             depreciation_method = COALESCE($17, depreciation_method),
+             useful_life_months = COALESCE($18, useful_life_months),
+             salvage_value_minor = COALESCE($19, salvage_value_minor),
+             depreciation_rate_bps = COALESCE($20, depreciation_rate_bps),
              updated_at = now()
            WHERE org_id = $1 AND id = $2
            RETURNING {ASSET_COLUMNS}"#

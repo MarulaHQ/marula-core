@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE stock_serials\n                 SET status = 'checked_out', updated_at = now()\n               WHERE org_id = $1 AND id = $2 AND status = 'out'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ef83b250718545be435973079f10c259560046ac68f0324b0da89fa83096b984"
+}

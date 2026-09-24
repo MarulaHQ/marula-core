@@ -83,6 +83,7 @@ pub mod internal;
 pub mod invoices;
 pub mod kb;
 pub mod kb_rich;
+pub mod loans;
 pub mod loop_termination;
 pub mod manifest;
 pub mod notifications;
@@ -127,6 +128,7 @@ pub mod ticket_links;
 pub mod tickets;
 pub mod time;
 pub mod timers;
+pub mod tools;
 pub mod transcription;
 pub mod undo;
 pub mod webhook_admin;
@@ -1741,6 +1743,11 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // into the lane-1 stock ledger, external deeplinks, and the bill
         // → project cost rollup hook.
         .merge(purchasing::routes(gen))
+        // tools checkout + toolboxes + client loans (Wave 32 lane 3,
+        // migration 0104) — module-owned routers; mutations ride the
+        // IF1-IF3 envelope.
+        .merge(tools::routes(gen))
+        .merge(loans::routes(gen))
         .merge(quotes::routes(gen))
         .merge(pipeline::routes(gen))
         // currency & FX (ADR 0002, Wave 12 lane 10, migration 0066): the

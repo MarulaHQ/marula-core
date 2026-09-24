@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT m.stock_item_id, si.name AS item_name, m.qty_milli,\n                  count(ss.id) FILTER (\n                    WHERE ss.status = 'in_stock'\n                      AND ($3::uuid IS NULL OR ss.location_id = $3)\n                  ) AS \"available_units!\"\n           FROM tool_kit_members m\n           JOIN stock_items si ON si.id = m.stock_item_id AND si.org_id = m.org_id\n           LEFT JOIN stock_serials ss\n             ON ss.stock_item_id = m.stock_item_id AND ss.org_id = m.org_id\n           WHERE m.org_id = $1 AND m.kit_id = $2\n           GROUP BY m.stock_item_id, si.name, m.qty_milli\n           ORDER BY si.name",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "stock_item_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "item_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "qty_milli",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "available_units!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "fd9b0edf91071f2703d256ed834080353a657fcdff3da288af106c1f685be031"
+}

@@ -1,0 +1,131 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ss.id, ss.org_id, ss.stock_item_id, si.name AS item_name, si.is_tool,\n                  ss.serial_number,\n                  ss.location_id AS \"location_id?\", sl.name::text AS \"location_name?\",\n                  ss.status,\n                  ss.client_id AS \"serial_client_id?\",\n                  oc.id AS \"checkout_id?\", oc.holder_user_id AS \"holder_user_id?\",\n                  oc.due_at AS \"due_at?\",\n                  ll.loan_id AS \"loan_id?\", cl.client_id AS \"loan_client_id?\",\n                  cl.expected_return_at AS \"expected_return_at?\",\n                  ss.created_at, ss.updated_at\n           FROM stock_serials ss\n           JOIN stock_items si ON si.id = ss.stock_item_id AND si.org_id = ss.org_id\n           LEFT JOIN stock_locations sl ON sl.id = ss.location_id\n           LEFT JOIN tool_checkout_lines ocl\n             ON ocl.serial_id = ss.id AND ocl.org_id = ss.org_id AND ocl.returned_at IS NULL\n           LEFT JOIN tool_checkouts oc ON oc.id = ocl.checkout_id\n           LEFT JOIN client_loan_lines ll\n             ON ll.serial_id = ss.id AND ll.org_id = ss.org_id AND ll.returned_at IS NULL\n           LEFT JOIN client_loans cl ON cl.id = ll.loan_id\n           WHERE ss.org_id = $1\n             AND ($2::uuid IS NULL OR ss.stock_item_id = $2)\n             AND ($3::uuid IS NULL OR ss.location_id = $3)\n             AND ($4::text IS NULL OR ss.status = $4)\n             AND ($5::uuid IS NULL OR oc.holder_user_id = $5)\n             AND ($6::boolean IS NULL OR si.is_tool = $6)\n             AND (NOT $7::boolean\n                  OR (oc.due_at IS NOT NULL AND oc.due_at < now())\n                  OR (cl.expected_return_at IS NOT NULL AND cl.expected_return_at < current_date))\n           ORDER BY si.name, ss.serial_number\n           LIMIT $8",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "stock_item_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "item_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "is_tool",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "serial_number",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "location_id?",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 7,
+        "name": "location_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "serial_client_id?",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 10,
+        "name": "checkout_id?",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 11,
+        "name": "holder_user_id?",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 12,
+        "name": "due_at?",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 13,
+        "name": "loan_id?",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 14,
+        "name": "loan_client_id?",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 15,
+        "name": "expected_return_at?",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 16,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 17,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Bool",
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ef22ca4b1a54e2f3cc5481cf21e44ea7d34ae6361747f9bff00e5f263dc96b94"
+}

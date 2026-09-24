@@ -1,0 +1,89 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, org_id, checkout_id, stock_item_id, serial_id, movement_out_id,\n                  movement_in_id, returned_at, return_condition, return_notes,\n                  created_at, updated_at\n           FROM tool_checkout_lines\n           WHERE org_id = $1 AND checkout_id = $2\n           ORDER BY created_at, id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "checkout_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "stock_item_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "serial_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "movement_out_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 6,
+        "name": "movement_in_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 7,
+        "name": "returned_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "return_condition",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "return_notes",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 11,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "0b44747e7d085c1b897ae75285e63d6a5396dcd72248c55fa0060ad0a4462b6d"
+}

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id FROM stock_serials\n                           WHERE org_id = $1 AND stock_item_id = $2 AND status = 'in_stock'\n                           ORDER BY created_at, id\n                           LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "aa83ff0ee9988e2edcf5e35af1b82ccc7f22bdc85e440f6243f17a8fdf5b10bb"
+}

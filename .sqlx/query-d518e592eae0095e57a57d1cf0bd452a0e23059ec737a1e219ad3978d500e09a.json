@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE client_loans\n                 SET status = 'returned', returned_at = $3,\n                     return_notes = COALESCE($4, return_notes), updated_at = now()\n               WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d518e592eae0095e57a57d1cf0bd452a0e23059ec737a1e219ad3978d500e09a"
+}

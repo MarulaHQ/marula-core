@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE stock_items\n             SET name = $3, sku = $4, catalog_item_id = $5, part_number = $6,\n                 kind = $7, is_tool = $8, unit = $9, updated_at = now()\n           WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Uuid",
+        "Text",
+        "Text",
+        "Bool",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1270175104ee14841e7dde74bfc639a1159980eb16425de2aa31c790de9773ef"
+}

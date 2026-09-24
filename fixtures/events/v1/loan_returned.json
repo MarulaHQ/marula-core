@@ -1,0 +1,61 @@
+{
+  "event_type": "loan.returned",
+  "entity": "client_loan",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "lines": [
+      {
+        "created_at": "2023-11-14T22:13:23Z",
+        "device_asset_id": "00000000-0000-0000-0000-000000000043",
+        "id": "00000000-0000-0000-0000-00000000004b",
+        "loan_id": "00000000-0000-0000-0000-00000000004a",
+        "movement_in_id": null,
+        "movement_out_id": "00000000-0000-0000-0000-000000000040",
+        "org_id": "00000000-0000-0000-0000-000000000002",
+        "return_condition": null,
+        "return_notes": null,
+        "returned_at": null,
+        "serial_id": "00000000-0000-0000-0000-00000000003f",
+        "stock_item_id": "00000000-0000-0000-0000-00000000003c",
+        "updated_at": "2023-11-14T22:13:23Z"
+      },
+      {
+        "created_at": "2023-11-14T22:13:23Z",
+        "device_asset_id": "00000000-0000-0000-0000-000000000044",
+        "id": "00000000-0000-0000-0000-00000000004c",
+        "loan_id": "00000000-0000-0000-0000-00000000004a",
+        "movement_in_id": null,
+        "movement_out_id": null,
+        "org_id": "00000000-0000-0000-0000-000000000002",
+        "return_condition": null,
+        "return_notes": null,
+        "returned_at": null,
+        "serial_id": null,
+        "stock_item_id": null,
+        "updated_at": "2023-11-14T22:13:23Z"
+      }
+    ],
+    "loan": {
+      "agreement_ref": "AGR-2026-014",
+      "client_id": "00000000-0000-0000-0000-000000000003",
+      "contract_id": null,
+      "created_at": "2023-11-14T22:13:23Z",
+      "expected_return_at": "2023-11-14",
+      "id": "00000000-0000-0000-0000-00000000004a",
+      "is_lease": true,
+      "issued_by": "00000000-0000-0000-0000-000000000004",
+      "lease_cost_minor": 4900,
+      "lease_currency": "USD",
+      "lease_cycle": "monthly",
+      "notes": null,
+      "org_id": "00000000-0000-0000-0000-000000000002",
+      "out_at": "2023-11-14T22:13:23Z",
+      "return_notes": null,
+      "returned_at": null,
+      "status": "open",
+      "updated_at": "2023-11-14T22:13:23Z"
+    }
+  }
+}

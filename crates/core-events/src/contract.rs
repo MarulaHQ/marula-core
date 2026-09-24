@@ -450,33 +450,34 @@ use core_domain::events::{
     CreditNoteIssued, CreditNoteRefunded, DispatchQueueUpdated, DispatchStatusUpdated,
     DocumentAttachmentAdded, DocumentAttachmentDeleted, FxBaseCurrencyChanged, FxRateRecorded,
     ImportBatchFinished, ImportBatchStarted, InvoiceCreated, InvoiceDunningChanged,
-    InvoicePaymentRecorded, InvoiceRunCompleted, InvoiceVoided, MeetingTypeDeleted,
-    MigrationPushSessionFinished, MigrationPushSessionStarted, NotificationCreated, OnCallChanged,
-    PipelineDealCreated, PipelineDealStageChanged, PipelineDealUpdated, PipelineStageCreated,
-    PipelineStageUpdated, PluginCatalogEntryCreated, PluginInstallRevoked, PluginInstallUpdated,
-    PluginInstalled, PluginPublisherRevoked, PluginPublisherVerified, PluginRatingRecorded,
-    PluginSettingsUpdated, PluginStagedImportApproved, PluginStagedImportCreated,
-    PluginStagedImportRefused, PluginUpdatePending, PmScheduleChanged, PmScheduleDeleted,
-    PodVisibilityUpdated, ProjectCreated, ProjectMilestoneCompleted, ProjectPhaseCompleted,
-    ProjectPhaseCreated, ProjectPhaseUpdated, ProjectTaskCompleted, ProjectTaskCreated,
-    ProjectTaskUpdated, ProjectTemplateRemoved, ProjectTemplateUpdated, ProjectUpdated,
-    ProjectViewRemoved, ProjectViewUpdated, PurchaseBillPosted, PurchaseOrderCreated,
-    PurchaseOrderStatusChanged, PurchaseOrderUpdated, PurchaseReceiptRecorded, QuoteAccepted,
-    QuoteConverted, QuoteCreated, QuoteDeclined, QuoteExpired, QuoteSent, QuoteUpdated, RoleForked,
-    RoleRestored, SchedulingLinkCreated, SchedulingLinkRevoked, SchedulingLinkScheduled,
-    SchedulingLinkViewed, ScorecardSettingsUpdated, SecretFolderCreated, SecretFolderDeleted,
-    SecretFolderForked, SecretFolderUpdated, SecretGrantDeleted, SecretGrantUpdated,
-    SecretRecordCreated, SecretRecordDeleted, SecretRecordUpdated, SecretRevealed,
-    SecretRotationDue, SecretShareLinkClaimed, SecretShareLinkCreated, SiteCreated, SiteUpdated,
-    StockItemArchived, StockItemCreated, StockItemUpdated, StockLevelLow, StockMovementRecorded,
-    TagCreated, TagDeleted, TagUpdated, TemplateCreated, TemplateRemoved, TemplateUpdated,
-    TicketAssigned, TicketBoardMoved, TicketChecklistUpdated, TicketCommentAdded,
-    TicketCostLineAdded, TicketCostLineRemoved, TicketCreated, TicketExpenseRecorded,
-    TicketExpenseRemoved, TicketLinkChanged, TicketMerged, TicketReverted, TicketStatusChanged,
-    TicketTagsChanged, TimeEntryApprovalApproved, TimeEntryApprovalRejected,
-    TimeEntryApprovalSubmitted, TimeEntryCreated, TimerPaused, TimerStarted, TimerStopped,
-    TravelDraftSubmitted, UserActivated, UserDeactivated, UserInvited, UserRoleChanged,
-    VendorCreated, VendorUpdated,
+    InvoicePaymentRecorded, InvoiceRunCompleted, InvoiceVoided, LoanIssued, LoanReturned,
+    MeetingTypeDeleted, MigrationPushSessionFinished, MigrationPushSessionStarted,
+    NotificationCreated, OnCallChanged, PipelineDealCreated, PipelineDealStageChanged,
+    PipelineDealUpdated, PipelineStageCreated, PipelineStageUpdated, PluginCatalogEntryCreated,
+    PluginInstallRevoked, PluginInstallUpdated, PluginInstalled, PluginPublisherRevoked,
+    PluginPublisherVerified, PluginRatingRecorded, PluginSettingsUpdated,
+    PluginStagedImportApproved, PluginStagedImportCreated, PluginStagedImportRefused,
+    PluginUpdatePending, PmScheduleChanged, PmScheduleDeleted, PodVisibilityUpdated,
+    ProjectCreated, ProjectMilestoneCompleted, ProjectPhaseCompleted, ProjectPhaseCreated,
+    ProjectPhaseUpdated, ProjectTaskCompleted, ProjectTaskCreated, ProjectTaskUpdated,
+    ProjectTemplateRemoved, ProjectTemplateUpdated, ProjectUpdated, ProjectViewRemoved,
+    ProjectViewUpdated, PurchaseBillPosted, PurchaseOrderCreated, PurchaseOrderStatusChanged,
+    PurchaseOrderUpdated, PurchaseReceiptRecorded, QuoteAccepted, QuoteConverted, QuoteCreated,
+    QuoteDeclined, QuoteExpired, QuoteSent, QuoteUpdated, RoleForked, RoleRestored,
+    SchedulingLinkCreated, SchedulingLinkRevoked, SchedulingLinkScheduled, SchedulingLinkViewed,
+    ScorecardSettingsUpdated, SecretFolderCreated, SecretFolderDeleted, SecretFolderForked,
+    SecretFolderUpdated, SecretGrantDeleted, SecretGrantUpdated, SecretRecordCreated,
+    SecretRecordDeleted, SecretRecordUpdated, SecretRevealed, SecretRotationDue,
+    SecretShareLinkClaimed, SecretShareLinkCreated, SiteCreated, SiteUpdated, StockItemArchived,
+    StockItemCreated, StockItemUpdated, StockLevelLow, StockMovementRecorded, TagCreated,
+    TagDeleted, TagUpdated, TemplateCreated, TemplateRemoved, TemplateUpdated, TicketAssigned,
+    TicketBoardMoved, TicketChecklistUpdated, TicketCommentAdded, TicketCostLineAdded,
+    TicketCostLineRemoved, TicketCreated, TicketExpenseRecorded, TicketExpenseRemoved,
+    TicketLinkChanged, TicketMerged, TicketReverted, TicketStatusChanged, TicketTagsChanged,
+    TimeEntryApprovalApproved, TimeEntryApprovalRejected, TimeEntryApprovalSubmitted,
+    TimeEntryCreated, TimerPaused, TimerStarted, TimerStopped, ToolCheckinCompleted,
+    ToolCheckoutCompleted, ToolKitCreated, ToolKitUpdated, TravelDraftSubmitted, UserActivated,
+    UserDeactivated, UserInvited, UserRoleChanged, VendorCreated, VendorUpdated,
 };
 use core_domain::money::{CurrencyCode, Money};
 use core_domain::policy::BoardRole;
@@ -2882,6 +2883,77 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             }
         ),
     },
+    // -- tools + toolboxes + client loans (Wave 32 lane 3, migration 0104) ---
+    PublishedEvent {
+        event_type: types::TOOL_KIT_CREATED,
+        entity: "tool_kit",
+        variant: "default",
+        shape: typed_shape!(
+            ToolKitCreated,
+            ToolKitCreated {
+                kit: sample_tool_kit(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::TOOL_KIT_UPDATED,
+        entity: "tool_kit",
+        variant: "default",
+        shape: typed_shape!(
+            ToolKitUpdated,
+            ToolKitUpdated {
+                kit: sample_tool_kit(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::TOOL_CHECKOUT_COMPLETED,
+        entity: "tool_checkout",
+        variant: "default",
+        shape: typed_shape!(
+            ToolCheckoutCompleted,
+            ToolCheckoutCompleted {
+                checkout: sample_tool_checkout(),
+                lines: sample_tool_checkout_lines(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::TOOL_CHECKIN_COMPLETED,
+        entity: "tool_checkout",
+        variant: "default",
+        shape: typed_shape!(
+            ToolCheckinCompleted,
+            ToolCheckinCompleted {
+                checkout: sample_tool_checkout(),
+                lines: sample_tool_checkout_lines(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::LOAN_ISSUED,
+        entity: "client_loan",
+        variant: "default",
+        shape: typed_shape!(
+            LoanIssued,
+            LoanIssued {
+                loan: sample_client_loan(),
+                lines: sample_client_loan_lines(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::LOAN_RETURNED,
+        entity: "client_loan",
+        variant: "default",
+        shape: typed_shape!(
+            LoanReturned,
+            LoanReturned {
+                loan: sample_client_loan(),
+                lines: sample_client_loan_lines(),
+            }
+        ),
+    },
     // -- purchasing + vendors (Wave 32 lane 2, migration 0103) --------------
     PublishedEvent {
         event_type: types::VENDOR_CREATED,
@@ -4239,6 +4311,7 @@ fn sample_stock_item() -> core_domain::entities::StockItem {
         catalog_item_id: None,
         part_number: Some("C6-BOX-025".into()),
         kind: "consumable".into(),
+        is_tool: false,
         unit: "box".into(),
         currency: "USD".into(),
         last_unit_cost_minor: Some(12_000),
@@ -4393,6 +4466,139 @@ fn sample_purchase_bill() -> core_domain::entities::PurchaseBill {
         created_at: st(3),
         updated_at: st(4),
     }
+}
+
+/// Representative toolbox/kit for tool samples (Wave 32 lane 3).
+fn sample_tool_kit() -> core_domain::entities::ToolKit {
+    use core_domain::entities::ToolKit;
+    ToolKit {
+        id: su(70),
+        org_id: su(2),
+        name: "Electrical toolbox".into(),
+        code: Some("TB-ELEC-1".into()),
+        note: None,
+        active: true,
+        created_by: Some(su(4)),
+        created_at: st(1),
+        updated_at: st(1),
+    }
+}
+
+/// Representative checkout header for tool samples (Wave 32 lane 3).
+fn sample_tool_checkout() -> core_domain::entities::ToolCheckout {
+    use core_domain::entities::ToolCheckout;
+    ToolCheckout {
+        id: su(71),
+        org_id: su(2),
+        holder_user_id: su(4),
+        kit_id: Some(su(70)),
+        from_location_id: su(62),
+        due_at: st(3),
+        notes: Some("Van kit for the north route".into()),
+        status: "open".into(),
+        returned_at: None,
+        return_notes: None,
+        checked_out_by: Some(su(4)),
+        created_at: st(3),
+        updated_at: st(3),
+    }
+}
+
+/// One returned + one outstanding line: the shape covers both states.
+fn sample_tool_checkout_lines() -> Vec<core_domain::entities::ToolCheckoutLine> {
+    use core_domain::entities::ToolCheckoutLine;
+    vec![
+        ToolCheckoutLine {
+            id: su(72),
+            org_id: su(2),
+            checkout_id: su(71),
+            stock_item_id: su(60),
+            serial_id: su(63),
+            movement_out_id: su(64),
+            movement_in_id: Some(su(65)),
+            returned_at: Some(st(4)),
+            return_condition: Some("good".into()),
+            return_notes: None,
+            created_at: st(3),
+            updated_at: st(4),
+        },
+        ToolCheckoutLine {
+            id: su(73),
+            org_id: su(2),
+            checkout_id: su(71),
+            stock_item_id: su(60),
+            serial_id: su(66),
+            movement_out_id: su(64),
+            movement_in_id: None,
+            returned_at: None,
+            return_condition: None,
+            return_notes: None,
+            created_at: st(3),
+            updated_at: st(3),
+        },
+    ]
+}
+
+/// Representative client loan for loan samples (Wave 32 lane 3).
+fn sample_client_loan() -> core_domain::entities::ClientLoan {
+    use core_domain::entities::ClientLoan;
+    ClientLoan {
+        id: su(74),
+        org_id: su(2),
+        client_id: su(3),
+        contract_id: None,
+        agreement_ref: Some("AGR-2026-014".into()),
+        out_at: st(3),
+        expected_return_at: st(3).date_naive(),
+        returned_at: None,
+        status: "open".into(),
+        is_lease: true,
+        lease_cycle: Some("monthly".into()),
+        lease_cost_minor: Some(4_900),
+        lease_currency: Some("USD".into()),
+        notes: None,
+        return_notes: None,
+        issued_by: Some(su(4)),
+        created_at: st(3),
+        updated_at: st(3),
+    }
+}
+
+/// One stock-sourced + one asset-sourced line.
+fn sample_client_loan_lines() -> Vec<core_domain::entities::ClientLoanLine> {
+    use core_domain::entities::ClientLoanLine;
+    vec![
+        ClientLoanLine {
+            id: su(75),
+            org_id: su(2),
+            loan_id: su(74),
+            stock_item_id: Some(su(60)),
+            serial_id: Some(su(63)),
+            device_asset_id: Some(su(67)),
+            movement_out_id: Some(su(64)),
+            movement_in_id: None,
+            returned_at: None,
+            return_condition: None,
+            return_notes: None,
+            created_at: st(3),
+            updated_at: st(3),
+        },
+        ClientLoanLine {
+            id: su(76),
+            org_id: su(2),
+            loan_id: su(74),
+            stock_item_id: None,
+            serial_id: None,
+            device_asset_id: Some(su(68)),
+            movement_out_id: None,
+            movement_in_id: None,
+            returned_at: None,
+            return_condition: None,
+            return_notes: None,
+            created_at: st(3),
+            updated_at: st(3),
+        },
+    ]
 }
 
 /// Representative pipeline stage for sales-pipeline samples.

@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, serial_number FROM stock_serials\n           WHERE org_id = $1 AND stock_item_id = $2\n             AND status = 'in_stock' AND location_id = $3\n           ORDER BY created_at, id\n           LIMIT $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "serial_number",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "54d45e1311a12eb02911c006c5a04a3e08825d94f63a332bead58632f6bf3ed4"
+}

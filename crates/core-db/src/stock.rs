@@ -28,6 +28,7 @@ struct ItemRow {
     catalog_item_id: Option<Uuid>,
     part_number: Option<String>,
     kind: String,
+    is_tool: bool,
     unit: String,
     currency: String,
     last_unit_cost_minor: Option<i64>,
@@ -46,6 +47,7 @@ fn item_row(r: ItemRow) -> StockItem {
         catalog_item_id: r.catalog_item_id,
         part_number: r.part_number,
         kind: r.kind,
+        is_tool: r.is_tool,
         unit: r.unit,
         currency: r.currency,
         last_unit_cost_minor: r.last_unit_cost_minor,
@@ -125,8 +127,9 @@ where
 {
     sqlx::query!(
         r#"INSERT INTO stock_items (id, org_id, name, sku, catalog_item_id, part_number,
-                                    kind, unit, currency, last_unit_cost_minor, active, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"#,
+                                    kind, is_tool, unit, currency, last_unit_cost_minor,
+                                    active, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)"#,
         item.id,
         item.org_id,
         item.name.trim(),
@@ -134,6 +137,7 @@ where
         item.catalog_item_id,
         item.part_number.as_deref(),
         item.kind,
+        item.is_tool,
         item.unit.trim(),
         item.currency,
         item.last_unit_cost_minor,
@@ -151,8 +155,8 @@ where
 {
     let row = sqlx::query_as!(
         ItemRow,
-        r#"SELECT id, org_id, name, sku, catalog_item_id, part_number, kind, unit, currency,
-                  last_unit_cost_minor, active, created_by, created_at, updated_at
+        r#"SELECT id, org_id, name, sku, catalog_item_id, part_number, kind, is_tool, unit,
+                  currency, last_unit_cost_minor, active, created_by, created_at, updated_at
            FROM stock_items WHERE org_id = $1 AND id = $2"#,
         org_id,
         id
@@ -175,8 +179,8 @@ pub async fn list_stock_items(
     let grep = search.map(|s| format!("%{}%", s.trim().to_lowercase()));
     let rows = sqlx::query_as!(
         ItemRow,
-        r#"SELECT id, org_id, name, sku, catalog_item_id, part_number, kind, unit, currency,
-                  last_unit_cost_minor, active, created_by, created_at, updated_at
+        r#"SELECT id, org_id, name, sku, catalog_item_id, part_number, kind, is_tool, unit,
+                  currency, last_unit_cost_minor, active, created_by, created_at, updated_at
            FROM stock_items
            WHERE org_id = $1
              AND ($2::text IS NULL
@@ -205,7 +209,7 @@ where
     let n = sqlx::query!(
         r#"UPDATE stock_items
              SET name = $3, sku = $4, catalog_item_id = $5, part_number = $6,
-                 kind = $7, unit = $8, updated_at = now()
+                 kind = $7, is_tool = $8, unit = $9, updated_at = now()
            WHERE org_id = $1 AND id = $2"#,
         item.org_id,
         item.id,
@@ -214,6 +218,7 @@ where
         item.catalog_item_id,
         item.part_number.as_deref(),
         item.kind,
+        item.is_tool,
         item.unit.trim(),
     )
     .execute(executor)
@@ -459,6 +464,15 @@ pub struct LedgerOutcome {
     /// Set when a decrement landed the level at/below its reorder point
     /// AND this is the transition INTO low (the notified flag gates
     /// repeats; it clears again when the level rises above the point).
+    pub low: Option<LowInfo>,
+}
+
+/// One ledger leg appended by a higher-level transaction (lane-3 tool
+/// checkout / client loan): the movement plus the low-stock transition it
+/// produced, if any. Routes emit `stock.movement_recorded` (+
+/// `stock.level_low`) per leg, exactly like lane-1's single-leg routes.
+pub struct MovementLeg {
+    pub movement: StockMovement,
     pub low: Option<LowInfo>,
 }
 

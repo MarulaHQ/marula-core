@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tool_checkouts\n                 SET status = 'returned', returned_at = $3,\n                     return_notes = COALESCE($4, return_notes), updated_at = now()\n               WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0dbc89b5111fd6ed45df20da26d2c768bb3bc43a8226fee832a49a000ce3ef43"
+}
