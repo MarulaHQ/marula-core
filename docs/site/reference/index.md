@@ -20,6 +20,8 @@ structured for lookup, with no narrative and no opinions.
   off by default, the profile that turns them on
 - [Backup & restore runbook](backup-restore.md) — what to back up, how to
   restore, how to rehearse
+- [Postgres 17 to 18 upgrade](pg18-upgrade.md) — the one-time volume cut
+  for stacks installed before the PG18 transition
 - [Reverse proxy & TLS runbook](reverse-proxy-tls.md) — what a production
   proxy must serve and the seams it must survive
 - Desktop packaging & release workflow:

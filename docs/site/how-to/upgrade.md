@@ -10,6 +10,8 @@ safely.
 
 - Shell access to the deployment or the `meridian` CLI.
 - A current backup — the [backup/restore runbook](../reference/backup-restore.md) first.
+- Still on Postgres 17? Do the [one-time PG18 volume cut](../reference/pg18-upgrade.md)
+  before or right after this upgrade; new installs are already on 18.
 
 
 ## 1. Check your version and the support window
