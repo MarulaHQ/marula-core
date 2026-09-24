@@ -60,7 +60,14 @@ pub struct AssetMutationResponse {
 
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct CreateAssetRequest {
-    pub client_id: Uuid,
+    /// Required for client-scoped assets; absent for internal-org ones.
+    #[serde(default)]
+    pub client_id: Option<Uuid>,
+    /// client | internal_org (migration 0103). Defaults to `client` when
+    /// a client_id is present — internal-org assets (the MSP's own gear)
+    /// carry no client, never a fake one.
+    #[serde(default)]
+    pub scope: Option<String>,
     #[serde(default)]
     pub site_id: Option<Uuid>,
     /// Human asset tag, e.g. "EXCH-01".
@@ -182,6 +189,9 @@ pub struct UpdateAssetRequest {
 pub struct ListAssetsQuery {
     #[serde(default)]
     pub client_id: Option<Uuid>,
+    /// client | internal_org (migration 0103).
+    #[serde(default)]
+    pub scope: Option<String>,
     #[serde(default)]
     pub layout_id: Option<Uuid>,
     /// Substring over tag, name, and custom fields.
@@ -206,9 +216,23 @@ pub async fn list(
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
-    let rows =
-        core_db::assets::list_assets(&mut *tx, org_id, q.client_id, q.layout_id, q.q.as_deref())
-            .await?;
+    if let Some(scope) = q.scope.as_deref() {
+        if !core_domain::entities::is_valid_asset_scope(scope) {
+            return Err(ApiError::Validation(format!(
+                "scope must be one of {}",
+                core_domain::entities::ASSET_SCOPES.join(", ")
+            )));
+        }
+    }
+    let rows = core_db::assets::list_assets(
+        &mut *tx,
+        org_id,
+        q.client_id,
+        q.scope.as_deref(),
+        q.layout_id,
+        q.q.as_deref(),
+    )
+    .await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(rows))
 }
@@ -277,6 +301,29 @@ pub async fn create(
         validate_fields(&layout, &fields)?;
     }
 
+    // Scope coherence (migration 0103): a client-scoped asset carries a
+    // client; an internal-org asset (the MSP's own gear) never does —
+    // the DB CHECK enforces the same shape.
+    let scope = req.scope.clone().unwrap_or_else(|| "client".into());
+    if !core_domain::entities::is_valid_asset_scope(&scope) {
+        return Err(ApiError::Validation(format!(
+            "scope must be one of {}",
+            core_domain::entities::ASSET_SCOPES.join(", ")
+        )));
+    }
+    match (scope.as_str(), req.client_id) {
+        ("client", None) => {
+            return Err(ApiError::Validation(
+                "a client-scoped asset needs a client_id".into(),
+            ));
+        }
+        ("internal_org", Some(_)) => {
+            return Err(ApiError::Validation(
+                "an internal-org asset must not carry a client_id".into(),
+            ));
+        }
+        _ => {}
+    }
     let (client_id, site_id, kind, status, layout_id) = (
         req.client_id,
         req.site_id,
@@ -306,6 +353,7 @@ pub async fn create(
             org_id,
             id,
             client_id,
+            &scope,
             site_id,
             &tag,
             &name,

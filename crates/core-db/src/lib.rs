@@ -69,6 +69,7 @@ pub mod plugins;
 pub mod portal;
 pub mod projects;
 pub mod provenance;
+pub mod purchasing;
 pub mod queue;
 pub mod quotes;
 pub mod recurring;

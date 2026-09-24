@@ -9,7 +9,7 @@ use core_domain::entities::DeviceAsset;
 use sqlx::{Postgres, Row};
 use uuid::Uuid;
 
-pub(crate) const ASSET_COLUMNS: &str = "id, org_id, client_id, site_id, tag, name, kind, status, \
+pub(crate) const ASSET_COLUMNS: &str = "id, org_id, client_id, scope, site_id, tag, name, kind, status, \
      layout_id, fields, ownership, rental_vendor, rental_start, rental_end, rental_cost_minor, \
      rental_currency, rental_cycle, purchase_date, purchase_cost_minor, purchase_currency, \
      purchase_fx_rate_used::text AS purchase_fx_rate_used, purchase_fx_rate_date, purchase_fx_source, \
@@ -23,6 +23,7 @@ pub(crate) fn row_to_asset(row: sqlx::postgres::PgRow) -> DeviceAsset {
         id: row.get("id"),
         org_id: row.get("org_id"),
         client_id: row.get("client_id"),
+        scope: row.get("scope"),
         site_id: row.get("site_id"),
         tag: row.get("tag"),
         name: row.get("name"),
@@ -60,12 +61,14 @@ pub(crate) fn row_to_asset(row: sqlx::postgres::PgRow) -> DeviceAsset {
 
 /// Org-wide asset list with filters — the resource-REST surface for
 /// external-DMS parity (IT Glue/Hudu exports, generic REST). Filters:
-/// optional client, optional layout, optional `q` substring over
-/// tag/name/hostname (hostname comes from the custom `fields`).
+/// optional client, optional scope (`client` | `internal_org`, migration
+/// 0103), optional layout, optional `q` substring over tag/name/hostname
+/// (hostname comes from the custom `fields`).
 pub async fn list_assets<'e, E>(
     executor: E,
     org_id: Uuid,
     client_id: Option<Uuid>,
+    scope: Option<&str>,
     layout_id: Option<Uuid>,
     q: Option<&str>,
 ) -> DbResult<Vec<DeviceAsset>>
@@ -77,14 +80,16 @@ where
            FROM device_assets
            WHERE org_id = $1
              AND ($2::uuid IS NULL OR client_id = $2)
-             AND ($3::uuid IS NULL OR layout_id = $3)
-             AND ($4::text IS NULL OR
-                  tag ILIKE '%' || $4 || '%' OR name ILIKE '%' || $4 || '%' OR
-                  fields::text ILIKE '%' || $4 || '%')
+             AND ($3::text IS NULL OR scope = $3)
+             AND ($4::uuid IS NULL OR layout_id = $4)
+             AND ($5::text IS NULL OR
+                  tag ILIKE '%' || $5 || '%' OR name ILIKE '%' || $5 || '%' OR
+                  fields::text ILIKE '%' || $5 || '%')
            ORDER BY tag, name"#
     ))
     .bind(org_id)
     .bind(client_id)
+    .bind(scope)
     .bind(layout_id)
     .bind(q.map(|s| s.trim()).filter(|s| !s.is_empty()))
     .fetch_all(executor)
@@ -108,13 +113,16 @@ where
 }
 
 /// Creates a typed asset instance. `fields` is validated against the
-/// layout's schema by the API layer (outside the org tx).
+/// layout's schema by the API layer (outside the org tx). `scope`
+/// (migration 0103) is 'client' or 'internal_org'; internal-org rows
+/// carry `client_id` NULL (the DB CHECK ties the pair together).
 #[allow(clippy::too_many_arguments)]
 pub async fn create_asset<'e, E>(
     executor: E,
     org_id: Uuid,
     id: Uuid,
-    client_id: Uuid,
+    client_id: Option<Uuid>,
+    scope: &str,
     site_id: Option<Uuid>,
     tag: &str,
     name: &str,
@@ -128,13 +136,14 @@ where
 {
     let row = sqlx::query(&format!(
         r#"INSERT INTO device_assets
-             (id, org_id, client_id, site_id, tag, name, kind, status, layout_id, fields)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+             (id, org_id, client_id, scope, site_id, tag, name, kind, status, layout_id, fields)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
            RETURNING {ASSET_COLUMNS}"#
     ))
     .bind(id)
     .bind(org_id)
     .bind(client_id)
+    .bind(scope)
     .bind(site_id)
     .bind(tag)
     .bind(name)

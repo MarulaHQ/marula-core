@@ -85,8 +85,15 @@ pub struct DeviceAsset {
     pub id: DeviceAssetId,
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub org_id: OrgId,
-    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
-    pub client_id: ClientId,
+    /// NULL for internal-org assets; the DB CHECK (migration 0103) ties
+    /// `scope` and `client_id` together structurally.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub client_id: Option<ClientId>,
+    /// client | internal_org (migration 0103): the MSP's OWN equipment
+    /// rides the SAME DeviceAsset lifecycle under an org-scoped row —
+    /// client_id NULL, never a fake client record.
+    #[serde(default = "default_asset_scope")]
+    pub scope: String,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub site_id: Option<SiteId>,
     /// Human asset tag, e.g. "EXCH-01".
@@ -170,6 +177,18 @@ pub struct DeviceAsset {
 
 fn default_ownership() -> String {
     "owned".into()
+}
+
+/// Asset scopes (migration 0103): client-scoped rows carry a client;
+/// internal_org rows are the MSP's own fleet with client_id NULL.
+pub const ASSET_SCOPES: [&str; 2] = ["client", "internal_org"];
+
+pub fn is_valid_asset_scope(scope: &str) -> bool {
+    ASSET_SCOPES.contains(&scope.trim())
+}
+
+fn default_asset_scope() -> String {
+    "client".into()
 }
 
 fn default_depreciation_method() -> String {

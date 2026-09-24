@@ -471,6 +471,25 @@ pub mod types {
     /// notification center already notified (same commit); this is the
     /// fan-out signal for dashboards and (ticket-scoped) automations.
     pub const STOCK_LEVEL_LOW: &str = "stock.level_low";
+    /// Purchasing + vendors (Wave 32 lane 2, migration 0103). Receipts
+    /// post into the SAME lane-1 stock ledger (each receipt line stamps
+    /// its `movement_id`), so `stock.movement_recorded` also fires for
+    /// every received line — `purchase.receipt_recorded` is the document
+    /// signal carrying the receipt with its line → movement pairs.
+    pub const VENDOR_CREATED: &str = "vendor.created";
+    pub const VENDOR_UPDATED: &str = "vendor.updated";
+    pub const PURCHASE_ORDER_CREATED: &str = "purchase.order_created";
+    pub const PURCHASE_ORDER_UPDATED: &str = "purchase.order_updated";
+    /// Every legal lifecycle move that is not a receipt: ordered,
+    /// received (auto-advanced by a full receipt), closed, cancelled. The
+    /// payload carries `from`/`to` and `close_kind` ('short' records an
+    /// under-receipt close explicitly).
+    pub const PURCHASE_ORDER_STATUS_CHANGED: &str = "purchase.order_status_changed";
+    pub const PURCHASE_RECEIPT_RECORDED: &str = "purchase.receipt_recorded";
+    /// A vendor bill was posted — the moment it enters project cost
+    /// rollups (ADR 0002 FX snapshot locked on the bill). Draft recording
+    /// is audited but emits nothing.
+    pub const PURCHASE_BILL_POSTED: &str = "purchase.bill_posted";
     /// Dispatch v2 (TASKLIST Phase 3, Wave 9 lane 9): a field-service
     /// status push landed against an appointment (connector or staff);
     /// the `dispatch_status_updates` ledger is the ground truth.
@@ -2107,6 +2126,73 @@ pub struct StockLevelLow {
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub ticket_id: Option<uuid::Uuid>,
     pub occurred_at: DateTime<Utc>,
+}
+
+/// vendor.created — a supplier/reseller entity entered the org's vendor
+/// book. Snapshot is AFTER the write.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct VendorCreated {
+    pub vendor: crate::entities::Vendor,
+}
+
+/// vendor.updated — a vendor changed (any field including `active`).
+/// Snapshot is AFTER the write.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct VendorUpdated {
+    pub vendor: crate::entities::Vendor,
+}
+
+/// purchase.order_created — a PO was created in draft with its lines.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PurchaseOrderCreated {
+    pub order: crate::entities::PurchaseOrder,
+    pub lines: Vec<crate::entities::PurchaseOrderLine>,
+}
+
+/// purchase.order_updated — a PO header or its lines changed while the
+/// order was editable (draft). Snapshot is AFTER the write.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PurchaseOrderUpdated {
+    pub order: crate::entities::PurchaseOrder,
+    pub lines: Vec<crate::entities::PurchaseOrderLine>,
+}
+
+/// purchase.order_status_changed — an operator lifecycle move landed
+/// (ordered / received / closed / cancelled). Receipt-driven advances to
+/// partially_received/received ride `purchase.receipt_recorded` instead.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PurchaseOrderStatusChanged {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub order_id: uuid::Uuid,
+    pub number: String,
+    pub from: String,
+    pub to: String,
+    /// Set on close: 'full' | 'short' (short = under-receipt close).
+    pub close_kind: Option<String>,
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// purchase.receipt_recorded — goods landed: one lane-1 ledger row per
+/// receipt line (each `purchase_receipt_lines` row stamps its
+/// `movement_id`). The payload carries the receipt document.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PurchaseReceiptRecorded {
+    pub receipt: crate::entities::PurchaseReceipt,
+    pub lines: Vec<crate::entities::PurchaseReceiptLine>,
+}
+
+/// purchase.bill_posted — the vendor bill was posted; the ADR 0002 FX
+/// snapshot is locked and the amount is now part of project cost rollups.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PurchaseBillPosted {
+    pub bill: crate::entities::PurchaseBill,
 }
 
 /// quote.created — a numbered quote document was created in draft with
