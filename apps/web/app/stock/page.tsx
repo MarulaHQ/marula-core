@@ -6,6 +6,10 @@
 // for receive / use / adjust / transfer / ship-out. Tools carry their
 // checkout state on /stock/tools; this board stays the inventory truth.
 //
+// Wave 32 lane 6 (`p32-stock-flows-context`) adds the stockroom dispatch
+// workflow: scan or search an item, attach the movement to a chosen ticket
+// — the operator never opens that ticket.
+//
 // Non-purpose: no catalog pricing edits (sales/catalog), no configuration
 // items (that is /inventory), no purchase receiving (a PO detail flow).
 "use client";
@@ -39,6 +43,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { MovementDialog, type MovementKind } from "../../components/stock/movement-dialog";
+import { ScanBar, type ScanEvent } from "../../components/scan/scan-bar";
 import { api, useRequireAuth } from "../../lib/api";
 import { runEnvelopeMutation } from "../../lib/envelope-write";
 import { rejectionText } from "../../lib/error-copy";
@@ -48,6 +53,7 @@ type StockItemView = components["schemas"]["StockItemView"];
 type StockLocationView = components["schemas"]["StockLocationView"];
 type OnHandRow = components["schemas"]["OnHandRow"];
 type CatalogItemView = components["schemas"]["CatalogItemView"];
+type TicketRow = components["schemas"]["TicketWithFields"];
 
 interface ItemForm {
   name: string;
@@ -79,6 +85,8 @@ export default function StockPage(): ReactNode {
   const [toolOut, setToolOut] = useState<Map<string, "checked out" | "on loan">>(new Map());
   const [catalogItems, setCatalogItems] = useState<CatalogItemView[]>([]);
   const [clients, setClients] = useState<{ id: string; name: string }[]>([]);
+  const [ticketOptions, setTicketOptions] = useState<{ id: string; label: string }[]>([]);
+  const [scanNotice, setScanNotice] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -130,12 +138,22 @@ export default function StockPage(): ReactNode {
     if (auth.status !== "authed") return;
     void refresh();
     void (async () => {
-      const [catalogRes, clientsRes] = await Promise.all([
+      const [catalogRes, clientsRes, ticketsRes] = await Promise.all([
         api.api.GET("/api/v1/catalog-items"),
         api.api.GET("/api/v1/clients"),
+        api.api.GET("/api/v1/tickets", { params: { query: { limit: 200 } } }),
       ]);
       setCatalogItems(catalogRes.data ?? []);
       setClients((clientsRes.data ?? []).map((c) => ({ id: c.id, name: c.name })));
+      const openTickets = ((ticketsRes.data ?? []) as TicketRow[]).filter(
+        (ticket) => ticket.category !== "closed",
+      );
+      setTicketOptions(
+        openTickets.map((ticket) => ({
+          id: ticket.id,
+          label: `${ticket.number} · ${ticket.title}`,
+        })),
+      );
     })();
   }, [auth.status]);
 
@@ -173,6 +191,22 @@ export default function StockPage(): ReactNode {
     setDialogKind(kind);
     setDialogItemId(itemId);
     setDialogOpen(true);
+  }
+
+  /**
+   * The stockroom dispatch scan: an item or unit opens the movement form
+   * with that item staged and the ticket picker ready. A location does not
+   * start a dispatch (the form's own scan sets the source bin).
+   */
+  function dispatchScan(event: ScanEvent): void {
+    const resolution = event.resolution;
+    const itemId = resolution.stock_item_id ?? resolution.entity_id ?? "";
+    if (itemId === "") {
+      setScanNotice("That code did not match a stock item — nothing to dispatch.");
+      return;
+    }
+    setScanNotice(null);
+    openMovement("consume", itemId);
   }
 
   async function createItem(): Promise<void> {
@@ -277,6 +311,9 @@ export default function StockPage(): ReactNode {
           <Button variant="secondary" onClick={() => openMovement("receive")} data-testid="stock-receive">
             Receive stock
           </Button>
+          <Button variant="secondary" onClick={() => openMovement("consume")} data-testid="stock-dispatch">
+            Dispatch to ticket
+          </Button>
           <Button onClick={() => setCreateOpen(true)} data-testid="stock-new-item">
             New item
           </Button>
@@ -330,6 +367,14 @@ export default function StockPage(): ReactNode {
         ))}
       </div>
 
+      <div className="max-w-xl" data-testid="stock-dispatch-scan">
+        <ScanBar
+          surface="dispatch"
+          onScan={dispatchScan}
+          hint="Scan a part or unit to dispatch it to a ticket — the ticket picker opens next."
+        />
+      </div>
+
       <div className="flex flex-wrap items-center gap-2">
         <Input
           value={query}
@@ -338,8 +383,7 @@ export default function StockPage(): ReactNode {
           aria-label="Search stock"
           data-testid="stock-search"
           style={{ maxWidth: 300 }}
-        />
-        <Select value={kindFilter} onValueChange={(value) => setKindFilter(value as typeof kindFilter)}>
+        />        <Select value={kindFilter} onValueChange={(value) => setKindFilter(value as typeof kindFilter)}>
           <SelectTrigger aria-label="Filter by kind" data-testid="stock-kind-filter" style={{ width: 160 }}>
             <SelectValue />
           </SelectTrigger>
@@ -367,6 +411,11 @@ export default function StockPage(): ReactNode {
       {lastMovement !== null && (
         <p className="text-xs" role="status" style={{ color: "var(--m-status-success-fg)" }} data-testid="stock-movement-recorded">
           {lastMovement}
+        </p>
+      )}
+      {scanNotice !== null && (
+        <p className="text-xs" role="status" style={{ color: "var(--m-status-warning-fg)" }} data-testid="stock-scan-notice">
+          {scanNotice}
         </p>
       )}
 
@@ -488,6 +537,9 @@ export default function StockPage(): ReactNode {
         clients={clients}
         initialKind={dialogKind}
         initialItemId={dialogItemId}
+        ticketOptions={ticketOptions}
+        scanSurface="stock-locations"
+        searchableItems
         onRecorded={() => {
           setLastMovement("Movement recorded.");
           window.setTimeout(() => setLastMovement(null), 6000);

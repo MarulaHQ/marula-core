@@ -31,19 +31,43 @@ When a code matches more than one record, the bar lists the candidates
 and waits — a scan never guesses between two physical items. When nothing
 matches, it says so and keeps the text you scanned in view.
 
-## Scan on a ticket (parts)
+## Scan on a ticket (parts and shipping)
 
-Open the ticket's Money tab. The scan bar sits above the cost-line form.
+Open a ticket and press **Parts & shipping**. The scan bar sits above the
+form.
 
 1. Scan a stock item or a serialized unit.
-2. The form fills in: the item's name, a quantity of 1, and its last
-   recorded unit cost when your role may read costs. A serialized unit
-   carries its serial into the description.
-3. Check the numbers, then press **Add line**. The scan fills the form
-   and stops there. It never submits on its own.
+2. The item is staged — and for a unit, its serial too. Choose the action:
+   **Use** consumes the part on the job, **Ship out** sends it to the
+   client, **Receive** returns it to stock.
+3. Check the numbers, then press **Record movement**. The scan fills the
+   form and stops there. It never records on its own.
 
 A location or a device asset does not apply on this surface, and the bar
-tells you that instead of filling something wrong.
+tells you that instead of filling something wrong. The movement dialog on
+the **Stock** board also takes a location scan, and sets the bin from it.
+
+The classic workspace's **Money** tab keeps its own scan bar above the
+cost-line form. There a scan fills the invoice line: description, a
+quantity of 1, and the item's last recorded unit cost when your role may
+read costs. It waits for **Add line**.
+
+## Scan in the stockroom
+
+The **Stock** board carries its own scan bar. Scan a part or a unit and the
+movement dialog opens with it staged. Pick the ticket from the picker, then
+record. The stockroom can attach goods to a job without opening the ticket.
+
+## Scan while receiving
+
+On a purchase order, open **Receive goods** and scan a unit's label. Its
+line stages one unit. Scan a bin code and the location follows. The receipt
+posts only when **Record receipt** is pressed.
+
+## Scan at the tool crib
+
+On **Stock → Tools**, scan a unit to check it out. If the unit is already
+out, the scan finds its open checkout and opens the check-in instead.
 
 ## Scanning while you type
 

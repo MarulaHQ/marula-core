@@ -44,6 +44,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { CheckInDialog } from "../../../components/stock/check-in-dialog";
 import { MovementDialog, type MovementKind } from "../../../components/stock/movement-dialog";
+import { LabelPrintButton } from "../../../components/labels/label-print-button";
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { rejectionText } from "../../../lib/error-copy";
@@ -109,6 +110,7 @@ export default function StockItemDetailPage(): ReactNode {
   const [movements, setMovements] = useState<StockMovementView[]>([]);
   const [locations, setLocations] = useState<StockLocationView[]>([]);
   const [clients, setClients] = useState<{ id: string; name: string }[]>([]);
+  const [ticketOptions, setTicketOptions] = useState<{ id: string; label: string }[]>([]);
   const [checkouts, setCheckouts] = useState<ToolCheckoutDetailResponse[]>([]);
   const [actorNames, setActorNames] = useState<Map<string, string>>(new Map());
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -142,18 +144,24 @@ export default function StockItemDetailPage(): ReactNode {
     }
     const loaded = itemRes.data;
     setItem(loaded);
-    const [onHandRes, locationsRes, clientsRes, movementsRes] = await Promise.all([
+    const [onHandRes, locationsRes, clientsRes, movementsRes, ticketsRes] = await Promise.all([
       api.api.GET("/api/v1/stock/on-hand", { params: { query: { item_id: itemId, limit: 200 } } }),
       api.api.GET("/api/v1/stock-locations", { params: { query: {} } }),
       api.api.GET("/api/v1/clients"),
       api.api.GET("/api/v1/stock-items/{id}/movements", {
         params: { path: { id: itemId }, query: { limit: 200 } },
       }),
+      api.api.GET("/api/v1/tickets", { params: { query: { limit: 200 } } }),
     ]);
     setOnHand(onHandRes.data ?? []);
     setLocations(locationsRes.data ?? []);
     setClients((clientsRes.data ?? []).map((c) => ({ id: c.id, name: c.name })));
     setMovements(movementsRes.data ?? []);
+    setTicketOptions(
+      ((ticketsRes.data ?? []) as components["schemas"]["TicketWithFields"][])
+        .filter((ticket) => ticket.category !== "closed")
+        .map((ticket) => ({ id: ticket.id, label: `${ticket.number} · ${ticket.title}` })),
+    );
     // Ledger "Who" reads as a person, not a uuid: the staff directory when
     // the viewer may read it, the caller's own name otherwise. A 403 only
     // means the id-prefix fallback stays.
@@ -444,7 +452,8 @@ export default function StockItemDetailPage(): ReactNode {
             / item detail
           </p>
         </div>
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap items-start gap-1">
+          <LabelPrintButton purpose="stock_item" entityId={itemValue.id} entityLabel={itemValue.name} />
           <Button
             variant="secondary"
             onClick={() => {
@@ -454,6 +463,16 @@ export default function StockItemDetailPage(): ReactNode {
             data-testid="stock-record-movement"
           >
             Record movement
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setMovementKind("consume");
+              setMovementOpen(true);
+            }}
+            data-testid="stock-dispatch"
+          >
+            Dispatch to ticket
           </Button>
           <Button variant="secondary" onClick={openEdit} data-testid="stock-edit">
             Edit
@@ -571,6 +590,7 @@ export default function StockItemDetailPage(): ReactNode {
                 <Th>Status</Th>
                 <Th>Where</Th>
                 <Th>Due</Th>
+                <Th className="text-right">Label</Th>
               </tr>
             </thead>
             <tbody>
@@ -605,6 +625,15 @@ export default function StockItemDetailPage(): ReactNode {
                           {where?.overdue === true && <StatusTag tone="danger">overdue</StatusTag>}
                         </span>
                       )}
+                    </Td>
+                    <Td>
+                      <div className="flex justify-end">
+                        <LabelPrintButton
+                          purpose="serialized_unit"
+                          entityId={serial.id}
+                          entityLabel={`${itemValue.name} · ${serial.serial_number}`}
+                        />
+                      </div>
                     </Td>
                   </Tr>
                 );
@@ -774,6 +803,8 @@ export default function StockItemDetailPage(): ReactNode {
         clients={clients}
         initialKind={movementKind}
         initialItemId={itemValue.id}
+        ticketOptions={ticketOptions}
+        scanSurface="stock-locations"
         onRecorded={() => {
           setNotice("Movement recorded.");
           void refresh();

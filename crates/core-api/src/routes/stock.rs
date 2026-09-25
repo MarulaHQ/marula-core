@@ -363,6 +363,11 @@ pub struct ReceiveRequest {
     pub serial_numbers: Option<Vec<String>>,
     /// Optional receiving note.
     pub note: Option<String>,
+    /// Optional ticket anchor. A return/restock of parts from a job carries
+    /// the ticket so the movement lands on that ticket's timeline instead of
+    /// forcing a detour through the stock surfaces (Wave 32 lane 6).
+    #[serde(default)]
+    pub ticket_id: Option<Uuid>,
     #[serde(flatten, default)]
     pub instant: instant::MutationParams,
 }
@@ -1667,7 +1672,7 @@ pub async fn receive(
         base_cost_minor: None,
         serial_id: None,
         client_id: None,
-        ticket_id: None,
+        ticket_id: req.ticket_id,
         carrier: None,
         tracking_ref: None,
         note: req.note.clone(),

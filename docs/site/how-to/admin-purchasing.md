@@ -58,6 +58,15 @@ If more arrived than was ordered, the receipt is refused with the line
 named. Tick **Allow over-receipt** to acknowledge the overage explicitly;
 the line records `over` instead of silently inflating the order.
 
+The dialog also takes scans. Scan a unit's label and its line stages one
+unit, or scan a bin code and the put-away location follows. The receipt
+waits for you to confirm, so a scan never posts on its own.
+
+A recorded receipt keeps a short strip on the order. Every received stock
+line gets a **Dispatch** button. That opens the movement dialog with the
+item staged and the ticket picker ready, so goods that arrived for a
+specific job reach that ticket in the same sitting.
+
 ## 4. Close or cancel an order
 
 - **Close** an order once its receipts are done. Closing with quantity

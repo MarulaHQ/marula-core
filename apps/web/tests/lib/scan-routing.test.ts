@@ -42,6 +42,12 @@ describe("surface routing contract", () => {
     expect(SURFACE_ACCEPTS["ticket-parts"]).toEqual(["stock_item", "serialized_unit"]);
     expect(SURFACE_ACCEPTS.tools).toEqual(["serialized_unit"]);
     expect(SURFACE_ACCEPTS["stock-locations"]).toEqual(["stock_item", "stock_location"]);
+    expect(SURFACE_ACCEPTS.dispatch).toEqual(["stock_item", "serialized_unit"]);
+    expect(SURFACE_ACCEPTS.receiving).toEqual([
+      "stock_item",
+      "serialized_unit",
+      "stock_location",
+    ]);
   });
 
   it("accepts a stock item on ticket parts and rejects a location", () => {

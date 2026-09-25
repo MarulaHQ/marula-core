@@ -696,3 +696,120 @@ async fn low_stock_notification_once_and_ledger_is_append_only() {
         "cross-org read stays empty"
     );
 }
+
+/// Wave 32 lane 6 (`p32-stock-flows-context`): a receive may carry a ticket
+/// anchor, so a return or restock from a job lands on that ticket's ledger
+/// read instead of forcing a detour through the stock surfaces.
+#[tokio::test]
+async fn receive_can_anchor_a_return_to_a_ticket() {
+    let state = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let slug = format!(
+        "stock-return-{}",
+        &Uuid::now_v7().simple().to_string()[..12]
+    );
+    let token = register_org(&app, &slug).await;
+
+    let response = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/v1/stock-items",
+        &[auth(&token)],
+        Some(json!({
+            "name": "Return anchor cable",
+            "sku": "RET-1M",
+            "kind": "consumable",
+            "unit": "each",
+            "currency": "USD",
+            "idempotency_key": Uuid::now_v7().to_string(),
+        })),
+    )
+    .await;
+    assert_eq!(response.status(), 200, "create item");
+    let item = body_json(response).await;
+    let item_id: Uuid = item["id"].as_str().unwrap().parse().unwrap();
+
+    let response = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/v1/stock-locations",
+        &[auth(&token)],
+        Some(json!({
+            "name": "Return shelf",
+            "kind": "shelf",
+            "code": "RS1",
+            "idempotency_key": Uuid::now_v7().to_string(),
+        })),
+    )
+    .await;
+    assert_eq!(response.status(), 200, "create location");
+    let location = body_json(response).await;
+    let location_id: Uuid = location["id"].as_str().unwrap().parse().unwrap();
+
+    // The default board seeds on register; one ticket carries the anchor.
+    let response = send(
+        &app,
+        axum::http::Method::GET,
+        "/api/v1/boards",
+        &[auth(&token)],
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), 200, "list boards");
+    let boards = body_json(response).await;
+    let board_id = boards
+        .as_array()
+        .and_then(|rows| rows.first())
+        .and_then(|board| board["id"].as_str())
+        .expect("a default board seeds on register")
+        .to_string();
+
+    let response = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/v1/tickets",
+        &[auth(&token)],
+        Some(json!({
+            "board_id": board_id,
+            "title": "Return the parts",
+            "priority": "p3",
+        })),
+    )
+    .await;
+    assert_eq!(response.status(), 200, "create ticket");
+    let ticket = body_json(response).await;
+    let ticket_id: Uuid = ticket["id"].as_str().unwrap().parse().unwrap();
+
+    let response = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/v1/stock/receive",
+        &[auth(&token)],
+        Some(json!({
+            "item_id": item_id,
+            "location_id": location_id,
+            "qty_milli": 2000,
+            "ticket_id": ticket_id,
+            "idempotency_key": Uuid::now_v7().to_string(),
+        })),
+    )
+    .await;
+    assert_eq!(response.status(), 200, "anchored receive");
+    let received = body_json(response).await;
+    assert_eq!(received["movement"]["ticket_id"], ticket_id.to_string());
+
+    let response = send(
+        &app,
+        axum::http::Method::GET,
+        &format!("/api/v1/tickets/{ticket_id}/stock-movements"),
+        &[auth(&token)],
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), 200, "ticket movements read");
+    let movements = body_json(response).await;
+    let rows = movements.as_array().expect("movements array");
+    assert_eq!(rows.len(), 1, "the return is the ticket's one movement");
+    assert_eq!(rows[0]["ticket_id"], ticket_id.to_string());
+    assert_eq!(rows[0]["kind"], "receive");
+}
