@@ -1,0 +1,74 @@
+{
+  "expo": {
+    "name": "Meridian",
+    "slug": "meridian",
+    "version": "0.1.0",
+    "orientation": "default",
+    "scheme": "meridian",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "icon": "./assets/icon.png",
+    "ios": {
+      "bundleIdentifier": "tech.meridian.app",
+      "supportsTablet": true,
+      "requireFullScreen": false,
+      "infoPlist": {
+        "CADisableMinimumFrameDurationOnPhone": true,
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "tech.meridian.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#E05D38"
+      },
+      "edgeToEdgeEnabled": true
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": "Meridian uses Face ID to unlock your saved session on this device."
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Meridian uses Face ID to unlock your saved session on this device."
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#E8EBED",
+          "dark": {
+            "backgroundColor": "#1C2433"
+          },
+          "image": "./assets/icon.png",
+          "imageWidth": 160
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#E05D38"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": ""
+      }
+    }
+  }
+}

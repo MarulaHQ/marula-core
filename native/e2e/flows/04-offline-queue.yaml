@@ -1,0 +1,37 @@
+# Offline queue: force offline from the dev menu, write a note, watch it
+# queue, then toggle back and watch it sync — the DX-standard proof that
+# never touches OS-level network settings.
+appId: tech.meridian.app
+---
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: "today-screen"
+    timeout: 20000
+- tapOn: "More"
+- tapOn:
+    id: "more-airplane-toggle"
+- assertVisible:
+    id: "banner-offline"
+- tapOn: "Board"
+- tapOn:
+    id: "ticket-row-.*"
+- tapOn:
+    id: "note-input"
+- inputText: "Offline Maestro note"
+- tapOn:
+    id: "note-submit"
+- assertVisible: "Offline Maestro note"
+- tapOn: "More"
+- assertVisible:
+    id: "banner-offline"
+- tapOn:
+    id: "more-airplane-toggle"
+- extendedWaitUntil:
+    notVisible:
+      id: "banner-offline"
+    timeout: 20000
+- tapOn: "Board"
+- tapOn:
+    id: "ticket-row-.*"
+- assertVisible: "Offline Maestro note"

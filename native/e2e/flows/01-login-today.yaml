@@ -1,0 +1,24 @@
+# Sign in (or land on Today when a session is already stored) and prove the
+# tab shell renders.
+appId: tech.meridian.app
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    when:
+      visible:
+        id: "login-email"
+    commands:
+      - tapOn:
+          id: "login-email"
+      - inputText: "owner@demo.local"
+      - tapOn:
+          id: "login-password"
+      - inputText: "demo-password-123"
+      - tapOn:
+          id: "login-submit"
+- extendedWaitUntil:
+    visible:
+      id: "today-screen"
+    timeout: 20000
+- assertVisible: "Today"
