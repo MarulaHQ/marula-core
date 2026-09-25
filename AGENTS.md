@@ -40,16 +40,22 @@ Skill output that violates the token set or motion law is rejected, not applied.
 Enforcement stays mechanical: CI hex-scan, typecheck/tests, the p11-ui-quality
 lane's screenshot review.
 
-## Design research — lazyweb MCP (binding for every frontend lane)
+## Design research — lazyweb + inspo MCPs (binding for every UI/frontend lane)
 
-Every frontend lane (any lane touching pages, views, flows, or UI polish) MUST
-run design research through the lazyweb MCP BEFORE writing UI, so surfaces are
-designed for ultimate UX and looks, not invented from scratch:
+Every UI/frontend lane (any lane touching pages, views, flows, or UI polish)
+MUST run design research through BOTH MCPs BEFORE writing UI, so surfaces are
+designed for ultimate UX and looks, not invented from scratch (user directive
+2026-09-25 — inspo joins lazyweb as a mandatory leg, not a substitute):
 
-- `/lazyweb-search-screens` for the surface's UI pattern (real product
-  references ranked by visual search), `/lazyweb-search-flows` for multi-step
-  journeys (onboarding, checkout, paywalls, sign-up), and
+- **lazyweb MCP:** `/lazyweb-search-screens` for the surface's UI pattern (real
+  product references ranked by visual search), `/lazyweb-search-flows` for
+  multi-step journeys (onboarding, checkout, paywalls, sign-up), and
   `/lazyweb-search-experiments` when a conversion decision is involved.
+- **inspo MCP:** `recommend` for a brief (or `search_screens` /
+  `find_components` for a named pattern) to study real shipped composition,
+  palette, type and density; pull `get_design_system` / `get_reference_jsx`
+  only for the references actually kept. Take their composition, not their
+  compliance — project tokens always win.
 - **Aesthetic reference (2026-09-16, user directive):**
   `design/mockups/meridian-ticket-workbench-html-mockup-v2.html` (+ its
   `-v2-light.png` / `-v2-dark.png`) is the canonical look-and-feel reference —
@@ -132,6 +138,25 @@ boot, openapi pin regen, scratch verification — routes through
 - Frontend verification stays frontend-tooling-only (typecheck/lint/targeted
   Playwright), per ui-tranches_cargo_check_limits.
 - Flow-author rules (order independence, durable-gate login retry): `e2e/README.md`.
+
+## Lane gate pause — wait for user go-ahead (BINDING, all new lanes)
+
+Every NEW lane/agent session stops once and waits for the user before running
+heavy verification (user directive 2026-09-25 — now the standing standard for
+all lanes):
+
+- Research, implementation, and light frontend checks (typecheck/lint/unit
+  tests) proceed freely.
+- Before the FIRST heavy gate run — any workspace `cargo` command (build/
+  check/test/clippy/sqlx prepare) or any full suite / E2E / Playwright /
+  Maestro run / `scripts/e2e-stack.sh` boot — the lane ENDS ITS TURN with a
+  `READY FOR GATES — awaiting user go-ahead` report listing the exact commands
+  it will run, in order, and the evidence it will capture. It must not start
+  them, background them, or continue until the user replies.
+- The lane's native to-do list marks the gate step pending with the pause
+  noted, so an idle lane reads as "waiting for go-ahead", not stalled.
+- Merge only after the user-approved gate run is green (repo close-out rules
+  unchanged: landing record, TASKLIST row, no worktree removal by tooling).
 
 ## Lane to-do lists (all agent worktrees)
 
