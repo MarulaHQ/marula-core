@@ -3,7 +3,7 @@
 
 **Meridian Core API 0.1.0** — The single write surface for Project Meridian. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**544 paths · 733 operations · 1081 schemas.**
+**548 paths · 738 operations · 1101 schemas.**
 
 ## agent-proposals
 
@@ -374,16 +374,21 @@
 | `POST` | `/api/v1/dispatch/bulk-move` <a id="dispatch_bulk_move"></a> | POST /api/dispatch/bulk-move — atomic batch reschedule. | [BulkMoveRequest](#schema-bulkmoverequest) |
 | `GET` | `/api/v1/dispatch/capacity` <a id="dispatch_capacity"></a> | GET /api/dispatch/capacity — multi-day capacity horizon: the day view's capacity math repeated per UTC day over the window, one org-wide availability read + one exclusion read + one appointment read. | — |
 | `GET` | `/api/v1/dispatch/day` <a id="dispatch_day"></a> | GET /api/dispatch/day — the whole board for one day. | — |
+| `GET` | `/api/v1/dispatch/journey-start` <a id="dispatch_journey_start_get"></a> | GET /api/dispatch/journey-start — the resolved start point plus the explicit override, if any. | — |
+| `PUT` | `/api/v1/dispatch/journey-start` <a id="dispatch_journey_start_set"></a> | PUT /api/dispatch/journey-start — set (or replace) the technician's start point for one day. | [SetJourneyStartRequest](#schema-setjourneystartrequest) |
 | `GET` | `/api/v1/dispatch/match` <a id="dispatch_match"></a> | GET /api/dispatch/match — for every unassigned open ticket carrying required skills, the active technicians sorted best-first by how many required skills they are missing (0 = fully qualified). Expired certifications never count as held. | — |
 | `GET` | `/api/v1/dispatch/queue` <a id="dispatch_queue_list"></a> | GET /api/dispatch/queue — the full unassigned queue with dispatcher overrides applied: overridden tickets sort by explicit rank first (ties fall back to the computed order), then everything else in the computed order (priority rank, then effective SLA/due deadline). | — |
 | `DELETE` | `/api/v1/dispatch/queue/{ticket_id}` <a id="dispatch_queue_clear"></a> | DELETE /api/dispatch/queue/{ticket_id} — clear a rank override. Idempotent: clearing an unset override still returns 200 with `cleared: false` (the dispatcher's intent is already satisfied). | — |
 | `PUT` | `/api/v1/dispatch/queue/{ticket_id}` <a id="dispatch_queue_set"></a> | PUT /api/dispatch/queue/{ticket_id} — pin a ticket's queue position. The ticket must exist and still be open+unassigned (an override for a placed ticket is meaningless); idempotent via the instant envelope. | [SetQueueRankRequest](#schema-setqueuerankrequest) |
+| `GET` | `/api/v1/dispatch/reconciliation` <a id="dispatch_reconciliation"></a> | GET /api/dispatch/reconciliation — planned-vs-actual rollup over the existing travel drafts and their linked expenses: mileage, time, and reimbursements per technician, in the org's base currency. | — |
+| `GET` | `/api/v1/dispatch/routing` <a id="dispatch_routing_day"></a> | GET /api/dispatch/routing — the day's journey plans, typed warnings, and (measured providers only) suggestion-grade route improvements. | — |
 | `GET` | `/api/v1/dispatch/skills` <a id="dispatch_skills_catalog"></a> | GET /api/dispatch/skills — the org's skill/certification catalog. | — |
 | `PUT` | `/api/v1/dispatch/tickets/{ticket_id}/required-skills` <a id="dispatch_ticket_skills_replace"></a> | PUT /api/dispatch/tickets/{ticket_id}/required-skills — full-replace the job's required-skill set. The ticket must exist and be open + unassigned (requirements on placed work are history, not planning). | [ReplaceTicketSkillsRequest](#schema-replaceticketskillsrequest) |
 | `GET` | `/api/v1/dispatch/travel-drafts` <a id="dispatch_travel_draft_list"></a> | GET /api/dispatch/travel-drafts — the caller's drafts (all users for owner/admin via `user_id`), newest first. | — |
 | `POST` | `/api/v1/dispatch/travel-drafts` <a id="dispatch_travel_draft_create"></a> | POST /api/dispatch/travel-drafts — a draft mileage row against a ticket. Instant-first (IF1/IF2): idempotency-keyed, version-gated, write-trailed. | [CreateTravelDraftRequest](#schema-createtraveldraftrequest) |
 | `DELETE` | `/api/v1/dispatch/travel-drafts/{id}` <a id="dispatch_travel_draft_delete"></a> | DELETE /api/dispatch/travel-drafts/{id} — discard a draft. Submitted drafts are immutable history (delete the TIME ENTRY through invoicing corrections, never the draft's backlink). | — |
 | `PATCH` | `/api/v1/dispatch/travel-drafts/{id}` <a id="dispatch_travel_draft_patch"></a> | PATCH /api/dispatch/travel-drafts/{id} — edit a draft. Submitted drafts are frozen (the time entry already exists). | [PatchTravelDraftRequest](#schema-patchtraveldraftrequest) |
+| `POST` | `/api/v1/dispatch/travel-drafts/{id}/expense` <a id="dispatch_travel_draft_expense"></a> | POST /api/dispatch/travel-drafts/{id}/expense — book the draft's mileage as a ticket expense at the org rate (the reimbursement the business owes the technician or bills the client). One expense per draft, idempotent through the standard envelope. | [CreateTravelExpenseRequest](#schema-createtravelexpenserequest) |
 | `POST` | `/api/v1/dispatch/travel-drafts/{id}/submit` <a id="dispatch_travel_draft_submit"></a> | POST /api/dispatch/travel-drafts/{id}/submit — convert a draft into a real time entry through the EXISTING time-entry path (`insert_time_entry` + the `time_entry.created` event), then freeze the draft with the entry backlink. The entry's notes carry the machine-readable provenance marker (`travel_draft:<id>`); the write trail records the full before/after so "who did this" and undo stay queryable. Idempotent: the same submit replays the SAME entry. | [SubmitTravelDraftRequest](#schema-submittraveldraftrequest) |
 | `PUT` | `/api/v1/dispatch/users/{user_id}/skills` <a id="dispatch_user_skills_replace"></a> | PUT /api/dispatch/users/{user_id}/skills — full-replace the technician's skill set. The technician must be an active member of this org. | [ReplaceUserSkillsRequest](#schema-replaceuserskillsrequest) |
 
@@ -1299,7 +1304,7 @@
 | <a id="schema-appendversionrequest"></a>`AppendVersionRequest` | object |  |
 | <a id="schema-applycreditnoterequest"></a>`ApplyCreditNoteRequest` | composite | POST /api/credit-notes/{id}/apply body. |
 | <a id="schema-applytagrequest"></a>`ApplyTagRequest` | composite |  |
-| <a id="schema-appointment"></a>`Appointment` | object | A booked slot on one user's calendar, optionally tied to a ticket and client/site. `travel_minutes` is a dispatch-board placeholder — never interpreted by scheduling rules in this stage. |
+| <a id="schema-appointment"></a>`Appointment` | object | A booked slot on one user's calendar, optionally tied to a ticket and client/site. `travel_minutes` is travel time booked immediately BEFORE `starts_at` (Wave 32 lane 7): it ADDS to the appointment an |
 | <a id="schema-appointmentkind"></a>`AppointmentKind` | string | What an appointment is physically for. Drives rendering color-coding on calendars and future travel-time logic (on_site only). |
 | <a id="schema-appointmentrequest"></a>`AppointmentRequest` | object | A client's request for a slot on one staff member's calendar. |
 | <a id="schema-appointmentrequestlistquery"></a>`AppointmentRequestListQuery` | object |  |
@@ -1533,6 +1538,7 @@
 | <a id="schema-createticketrequest"></a>`CreateTicketRequest` | composite |  |
 | <a id="schema-createtimeentryrequest"></a>`CreateTimeEntryRequest` | object |  |
 | <a id="schema-createtraveldraftrequest"></a>`CreateTravelDraftRequest` | composite | POST /api/dispatch/travel-drafts body. |
+| <a id="schema-createtravelexpenserequest"></a>`CreateTravelExpenseRequest` | composite |  |
 | <a id="schema-createvendorrequest"></a>`CreateVendorRequest` | composite |  |
 | <a id="schema-createviewrequest"></a>`CreateViewRequest` | object |  |
 | <a id="schema-createwebhookrequest"></a>`CreateWebhookRequest` | object |  |
@@ -1691,6 +1697,11 @@
 | <a id="schema-issuecreditnoterequest"></a>`IssueCreditNoteRequest` | composite | POST /api/credit-notes body. |
 | <a id="schema-issuedinvoice"></a>`IssuedInvoice` | object | One issued invoice: the document plus its lines. |
 | <a id="schema-issueloanrequest"></a>`IssueLoanRequest` | composite | POST /api/client-loans. |
+| <a id="schema-journeylegview"></a>`JourneyLegView` | object |  |
+| <a id="schema-journeystartmutationresponse"></a>`JourneyStartMutationResponse` | object |  |
+| <a id="schema-journeystartquery"></a>`JourneyStartQuery` | object |  |
+| <a id="schema-journeystartview"></a>`JourneyStartView` | object |  |
+| <a id="schema-journeystopview"></a>`JourneyStopView` | object |  |
 | <a id="schema-kbarticle"></a>`KbArticle` | object | A KB article. |
 | <a id="schema-kbarticlestatus"></a>`KbArticleStatus` | string | Article lifecycle. Closed vocabulary so filtering and the client-facing rule stay deterministic: `draft` (staff authoring), `published` (readable, searchable), `archived` (retired, out of the active t |
 | <a id="schema-kbcategory"></a>`KbCategory` | object | A KB category: grouping + ordering for the article tree. |
@@ -1995,6 +2006,8 @@
 | <a id="schema-receiveorderrequest"></a>`ReceiveOrderRequest` | composite |  |
 | <a id="schema-receiverequest"></a>`ReceiveRequest` | composite | POST /api/stock/{receive\|consume\|adjust\|transfer\|ship-out} bodies. All quantities are `milli` thousandths of the item's unit (parity with quote lines); signed legs are normalized per kind below. |
 | <a id="schema-reconciliationquery"></a>`ReconciliationQuery` | object |  |
+| <a id="schema-reconciliationrow"></a>`ReconciliationRow` | object |  |
+| <a id="schema-reconciliationview"></a>`ReconciliationView` | object |  |
 | <a id="schema-recordbillrequest"></a>`RecordBillRequest` | composite |  |
 | <a id="schema-recordpaymentrequest"></a>`RecordPaymentRequest` | composite |  |
 | <a id="schema-recordraterequest"></a>`RecordRateRequest` | composite |  |
@@ -2046,6 +2059,10 @@
 | <a id="schema-roleslistresponse"></a>`RolesListResponse` | object |  |
 | <a id="schema-roleview"></a>`RoleView` | object | One org role row (preset or custom). `permissions` is the raw matrix vocabulary: `{"matrix": {"module", "action"}}` entries plus bare special strings (`"financial:read"`, `"special:manage_users"`, …). |
 | <a id="schema-rollupbillview"></a>`RollupBillView` | object |  |
+| <a id="schema-routingdayquery"></a>`RoutingDayQuery` | object |  |
+| <a id="schema-routingdayview"></a>`RoutingDayView` | object |  |
+| <a id="schema-routingprofile"></a>`RoutingProfile` | object | The routing-capability declaration a provider pack carries. Closed vocabularies only; a pack cannot declare a capability or mode the seam does not speak. |
+| <a id="schema-routingproviderstatus"></a>`RoutingProviderStatus` | object | Serialized provider posture (mirrors `core_routing::RoutingStatusView` with a schema-friendly shape). |
 | <a id="schema-rowformat"></a>`RowFormat` | string | Wire format selector for an import payload. |
 | <a id="schema-rowoutcome"></a>`RowOutcome` | object |  |
 | <a id="schema-rowreport"></a>`RowReport` | object | Per-row dry-run/commit report entry. The wire shape contract from D2: every row maps to exactly one of `errors[]`, `ok`, `would_skip`, `would_update`. |
@@ -2097,6 +2114,7 @@
 | <a id="schema-setchecklistitemrequest"></a>`SetChecklistItemRequest` | composite |  |
 | <a id="schema-setdependenciesrequest"></a>`SetDependenciesRequest` | object |  |
 | <a id="schema-setemailverifiedrequest"></a>`SetEmailVerifiedRequest` | object |  |
+| <a id="schema-setjourneystartrequest"></a>`SetJourneyStartRequest` | composite |  |
 | <a id="schema-setqueuerankrequest"></a>`SetQueueRankRequest` | composite | PUT /api/dispatch/queue/{ticket_id} body. |
 | <a id="schema-setsecretgrantrequest"></a>`SetSecretGrantRequest` | object |  |
 | <a id="schema-setskillenabledrequest"></a>`SetSkillEnabledRequest` | object |  |
@@ -2135,6 +2153,7 @@
 | <a id="schema-stagemutationresponse"></a>`StageMutationResponse` | composite | Instant-first mutation responses (IF2). |
 | <a id="schema-stageskillrequest"></a>`StageSkillRequest` | object |  |
 | <a id="schema-stagetype"></a>`StageType` | string | The kind of a pipeline stage. `won` / `lost` are terminal outcomes; deals on such a stage are closed. |
+| <a id="schema-startpointview"></a>`StartPointView` | object |  |
 | <a id="schema-starttimerrequest"></a>`StartTimerRequest` | composite |  |
 | <a id="schema-statementline"></a>`StatementLine` | object | One open invoice on the statement. |
 | <a id="schema-stockitemlistquery"></a>`StockItemListQuery` | object |  |
@@ -2150,6 +2169,7 @@
 | <a id="schema-submitresponse"></a>`SubmitResponse` | composite | Instant-first mutation response (IF2): the full entry snapshot (including its new approval state) plus the decision trail entry. |
 | <a id="schema-submittraveldraftrequest"></a>`SubmitTravelDraftRequest` | composite | POST /api/dispatch/travel-drafts/{id}/submit body. |
 | <a id="schema-suggestionanswer"></a>`SuggestionAnswer` | object |  |
+| <a id="schema-suggestionsetview"></a>`SuggestionSetView` | object |  |
 | <a id="schema-suggestionsurface"></a>`SuggestionSurface` | object |  |
 | <a id="schema-syncforcequery"></a>`SyncForceQuery` | object |  |
 | <a id="schema-syncoutcomeresponse"></a>`SyncOutcomeResponse` | object |  |
@@ -2167,6 +2187,7 @@
 | <a id="schema-teamrangequery"></a>`TeamRangeQuery` | object |  |
 | <a id="schema-teamscorecardsresponse"></a>`TeamScorecardsResponse` | object | The team view: one scorecard per staff member, owner/admin only. |
 | <a id="schema-techniciancapacity"></a>`TechnicianCapacity` | object | One technician across the whole horizon. |
+| <a id="schema-technicianjourneyview"></a>`TechnicianJourneyView` | object |  |
 | <a id="schema-technicianview"></a>`TechnicianView` | object | One technician column: capacity stats plus everything the board draws in the column (bookings, on-call, exclusions, availability windows). |
 | <a id="schema-templatekindvocabulary"></a>`TemplateKindVocabulary` | object | The closed variable vocabulary for one kind (editor UX + validation source of truth: `core_domain::templates::variables_for_kind`). |
 | <a id="schema-templatelistquery"></a>`TemplateListQuery` | object |  |
@@ -2239,6 +2260,10 @@
 | <a id="schema-transitionedge"></a>`TransitionEdge` | object | One directed edge in a board's explicit transition matrix. Both ids must belong to statuses of the SAME board (enforced here, and by composite FKs in storage). |
 | <a id="schema-traveldraftmutationresponse"></a>`TravelDraftMutationResponse` | composite | Mutation envelope: draft fields at the top level plus the additive `mutation` metadata (IF2). |
 | <a id="schema-traveldraftview"></a>`TravelDraftView` | object | One travel/mileage draft. |
+| <a id="schema-travelorigin"></a>`TravelOrigin` | object | The resolved journey start point a travel estimate ran from (Wave 32 lane 7). Snapshotted onto the appointment so the estimate stays explainable after the start point or the site changes. |
+| <a id="schema-travelplaceview"></a>`TravelPlaceView` | object |  |
+| <a id="schema-travelsuggestionview"></a>`TravelSuggestionView` | object |  |
+| <a id="schema-travelwarningview"></a>`TravelWarningView` | object |  |
 | <a id="schema-undofieldstep"></a>`UndoFieldStep` | object | One field of one applied write — per-field undo granularity. |
 | <a id="schema-undomode"></a>`UndoMode` | string | The record's undo posture: `open` = near-total undo; `reverts_only` = explicit actioned per-field reverts only (record is closed). |
 | <a id="schema-undostackquery"></a>`UndoStackQuery` | object |  |
@@ -2329,4 +2354,4 @@
 | <a id="schema-workbenchside"></a>`WorkbenchSide` | composite | One side of the workbench comparison: the item view plus its FULL tier state (observed/curated/field_sources) and identity keys. |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 28 operation groups; schema count 1081 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 28 operation groups; schema count 1101 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
