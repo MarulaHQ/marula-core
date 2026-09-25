@@ -24,10 +24,12 @@ the [changelog](CHANGELOG.md) records what changed.
   tickets through consented tools and proposes changes for a human to approve.
 - **Secrets.** The password vault with category RBAC, one-time share links,
   rotation hooks, and streaming decryption for secret files.
-- **Integrations.** NinjaOne, Hudu, IT Glue, ImmyBot, Microsoft
-  365, Auvik, UniFi, 3CX, QuickBooks and Xero export: each source feeds one
-  identity-keyed record with a merge queue, so the same device or
-  contact never forks into duplicates.
+- **Integrations.** NinjaOne, Hudu, Microsoft 365, UniFi, 3CX, Slack and
+  Teams, Rewst, and the QuickBooks and Xero exports ship in the core: each
+  source feeds one identity-keyed record with a merge queue, so the same device
+  or contact never forks into duplicates. IT Glue, Auvik, ImmyBot and Zapier are
+  the first marketplace connectors, built in their own repos and published
+  through the marketplace.
 - **A desktop app.** The Tauri 2 macOS shell with signed bundles and automatic
   updates, plus themes (Tangerine, Slate, a high-contrast preset) that ship
   validated from the same tokens as the web app.
@@ -51,6 +53,9 @@ the [changelog](CHANGELOG.md) records what changed.
   with locations and a movement ledger, tools with check-out, devices on loan
   to clients, label printing, keyboard-wedge scanning, and a Today grab list
   that understands a van run.
+- **The connector marketplace.** A public catalog for connectors beyond the
+  standard set: first-party listings and community ones, installed through
+  the same signed, consent-gated lifecycle as every plugin.
 - **The phone.** A React Native app on the same typed API as the web: field
   ops, camera scanning, live sync, timers, and a proper tablet layout.
 

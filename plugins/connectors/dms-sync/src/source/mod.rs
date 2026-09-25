@@ -2,15 +2,12 @@
 //! documentation system's state into a vendor-neutral [`DmsSnapshot`].
 //! Shipped implementations:
 //!
-//! * [`it_glue::ItGlueExport`] — IT Glue's JSON:API export files
-//!   (organizations, flexible_asset_types, flexible_assets,
-//!   configurations); fixture-testable, zero network.
 //! * [`hudu::HuduExport`] — Hudu's export JSON (asset_layouts, assets,
 //!   websites, passwords); fixture-testable, zero network.
-//! * [`live::ItGlueLive`] / [`live::HuduLive`] — LIVE REST pulls from
-//!   the IT Glue / Hudu APIs with their native pagination/auth flows
-//!   (the adapters-tranche-2 follow-up; same snapshot vocabulary as
-//!   the export parsers).
+//! * [`live::HuduLive`] — LIVE REST pulls from the Hudu API with its
+//!   native pagination/auth flow (same snapshot vocabulary as the
+//!   export parser). IT Glue's source (export, live pull, renderer)
+//!   ships as the marketplace `it-glue` connector instead (ADR 0013).
 //! * [`rest::RestSource`] — a generic REST DMS: list endpoints +
 //!   a declarative field mapping (the escape hatch for "none of the
 //!   above" documentation systems).
@@ -33,7 +30,6 @@ pub trait DmsSource: Send + Sync {
 }
 
 pub mod hudu;
-pub mod it_glue;
 pub mod live;
 pub mod rest;
 

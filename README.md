@@ -23,11 +23,11 @@ Meridian is complete on its own. Invoicing, knowledge base, CSAT, scheduling —
 
 Some things we care about enough to enforce in CI:
 
-**Workflows that don't break.** Customize boards however you like. Every status maps to a semantic category underneath (open / in progress / waiting / closed), and SLA timers, billing, automations, and reports bind to those categories — never your labels. Rename anything; nothing silently changes meaning.
+**Workflows that don't break.** Customize boards however you like. Every status maps to a semantic category underneath (open / in progress / waiting / closed), and SLA timers, billing, reports and automations bind to the category, never to your labels. Rename anything, and nothing else changes meaning.
 
 **Time that actually gets billed.** One active timer per tech. End-of-day missing-time audits. Approvals before invoices go out. The gap between hours worked and hours logged stops being a mystery.
 
-**Agents you can audit, and that default to asking.** Skills are versioned manifests, not prompt spaghetti. Guardrail rules evaluate in layers before every tool call. Agent-originated changes to a record default to *proposed, awaiting approval* — nothing silently rewrites your work, and client-visible or external actions never bypass a human. The audit log records who did what — human or agent — and it's append-only. "Who changed this" is a query, not a sift. There's an MCP server too, so Claude, DeepSeek, or your own scripts can work inside the PSA under the same rules as everyone else. See [`docs/instant-first.md`](docs/instant-first.md) and [`docs/10-agent-platform.md`](docs/10-agent-platform.md).
+**Agents you can audit, and that default to asking.** Skills are versioned manifests, not prompt spaghetti. Guardrail rules evaluate in layers before every tool call. Agent-originated changes to a record default to *proposed, awaiting approval* — nothing silently rewrites your work, and client-visible or external actions never bypass a human. The audit log records who did what, human or agent, and it stays append-only. "Who changed this" is a query, not a sift. There's an MCP server too, so Claude, DeepSeek, or your own scripts can work inside the PSA under the same rules as everyone else. See [`docs/instant-first.md`](docs/instant-first.md) and [`docs/10-agent-platform.md`](docs/10-agent-platform.md).
 
 **Fast, measurably — and there's no Save button to slow you down.** Ticket list p95 under 150 ms at 50k tickets. WebSocket delivery under 100 ms. These are CI gates, not aspirations. The dominant path is autosave with optimistic render and rich undo: you never chase a Save button or a page reload to feel committed, and Ctrl/Cmd+Z walks back through edits the server already accepted.
 
@@ -83,19 +83,19 @@ One writer. Every mutation emits a versioned domain event. REST, WebSocket, webh
 | Upgrades & compatibility | [`docs/upgrade-compatibility-policy.md`](docs/upgrade-compatibility-policy.md) — support windows, breaking-change rules, what's guaranteed |
 | Interaction contract | [`docs/instant-first.md`](docs/instant-first.md) — autosave/undo, agent approval-by-default, the core's read models |
 | API reference | Generated from OpenAPI (`utoipa` → Scalar UI on `core-api`) |
-| Build plugins & connectors | [`packages/plugin-kit`](packages/plugin-kit/) · [`connectors/`](connectors/) reference implementations |
+| Build plugins & connectors | [`packages/plugin-kit`](packages/plugin-kit/) · [`plugins/connectors/`](plugins/connectors/) reference implementations |
 | Architecture decisions | [`docs/adr/`](docs/adr/) |
 | Visual identity | [`docs/theme.md`](docs/theme.md) |
 
 ## Roadmap
 
-Development runs in stages: foundation → daily driver → commercial engine → GA hardening → ecosystem. Current stage and near-term items are tracked in repository milestones; the full staged plan with acceptance criteria lives in [`docs/prompts/BUILD-PROMPT.md`](docs/prompts/BUILD-PROMPT.md).
+Development runs in stages: foundation → daily driver → commercial engine → GA hardening → ecosystem. Current stage and near-term items are tracked in repository milestones. The full staged plan with acceptance criteria lives in [`docs/prompts/BUILD-PROMPT.md`](docs/prompts/BUILD-PROMPT.md).
 
 ## Contributing
 
 PRs welcome — trunk-based, DCO-signed, conventional commits. Two approvals are required for `crates/core-domain` and anything touching authz/RLS. Start with [`CONTRIBUTING.md`](CONTRIBUTING.md); significant changes begin as RFCs in `docs/rfc/`.
 
-Extension authors usually don't need this repo: connectors are ordinary web apps using [`@meridian/sdk`](packages/sdk/) and receiving signed webhooks — the NinjaOne and Hudu connectors are the reference implementations.
+Extension authors usually don't need this repo: connectors are ordinary web apps using [`@meridian/sdk`](packages/sdk/) and receiving signed webhooks — the NinjaOne and Hudu connectors are the reference implementations. Beyond the standard set, connectors publish through the connector marketplace, first-party and community alike (ADR 0013).
 
 ## Security
 
@@ -104,7 +104,7 @@ Report vulnerabilities privately — see [`SECURITY.md`](SECURITY.md). Please do
 ## License
 
 - Core (`crates/`, `apps/`): [AGPL-3.0](LICENSE)
-- SDK, plugin kit, first-party plugins & connectors: [Apache-2.0](packages/sdk/LICENSE)
+- SDK, plugin kit, plugins & connectors in this repo: [Apache-2.0](packages/sdk/LICENSE)
 - Third-party: [`ACKNOWLEDGMENTS.md`](ACKNOWLEDGMENTS.md) (fonts OFL, embedded PostgreSQL/pgvector, full npm inventory, vendored tooling)
 
 ---
@@ -131,8 +131,8 @@ packages/
 ├── ui/             # design system components — Workbench theme tokens (Apache-2.0)
 ├── layout/         # multi-pane layout engine
 └── plugin-kit/     # TS plugin PDK + dev harness (Apache-2.0)
-plugins/            # first-party WASM plugins (Apache-2.0)
-connectors/         # first-party HTTP connectors (Apache-2.0)
+plugins/            # first-party extensions (Apache-2.0): connectors/ (HTTP) + wasm/
+  connectors/       # the standard connector set + the shared support crates
 design/mockups/     # approved UI mockups (light + dark per screen) — implementation targets
 deploy/             # docker-compose.yml, Helm chart, upgrade runbooks
 website/            # project marketing site — waitlist first, then live (mockup-first)

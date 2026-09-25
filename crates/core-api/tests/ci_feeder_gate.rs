@@ -3,8 +3,10 @@
 //!
 //! The suite drives the same `MeridianFeederSink` a live transport
 //! would (x-api-key machine key, public `/api/v1/config-items/feed-upsert`
-//! seam) with vendor payloads mapped by the `ci-feeders` normalizers,
-//! and proves the CI gate:
+//! seam). NinjaOne maps through its shipped normalizer; Auvik and IT Glue
+//! records are built directly on the public feed model because those
+//! mappers ship as marketplace connectors (ADR 0013) — the wire contract
+//! under test is unchanged. The gate proves:
 //!
 //! 1. **Second sync updates its own link.** Each feeder's first sync
 //!    creates the item + link; its second sync (changed content) lands
@@ -246,6 +248,75 @@ fn ninjaone_device(id: &str, serial: &str, ip: &str) -> Value {
     })
 }
 
+/// IT Glue-shaped record built on the public feed model (the vendor
+/// mapper ships in the marketplace `it-glue` connector).
+fn it_glue_configuration(
+    id: &str,
+    name: &str,
+    hostname: Option<&str>,
+    serial: Option<&str>,
+    primary_ip: Option<&str>,
+) -> ci_feeders::model::FeederRecord {
+    let mut identity = ci_feeders::identity::IdentityKeysBuilder::new().source_guid(id);
+    if let Some(serial) = serial {
+        identity = identity.serial(serial);
+    }
+    if let Some(hostname) = hostname {
+        identity = identity.hostname(hostname);
+    }
+    let mut observed = serde_json::Map::new();
+    if let Some(ip) = primary_ip {
+        observed.insert("primary_ip".into(), json!(ip));
+    }
+    ci_feeders::model::FeederRecord {
+        source_system: "it_glue".into(),
+        external_id: id.into(),
+        source_guid: Some(id.into()),
+        payload_ref: None,
+        tag: name.into(),
+        name: name.into(),
+        identity_keys: identity.build(),
+        observed_fields: Value::Object(observed),
+    }
+}
+
+/// Auvik-shaped record built on the public feed model (the vendor mapper
+/// ships in the marketplace `auvik` connector).
+fn auvik_device(
+    id: &str,
+    name: &str,
+    serial: Option<&str>,
+    mac: Option<&str>,
+    domain: Option<&str>,
+    ip: Option<&str>,
+) -> ci_feeders::model::FeederRecord {
+    let mut identity = ci_feeders::identity::IdentityKeysBuilder::new().source_guid(id);
+    if let Some(serial) = serial {
+        identity = identity.serial(serial);
+    }
+    if let Some(mac) = mac {
+        identity = identity.macs([mac]);
+    }
+    identity = identity.hostname(name);
+    if let Some(domain) = domain {
+        identity = identity.domain(domain);
+    }
+    let mut observed = serde_json::Map::new();
+    if let Some(ip) = ip {
+        observed.insert("ipAddresses".into(), json!([ip]));
+    }
+    ci_feeders::model::FeederRecord {
+        source_system: "auvix".into(),
+        external_id: id.into(),
+        source_guid: Some(id.into()),
+        payload_ref: None,
+        tag: name.into(),
+        name: name.into(),
+        identity_keys: identity.build(),
+        observed_fields: Value::Object(observed),
+    }
+}
+
 // --- gate 1: second sync updates its own link, never a twin -------------------
 
 #[tokio::test]
@@ -255,18 +326,14 @@ async fn second_sync_updates_its_own_link_and_never_a_twin() {
 
     let ninja = vendors::map_ninjaone_device(&ninjaone_device("111", "SN-111", "203.0.113.1"))
         .expect("ninjaone maps");
-    let it_glue = vendors::map_it_glue_configuration(&json!({
-        "id": "501", "attributes": {
-            "name": "Docs Config 501", "hostname": "docs-501.acme.local",
-            "primary_ip": "10.0.5.1"
-        }
-    }))
-    .expect("it glue maps");
-    let auvix = vendors::map_auvik_device(&json!({
-        "id": "auv-777", "name": "acme-switch-01", "deviceType": "switch",
-        "ipAddresses": ["10.0.1.1"]
-    }))
-    .expect("auvik maps");
+    let it_glue = it_glue_configuration(
+        "501",
+        "Docs Config 501",
+        Some("docs-501.acme.local"),
+        None,
+        Some("10.0.5.1"),
+    );
+    let auvix = auvik_device("auv-777", "acme-switch-01", None, None, None, Some("10.0.1.1"));
 
     // First sync per feeder: three distinct records with no shared
     // signals — three distinct canonical items, one link each.
@@ -286,18 +353,15 @@ async fn second_sync_updates_its_own_link_and_never_a_twin() {
     // Second sync per feeder with CHANGED content (observed churn).
     let ninja_v2 =
         vendors::map_ninjaone_device(&ninjaone_device("111", "SN-111", "203.0.113.2")).unwrap();
-    let it_glue_v2 = vendors::map_it_glue_configuration(&json!({
-        "id": "501", "attributes": {
-            "name": "Docs Config 501", "hostname": "docs-501.acme.local",
-            "primary_ip": "10.0.5.9"
-        }
-    }))
-    .unwrap();
-    let auvix_v2 = vendors::map_auvik_device(&json!({
-        "id": "auv-777", "name": "acme-switch-01", "deviceType": "switch",
-        "ipAddresses": ["10.0.1.2"]
-    }))
-    .unwrap();
+    let it_glue_v2 = it_glue_configuration(
+        "501",
+        "Docs Config 501",
+        Some("docs-501.acme.local"),
+        None,
+        Some("10.0.5.9"),
+    );
+    let auvix_v2 =
+        auvik_device("auv-777", "acme-switch-01", None, None, None, Some("10.0.1.2"));
 
     let report2 = FeederSync::run(
         &SyncConfig::new(org.client_id),
@@ -347,13 +411,13 @@ async fn sources_converge_on_one_item_with_one_link_per_source() {
     let sink = sink_for(&org, &org.api_key);
 
     // IT Glue documents the device first.
-    let it_glue = vendors::map_it_glue_configuration(&json!({
-        "id": "601", "attributes": {
-            "name": "Mail Server", "hostname": "mail.acme.local",
-            "serial_number": "SN-ABC-123"
-        }
-    }))
-    .unwrap();
+    let it_glue = it_glue_configuration(
+        "601",
+        "Mail Server",
+        Some("mail.acme.local"),
+        Some("SN-ABC-123"),
+        None,
+    );
     let report = FeederSync::run(&SyncConfig::new(org.client_id), &[it_glue], &sink).await;
     assert_eq!(report.created, 1);
     let (_, items) = org_inventory(&org).await;
@@ -440,10 +504,7 @@ async fn sources_converge_on_one_item_with_one_link_per_source() {
 
     // The same external id under a DIFFERENT source is a distinct link
     // (the CI2 unique key is (org, source_system, external_id)).
-    let auvix_same_id = vendors::map_auvik_device(&json!({
-        "id": "601", "name": "auvik-probe", "deviceType": "unknown"
-    }))
-    .unwrap();
+    let auvix_same_id = auvik_device("601", "auvik-probe", None, None, None, None);
     let report4 = FeederSync::run(&SyncConfig::new(org.client_id), &[auvix_same_id], &sink).await;
     assert!(report4.is_clean());
     assert_eq!(
@@ -459,12 +520,14 @@ async fn reformatted_payloads_resolve_to_the_same_item() {
     let org = setup("ci-gate-3").await;
     let sink = sink_for(&org, &org.api_key);
 
-    let first = vendors::map_auvik_device(&json!({
-        "id": "auv-1", "name": "acme-mail-01",
-        "serial": "SN-8F3K2-Q", "macAddress": "AABBCCDDEEFF",
-        "domain": "acme.local", "ipAddresses": ["10.0.0.1"]
-    }))
-    .unwrap();
+    let first = auvik_device(
+        "auv-1",
+        "acme-mail-01",
+        Some("SN-8F3K2-Q"),
+        Some("AABBCCDDEEFF"),
+        Some("acme.local"),
+        Some("10.0.0.1"),
+    );
     let report = FeederSync::run(&SyncConfig::new(org.client_id), &[first], &sink).await;
     assert_eq!(report.created, 1);
     let (_, items) = org_inventory(&org).await;
@@ -472,12 +535,14 @@ async fn reformatted_payloads_resolve_to_the_same_item() {
 
     // The SAME physical device re-fed under a NEW external id with every
     // formatting quirk flipped — the normalized keys still hit 0.95.
-    let second = vendors::map_auvik_device(&json!({
-        "id": "auv-2", "name": "ACME-MAIL-01.",
-        "serial": " sn8f3k2q ", "macAddress": "aa:bb:cc:dd:ee:ff",
-        "domain": "ACME.LOCAL.", "ipAddresses": ["10.0.0.2"]
-    }))
-    .unwrap();
+    let second = auvik_device(
+        "auv-2",
+        "ACME-MAIL-01.",
+        Some(" sn8f3k2q "),
+        Some("aa:bb:cc:dd:ee:ff"),
+        Some("ACME.LOCAL."),
+        Some("10.0.0.2"),
+    );
     let report2 = FeederSync::run(&SyncConfig::new(org.client_id), &[second], &sink).await;
     assert!(report2.is_clean());
     assert_eq!(report2.created, 0, "no twin under reformatted identity");
@@ -536,10 +601,7 @@ async fn signal_less_record_still_lands_with_its_link() {
 
     // No serial, no MAC, no hostname — the feeder still never blind-
     // inserts: the core creates the item WITH its link in one write.
-    let bare = vendors::map_it_glue_configuration(&json!({
-        "id": "701", "attributes": { "name": "Mystery appliance" }
-    }))
-    .unwrap();
+    let bare = it_glue_configuration("701", "Mystery appliance", None, None, None);
     let report = FeederSync::run(&SyncConfig::new(org.client_id), &[bare], &sink).await;
     assert!(report.is_clean());
     assert_eq!(report.created, 1);
@@ -552,10 +614,7 @@ async fn signal_less_record_still_lands_with_its_link() {
     assert_eq!(links[0]["external_id"], json!("701"));
 
     // Re-sync updates that same link (no signals, but the CI2 key holds).
-    let bare_v2 = vendors::map_it_glue_configuration(&json!({
-        "id": "701", "attributes": { "name": "Mystery appliance II" }
-    }))
-    .unwrap();
+    let bare_v2 = it_glue_configuration("701", "Mystery appliance II", None, None, None);
     let report2 = FeederSync::run(&SyncConfig::new(org.client_id), &[bare_v2], &sink).await;
     assert_eq!(report2.created, 0);
     let view2 = item_view(&org, item_id).await;

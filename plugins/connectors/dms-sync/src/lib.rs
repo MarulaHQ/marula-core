@@ -16,8 +16,9 @@
 //!   assets, documents, links, and (gated) credentials.
 //! * **Push** — [`push`]: parity in the other direction. A Meridian
 //!   snapshot read through the public API is rendered back OUT in the
-//!   same export formats (`render_it_glue_export`, `render_hudu_export`)
-//!   or pushed record-at-a-time to a generic REST endpoint.
+//!   same export format (`render_hudu_export`) or pushed record-at-a-time
+//!   to a generic REST endpoint. IT Glue's source and renderer ship as
+//!   the marketplace `it-glue` connector (ADR 0013).
 //! * **Sink** — [`sink`]: the Meridian-side apply seam ([`DmsSink`]) plus
 //!   the shipped [`MeridianRestSink`] and the documented
 //!   [`NoneDmsSink`]. External layouts map onto `document_layouts` (org

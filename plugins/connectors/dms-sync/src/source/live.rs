@@ -1,14 +1,13 @@
-//! LIVE REST pulls from the IT Glue / Hudu APIs (the TASKLIST DMS
-//! follow-up): the export-based parsers in [`super::it_glue`] /
-//! [`super::hudu`] stay zero-network; these drivers pull the SAME
-//! snapshot vocabulary from the vendor APIs with their native
-//! pagination/auth flows:
+//! LIVE REST pulls from the Hudu API (the TASKLIST DMS follow-up):
+//! the export-based parser in [`super::hudu`] stays zero-network; this
+//! driver pulls the SAME snapshot vocabulary from the vendor API with
+//! its native pagination/auth flow:
 //!
-//! * **IT Glue** — `x-api-key` header, JSON:API `page[number]` +
-//!   `links.next` pagination; organizations, configurations, and
-//!   flexible assets.
 //! * **Hudu** — bearer API key, `page`/`per_page` pagination with
 //!   short-page termination; companies, asset layouts, and assets.
+//!
+//! IT Glue's live pull ships as the marketplace `it-glue` connector
+//! (ADR 0013).
 //!
 //! Same rules as every live driver: every page is followed (a silently
 //! truncated snapshot is a wrong snapshot), credential material is
@@ -171,125 +170,6 @@ fn vendor_err(err: VendorError) -> SyncError {
 /// IT Glue LIVE source: `x-api-key` + JSON:API pagination, pulling
 /// organizations (client refs), configurations (typed assets), and
 /// flexible assets (assets + documents by layout name).
-pub struct ItGlueLive {
-    inner: VendorClient,
-    /// Only these flexible-asset layouts are pulled (`None` = all).
-    pub asset_layouts: Option<Vec<String>>,
-}
-
-impl ItGlueLive {
-    pub fn new(base_url: impl Into<String>, api_key: impl Into<String>) -> Self {
-        Self {
-            inner: VendorClient::new(
-                base_url,
-                VendorAuth::ApiKeyHeader {
-                    header: "x-api-key".into(),
-                    key: api_key.into(),
-                },
-            ),
-            asset_layouts: None,
-        }
-    }
-
-    async fn list(&self, path: &str) -> Result<Vec<Value>, SyncError> {
-        self.inner
-            .fetch_all(
-                path,
-                &PageFlow::JsonApi {
-                    items_key: "data",
-                    page_param: "page[number]",
-                    page_size: 50,
-                },
-            )
-            .await
-            .map_err(vendor_err)
-    }
-
-    /// The live pull (async form; `DmsSource::pull` bridges via the
-    /// tokio runtime handle, same as `RestSource`).
-    pub async fn pull_async(&self) -> Result<DmsSnapshot, SyncError> {
-        let mut snapshot = DmsSnapshot {
-            source: "it-glue".into(),
-            ..Default::default()
-        };
-
-        let orgs = self.list("/organizations").await?;
-        for (id, name) in orgs.iter().filter_map(|org| {
-            let id = org.get("id").and_then(Value::as_str)?;
-            let name = org
-                .pointer("/attributes/name")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            Some((id.to_string(), name.to_string()))
-        }) {
-            snapshot.client_refs.insert(id, name);
-        }
-
-        Pulled {
-            items: self.list("/configurations").await?,
-            type_name: "Configuration".into(),
-            kind: LinkKind::Asset,
-            id_key: "id",
-            title_key: "name",
-            client_key: Some("organization_id"),
-            body_key: None,
-        }
-        .into_snapshot_section(&mut snapshot);
-
-        let layouts = match &self.asset_layouts {
-            Some(names) => names.clone(),
-            None => self
-                .list("/flexible_asset_types")
-                .await?
-                .iter()
-                .filter_map(|t| {
-                    t.pointer("/attributes/name")
-                        .and_then(Value::as_str)
-                        .map(str::to_string)
-                })
-                .collect(),
-        };
-        for layout in layouts {
-            let items = self
-                .list(&format!(
-                    "/flexible_assets?filter[flexible_asset_type_name]={layout}"
-                ))
-                .await?;
-            Pulled {
-                items,
-                type_name: layout,
-                kind: LinkKind::Asset,
-                id_key: "id",
-                title_key: "name",
-                client_key: Some("organization_id"),
-                body_key: Some("notes"),
-            }
-            .into_snapshot_section(&mut snapshot);
-        }
-
-        Ok(snapshot)
-    }
-}
-
-impl crate::source::DmsSource for ItGlueLive {
-    fn name(&self) -> &str {
-        "it-glue"
-    }
-
-    fn pull(&self) -> Result<DmsSnapshot, SyncError> {
-        match tokio::runtime::Handle::try_current() {
-            Ok(handle) => handle.block_on(self.pull_async()),
-            Err(_) => Err(SyncError::Parse(
-                "live DMS sources must be pulled inside or against a tokio runtime \
-                 (use pull_async within an async driver)"
-                    .into(),
-            )),
-        }
-    }
-}
-
-/// Hudu LIVE source: bearer API key + page/per_page pagination with
-/// short-page termination; companies (client refs), asset layouts, and
 /// assets.
 pub struct HuduLive {
     inner: VendorClient,
@@ -370,12 +250,11 @@ impl crate::source::DmsSource for HuduLive {
     }
 }
 
+
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use std::sync::Arc;
 
-    use axum::extract::Query;
     use axum::http::HeaderMap;
     use axum::routing::get;
     use axum::{Json, Router};
@@ -388,95 +267,6 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         format!("http://{addr}")
-    }
-
-    #[tokio::test]
-    async fn it_glue_live_pulls_all_pages_with_orgs_configs_and_assets() {
-        let app = Router::new()
-            .route(
-                "/organizations",
-                get(|| async {
-                    Json(json!({
-                        "data": [{"type": "organizations", "id": "77", "attributes": {"name": "Acme"}}],
-                        "links": {}
-                    }))
-                }),
-            )
-            .route(
-                "/configurations",
-                get(|| async {
-                    Json(json!({
-                        "data": [{
-                            "type": "configurations", "id": "c1",
-                            "attributes": {
-                                "name": "srv-a", "hostname": "srv-a.acme",
-                                "serial_number": "SN-1",
-                                "organization_id": {"id": "77", "name": "Acme"}
-                            }
-                        }],
-                        "links": {}
-                    }))
-                }),
-            )
-            .route(
-                "/flexible_asset_types",
-                get(|| async {
-                    Json(json!({
-                        "data": [{"type": "flexible_asset_types", "id": "t1", "attributes": {"name": "Passwords"}}],
-                        "links": {}
-                    }))
-                }),
-            )
-            .route(
-                "/flexible_assets",
-                get(|Query(query): Query<HashMap<String, String>>| async move {
-                    // All pages must carry the layout filter.
-                    assert!(query
-                        .get("filter[flexible_asset_type_name]")
-                        .is_some_and(|f| f == "Passwords"));
-                    Json(json!({
-                        "data": [{
-                            "type": "flexible_assets", "id": "f1",
-                            "attributes": {
-                                "name": "root", "notes": "secret body",
-                                "organization_id": {"id": "77", "name": "Acme"}
-                            }
-                        }],
-                        "links": {}
-                    }))
-                }),
-            );
-        let base = spawn(app).await;
-
-        let live = ItGlueLive::new(&base, "key");
-        let snapshot = live.pull_async().await.unwrap();
-
-        assert_eq!(snapshot.source, "it-glue");
-        assert_eq!(
-            snapshot.client_refs.get("77").map(String::as_str),
-            Some("Acme")
-        );
-        let configs: Vec<_> = snapshot
-            .records
-            .iter()
-            .filter(|r| r.type_name.as_deref() == Some("Configuration"))
-            .collect();
-        assert_eq!(configs.len(), 1);
-        assert_eq!(configs[0].external_id, "c1");
-        assert_eq!(configs[0].fields["serial_number"], "SN-1");
-        assert_eq!(configs[0].client_ref.as_deref(), Some("77"));
-        let assets: Vec<_> = snapshot
-            .records
-            .iter()
-            .filter(|r| r.type_name.as_deref() == Some("Passwords"))
-            .collect();
-        assert_eq!(assets.len(), 1);
-        assert_eq!(assets[0].body, "secret body");
-        // Layout seeded from the union of observed keys per type.
-        assert!(snapshot
-            .layouts
-            .iter()
-            .any(|l| l.name == "Configuration" && !l.fields.is_empty()));
     }
 
     #[tokio::test]

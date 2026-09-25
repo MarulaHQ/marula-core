@@ -1,9 +1,10 @@
-//! Meridian configuration-item feeder connectors (`connectors/ci-feeders`
+//! Meridian configuration-item feeder connectors (`plugins/connectors/ci-feeders`
 //! — ADR 0003 CI7, Wave 12 lane 8).
 //!
 //! Purpose: feed device/configuration records from an MSP's source
-//! systems — an RMM (NinjaOne), a documentation platform (IT Glue), an
-//! NMS (Auvik, wire name `auvix`) — into Meridian's configuration
+//! systems — NinjaOne ships here; marketplace feeders (Auvik, IT Glue, and
+//! community adapters) map their payloads through the same public
+//! [`vendors`] surface — into Meridian's configuration
 //! identity core through the PUBLIC API seam only: `POST
 //! /api/config-items/feed-upsert`, authenticated with a scoped machine
 //! API key (`x-api-key`). No Meridian internals are imported anywhere in

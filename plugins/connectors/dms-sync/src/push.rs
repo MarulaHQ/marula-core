@@ -8,9 +8,10 @@
 //!   produces from the public REST surface (`GET /api/assets`,
 //!   `/api/documents`, `/api/documents/layouts`, `/api/clients`, and
 //!   the per-record link listings).
-//! * Renderers — [`render_it_glue_export`] and [`render_hudu_export`]
-//!   produce export JSON in the SAME file shapes the IT Glue / Hudu
-//!   parsers read (round-trip tested in `tests`).
+//! * Renderers — [`render_hudu_export`] produces export JSON in the
+//!   SAME file shape the Hudu parser reads (round-trip tested in
+//!   `tests`). IT Glue's renderer ships as the marketplace `it-glue`
+//!   connector (ADR 0013).
 //! * [`RestPushTarget`] — a generic REST DMS writer: POST/PUT the
 //!   neutral records to an operator-declared endpoint map (the escape
 //!   hatch for DMSes with no export format).
@@ -93,160 +94,6 @@ pub struct SnapshotCredentialMeta {
     pub url: String,
 }
 
-/// Render a Meridian snapshot as IT Glue export files (JSON:API). The
-/// returned map is keyed by export file name, matching the parser's
-/// [`crate::source::it_glue::ItGlueExportFiles`] slots:
-/// organizations / flexible_asset_types / flexible_assets /
-/// configurations.
-pub fn render_it_glue_export(snapshot: &MeridianSnapshot) -> BTreeMapExport {
-    let mut organizations: Vec<Value> = Vec::new();
-    for (id, name) in &snapshot.clients {
-        organizations.push(json!({
-            "id": id.to_string(),
-            "type": "organizations",
-            "attributes": { "name": name },
-        }));
-    }
-
-    // Layouts (connector org layouts carry the field schemas; system
-    // layouts render too so the round trip is complete).
-    let mut flexible_asset_types: Vec<Value> = Vec::new();
-    let mut layout_slug_by_id: std::collections::BTreeMap<Uuid, String> = Default::default();
-    for (position, layout) in snapshot.layouts.iter().enumerate() {
-        layout_slug_by_id.insert(layout.id, layout.slug.clone());
-        let traits: Vec<Value> = layout
-            .fields
-            .iter()
-            .map(|f| {
-                json!({
-                    "id": f.key,
-                    "type": "flexible_asset_kind",
-                    "attributes": {
-                        "key": f.key,
-                        "name": f.label,
-                        "kind": it_glue_kind(f.kind),
-                        "required": f.required,
-                    },
-                })
-            })
-            .collect();
-        flexible_asset_types.push(json!({
-            "id": layout.id.to_string(),
-            "type": "flexible_asset_types",
-            "attributes": {
-                "name": layout.name,
-                "icon": layout.slug,
-                "description": format!("meridian layout {}", layout.slug),
-                "traits": { "data": traits },
-            },
-            "_position": position,
-        }));
-    }
-
-    // Documents → flexible assets.
-    let mut flexible_assets: Vec<Value> = Vec::new();
-    for document in &snapshot.documents {
-        let type_id = document
-            .layout_id
-            .map(|id| json!({ "data": { "id": id.to_string(), "type": "flexible_asset_types" } }))
-            .unwrap_or(Value::Null);
-        let mut traits = Map::new();
-        for (key, value) in &document.fields {
-            traits.insert(key.clone(), value.clone());
-        }
-        let organization = document
-            .client_id
-            .map(|id| json!({ "data": { "id": id.to_string(), "type": "organizations" } }))
-            .unwrap_or(Value::Null);
-        flexible_assets.push(json!({
-            "id": document.id.to_string(),
-            "type": "flexible_assets",
-            "attributes": {
-                "name": document.title,
-                "flexible_asset_type_id": type_id,
-                "organization_id": organization,
-                "traits": traits,
-            },
-        }));
-    }
-
-    // Assets → configurations (identity-bearing fields survive: serial,
-    // hostname, primary ip, os, mac).
-    let mut configurations: Vec<Value> = Vec::new();
-    for asset in &snapshot.assets {
-        let type_name = asset
-            .layout_id
-            .and_then(|id| layout_slug_by_id.get(&id))
-            .map(String::as_str)
-            .unwrap_or("Configuration");
-        let configuration_type = json!({
-            "data": {
-                "id": format!("{type_name}"),
-                "type": "configuration_types",
-                "attributes": { "name": type_name },
-            }
-        });
-        let mut attributes = Map::new();
-        attributes.insert("name".into(), json!(asset.name));
-        attributes.insert(
-            "hostname".into(),
-            asset.fields.get("hostname").cloned().unwrap_or(Value::Null),
-        );
-        attributes.insert(
-            "primary_ip".into(),
-            asset
-                .fields
-                .get("primary_ip")
-                .cloned()
-                .unwrap_or(Value::Null),
-        );
-        attributes.insert(
-            "mac_address".into(),
-            asset
-                .fields
-                .get("mac_address")
-                .cloned()
-                .unwrap_or(Value::Null),
-        );
-        attributes.insert(
-            "serial_number".into(),
-            asset.fields.get("serial").cloned().unwrap_or(Value::Null),
-        );
-        attributes.insert(
-            "operating_system".into(),
-            asset.fields.get("os").cloned().unwrap_or(Value::Null),
-        );
-        if let Some(client_id) = asset.client_id {
-            attributes.insert(
-                "organization_id".into(),
-                json!({ "data": { "id": client_id.to_string(), "type": "organizations" } }),
-            );
-        }
-        attributes.insert("configuration_type_id".into(), configuration_type);
-        configurations.push(json!({
-            "id": asset.id.to_string(),
-            "type": "configurations",
-            "attributes": attributes,
-        }));
-    }
-
-    BTreeMapExport {
-        files: [
-            ("organizations", json!({ "data": organizations })),
-            (
-                "flexible_asset_types",
-                json!({ "data": flexible_asset_types }),
-            ),
-            ("flexible_assets", json!({ "data": flexible_assets })),
-            ("configurations", json!({ "data": configurations })),
-        ]
-        .into_iter()
-        .map(|(k, v)| (k.to_string(), v))
-        .collect(),
-    }
-}
-
-/// The rendered export files, keyed by export file name.
 #[derive(Debug, Clone)]
 pub struct BTreeMapExport {
     pub files: std::collections::BTreeMap<String, Value>,
@@ -256,18 +103,6 @@ impl BTreeMapExport {
     /// Convenience: one named file's JSON.
     pub fn file(&self, name: &str) -> Option<&Value> {
         self.files.get(name)
-    }
-}
-
-fn it_glue_kind(kind: FieldKind) -> &'static str {
-    match kind {
-        FieldKind::Number => "Number",
-        FieldKind::Date => "Date",
-        FieldKind::Bool => "Checkbox",
-        FieldKind::Select => "Select",
-        FieldKind::Url => "URL",
-        FieldKind::Email => "Email",
-        FieldKind::Text => "Text",
     }
 }
 
