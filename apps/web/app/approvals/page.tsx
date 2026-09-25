@@ -483,6 +483,18 @@ function QueueRow({
               >
                 ticket {e.ticket_id.slice(0, 8)}…
               </Link>
+              {/* Time-entry context entry point (Wave 32 lane 7): log the
+                  trip's actual mileage against this entry's ticket. */}
+              {ownEntry && (
+                <Link
+                  href={`/dispatch/travel?ticket_id=${e.ticket_id}`}
+                  className="text-[12px] no-underline transition-opacity duration-100 hover:opacity-80"
+                  style={{ color: "var(--m-text-secondary)" }}
+                  data-testid={`approval-log-travel-${e.id}`}
+                >
+                  log travel
+                </Link>
+              )}
               <Tag tone={statusTone(e.approval_status)}>{e.approval_status ?? "draft"}</Tag>
               {item.locked && <Tag tone="neutral">Locked — invoiced</Tag>}
             </div>

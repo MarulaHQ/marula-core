@@ -97,6 +97,8 @@ describe("mergeEntries + overlaps", () => {
     status: null,
     userId: null,
     number: null,
+    travelMinutes: 0,
+    travelQuality: null,
   };
   const b: CalendarEntry = { ...a, id: "b", startsAt: "2026-09-17T09:30:00Z", endsAt: "2026-09-17T10:30:00Z" };
   const c: CalendarEntry = { ...a, id: "c", startsAt: "2026-09-17T11:00:00Z", endsAt: "2026-09-17T12:00:00Z" };
@@ -149,6 +151,8 @@ describe("grids + snapping", () => {
       status: null,
       userId: null,
       number: null,
+      travelMinutes: 0,
+      travelQuality: null,
     });
     const a = mk("a", "2026-09-17T09:00:00Z", "2026-09-17T10:00:00Z");
     const b = mk("b", "2026-09-17T09:30:00Z", "2026-09-17T10:30:00Z");

@@ -90,6 +90,7 @@ async fn test_state(rate_limit_per_min: u32) -> (AppState, Router) {
         oidc: OidcHttpClient::new(),
         mail: std::sync::Arc::new(core_api::email::MailStack::from_config(&config)),
         store: Arc::new(core_store::memory::MemoryStore::new()),
+        routing: std::sync::Arc::new(core_routing::RoutingRegistry::new()),
     };
     let app = core_api::routes::build_router(state.clone());
     (state, app)

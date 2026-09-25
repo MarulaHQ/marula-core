@@ -214,9 +214,33 @@ where
     rows.into_iter().map(expense_from).collect()
 }
 
-pub async fn insert_expense<'e, E>(executor: E, e: &TicketExpense) -> DbResult<()>
+/// Wave 32 lane 7: reconciliation reads linked expenses by id in one
+/// round trip (draft.expense_id → the reimbursement amount).
+pub async fn list_expenses_by_ids<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    ids: &[Uuid],
+) -> DbResult<Vec<TicketExpense>>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
+{
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let sql = format!(
+        "SELECT {EXPENSE_COLS} FROM ticket_expenses \
+         WHERE org_id = $1 AND id = ANY($2) ORDER BY incurred_at"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(ids)
+        .fetch_all(executor)
+        .await?;
+    rows.into_iter().map(expense_from).collect()
+}
+
+pub async fn insert_expense<'e, E>(executor: E, e: &TicketExpense) -> DbResult<()>
+where    E: sqlx::Executor<'e, Database = Postgres>,
 {
     sqlx::query!(
         r#"INSERT INTO ticket_expenses

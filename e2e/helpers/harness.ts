@@ -38,7 +38,13 @@ export const test = base.extend<Fixtures>({
   },
 
   authedPage: async ({ browser, ownerTokens }, use, testInfo) => {
-    const theme = (testInfo.project.name.endsWith("-dark") ? "dark" : "light") as Theme;
+    // The base projects are named exactly `light` / `dark`; the preset
+    // projects suffix them (`slate-preset-dark`). Both shapes must resolve
+    // the theme, or the `dark` project silently runs light.
+    const projectName = testInfo.project.name;
+    const theme = (
+      projectName === "dark" || projectName.endsWith("-dark") ? "dark" : "light"
+    ) as Theme;
     const preset = testInfo.project.name.startsWith("slate-preset")
       ? "slate"
       : testInfo.project.name.startsWith("high-contrast-preset")

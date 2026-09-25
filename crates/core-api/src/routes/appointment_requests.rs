@@ -241,6 +241,10 @@ async fn decide(
                 travel_minutes: 0,
                 notes: request.notes.clone(),
                 scheduling_link_id: None,
+                travel_from: None,
+                travel_distance_meters: None,
+                travel_provider: None,
+                travel_quality: None,
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
             };

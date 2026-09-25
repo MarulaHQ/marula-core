@@ -229,6 +229,7 @@ impl SettingDeclaration {
                 APPEARANCE_MODE => MODE_OPTIONS,
                 AI_COMPLETION_PROVIDER => AI_PROVIDER_OPTIONS,
                 SHORTCUTS_PROFILE => SHORTCUT_PROFILE_OPTIONS,
+                TRAVEL_MILEAGE_RATE_UNIT => MILEAGE_RATE_UNIT_OPTIONS,
                 _ => EMPTY_OPTIONS,
             }),
             _ => None,
@@ -360,6 +361,104 @@ pub const CONNECTORS_CI_FEEDERS: &str = "connectors.ci_feeders";
 pub const CONNECTORS_IMMYBOT: &str = "connectors.immybot";
 pub const CONNECTORS_M365_GRAPH: &str = "connectors.m365_graph";
 pub const CONNECTORS_DMS_SYNC: &str = "connectors.dms_sync";
+
+// --- Wave 32 lane 7 (`p32-dispatch-routing`): routing/travel policy --------
+//
+// The routing PROVIDER (and its credentials) is operator infrastructure
+// config — env-parsed like the email transport, never org settings (a
+// token is not a preference). What lives here is the org POLICY the
+// NONE-mode estimate and mileage reconciliation consume: the per-mile
+// heuristic table and the reimbursement rates.
+
+/// Minutes per mile the built-in (NONE-mode) travel estimate assumes,
+/// including typical door-to-door overhead. 2 = a 30 mph effective pace.
+pub const ROUTING_HEURISTIC_MINUTES_PER_MILE: &str = "routing.heuristic_minutes_per_mile";
+/// Fixed minutes added to every heuristic leg (parking, walk-in).
+pub const ROUTING_HEURISTIC_OVERHEAD_MINUTES: &str = "routing.heuristic_overhead_minutes";
+/// Road factor percent: great-circle distance × this / 100 approximates
+/// road distance. 100 would assume straight roads (dishonest); default 125.
+pub const ROUTING_HEURISTIC_ROAD_FACTOR_PERCENT: &str =
+    "routing.heuristic_road_factor_percent";
+/// Reimbursement rate in MINOR currency units per `travel.mileage_rate_unit`.
+pub const TRAVEL_MILEAGE_RATE_MINOR: &str = "travel.mileage_rate_minor";
+/// The distance unit the mileage rate is quoted per: `mi` | `km`.
+pub const TRAVEL_MILEAGE_RATE_UNIT: &str = "travel.mileage_rate_unit";
+/// Whether recorded (submitted) travel mileage rolls into a
+/// reimbursement-to-technician rollup. Off keeps mileage informational.
+pub const TRAVEL_REIMBURSE_TECHS: &str = "travel.reimburse_techs";
+/// Unit options for [`TRAVEL_MILEAGE_RATE_UNIT`].
+pub const MILEAGE_RATE_UNIT_OPTIONS: &[&str] = &["mi", "km"];
+
+/// The folded routing/travel policy an org operates under, read from its
+/// stored org-scope overrides. Defaults ARE the shipped table (see the
+/// constants above); an unknown or absent key falls back to the default,
+/// exactly like every other typed setting read.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TravelPolicy {
+    pub heuristic_minutes_per_mile: i64,
+    pub heuristic_overhead_minutes: i64,
+    pub heuristic_road_factor_percent: i64,
+    pub mileage_rate_minor: i64,
+    pub mileage_rate_unit: String,
+    pub reimburse_techs: bool,
+}
+
+impl Default for TravelPolicy {
+    fn default() -> Self {
+        Self {
+            heuristic_minutes_per_mile: 2,
+            heuristic_overhead_minutes: 5,
+            heuristic_road_factor_percent: 125,
+            mileage_rate_minor: 67,
+            mileage_rate_unit: "mi".into(),
+            reimburse_techs: true,
+        }
+    }
+}
+
+/// Folds stored overrides onto the default policy. Keys are validated at
+/// write time by the registry; a wrong-typed stored value is ignored here
+/// (defensive read — the default is always better than a panic).
+pub fn travel_policy(overrides: &[(String, serde_json::Value)]) -> TravelPolicy {
+    fn int(overrides: &[(String, serde_json::Value)], key: &str) -> Option<i64> {
+        overrides
+            .iter()
+            .find(|(k, _)| k == key)
+            .and_then(|(_, v)| v.as_i64())
+    }
+    fn text(overrides: &[(String, serde_json::Value)], key: &str) -> Option<String> {
+        overrides
+            .iter()
+            .find(|(k, _)| k == key)
+            .and_then(|(_, v)| v.as_str().map(str::to_string))
+    }
+    fn boolean(overrides: &[(String, serde_json::Value)], key: &str) -> Option<bool> {
+        overrides
+            .iter()
+            .find(|(k, _)| k == key)
+            .and_then(|(_, v)| v.as_bool())
+    }
+    let defaults = TravelPolicy::default();
+    TravelPolicy {
+        heuristic_minutes_per_mile: int(overrides, ROUTING_HEURISTIC_MINUTES_PER_MILE)
+            .filter(|v| *v > 0)
+            .unwrap_or(defaults.heuristic_minutes_per_mile),
+        heuristic_overhead_minutes: int(overrides, ROUTING_HEURISTIC_OVERHEAD_MINUTES)
+            .filter(|v| *v >= 0)
+            .unwrap_or(defaults.heuristic_overhead_minutes),
+        heuristic_road_factor_percent: int(overrides, ROUTING_HEURISTIC_ROAD_FACTOR_PERCENT)
+            .filter(|v| (100..=300).contains(v))
+            .unwrap_or(defaults.heuristic_road_factor_percent),
+        mileage_rate_minor: int(overrides, TRAVEL_MILEAGE_RATE_MINOR)
+            .filter(|v| *v >= 0)
+            .unwrap_or(defaults.mileage_rate_minor),
+        mileage_rate_unit: text(overrides, TRAVEL_MILEAGE_RATE_UNIT)
+            .filter(|v| MILEAGE_RATE_UNIT_OPTIONS.contains(&v.as_str()))
+            .unwrap_or(defaults.mileage_rate_unit),
+        reimburse_techs: boolean(overrides, TRAVEL_REIMBURSE_TECHS)
+            .unwrap_or(defaults.reimburse_techs),
+    }
+}
 
 /// The feed-upsert source systems that ride the `connectors.ci_feeders`
 /// toggle (the CI feeder-line sources the feed-upsert seam serves).
@@ -927,6 +1026,83 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> = std::sync::L
                          The ? cheat-sheet stays reachable either way.",
         });
 
+        // --- Wave 32 lane 7 (`p32-dispatch-routing`): routing NONE-mode
+        // table + travel reimbursement policy. The provider itself is
+        // operator config (env), never a setting; these are org policy.
+        decls.push(SettingDeclaration {
+            key: ROUTING_HEURISTIC_MINUTES_PER_MILE,
+            kind: SettingKind::Integer { min: 1, max: 60 },
+            default: SettingValue::Integer(2),
+            scope: SettingScope::Org,
+            section: SettingSection::General,
+            visibility: SettingVisibility::Ui,
+            label: "Travel estimate: minutes per mile",
+            description: "Pace the built-in travel estimate assumes when no routing \
+                         provider is configured. Every estimate from this table is \
+                         labeled heuristic; measured providers replace it.",
+        });
+        decls.push(SettingDeclaration {
+            key: ROUTING_HEURISTIC_OVERHEAD_MINUTES,
+            kind: SettingKind::Integer { min: 0, max: 120 },
+            default: SettingValue::Integer(5),
+            scope: SettingScope::Org,
+            section: SettingSection::General,
+            visibility: SettingVisibility::Ui,
+            label: "Travel estimate: fixed overhead",
+            description: "Minutes added to every built-in travel leg for parking and \
+                         walk-in time, so blocks do not under-book short trips.",
+        });
+        decls.push(SettingDeclaration {
+            key: ROUTING_HEURISTIC_ROAD_FACTOR_PERCENT,
+            kind: SettingKind::Integer { min: 100, max: 300 },
+            default: SettingValue::Integer(125),
+            scope: SettingScope::Org,
+            section: SettingSection::General,
+            visibility: SettingVisibility::Ui,
+            label: "Travel estimate: road factor %",
+            description: "Percent applied to straight-line distance to approximate road \
+                         distance in the built-in estimate. 100 assumes straight roads.",
+        });
+        decls.push(SettingDeclaration {
+            key: TRAVEL_MILEAGE_RATE_MINOR,
+            kind: SettingKind::Integer {
+                min: 0,
+                max: 100_000,
+            },
+            default: SettingValue::Integer(67),
+            scope: SettingScope::Org,
+            section: SettingSection::General,
+            visibility: SettingVisibility::Ui,
+            label: "Mileage reimbursement rate (minor units)",
+            description: "Amount in the org's base currency (minor units) paid per \
+                         mileage unit when travel drafts are reconciled and \
+                         reimbursements are rolled up. 67 = 0.67 per mile.",
+        });
+        decls.push(SettingDeclaration {
+            key: TRAVEL_MILEAGE_RATE_UNIT,
+            kind: SettingKind::Enumeration,
+            default: SettingValue::Text("mi".into()),
+            scope: SettingScope::Org,
+            section: SettingSection::General,
+            visibility: SettingVisibility::Ui,
+            label: "Mileage rate unit",
+            description: "The distance unit the mileage reimbursement rate is quoted \
+                         per. Logged distances in the other unit convert for the \
+                         rollup (1 mi = 1.609344 km).",
+        });
+        decls.push(SettingDeclaration {
+            key: TRAVEL_REIMBURSE_TECHS,
+            kind: SettingKind::Boolean,
+            default: SettingValue::Boolean(true),
+            scope: SettingScope::Org,
+            section: SettingSection::General,
+            visibility: SettingVisibility::Ui,
+            label: "Reimburse technician mileage",
+            description: "When on, submitted travel mileage accrues a reimbursement \
+                         rollup owed to the technician; when off, mileage is \
+                         informational and only billable amounts matter.",
+        });
+
         decls
     },
 );
@@ -1018,8 +1194,10 @@ mod tests {
         // added (Wave 26 lane 1: flows_disabled + six org steps ×
         // done/dismissed = 13, so 15 → 28; Wave 26 lane 2 added
         // tours.org_disabled — 28 → 29... plus the user/org banner
-        // dismissed pair re-counted at 29 → 30.
-        assert_eq!(declarations_for(SettingScope::Org).len(), 30);
+        // dismissed pair re-counted at 29 → 30. Wave 32 lane 7 added the
+        // routing/travel policy block (three heuristic keys + mileage
+        // rate, unit, and reimbursement toggle): 30 → 36.
+        assert_eq!(declarations_for(SettingScope::Org).len(), 36);
     }
 
     #[test]

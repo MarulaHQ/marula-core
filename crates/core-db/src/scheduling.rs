@@ -15,18 +15,28 @@
 use crate::{DbError, DbResult};
 use core_domain::entities::{
     Appointment, AppointmentKind, AppointmentStatus, AvailabilityWindow, CalendarExclusion,
-    OnCallBlock,
+    OnCallBlock, TravelOrigin,
 };
 use sqlx::{PgConnection, Postgres};
 use uuid::Uuid;
 
 const APPOINTMENT_COLS: &str = "id, org_id, user_id, ticket_id, client_id, site_id, title, \
      starts_at, ends_at, kind::text AS kind, status::text AS status, travel_minutes, notes, \
-     scheduling_link_id, created_at, updated_at";
+     scheduling_link_id, travel_from, travel_distance_meters, travel_provider, travel_quality, \
+     created_at, updated_at";
 
 fn row_to_appt(row: &sqlx::postgres::PgRow) -> DbResult<Appointment> {
     let kind: String = row.get("kind");
     let status: String = row.get("status");
+    let travel_from: Option<serde_json::Value> = row.get("travel_from");
+    let travel_from = match travel_from {
+        Some(value) => Some(serde_json::from_value::<TravelOrigin>(value).map_err(|e| {
+            DbError::Sql(sqlx::Error::Decode(
+                format!("appointment travel_from is not a TravelOrigin: {e}").into(),
+            ))
+        })?),
+        None => None,
+    };
     Ok(Appointment {
         id: row.get("id"),
         org_id: row.get("org_id"),
@@ -44,6 +54,10 @@ fn row_to_appt(row: &sqlx::postgres::PgRow) -> DbResult<Appointment> {
         travel_minutes: row.get("travel_minutes"),
         notes: row.get("notes"),
         scheduling_link_id: row.get("scheduling_link_id"),
+        travel_from,
+        travel_distance_meters: row.get("travel_distance_meters"),
+        travel_provider: row.get("travel_provider"),
+        travel_quality: row.get("travel_quality"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     })
@@ -63,12 +77,19 @@ pub async fn create_appointment<'e, E>(executor: E, a: &Appointment) -> DbResult
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
+    let travel_from = a
+        .travel_from
+        .as_ref()
+        .map(serde_json::to_value)
+        .transpose()
+        .map_err(|e| DbError::Sql(sqlx::Error::Encode(format!("travel_from: {e}").into())))?;
     sqlx::query!(
         r#"INSERT INTO appointments (id, org_id, user_id, ticket_id, client_id, site_id, title,
                                      starts_at, ends_at, kind, status, travel_minutes, notes,
-                                     scheduling_link_id)
+                                     scheduling_link_id, travel_from, travel_distance_meters,
+                                     travel_provider, travel_quality)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::text::appointment_kind,
-                   $11::text::appointment_status, $12, $13, $14)"#,
+                   $11::text::appointment_status, $12, $13, $14, $15, $16, $17, $18)"#,
         a.id,
         a.org_id,
         a.user_id,
@@ -83,6 +104,10 @@ where
         a.travel_minutes,
         a.notes,
         a.scheduling_link_id,
+        travel_from,
+        a.travel_distance_meters,
+        a.travel_provider,
+        a.travel_quality,
     )
     .execute(executor)
     .await?;
@@ -142,12 +167,17 @@ pub struct DispatchAppointmentRow {
     pub user_id: Uuid,
     pub ticket_id: Option<Uuid>,
     pub client_id: Option<Uuid>,
+    pub site_id: Option<Uuid>,
     pub title: String,
     pub starts_at: chrono::DateTime<chrono::Utc>,
     pub ends_at: chrono::DateTime<chrono::Utc>,
     pub kind: String,
     pub status: String,
     pub travel_minutes: i32,
+    pub travel_provider: Option<String>,
+    pub travel_quality: Option<String>,
+    pub travel_distance_meters: Option<i32>,
+    pub travel_from: Option<serde_json::Value>,
     pub ticket_number: Option<String>,
     pub client_name: Option<String>,
 }
@@ -166,9 +196,10 @@ pub async fn list_dispatch_appointments_between<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let sql = r#"SELECT a.id, a.org_id, a.user_id, a.ticket_id, a.client_id, a.title,
+    let sql = r#"SELECT a.id, a.org_id, a.user_id, a.ticket_id, a.client_id, a.site_id, a.title,
                   a.starts_at, a.ends_at, a.kind::text AS kind, a.status::text AS status,
-                  a.travel_minutes,
+                  a.travel_minutes, a.travel_provider, a.travel_quality,
+                  a.travel_distance_meters, a.travel_from,
                   t.number AS ticket_number,
                   c.name AS client_name
            FROM appointments a
@@ -196,12 +227,21 @@ pub async fn update_appointment<'e, E>(executor: E, a: &Appointment) -> DbResult
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
+    let travel_from = a
+        .travel_from
+        .as_ref()
+        .map(serde_json::to_value)
+        .transpose()
+        .map_err(|e| DbError::Sql(sqlx::Error::Encode(format!("travel_from: {e}").into())))?;
     let result = sqlx::query!(
         r#"UPDATE appointments SET ticket_id = $3, client_id = $4, site_id = $5, title = $6,
                                    starts_at = $7, ends_at = $8, kind = $9::text::appointment_kind,
                                    status = $10::text::appointment_status,
                                    travel_minutes = $11, notes = $12,
-                                   scheduling_link_id = $13, updated_at = now()
+                                   scheduling_link_id = $13,
+                                   travel_from = $14, travel_distance_meters = $15,
+                                   travel_provider = $16, travel_quality = $17,
+                                   updated_at = now()
            WHERE org_id = $1 AND id = $2"#,
         a.org_id,
         a.id,
@@ -216,6 +256,10 @@ where
         a.travel_minutes,
         a.notes,
         a.scheduling_link_id,
+        travel_from,
+        a.travel_distance_meters,
+        a.travel_provider,
+        a.travel_quality,
     )
     .execute(executor)
     .await?;

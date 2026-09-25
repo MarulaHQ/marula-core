@@ -14,6 +14,11 @@ members = [
     "crates/core-events",
     "crates/core-kb",
     "crates/core-mail",
+    # Wave 32 lane 7: the distance/duration provider seam (RoutingProvider
+    # trait + registry + NONE-mode heuristic + OSRM/ORS + the out-of-tree
+    # HTTP contract adapter). Public support crate, Apache-2.0, consumed by
+    # core-api and by first-party/relay provider packs.
+    "crates/core-routing",
     "crates/core-otel",
     "crates/core-projects",
     "crates/core-reports",
@@ -46,6 +51,9 @@ members = [
     # + the 3CX agentic call-control adapter riding the VoIP seam.
     "plugins/connectors/unifi",
     "plugins/connectors/threecx",
+    # Wave 32 lane 7 (p32-dispatch-routing): first-party Mapbox routing
+    # provider (ADR 0013 standard set) behind the core-routing seam.
+    "plugins/connectors/mapbox",
 ]
 
 # Desktop lane (2026-09-13, ADR 0005): lighter release profile for the

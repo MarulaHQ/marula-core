@@ -276,6 +276,7 @@ impl MailHarness {
             config: Arc::new(config),
             mail: mail_stack,
             store: std::sync::Arc::clone(&store) as std::sync::Arc<dyn core_store::ObjectStore>,
+            routing: std::sync::Arc::new(core_routing::RoutingRegistry::new()),
             oidc: core_api::auth::oidc_client::OidcHttpClient::new(),
             reporting: core_api::state::AppState::reporting_pool_lazy(&app_url(&b.admin_url))
                 .expect("lazy reporting pool"),

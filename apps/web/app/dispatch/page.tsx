@@ -32,6 +32,7 @@ import {
 import type { Block, QueueItem, Tech } from "../../lib/dispatch-reducer";
 import { useDispatchBoard } from "../../lib/use-dispatch";
 import { useRequireAuth } from "../../lib/api";
+import { RoutingStrip } from "../../components/routing-strip";
 
 type OnCall = components["schemas"]["OnCallBlock"];
 
@@ -398,6 +399,9 @@ export default function DispatchPage() {
               {board.loadError}
             </p>
           )}
+
+          {/* Wave 32 lane 7: journey warnings + route suggestions. */}
+          <RoutingStrip dayIso={isoDay(0)} />
 
           <div className="flex-1 overflow-auto px-4 pb-4">
             <div

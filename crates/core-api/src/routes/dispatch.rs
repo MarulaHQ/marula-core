@@ -43,6 +43,7 @@ use core_domain::events::{
 use core_domain::policy::{Action, BoardOp, Module, Permission};
 use core_domain::scheduling::{
     booked_minutes, capacity_percent, conflict_indices, covered_minutes, free_intervals,
+    occupied_minutes,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -102,6 +103,17 @@ pub struct DispatchAppointment {
     pub kind: AppointmentKind,
     pub status: AppointmentStatus,
     pub travel_minutes: i32,
+    /// Travel provenance (Wave 32 lane 7): where the estimate ran from,
+    /// which provider produced it, and at what quality. All absent for
+    /// manual or unestimated bookings.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub travel_from: Option<core_domain::entities::TravelOrigin>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub travel_distance_meters: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub travel_provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub travel_quality: Option<String>,
     /// Latest field-service status push against this booking (dispatch v2,
     /// additive): `None` when nothing was pushed yet.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -227,13 +239,22 @@ pub async fn dispatch_day(
                 kind,
                 status,
                 travel_minutes: a.travel_minutes,
+                travel_from: a
+                    .travel_from
+                    .clone()
+                    .and_then(|value| serde_json::from_value(value).ok()),
+                travel_distance_meters: a.travel_distance_meters,
+                travel_provider: a.travel_provider.clone(),
+                travel_quality: a.travel_quality.clone(),
                 dispatch_status: None,
             });
         }
-        let booked = booked_minutes(
+        let booked = occupied_minutes(
             user_appointments
                 .iter()
-                .map(|a: &DispatchAppointment| (a.starts_at, a.ends_at)),
+                .map(|a: &DispatchAppointment| {
+                    (a.starts_at, a.ends_at, i64::from(a.travel_minutes))
+                }),
             from,
             to,
         );
@@ -469,6 +490,10 @@ pub async fn bulk_move(
                 kind: appt.kind,
                 status: appt.status,
                 travel_minutes: appt.travel_minutes,
+                travel_from: appt.travel_from.clone(),
+                travel_distance_meters: appt.travel_distance_meters,
+                travel_provider: appt.travel_provider.clone(),
+                travel_quality: appt.travel_quality.clone(),
                 dispatch_status: None,
             });
         }
@@ -559,6 +584,10 @@ pub async fn assign(
             travel_minutes: req.travel_minutes,
             notes: None,
             scheduling_link_id: None,
+            travel_from: None,
+            travel_distance_meters: None,
+            travel_provider: None,
+            travel_quality: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
@@ -624,6 +653,10 @@ pub async fn assign(
             kind: appointment.kind,
             status: appointment.status,
             travel_minutes: appointment.travel_minutes,
+            travel_from: appointment.travel_from.clone(),
+            travel_distance_meters: appointment.travel_distance_meters,
+            travel_provider: appointment.travel_provider.clone(),
+            travel_quality: appointment.travel_quality.clone(),
             dispatch_status: None,
         };
         Ok((tx, view))
@@ -1743,6 +1776,16 @@ pub struct TravelDraftView {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<uuid::Uuid>)]
     pub submitted_time_entry_id: Option<Uuid>,
+    /// Wave 32 lane 7: the planned appointment this trip reconciles
+    /// against, when linked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub appointment_id: Option<Uuid>,
+    /// Wave 32 lane 7: the expense this draft's mileage produced, once
+    /// reimbursed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub expense_id: Option<Uuid>,
     #[schema(value_type = String, format = "date-time")]
     pub created_at: DateTime<Utc>,
     #[schema(value_type = String, format = "date-time")]
@@ -1763,6 +1806,8 @@ fn draft_view(row: core_db::dispatch::TravelDraftRow) -> TravelDraftView {
         notes: row.notes,
         status: row.status,
         submitted_time_entry_id: row.submitted_time_entry_id,
+        appointment_id: row.appointment_id,
+        expense_id: row.expense_id,
         created_at: row.created_at,
         updated_at: row.updated_at,
     }
@@ -1799,6 +1844,11 @@ pub struct CreateTravelDraftRequest {
     pub billable: bool,
     #[serde(default)]
     pub notes: Option<String>,
+    /// Wave 32 lane 7: the planned appointment this trip reconciles
+    /// against (optional — ad-hoc travel against a ticket stays legal).
+    #[serde(default)]
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub appointment_id: Option<Uuid>,
     #[serde(flatten)]
     pub instant: MutationParams,
 }
@@ -1916,6 +1966,19 @@ pub async fn travel_draft_create(
         core_db::users::get_user(&mut *ctx.tx, ctx.org_id, owner)
             .await
             .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        // A linked planned appointment must be visible in scope and belong
+        // to the same technician — reconciliation pairs like with like.
+        if let Some(appointment_id) = req.appointment_id {
+            let appointment =
+                core_db::scheduling::get_appointment(&mut *ctx.tx, ctx.org_id, appointment_id)
+                    .await
+                    .map_err(|e| instant::mutation_scope_err(e.into()))?;
+            if appointment.user_id != owner {
+                return Err(ApiError::Validation(
+                    "the linked appointment belongs to another technician".into(),
+                ));
+            }
+        }
         let id = Uuid::now_v7();
         let now = Utc::now();
         let row = core_db::dispatch::insert_travel_draft(
@@ -1934,6 +1997,8 @@ pub async fn travel_draft_create(
                 notes: notes.clone(),
                 status: "draft".into(),
                 submitted_time_entry_id: None,
+                appointment_id: req.appointment_id,
+                expense_id: None,
                 created_by: actor,
                 created_at: now,
                 updated_at: now,

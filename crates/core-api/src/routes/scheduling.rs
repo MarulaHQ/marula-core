@@ -160,7 +160,7 @@ pub async fn create_appointment(
         return Err(ApiError::Validation("travel_minutes must be >= 0".into()));
     }
     let org_id = authed.principal.user.org_id;
-    let appointment = Appointment {
+    let mut appointment = Appointment {
         id: Uuid::now_v7(),
         org_id,
         user_id,
@@ -175,9 +175,14 @@ pub async fn create_appointment(
         travel_minutes: req.travel_minutes,
         notes: req.notes.clone(),
         scheduling_link_id: None,
+        travel_from: None,
+        travel_distance_meters: None,
+        travel_provider: None,
+        travel_quality: None,
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
+    let travel_state = state.clone();
     org_tx::with_org_tx(
         &state,
         org_id,
@@ -201,6 +206,17 @@ pub async fn create_appointment(
             {
                 return Err(ApiError::Conflict("slot already booked".into()));
             }
+            // Wave 32 lane 7: site selection computes travel into the
+            // booking at save time (best-effort; explicit minutes win).
+            let policy = crate::routing::travel_policy_for(&mut tx.tx, org_id).await?;
+            apply_auto_travel(
+                &travel_state,
+                &mut tx.tx,
+                org_id,
+                &mut appointment,
+                &policy,
+            )
+            .await;
             core_db::scheduling::create_appointment(&mut *tx.tx, &appointment).await?;
             tx.emit(
                 types::APPOINTMENT_CREATED,
@@ -266,6 +282,7 @@ pub async fn patch_appointment(
     }
     let org_id = authed.principal.user.org_id;
     let actor = authed.principal.user.id;
+    let travel_state = state.clone();
     org_tx::with_org_tx(&state, org_id, actor, |mut tx| async move {
         let mut appt = core_db::scheduling::get_appointment(&mut *tx.tx, org_id, id).await?;
         if let Some(t) = req.title {
@@ -282,6 +299,16 @@ pub async fn patch_appointment(
         }
         if let Some(m) = req.travel_minutes {
             appt.travel_minutes = m;
+            // Manual minutes clear provider provenance — the number is the
+            // dispatcher's, not an estimate.
+            appt.travel_from = None;
+            appt.travel_distance_meters = None;
+            appt.travel_provider = None;
+            appt.travel_quality = None;
+        } else {
+            // No explicit minutes: refresh an AUTO estimate in place.
+            let policy = crate::routing::travel_policy_for(&mut tx.tx, org_id).await?;
+            apply_auto_travel(&travel_state, &mut tx.tx, org_id, &mut appt, &policy).await;
         }
         if let Some(n) = req.notes {
             appt.notes = Some(n);
@@ -322,6 +349,7 @@ pub async fn move_appointment(
     validate_span(req.starts_at, req.ends_at)?;
     let org_id = authed.principal.user.org_id;
     let actor = authed.principal.user.id;
+    let travel_state = state.clone();
     org_tx::with_org_tx(&state, org_id, actor, |mut tx| async move {
         let mut appt = core_db::scheduling::get_appointment(&mut *tx.tx, org_id, id).await?;
         let moved = appt.starts_at != req.starts_at || appt.ends_at != req.ends_at;
@@ -351,6 +379,12 @@ pub async fn move_appointment(
         }
         appt.starts_at = req.starts_at;
         appt.ends_at = req.ends_at;
+        // A move re-anchors departure time: refresh auto estimates only
+        // (manual minutes keep their provenance-free value).
+        if appt.travel_provider.is_some() {
+            let policy = crate::routing::travel_policy_for(&mut tx.tx, org_id).await?;
+            apply_auto_travel(&travel_state, &mut tx.tx, org_id, &mut appt, &policy).await;
+        }
         core_db::scheduling::update_appointment(&mut *tx.tx, &appt).await?;
         tx.emit(
             types::APPOINTMENT_UPDATED,
@@ -460,4 +494,61 @@ pub async fn conflict_check(
         has_conflict: !conflicts.is_empty(),
         conflicts,
     }))
+}
+
+/// Best-effort automatic travel (Wave 32 lane 7): resolves the journey
+/// start point and the appointment's site, asks the active provider (or
+/// the built-in heuristic) for the leg, and stamps travel minutes plus
+/// provenance. A routing failure leaves the appointment untouched —
+/// booking never fails because a routing server is down, and the day's
+/// routing view surfaces the typed warning instead.
+async fn apply_auto_travel(
+    state: &AppState,
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    appt: &mut Appointment,
+    policy: &core_domain::settings::TravelPolicy,
+) {
+    // Explicit manual minutes stay (no provenance == the human's number).
+    if appt.travel_minutes > 0 && appt.travel_provider.is_none() {
+        return;
+    }
+    if appt.kind != AppointmentKind::OnSite {
+        return;
+    }
+    let Some(site_id) = appt.site_id else {
+        return;
+    };
+    let Ok(site) = core_db::clients::get_site(&mut *conn, org_id, site_id).await else {
+        return;
+    };
+    let destination = crate::routing::site_place(&site);
+    if !destination.has_coordinates() {
+        return;
+    }
+    let day = appt.starts_at.date_naive();
+    let Ok(Some(start)) =
+        crate::routing::resolve_start_point(&mut *conn, org_id, appt.user_id, day).await
+    else {
+        return;
+    };
+    if !start.place.has_coordinates() {
+        return;
+    }
+    let Ok(estimate) = crate::routing::estimate_leg(
+        state,
+        policy,
+        &start.place,
+        &destination,
+        appt.starts_at,
+    )
+    .await
+    else {
+        return;
+    };
+    appt.travel_minutes = i32::try_from(estimate.minutes.max(0)).unwrap_or(i32::MAX);
+    appt.travel_from = Some(start.origin());
+    appt.travel_distance_meters = estimate.distance_meters.and_then(|m| i32::try_from(m).ok());
+    appt.travel_provider = Some(estimate.provider);
+    appt.travel_quality = Some(estimate.quality.as_str().to_string());
 }

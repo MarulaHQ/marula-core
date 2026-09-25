@@ -176,10 +176,15 @@ export function ConnectorProfileBlock({
 
 /** ADR 0006 leg (d) — the ciphertext-only vault:ingress consent note:
  * the ONE special warning a capability key can carry (the core never
- * accepts plaintext secrets from plugin surfaces). */
+ * accepts plaintext secrets from plugin surfaces).
+ *
+ * Wave 32 lane 7 adds the routing note: routing packs read scheduling
+ * context and never write it — the consent surface states that plainly. */
 const CAPABILITY_NOTES: Record<string, string> = {
   "vault:ingress":
     "Ciphertext-only ingress — the plugin may submit ENCRYPTED payloads into a scoped vault folder. The core never accepts plaintext secrets, and the folder's existing RBAC grants still gate reads.",
+  "routing.matrix":
+    "Routing provider — reads scheduling context (coordinates, times) and returns travel durations and distances. Routing scopes resolve to the scheduling VIEW gate and never confer scheduling edits.",
 };
 
 /** The capability notes block — prints the vault:ingress posture under

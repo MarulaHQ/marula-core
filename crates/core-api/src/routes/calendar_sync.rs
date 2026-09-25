@@ -1072,6 +1072,10 @@ mod tests {
             travel_minutes: 0,
             notes: Some("has; comma, and\nnewline".into()),
             scheduling_link_id: None,
+            travel_from: None,
+            travel_distance_meters: None,
+            travel_provider: None,
+            travel_quality: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };

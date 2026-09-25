@@ -87,6 +87,7 @@ mod tests {
             config: std::sync::Arc::new(config.clone()),
             mail: std::sync::Arc::new(MailStack::from_config(&config)),
             store: std::sync::Arc::new(core_store::memory::MemoryStore::new()),
+            routing: std::sync::Arc::new(core_routing::RoutingRegistry::new()),
             oidc: crate::auth::oidc_client::OidcHttpClient::new(),
         }
     }

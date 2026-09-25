@@ -49,6 +49,14 @@ pub struct CalendarItem {
     pub status: Option<AppointmentStatus>,
     #[schema(value_type = Option<uuid::Uuid>)]
     pub ticket_id: Option<Uuid>,
+    /// Appointment-only (Wave 32 lane 7): booked travel minutes sitting
+    /// immediately BEFORE the appointment — the calendar renders them
+    /// visually distinct from the booking block.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub travel_minutes: Option<i32>,
+    /// `heuristic` | `measured` when the estimate carries provenance.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub travel_quality: Option<String>,
     /// On-call-only field.
     pub category: Option<String>,
 }
@@ -104,6 +112,8 @@ fn appt_item(a: &core_domain::entities::Appointment) -> CalendarItem {
         kind: Some(a.kind),
         status: Some(a.status),
         ticket_id: a.ticket_id,
+        travel_minutes: Some(a.travel_minutes),
+        travel_quality: a.travel_quality.clone(),
         category: None,
     }
 }
@@ -119,6 +129,8 @@ fn on_call_item(b: &OnCallBlock) -> CalendarItem {
         kind: None,
         status: None,
         ticket_id: None,
+        travel_minutes: None,
+        travel_quality: None,
         category: Some(b.category.clone()),
     }
 }

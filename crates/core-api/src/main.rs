@@ -71,6 +71,11 @@ async fn main() -> anyhow::Result<()> {
             tracing::info!(?choice, "object store selected");
             core_store::build(&choice)
         },
+        routing: {
+            let registry = core_api::routing::build_registry(&config);
+            tracing::info!(status = ?registry.status_view(), "routing provider posture");
+            registry
+        },
     };
     // Live delivery (Wave 12 lane 12): ONE dedicated LISTEN connection per
     // process receives `meridian_events` notifications (migration 0068)

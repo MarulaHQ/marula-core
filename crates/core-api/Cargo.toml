@@ -41,6 +41,10 @@ core-projects = { path = "../core-projects" }
 core-reports = { path = "../core-reports", features = ["openapi"] }
 core-events = { path = "../core-events" }
 core-mail = { path = "../core-mail" }
+# Wave 32 lane 7: the routing provider seam + the first-party Mapbox
+# provider (ADR 0013 standard set).
+core-routing = { path = "../core-routing" }
+mapbox-routing = { path = "../../plugins/connectors/mapbox" }
 core-otel = { path = "../core-otel" }
 core-store = { path = "../core-store" }
 subtle = { workspace = true }

@@ -676,27 +676,53 @@ function WeekBlock({
       : entry.kind === "time_off" && !entry.title.toLowerCase().startsWith("time off")
         ? "Time off · "
         : "";
+  const travelMin = entry.kind === "appointment" ? entry.travelMinutes : 0;
+  const travelVisible =
+    travelMin >= 5 && entry.kind === "appointment" && offsetMin > -(HOUR_END - HOUR_START) * 60;
+  const travelTop = Math.max(offsetMin - travelMin, 0) * (ROW_PX / 60);
+  const travelHeight = Math.min(travelMin, Math.max(offsetMin, 0)) * (ROW_PX / 60) - 1;
   return (
-    <button
-      type="button"
-      role="figure"
-      aria-label={`${CLASS_LABEL[entry.kind]}: ${entry.title}, ${timeLabel}${flagged ? ", overlaps another entry" : ""}${draggable ? ", draggable to reschedule" : ""}`}
-      draggable={draggable}
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      onClick={onOpen}
-      data-testid={`week-block-${entry.id}`}
-      className={`absolute overflow-hidden px-1 py-0.5 text-left transition-transform duration-100 ${draggable ? "active:cursor-grabbing" : ""}`}
-      style={{
-        top,
-        height,
-        left: `calc(${lane * laneWidth}% + 2px)`,
-        width: `calc(${laneWidth}% - 4px)`,
-        ...classVisual(entry, flagged),
-        opacity: dragging ? 0.6 : undefined,
-        transform: dragging ? "scale(0.99)" : undefined,
-      }}
-    >
+    <>
+      {travelVisible && travelHeight > 4 ? (
+        <div
+          aria-hidden="true"
+          data-testid={`week-travel-${entry.id}`}
+          title={`${travelMin} min travel to ${entry.title}`}
+          className="pointer-events-none absolute z-0 overflow-hidden rounded-[var(--m-radius-control)] px-1 text-[10px] leading-tight transition-opacity duration-100"
+          style={{
+            top: travelTop,
+            height: travelHeight,
+            left: `calc(${lane * laneWidth}% + 2px)`,
+            width: `calc(${laneWidth}% - 4px)`,
+            background: "var(--m-bg-subtle)",
+            border: "1px dashed var(--m-border)",
+            color: "var(--m-text-muted)",
+            opacity: dragging ? 0.6 : 1,
+          }}
+        >
+          {travelHeight > 16 ? `${travelMin} min travel` : null}
+        </div>
+      ) : null}
+      <button
+        type="button"
+        role="figure"
+        aria-label={`${CLASS_LABEL[entry.kind]}: ${entry.title}, ${timeLabel}${travelMin > 0 ? `, ${travelMin} minutes of travel before` : ""}${flagged ? ", overlaps another entry" : ""}${draggable ? ", draggable to reschedule" : ""}`}
+        draggable={draggable}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        onClick={onOpen}
+        data-testid={`week-block-${entry.id}`}
+        className={`absolute z-10 overflow-hidden px-1 py-0.5 text-left transition-transform duration-100 ${draggable ? "active:cursor-grabbing" : ""}`}
+        style={{
+          top,
+          height,
+          left: `calc(${lane * laneWidth}% + 2px)`,
+          width: `calc(${laneWidth}% - 4px)`,
+          ...classVisual(entry, flagged),
+          opacity: dragging ? 0.6 : undefined,
+          transform: dragging ? "scale(0.99)" : undefined,
+        }}
+      >
       <div className="truncate text-[11px] font-medium leading-tight">
         {entry.kind === "ticket_deadline" ? "◆ " : ""}
         {classPrefix}
@@ -706,9 +732,11 @@ function WeekBlock({
         {timeLabel}
         {entry.kind === "appointment" && entry.itemKind === "on_site" ? " · on site" : ""}
         {entry.kind === "appointment" && entry.ticketId !== null ? " · ticket" : ""}
+        {travelMin > 0 ? ` · ${travelMin} min travel` : ""}
         {flagged ? " · overlaps" : ""}
       </div>
     </button>
+    </>
   );
 }
 
@@ -965,6 +993,12 @@ function EventDetailsDialog({
             {e.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
             {entry.kind === "appointment" && entry.itemKind != null ? ` · ${entry.itemKind.replaceAll("_", " ")}` : ""}
           </p>
+          {entry.kind === "appointment" && entry.travelMinutes > 0 ? (
+            <p className="text-[13px] tabular-nums" data-testid="details-travel" style={{ color: "var(--m-text-secondary)" }}>
+              {entry.travelMinutes} min travel before
+              {entry.travelQuality === "heuristic" ? " (estimated)" : ""}
+            </p>
+          ) : null}
           {entry.number !== null ? (
             <p className="text-[13px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
               Ticket {entry.number}
