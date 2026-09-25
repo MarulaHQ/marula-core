@@ -55,6 +55,7 @@ export const ROUTE_KEY_RULES: readonly (readonly [RegExp, string])[] = [
   [/^\/settings\/taxonomy/, "settings-workflow"],
   [/^\/settings\/inventory/, "inventory"],
   [/^\/settings\/labels/, "settings-labels"],
+  [/^\/settings\/toolboxes/, "settings-toolboxes"],
   [/^\/settings/, "settings-general"],
 ];
 

@@ -71,6 +71,7 @@ const GROUPS: NavGroup[] = [
       { href: "/settings/ai", label: "AI & connectors" },
       { href: "/settings/inventory", label: "Inventory & merge" },
       { href: "/settings/labels", label: "Labels & scanning" },
+      { href: "/settings/toolboxes", label: "Toolboxes & day pack" },
     ],
   },
   {

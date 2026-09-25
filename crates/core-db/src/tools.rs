@@ -1123,3 +1123,40 @@ pub async fn tool_availability(
         })
         .collect())
 }
+
+/// Kits whose short code matches exactly (case-insensitive). Scan resolution
+/// keeps the same no-guess rule as every other kind: one hit resolves,
+/// several return candidates.
+pub struct KitCodeRow {
+    pub id: Uuid,
+    pub name: String,
+    pub code: Option<String>,
+}
+
+pub async fn find_kits_by_code(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    code: &str,
+    limit: i64,
+) -> DbResult<Vec<KitCodeRow>> {
+    let rows = sqlx::query!(
+        r#"SELECT id, name, code
+           FROM tool_kits
+           WHERE org_id = $1 AND active AND code IS NOT NULL AND lower(code) = lower($2)
+           ORDER BY name
+           LIMIT $3"#,
+        org_id,
+        code,
+        limit,
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| KitCodeRow {
+            id: r.id,
+            name: r.name,
+            code: r.code,
+        })
+        .collect())
+}

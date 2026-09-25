@@ -21,6 +21,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { BoardNav } from "../../components/board-nav";
 import { OnboardingResumeBanner } from "../../components/onboarding/resume-banner";
+import { DayPackPanel } from "../../components/today/day-pack-panel";
 import { api, useRequireAuth } from "../../lib/api";
 import { runEnvelopeMutation } from "../../lib/envelope-write";
 import { dueBucket, dueLabel, fmtMins } from "../../lib/format";
@@ -74,6 +75,14 @@ function PlayIcon() {
       <path d="M3.5 2.2v7.6L9.5 6 3.5 2.2Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
     </svg>
   );
+}
+
+/** The local calendar day as YYYY-MM-DD — the day pack's anchor. */
+function localDateIso(): string {
+  const d = new Date();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${month}-${day}`;
 }
 
 function yesterdayIso(): string {
@@ -216,6 +225,13 @@ export default function TodayPage() {
 
           {/* Wave 26 onboarding: sticky entry affordance above the attention strip */}
           <OnboardingResumeBanner />
+
+          {/* Wave 32 lane 8: the tech's day pack — stops, what to grab, from where */}
+          <DayPackPanel
+            date={localDateIso()}
+            meUserId={auth.me?.user_id ?? ""}
+            meName={auth.me?.display_name ?? ""}
+          />
 
           {/* Attention strip: the day at a glance */}
           <div className="m-rise grid gap-3 sm:grid-cols-2 xl:grid-cols-4" style={{ animationDelay: "30ms" }}>

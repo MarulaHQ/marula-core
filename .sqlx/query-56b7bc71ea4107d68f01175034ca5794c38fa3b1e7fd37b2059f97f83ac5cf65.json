@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, ticket_id, text\n           FROM checklist_items\n           WHERE org_id = $1 AND ticket_id = ANY($2)\n             AND NOT checked AND NOT na\n           ORDER BY ticket_id, sort_order",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "ticket_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "text",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "56b7bc71ea4107d68f01175034ca5794c38fa3b1e7fd37b2059f97f83ac5cf65"
+}

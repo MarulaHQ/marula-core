@@ -138,6 +138,7 @@ pub fn parse_deep_link(text: &str) -> Option<(&'static str, Uuid)> {
         "stock-location" => "stock_location",
         "stock-serial" => "serialized_unit",
         "device-asset" => "device_asset",
+        "tool-kit" => "tool_kit",
         _ => return None,
     };
     let id = Uuid::parse_str(id).ok()?;
@@ -241,6 +242,16 @@ async fn resolve_by_id(
             out.display_name = asset.name.clone();
             out.secondary = Some(asset.tag.clone());
             out.deep_link = Some(deep_link("device_asset", asset.id));
+        }
+        "tool_kit" => {
+            let Ok(kit) = core_db::tools::get_kit(&mut *conn, org_id, id).await else {
+                return Ok(out);
+            };
+            out.kind = "tool_kit".into();
+            out.entity_id = Some(kit.id);
+            out.display_name = kit.name.clone();
+            out.secondary = kit.code.clone();
+            out.deep_link = Some(deep_link("tool_kit", kit.id));
         }
         _ => {}
     }
@@ -402,6 +413,43 @@ async fn resolve_by_code(
         return Ok(out);
     }
 
+    // 5. Toolbox short code (the Code128 band on a toolbox tag).
+    let kits =
+        core_db::tools::find_kits_by_code(&mut *conn, org_id, text, CANDIDATE_LIMIT).await?;
+    if kits.len() == 1 {
+        let kit = &kits[0];
+        return Ok(ScanResolutionView {
+            input: text.to_string(),
+            kind: "tool_kit".into(),
+            entity_id: Some(kit.id),
+            stock_item_id: None,
+            serial_id: None,
+            location_id: None,
+            device_asset_id: None,
+            display_name: kit.name.clone(),
+            secondary: kit.code.clone(),
+            deep_link: Some(deep_link("tool_kit", kit.id)),
+            is_tool: false,
+            item_kind: None,
+            serial_status: None,
+            candidates: vec![],
+        });
+    }
+    if kits.len() > 1 {
+        let mut out = unknown(text);
+        out.kind = "tool_kit".into();
+        out.candidates = kits
+            .iter()
+            .map(|k| ScanCandidateView {
+                kind: "tool_kit".into(),
+                entity_id: k.id,
+                display_name: k.name.clone(),
+                secondary: k.code.clone(),
+            })
+            .collect();
+        return Ok(out);
+    }
+
     Ok(unknown(text))
 }
 
@@ -427,6 +475,10 @@ mod tests {
         assert_eq!(
             parse_deep_link(&format!("meridian://device-asset/{id}")),
             Some(("device_asset", id))
+        );
+        assert_eq!(
+            parse_deep_link(&format!("meridian://tool-kit/{id}")),
+            Some(("tool_kit", id))
         );
     }
 

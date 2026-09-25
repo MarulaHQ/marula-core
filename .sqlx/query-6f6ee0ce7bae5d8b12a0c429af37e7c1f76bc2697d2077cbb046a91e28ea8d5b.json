@@ -1,0 +1,133 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT a.id, a.ticket_id, a.client_id, a.site_id, a.title,\n                  a.starts_at, a.ends_at, a.kind::text AS \"kind!\", a.status::text AS \"status!\",\n                  a.travel_minutes, a.travel_from, a.travel_provider, a.travel_quality,\n                  t.number AS \"ticket_number?\", t.board_id AS \"board_id?\",\n                  t.type_id AS \"type_id?\", t.category_id AS \"category_id?\",\n                  s.name AS \"site_label?\", c.name AS \"client_name?\"\n           FROM appointments a\n           LEFT JOIN tickets t ON t.id = a.ticket_id\n           LEFT JOIN sites s ON s.id = a.site_id\n           LEFT JOIN clients c ON c.id = a.client_id\n           WHERE a.org_id = $1 AND a.user_id = $2\n             AND a.status <> 'cancelled'\n             AND a.starts_at < $3 AND a.ends_at > $4\n           ORDER BY a.starts_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "ticket_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "client_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "site_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "starts_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "ends_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "kind!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "status!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "travel_minutes",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 10,
+        "name": "travel_from",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 11,
+        "name": "travel_provider",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "travel_quality",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "ticket_number?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "board_id?",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 15,
+        "name": "type_id?",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 16,
+        "name": "category_id?",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 17,
+        "name": "site_label?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 18,
+        "name": "client_name?",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      null,
+      null,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "6f6ee0ce7bae5d8b12a0c429af37e7c1f76bc2697d2077cbb046a91e28ea8d5b"
+}

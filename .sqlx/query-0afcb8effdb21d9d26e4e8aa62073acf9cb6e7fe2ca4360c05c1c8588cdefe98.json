@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, name FROM stock_locations\n           WHERE org_id = $1 AND assigned_user_id = $2\n             AND kind IN ('van', 'truck') AND active\n           ORDER BY name",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "0afcb8effdb21d9d26e4e8aa62073acf9cb6e7fe2ca4360c05c1c8588cdefe98"
+}

@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT line_key, ticket_id, note, created_at\n           FROM day_pack_ticks\n           WHERE org_id = $1 AND user_id = $2 AND day = $3\n           ORDER BY created_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "line_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "ticket_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "note",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Date"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "1930dc6e13a8e6888158d5e766df3f57753323fed7946707fcb65cec23e52ae8"
+}

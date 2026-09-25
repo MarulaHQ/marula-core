@@ -19,11 +19,12 @@ use uuid::Uuid;
 
 /// Print purposes a template can serve. Additive-only: widen this list and
 /// the DB CHECK together.
-pub const LABEL_PURPOSES: [&str; 4] = [
+pub const LABEL_PURPOSES: [&str; 5] = [
     "stock_item",
     "stock_location",
     "serialized_unit",
     "device_asset",
+    "tool_kit",
 ];
 
 /// Text field tokens a template can stack. `location` is the unit's current
@@ -67,6 +68,7 @@ pub fn allowed_tokens(purpose: &str) -> &'static [&'static str] {
         "stock_location" => &["name", "code", "org_name"],
         "serialized_unit" => &["name", "sku", "serial", "location", "org_name"],
         "device_asset" => &["name", "tag", "serial", "org_name"],
+        "tool_kit" => &["name", "code", "org_name"],
         _ => &[],
     }
 }
@@ -78,6 +80,7 @@ pub fn barcode_tokens(purpose: &str) -> &'static [&'static str] {
         "stock_location" => &["code"],
         "serialized_unit" => &["serial", "sku"],
         "device_asset" => &["tag", "serial"],
+        "tool_kit" => &["code"],
         _ => &[],
     }
 }
@@ -90,7 +93,7 @@ pub fn token_label(token: &str) -> &'static str {
         "part_number" => "Part number",
         "serial" => "Serial number",
         "tag" => "Asset tag",
-        "code" => "Location code",
+        "code" => "Code",
         "location" => "Current location",
         "org_name" => "Organization",
         _ => "Unknown token",
@@ -105,6 +108,7 @@ pub fn deep_link_kind(purpose: &str) -> &'static str {
         "stock_location" => "stock-location",
         "serialized_unit" => "stock-serial",
         "device_asset" => "device-asset",
+        "tool_kit" => "tool-kit",
         _ => "unknown",
     }
 }
