@@ -18,6 +18,7 @@ pub mod events;
 pub mod fx;
 pub mod ids;
 pub mod import_core;
+pub mod labels;
 pub mod mentions;
 pub mod money;
 pub mod notes;

@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE label_templates\n           SET name = $3, purpose = $4, size_preset = $5, width_tenths_mm = $6,\n               height_tenths_mm = $7, dpi = $8, barcode_token = $9, include_qr = $10,\n               fields = $11, is_default = $12, active = $13, updated_at = now()\n           WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Text",
+        "Bool",
+        "Jsonb",
+        "Bool",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fb38e9b9fab8e77da4257173fc984227cd9cc330ab6ed7d892be905a249b607c"
+}

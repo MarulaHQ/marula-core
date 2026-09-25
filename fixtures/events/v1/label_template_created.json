@@ -1,0 +1,31 @@
+{
+  "event_type": "label.template_created",
+  "entity": "label_template",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "template": {
+      "active": true,
+      "barcode_token": "serial",
+      "created_at": "2023-11-14T22:13:21Z",
+      "created_by": "00000000-0000-0000-0000-000000000004",
+      "dpi": 203,
+      "fields": [
+        "name",
+        "serial",
+        "location"
+      ],
+      "height_tenths_mm": null,
+      "id": "00000000-0000-0000-0000-000000000050",
+      "include_qr": true,
+      "is_default": true,
+      "name": "Serialized unit — 2×1",
+      "org_id": "00000000-0000-0000-0000-000000000002",
+      "purpose": "serialized_unit",
+      "size_preset": "zebra_2x1",
+      "updated_at": "2023-11-14T22:13:21Z",
+      "width_tenths_mm": null
+    }
+  }
+}

@@ -1,0 +1,72 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.id AS serial_id, s.stock_item_id, s.serial_number, s.status, s.location_id,\n                  i.name AS item_name, i.sku AS item_sku, i.kind AS item_kind, i.is_tool\n           FROM stock_serials s\n           JOIN stock_items i ON i.id = s.stock_item_id AND i.org_id = s.org_id\n           WHERE s.org_id = $1 AND lower(s.serial_number) = lower($2)\n           ORDER BY s.serial_number\n           LIMIT $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "serial_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "stock_item_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "serial_number",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "location_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "item_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "item_sku",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "item_kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_tool",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "9622e572aa27498d3eca21f4b00f706812bda35f7e108c9a806e8a09b15dcb08"
+}

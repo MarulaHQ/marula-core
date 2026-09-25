@@ -83,6 +83,7 @@ pub mod internal;
 pub mod invoices;
 pub mod kb;
 pub mod kb_rich;
+pub mod labels;
 pub mod loans;
 pub mod loop_termination;
 pub mod manifest;
@@ -109,6 +110,7 @@ pub mod report_defs;
 pub mod report_schedules;
 pub mod reports;
 pub mod roles;
+pub mod scan;
 pub mod scheduling;
 pub mod scheduling_links;
 pub mod scorecards;
@@ -1748,6 +1750,13 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // IF1-IF3 envelope.
         .merge(tools::routes(gen))
         .merge(loans::routes(gen))
+        // label templates + label rendering + scan resolution (Wave 32
+        // lane 5, migration 0105): one shared print/scan capability —
+        // template CRUD, the deterministic draft preview + entity render,
+        // and the typed scanned-payload resolver every scanner surface
+        // (web keyboard-wedge now, mobile camera in Wave 33) consumes.
+        .merge(labels::routes(gen))
+        .merge(scan::routes(gen))
         .merge(quotes::routes(gen))
         .merge(pipeline::routes(gen))
         // currency & FX (ADR 0002, Wave 12 lane 10, migration 0066): the

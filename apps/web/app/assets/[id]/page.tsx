@@ -43,6 +43,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, useAuth, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { EntityPicker } from "../../../components/entities/entity-picker";
+import { LabelPrintButton } from "../../../components/labels/label-print-button";
 import type { LinkTarget } from "../../../lib/entity-links";
 
 type DeviceAsset = components["schemas"]["DeviceAsset"];
@@ -488,6 +489,9 @@ export default function AssetDetailPage() {
           </span>
           <Tag>{asset.status}</Tag>
           {layout !== undefined ? <Tag tone="outline">{layout.name}</Tag> : null}
+          {/* Loan-device label (Wave 32 lane 5): the QR encodes this asset's
+              canonical deep link, so a scan anywhere resolves back here. */}
+          <LabelPrintButton purpose="device_asset" entityId={asset.id} entityLabel={asset.name} />
         </div>
       </div>
 

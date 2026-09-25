@@ -1,0 +1,115 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, org_id, name, purpose, size_preset, width_tenths_mm, height_tenths_mm, dpi,\n                  barcode_token, include_qr, fields, is_default, active, created_by,\n                  created_at, updated_at\n           FROM label_templates\n           WHERE org_id = $1\n             AND ($2::text IS NULL OR purpose = $2)\n             AND (NOT $3::boolean OR active)\n           ORDER BY purpose, is_default DESC, name\n           LIMIT $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "purpose",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "size_preset",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "width_tenths_mm",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "height_tenths_mm",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "dpi",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "barcode_token",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "include_qr",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "fields",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 11,
+        "name": "is_default",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 12,
+        "name": "active",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 13,
+        "name": "created_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 14,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 15,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "b91f2309e87fd644817072d263852a464b3196a66f87426a20eb7fc02ce4ff65"
+}

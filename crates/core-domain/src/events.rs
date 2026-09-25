@@ -507,6 +507,11 @@ pub mod types {
     pub const LOAN_ISSUED: &str = "loan.issued";
     /// A client loan was returned (all or some lines came back).
     pub const LOAN_RETURNED: &str = "loan.returned";
+    /// Label templates (Wave 32 lane 5, `p32-labels-scanning`; migration
+    /// 0105). Created + updated carry the AFTER snapshot; archival rides
+    /// `label.template_updated` with `active = false` (archival is a flag).
+    pub const LABEL_TEMPLATE_CREATED: &str = "label.template_created";
+    pub const LABEL_TEMPLATE_UPDATED: &str = "label.template_updated";
     /// Dispatch v2 (TASKLIST Phase 3, Wave 9 lane 9): a field-service
     /// status push landed against an appointment (connector or staff);
     /// the `dispatch_status_updates` ledger is the ground truth.
@@ -2259,6 +2264,22 @@ pub struct LoanIssued {
 pub struct LoanReturned {
     pub loan: crate::entities::ClientLoan,
     pub lines: Vec<crate::entities::ClientLoanLine>,
+}
+
+/// label.template_created — a print template entered the registry.
+/// Snapshot is AFTER the write.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct LabelTemplateCreated {
+    pub template: crate::entities::LabelTemplate,
+}
+
+/// label.template_updated — a template's recipe (tokens, size, symbology,
+/// default/active flags) changed. After the write.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct LabelTemplateUpdated {
+    pub template: crate::entities::LabelTemplate,
 }
 
 /// quote.created — a numbered quote document was created in draft with
