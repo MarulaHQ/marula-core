@@ -62,6 +62,7 @@ pub mod connector;
 pub mod costs;
 pub mod credit_notes;
 pub mod custom_fields;
+pub mod day_pack;
 pub mod decision_config;
 pub mod decision_edge;
 pub mod decision_suggestions;
@@ -1750,6 +1751,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // migration 0104) — module-owned routers; mutations ride the
         // IF1-IF3 envelope.
         .merge(tools::routes(gen))
+        .merge(day_pack::routes(gen))
         .merge(loans::routes(gen))
         // label templates + label rendering + scan resolution (Wave 32
         // lane 5, migration 0105): one shared print/scan capability —

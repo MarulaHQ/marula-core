@@ -26,6 +26,7 @@ export const LABEL_PURPOSES = [
   "stock_location",
   "serialized_unit",
   "device_asset",
+  "tool_kit",
 ] as const;
 export type LabelPurpose = (typeof LABEL_PURPOSES)[number];
 
@@ -34,6 +35,7 @@ export const PURPOSE_LABELS: Record<string, string> = {
   stock_location: "Location bin",
   serialized_unit: "Serialized tool / unit",
   device_asset: "Loan device",
+  tool_kit: "Toolbox",
 };
 
 /** Size presets as the backend defines them (id → label + mm). */
@@ -55,6 +57,7 @@ export const ALLOWED_TOKENS: Record<string, string[]> = {
   stock_location: ["name", "code", "org_name"],
   serialized_unit: ["name", "sku", "serial", "location", "org_name"],
   device_asset: ["name", "tag", "serial", "org_name"],
+  tool_kit: ["name", "code", "org_name"],
 };
 
 /** Tokens the Code128 symbology may encode per purpose. */
@@ -63,6 +66,7 @@ export const BARCODE_TOKENS: Record<string, string[]> = {
   stock_location: ["code"],
   serialized_unit: ["serial", "sku"],
   device_asset: ["tag", "serial"],
+  tool_kit: ["code"],
 };
 
 export const TOKEN_LABELS: Record<string, string> = {
@@ -71,7 +75,7 @@ export const TOKEN_LABELS: Record<string, string> = {
   part_number: "Part number",
   serial: "Serial number",
   tag: "Asset tag",
-  code: "Location code",
+  code: "Code",
   location: "Current location",
   org_name: "Organization",
 };

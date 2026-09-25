@@ -69,6 +69,8 @@ fn require_render_permission(
 ) -> ApiResult<()> {
     match purpose {
         "device_asset" => require_permission(principal, assets(Action::View)),
+        // Toolbox tags are org configuration, not stock floors.
+        "tool_kit" => require_permission(principal, admin(Action::View)),
         _ => require_permission(principal, commercial(Action::View)),
     }
 }
@@ -379,6 +381,11 @@ fn sample_values(purpose: &str, org_name: &str) -> Vec<(String, String)> {
             ("serial".into(), "PF-2AB123".into()),
             ("org_name".into(), org),
         ],
+        "tool_kit" => vec![
+            ("name".into(), "Network field kit".into()),
+            ("code".into(), "KIT-NET-01".into()),
+            ("org_name".into(), org),
+        ],
         _ => vec![],
     }
 }
@@ -538,6 +545,19 @@ async fn resolve_entity_values(
                     ("name".into(), asset.name),
                     ("tag".into(), asset.tag),
                     ("serial".into(), serial),
+                    ("org_name".into(), org.to_string()),
+                ],
+            ))
+        }
+        "tool_kit" => {
+            let kit = core_db::tools::get_kit(&mut *conn, org_id, entity_id)
+                .await
+                .map_err(|_| missing())?;
+            Ok((
+                kit.name.clone(),
+                vec![
+                    ("name".into(), kit.name),
+                    ("code".into(), kit.code.unwrap_or_default()),
                     ("org_name".into(), org.to_string()),
                 ],
             ))

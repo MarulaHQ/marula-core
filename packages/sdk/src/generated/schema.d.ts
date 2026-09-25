@@ -3205,6 +3205,102 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/day-pack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["day_pack_read"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/day-pack/picks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["day_pack_picks_list"];
+        put?: never;
+        post: operations["day_pack_pick_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/day-pack/picks/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["day_pack_pick_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/day-pack/rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["day_pack_rules_list"];
+        put?: never;
+        post: operations["day_pack_rule_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/day-pack/rules/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["day_pack_rule_delete"];
+        options?: never;
+        head?: never;
+        patch: operations["day_pack_rule_patch"];
+        trace?: never;
+    };
+    "/api/v1/day-pack/ticks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["day_pack_tick_create"];
+        delete: operations["day_pack_tick_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/dedupe/workflow": {
         parameters: {
             query?: never;
@@ -14472,6 +14568,15 @@ export interface components {
             /** Format: int32 */
             sort_order?: number;
         };
+        CreatePickRequest: components["schemas"]["MutationParams"] & {
+            note?: string | null;
+            /** Format: int64 */
+            qty_milli?: number | null;
+            /** Format: uuid */
+            stock_item_id: string;
+            /** Format: uuid */
+            ticket_id: string;
+        };
         CreatePortalUserRequest: {
             display_name: string;
             email: string;
@@ -14849,6 +14954,14 @@ export interface components {
              */
             spec: unknown;
         };
+        CreateTickRequest: components["schemas"]["MutationParams"] & {
+            /** Format: date */
+            date: string;
+            line_key: string;
+            note?: string | null;
+            /** Format: uuid */
+            ticket_id?: string | null;
+        };
         CreateTicketLinkRequest: components["schemas"]["MutationParams"] & {
             link_type: components["schemas"]["TicketLinkType"];
             /** Format: uuid */
@@ -15126,6 +15239,187 @@ export interface components {
              * @description 0–100+, where >100 is over-capacity.
              */
             utilization_percent: number;
+        };
+        DayPackAvailabilityView: {
+            /** Format: int64 */
+            available_units: number;
+            holders?: components["schemas"]["DayPackHolderView"][];
+            /** Format: date-time */
+            next_due_at?: string | null;
+            /**
+             * Format: int64
+             * @description Tools count whole units; consumables carry milli-units.
+             */
+            required_units: number;
+            /** @description `available` | `partial` | `unavailable` | `not_configured`. */
+            status: string;
+        };
+        DayPackCounts: {
+            /** Format: int64 */
+            collected: number;
+            /** Format: int64 */
+            lines: number;
+            /** Format: int64 */
+            stops: number;
+            /**
+             * Format: int64
+             * @description Lines whose availability is `unavailable` or `not_configured`.
+             */
+            unavailable: number;
+        };
+        DayPackHolderView: {
+            client_name?: string | null;
+            display_name?: string | null;
+            /** Format: date-time */
+            due_at?: string | null;
+            /** Format: date */
+            expected_return_at?: string | null;
+            /** @description `checkout` | `loan` | `out`. */
+            kind: string;
+            overdue: boolean;
+            /** Format: uuid */
+            user_id?: string | null;
+        };
+        DayPackKitView: {
+            /** Format: uuid */
+            appointment_id?: string | null;
+            /** Format: int64 */
+            available_units: number;
+            code?: string | null;
+            /** Format: uuid */
+            kit_id: string;
+            line_key: string;
+            /** Format: int64 */
+            member_count: number;
+            missing?: string[];
+            name: string;
+            ready: boolean;
+            /** Format: int64 */
+            required_units: number;
+            tick?: null | components["schemas"]["DayPackTickView"];
+            /** Format: uuid */
+            ticket_id?: string | null;
+        };
+        DayPackLineView: {
+            /** Format: uuid */
+            appointment_id?: string | null;
+            availability: components["schemas"]["DayPackAvailabilityView"];
+            is_tool: boolean;
+            item_name: string;
+            /**
+             * @description Stable identity for ticks: `pick:<id>` / `rule:<id>:<ticket>` /
+             *     `checklist:<id>`.
+             */
+            line_key: string;
+            note?: string | null;
+            /** @description `pick` | `rule` | `checklist`. */
+            provenance: string;
+            /** Format: int64 */
+            qty_milli: number;
+            secondary?: string | null;
+            source?: null | components["schemas"]["DayPackSourceView"];
+            /** Format: uuid */
+            stock_item_id: string;
+            tick?: null | components["schemas"]["DayPackTickView"];
+            /** Format: uuid */
+            ticket_id: string;
+            unit: string;
+        };
+        DayPackQuery: {
+            /**
+             * Format: date
+             * @description The day to assemble; defaults to today (UTC). Callers with a local
+             *     timezone pass their own date so the panel agrees with the wall clock.
+             */
+            date?: string | null;
+        };
+        DayPackReminderView: {
+            text: string;
+            /** Format: uuid */
+            ticket_id: string;
+        };
+        DayPackSourceView: {
+            /** Format: int64 */
+            available_units: number;
+            /** @description True when this is the tech's own van/truck: gear already aboard. */
+            is_tech_vehicle: boolean;
+            kind: string;
+            /** Format: uuid */
+            location_id: string;
+            name: string;
+        };
+        DayPackStopView: {
+            /** Format: uuid */
+            appointment_id: string;
+            client_name?: string | null;
+            /** Format: date-time */
+            ends_at: string;
+            kind: string;
+            site_label?: string | null;
+            /** Format: date-time */
+            starts_at: string;
+            /** Format: uuid */
+            ticket_id?: string | null;
+            ticket_number?: string | null;
+            title: string;
+            travel_from_kind?: string | null;
+            /** Format: int64 */
+            travel_minutes: number;
+            travel_quality?: string | null;
+        };
+        DayPackTickView: {
+            line_key: string;
+            note?: string | null;
+            /** Format: date-time */
+            ticked_at: string;
+        };
+        DayPackTomorrowView: {
+            /** Format: date */
+            date: string;
+            kits: components["schemas"]["DayPackKitView"][];
+            lines: components["schemas"]["DayPackLineView"][];
+            /**
+             * @description `direct_to_site` | `start_point_unknown` when the list shows;
+             *     `office_start` / `no_stops` never reach this view.
+             */
+            reason: string;
+            reminders?: components["schemas"]["DayPackReminderView"][];
+            start_point_kind?: string | null;
+            start_point_label?: string | null;
+            stops: components["schemas"]["DayPackStopView"][];
+        };
+        DayPackTripView: {
+            /**
+             * @description Typed sentences: a ticked quantity that cannot cover the remaining
+             *     stops of this trip.
+             */
+            coverage_warnings?: string[];
+            /** Format: int32 */
+            index: number;
+            kits: components["schemas"]["DayPackKitView"][];
+            lines: components["schemas"]["DayPackLineView"][];
+            /** Format: date-time */
+            opens_at: string;
+            /**
+             * @description The trip opens where the tech can re-collect: the office when the day
+             *     starts there or a logged office return precedes it.
+             */
+            opens_at_office: boolean;
+            reminders?: components["schemas"]["DayPackReminderView"][];
+            stops: components["schemas"]["DayPackStopView"][];
+        };
+        DayPackView: {
+            counts: components["schemas"]["DayPackCounts"];
+            /** Format: date */
+            date: string;
+            display_name: string;
+            has_stops: boolean;
+            start_point?: null | components["schemas"]["StartPointView"];
+            timezone: string;
+            tomorrow?: null | components["schemas"]["DayPackTomorrowView"];
+            trips: components["schemas"]["DayPackTripView"][];
+            /** Format: uuid */
+            user_id: string;
         };
         DayWeekQuery: {
             /**
@@ -15405,6 +15699,11 @@ export interface components {
          */
         DefinitionScope: "org" | "self";
         DeleteOrderLineRequest: components["schemas"]["MutationParams"];
+        DeleteTickQuery: {
+            /** Format: date */
+            date: string;
+            line_key: string;
+        };
         DeliveryAttemptView: {
             /** Format: int32 */
             attempt: number;
@@ -18644,6 +18943,25 @@ export interface components {
              */
             user_id: string;
         };
+        PackRuleView: {
+            active: boolean;
+            /** Format: uuid */
+            id: string;
+            item_name?: string | null;
+            /** Format: uuid */
+            kit_id?: string | null;
+            kit_name?: string | null;
+            note?: string | null;
+            /** Format: int64 */
+            qty_milli: number;
+            /** Format: uuid */
+            scope_id: string;
+            scope_kind: string;
+            scope_name: string;
+            /** Format: uuid */
+            stock_item_id?: string | null;
+            target_kind: string;
+        };
         /**
          * @description A vault credential. `secret_ciphertext` is AES-256-GCM from
          *     core-api crypto::seal — plaintext NEVER reaches the database layer,
@@ -18829,6 +19147,9 @@ export interface components {
             start_date?: string | null;
             status?: null | components["schemas"]["ProjectStatus"];
         };
+        PatchRuleRequest: components["schemas"]["MutationParams"] & {
+            active: boolean;
+        };
         PatchTaskRequest: components["schemas"]["MutationParams"] & {
             /** Format: uuid */
             assignee_id?: string | null;
@@ -18936,6 +19257,10 @@ export interface components {
          * @enum {string}
          */
         PhaseStatus: "pending" | "active" | "completed" | "cancelled";
+        PickMutationResponse: {
+            mutation: components["schemas"]["MutationMeta"];
+            pick: components["schemas"]["TicketPickView"];
+        };
         /** @description An opportunity: one client, optionally one quote, one current stage. */
         PipelineDeal: {
             /** Format: int64 */
@@ -21630,6 +21955,10 @@ export interface components {
              */
             json_rows: Record<string, never>;
         };
+        RuleMutationResponse: {
+            mutation: components["schemas"]["MutationMeta"];
+            rule: components["schemas"]["PackRuleView"];
+        };
         /**
          * @description POST /imports/batches/{id}/run response: the batch is queued for the
          *     worker exactly once; poll the batch view for counters.
@@ -23321,6 +23650,10 @@ export interface components {
             /** Format: int64 */
             reorder_point_milli?: number | null;
         };
+        TickMutationResponse: {
+            mutation: components["schemas"]["MutationMeta"];
+            tick: components["schemas"]["DayPackTickView"];
+        };
         Ticket: {
             /** Format: uuid */
             assignee_id?: string | null;
@@ -23606,6 +23939,27 @@ export interface components {
          *     assigned from a per-org sequence.
          */
         TicketNumber: string;
+        TicketPickRowView: components["schemas"]["TicketPickView"] & {
+            is_tool: boolean;
+            item_name?: string | null;
+        };
+        TicketPickView: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            note?: string | null;
+            /** Format: int64 */
+            qty_milli: number;
+            /** Format: uuid */
+            stock_item_id: string;
+            /** Format: uuid */
+            ticket_id: string;
+        };
+        TicketPicksQuery: {
+            /** Format: uuid */
+            ticket_id: string;
+        };
         /**
          * @description The reverted ticket with the mutation envelope, plus what was reverted.
          *     Deserializable so an IF1 idempotent replay can reconstruct the exact
@@ -31055,6 +31409,283 @@ export interface operations {
             };
             /** @description already void, has allocations, version conflict, or idempotency key reused */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    day_pack_read: {
+        parameters: {
+            query?: {
+                /**
+                 * @description The day to assemble; defaults to today (UTC). Callers with a local
+                 *     timezone pass their own date so the panel agrees with the wall clock.
+                 */
+                date?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DayPackView"];
+                };
+            };
+        };
+    };
+    day_pack_picks_list: {
+        parameters: {
+            query: {
+                ticket_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketPickRowView"][];
+                };
+            };
+        };
+    };
+    day_pack_pick_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePickRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PickMutationResponse"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    day_pack_pick_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PickMutationResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    day_pack_rules_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PackRuleView"][];
+                };
+            };
+        };
+    };
+    day_pack_rule_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRuleRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuleMutationResponse"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    day_pack_rule_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuleMutationResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    day_pack_rule_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchRuleRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuleMutationResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    day_pack_tick_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTickRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TickMutationResponse"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    day_pack_tick_delete: {
+        parameters: {
+            query: {
+                date: string;
+                line_key: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TickMutationResponse"];
+                };
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

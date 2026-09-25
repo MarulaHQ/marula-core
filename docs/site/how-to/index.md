@@ -32,6 +32,8 @@ the tag is **both** or points to the staff/client catalog below.
   provider config, day start points, warnings, reimbursements
 - [Set up labels and label templates](admin-labels.md) — typed templates,
   Zebra/DYMO stock, QR deep links, browser and ZPL print targets
+- [Set up toolboxes and dispatch defaults](admin-toolboxes.md) — kits,
+  membership, box tags, and the mappings the day pack reads
 - [Connect an IdP (SSO)](admin-sso.md) — the IdP handoff round-trip
 - [Buy: vendors, purchase orders, receiving, bills](admin-purchasing.md)
   — the order lifecycle, receipts into stock, posted bills
@@ -55,6 +57,8 @@ Audience tag: **both** unless a guide is staff-only by nature.
   use parts on a ticket, thresholds, transfers
 - [Check tools out, and run client loans](staff-tools-and-loans.md) —
   who-has-what, check-in, loan issue and return
+- [Work a day pack](staff-day-pack.md) — trips, the grab list, one-tap
+  checkout, and tomorrow's list tonight
 - [Get help inside Meridian](get-help.md) — the ? help panel, guide
   search, and turning feature tours off
 
