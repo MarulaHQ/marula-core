@@ -7,6 +7,12 @@
 // location is read before the write so an over-consumption is visible
 // before it is rejected.
 //
+// Wave 32 lane 6 (`p32-stock-flows-context`) makes it context-embedding:
+// an optional ScanBar fills the form, a filter tames long item lists, and a
+// ticket picker lets a stockroom operator attach a movement to a ticket
+// without opening that ticket. None of it submits — scans and picks fill,
+// the human records.
+//
 // Non-purpose: no purchase-order receiving (routes/purchasing owns that
 // dialog), no kit checkout (the tools surface owns that), no offline queue.
 "use client";
@@ -35,6 +41,7 @@ import { api } from "../../lib/api";
 import { rejectionText } from "../../lib/error-copy";
 import { runEnvelopeMutation } from "../../lib/envelope-write";
 import { formatQtyMilli, parseQtyToMilli } from "../../lib/stock-format";
+import { ScanBar, type ScanEvent } from "../scan/scan-bar";
 
 type StockItemView = components["schemas"]["StockItemView"];
 type StockLocationView = components["schemas"]["StockLocationView"];
@@ -63,10 +70,46 @@ export interface MovementDialogProps {
   initialItemId?: string;
   /** Ticket anchor for the consume leg (a job consumed these parts). */
   ticketId?: string;
+  /**
+   * Human label for the fixed anchor (e.g. "DEMO-1078 · Loud fan"). Falls
+   * back to a shortened ticket id when the caller has no label.
+   */
+  ticketLabel?: string;
   /** Hide the kind switcher (e.g. the ticket parts-used flow). */
   lockKind?: boolean;
   title?: string;
-  onRecorded(movement: StockMovementView): void;
+  /** The recorded movement plus which leg it was (receipt copy). */
+  onRecorded(movement: StockMovementView, kind?: MovementKind): void;
+  /**
+   * Render a ScanBar inside the dialog (the surface key decides what it
+   * accepts). A scan fills the item / serial / location fields; it never
+   * records a movement.
+   */
+  scanSurface?: string;
+  /** Filter field above the item select — for long item lists. */
+  searchableItems?: boolean;
+  /** Pre-fill the quantity field. */
+  initialQty?: string;
+  /** Pre-select the ship-out client (e.g. the ticket's client). */
+  initialClientId?: string;
+  /**
+   * Offer a ticket picker (consume / ship-out) so the movement can be
+   * attached to a chosen ticket from a stock or receiving context without
+   * opening that ticket. Not rendered when `ticketId` is fixed.
+   */
+  ticketOptions?: { id: string; label: string }[];
+  /** Pre-select a ticket in the picker. */
+  initialTicketId?: string;
+}
+
+const NO_TICKET = "__none__";
+
+interface ItemOption {
+  id: string;
+  name: string;
+  unit: string;
+  kind: string;
+  search: string;
 }
 
 export function MovementDialog({
@@ -78,52 +121,154 @@ export function MovementDialog({
   initialKind = "receive",
   initialItemId,
   ticketId,
+  ticketLabel,
   lockKind = false,
   title,
   onRecorded,
+  scanSurface,
+  searchableItems = false,
+  initialQty,
+  initialClientId,
+  ticketOptions,
+  initialTicketId,
 }: MovementDialogProps): ReactNode {
   const [kind, setKind] = useState<MovementKind>(initialKind);
   const [itemId, setItemId] = useState<string>("");
+  const [itemFilter, setItemFilter] = useState("");
+  const [scannedItem, setScannedItem] = useState<ItemOption | null>(null);
   const [fromLocationId, setFromLocationId] = useState<string>("");
   const [toLocationId, setToLocationId] = useState<string>("");
   const [qtyText, setQtyText] = useState("1");
   const [unitCostText, setUnitCostText] = useState("");
   const [serialNumbersText, setSerialNumbersText] = useState("");
   const [serialId, setSerialId] = useState<string>("");
+  const [scannedSerial, setScannedSerial] = useState<{ id: string; label: string } | null>(null);
   const [serialOptions, setSerialOptions] = useState<StockSerialView[] | null>(null);
   const [clientId, setClientId] = useState<string>("");
   const [carrier, setCarrier] = useState("");
   const [trackingRef, setTrackingRef] = useState("");
   const [note, setNote] = useState("");
+  const [ticketIdState, setTicketIdState] = useState<string>("");
+  const [ticketFilter, setTicketFilter] = useState("");
   const [availableMilli, setAvailableMilli] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const item = useMemo(() => items.find((i) => i.id === itemId) ?? null, [items, itemId]);
+  const itemOptions = useMemo<ItemOption[]>(() => {
+    const base: ItemOption[] = items.map((i) => ({
+      id: i.id,
+      name: i.name,
+      unit: i.unit,
+      kind: i.kind,
+      search: `${i.name} ${i.sku ?? ""} ${i.part_number ?? ""}`.toLowerCase(),
+    }));
+    if (scannedItem !== null && !base.some((option) => option.id === scannedItem.id)) {
+      base.unshift(scannedItem);
+    }
+    const needle = itemFilter.trim().toLowerCase();
+    if (!searchableItems || needle === "") return base;
+    return base.filter((option) => option.search.includes(needle));
+  }, [items, itemFilter, scannedItem, searchableItems]);
+
+  const item = useMemo(
+    () => itemOptions.find((option) => option.id === itemId) ?? null,
+    [itemOptions, itemId],
+  );
   const serialized = item?.kind === "serialized";
   const outbound = kind === "consume" || kind === "transfer" || kind === "ship-out";
   const fromLocation =
     kind === "transfer" ? fromLocationId : kind === "receive" ? toLocationId : fromLocationId;
 
+  /** The ticket the movement will carry: fixed anchor, picked one, or none. */
+  const anchoredTicketId =
+    ticketId !== undefined
+      ? ticketId
+      : ticketIdState === "" || ticketIdState === NO_TICKET
+        ? null
+        : ticketIdState;
+
+  const chosenTicket =
+    ticketOptions?.find((candidate) => candidate.id === anchoredTicketId) ?? null;
+
+  const visibleTickets = useMemo(() => {
+    if (ticketOptions === undefined) return [];
+    const needle = ticketFilter.trim().toLowerCase();
+    if (needle === "") return ticketOptions;
+    return ticketOptions.filter((ticket) => ticket.label.toLowerCase().includes(needle));
+  }, [ticketOptions, ticketFilter]);
+
+  /** Serial choices = in-stock units at the location + any scanned one. */
+  const serialChoices = useMemo(() => {
+    const base = (serialOptions ?? []).map((serial) => ({
+      id: serial.id,
+      label: serial.serial_number,
+    }));
+    if (scannedSerial !== null && !base.some((serial) => serial.id === scannedSerial.id)) {
+      base.unshift(scannedSerial);
+    }
+    return base;
+  }, [serialOptions, scannedSerial]);
+
   useEffect(() => {
     if (!open) return;
     setKind(initialKind);
     setItemId(initialItemId ?? "");
+    setItemFilter("");
+    setScannedItem(null);
     setFromLocationId("");
     setToLocationId("");
-    setQtyText("1");
+    setQtyText(initialQty ?? "1");
     setUnitCostText("");
     setSerialNumbersText("");
     setSerialId("");
+    setScannedSerial(null);
     setSerialOptions(null);
-    setClientId("");
+    setClientId(initialClientId ?? "");
     setCarrier("");
     setTrackingRef("");
     setNote("");
+    setTicketIdState(initialTicketId ?? "");
+    setTicketFilter("");
     setAvailableMilli(null);
     setError(null);
     setBusy(false);
-  }, [open, initialKind, initialItemId]);
+  }, [open, initialKind, initialItemId, initialQty, initialClientId, initialTicketId]);
+
+  /**
+   * A scan fills the form — the shared focus law applies (ScanBar swallows
+   * the burst Enter and never submits). Items/serials pick the subject; a
+   * location scan sets the source (or the receive destination).
+   */
+  function handleScan({ resolution }: ScanEvent): void {
+    if (resolution.kind === "stock_location") {
+      const locationId = resolution.location_id ?? "";
+      if (kind === "receive") setToLocationId(locationId);
+      else setFromLocationId(locationId);
+      return;
+    }
+    const resolvedItemId = resolution.stock_item_id ?? resolution.entity_id;
+    if (resolvedItemId === null || resolvedItemId === undefined || resolvedItemId === "") {
+      return;
+    }
+    setItemId(resolvedItemId);
+    setScannedItem({
+      id: resolvedItemId,
+      name: resolution.display_name !== "" ? resolution.display_name : "Scanned item",
+      unit: "",
+      kind: resolution.item_kind === "serialized" ? "serialized" : "consumable",
+      search: `${resolution.display_name} ${resolution.secondary ?? ""}`.toLowerCase(),
+    });
+    if (resolution.kind === "serialized_unit" && resolution.serial_id != null) {
+      setSerialId(resolution.serial_id);
+      setScannedSerial({
+        id: resolution.serial_id,
+        label: resolution.secondary ?? resolution.display_name,
+      });
+    } else {
+      setSerialId("");
+      setScannedSerial(null);
+    }
+  }
 
   // Availability read at the chosen location — the pre-write check.
   useEffect(() => {
@@ -240,6 +385,7 @@ export function MovementDialog({
               qty_milli: qtyMilli,
               unit_cost_minor: unitCostMinor,
               serial_numbers: serialized ? serialLines : null,
+              ticket_id: anchoredTicketId,
             };
           case "consume":
             return {
@@ -247,7 +393,7 @@ export function MovementDialog({
               location_id: fromLocationId,
               qty_milli: qtyMilli,
               serial_id: serialized ? serialId : null,
-              ticket_id: ticketId ?? null,
+              ticket_id: anchoredTicketId,
             };
           case "adjust":
             return { ...common, location_id: fromLocationId, qty_milli: qtyMilliSigned() };
@@ -268,7 +414,7 @@ export function MovementDialog({
               client_id: clientId === "" ? null : clientId,
               carrier: carrier.trim() === "" ? null : carrier,
               tracking_ref: trackingRef.trim() === "" ? null : trackingRef,
-              ticket_id: ticketId ?? null,
+              ticket_id: anchoredTicketId,
             };
         }
       },
@@ -305,7 +451,7 @@ export function MovementDialog({
       setError(rejectionText(result, "The movement was refused."));
       return;
     }
-    onRecorded(recorded ?? ({} as StockMovementView));
+    onRecorded(recorded ?? ({} as StockMovementView), kind);
     onOpenChange(false);
   }
 
@@ -316,7 +462,7 @@ export function MovementDialog({
     return trimmed.startsWith("-") ? -parsed : parsed;
   }
 
-  const unitHint = item === null ? undefined : item.unit;
+  const unitHint = item === null || item.unit === "" ? undefined : item.unit;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -340,20 +486,40 @@ export function MovementDialog({
             </div>
           )}
 
+          {scanSurface !== undefined && (
+            <div data-testid="movement-scan">
+              <ScanBar
+                surface={scanSurface}
+                onScan={handleScan}
+                hint="Scan an item, a serial unit, or a bin — it fills the form below, never records on its own."
+              />
+            </div>
+          )}
+
           <div className="grid gap-1">
             <Label htmlFor="movement-item">Item</Label>
+            {searchableItems && (
+              <Input
+                value={itemFilter}
+                onChange={(e) => setItemFilter(e.target.value)}
+                placeholder="Search items by name, SKU, or part number"
+                aria-label="Filter stock items"
+                data-testid="movement-item-filter"
+              />
+            )}
             <Select
               value={itemId}
               onValueChange={(value) => {
                 setItemId(value);
                 setSerialId("");
+                setScannedSerial(null);
               }}
             >
               <SelectTrigger id="movement-item" data-testid="movement-item">
                 <SelectValue placeholder="Pick a stock item" />
               </SelectTrigger>
               <SelectContent>
-                {items.map((i) => (
+                {itemOptions.map((i) => (
                   <SelectItem key={i.id} value={i.id}>
                     {i.name}
                     {i.kind === "serialized" ? " (serialized)" : ""}
@@ -379,6 +545,11 @@ export function MovementDialog({
                     ))}
                   </SelectContent>
                 </Select>
+                {anchoredTicketId !== null && (
+                  <FieldHint>
+                    Receiving with a ticket anchor records a return or restock on that ticket.
+                  </FieldHint>
+                )}
               </div>
             ) : (
               <div className="grid gap-1">
@@ -418,6 +589,38 @@ export function MovementDialog({
             )}
           </div>
 
+          {ticketOptions !== undefined && ticketId === undefined && (kind === "consume" || kind === "ship-out") && (
+            <div className="grid gap-1">
+              <Label htmlFor="movement-ticket">Attach to ticket (optional)</Label>
+              {ticketOptions.length > 8 && (
+                <Input
+                  value={ticketFilter}
+                  onChange={(e) => setTicketFilter(e.target.value)}
+                  placeholder="Filter tickets by number or title"
+                  aria-label="Filter tickets"
+                  data-testid="movement-ticket-filter"
+                />
+              )}
+              <Select
+                value={ticketIdState === "" ? NO_TICKET : ticketIdState}
+                onValueChange={(value) => setTicketIdState(value === NO_TICKET ? "" : value)}
+              >
+                <SelectTrigger id="movement-ticket" data-testid="movement-ticket">
+                  <SelectValue placeholder="No ticket — stock only" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_TICKET}>No ticket — stock only</SelectItem>
+                  {visibleTickets.map((ticket) => (
+                    <SelectItem key={ticket.id} value={ticket.id}>
+                      {ticket.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FieldHint>The movement lands on that ticket&apos;s timeline — no ticket visit needed.</FieldHint>
+            </div>
+          )}
+
           {outbound && availableMilli !== null && !serialized && (
             <p className="text-xs" style={{ color: "var(--m-text-secondary)" }} data-testid="movement-available">
               On hand at that location:{" "}
@@ -449,16 +652,23 @@ export function MovementDialog({
               <Label htmlFor="movement-serial">Serial unit</Label>
               <Select value={serialId} onValueChange={setSerialId}>
                 <SelectTrigger id="movement-serial" data-testid="movement-serial">
-                  <SelectValue placeholder={serialOptions?.length ? "Pick a unit" : "No in-stock units here"} />
+                  <SelectValue placeholder={serialChoices.length > 0 ? "Pick a unit" : "No in-stock units here"} />
                 </SelectTrigger>
                 <SelectContent>
-                  {(serialOptions ?? []).map((s) => (
+                  {serialChoices.map((s) => (
                     <SelectItem key={s.id} value={s.id}>
-                      {s.serial_number}
+                      {s.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {scannedSerial !== null && serialId === scannedSerial.id &&
+                !(serialOptions ?? []).some((serial) => serial.id === scannedSerial.id) && (
+                  <FieldHint>
+                    The scanned unit is not listed as in stock at this location — the record will
+                    confirm it.
+                  </FieldHint>
+                )}
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -508,11 +718,21 @@ export function MovementDialog({
               </div>
               <div className="grid gap-1">
                 <Label htmlFor="movement-carrier">Carrier</Label>
-                <Input id="movement-carrier" value={carrier} onChange={(e) => setCarrier(e.target.value)} />
+                <Input
+                  id="movement-carrier"
+                  value={carrier}
+                  onChange={(e) => setCarrier(e.target.value)}
+                  data-testid="movement-carrier"
+                />
               </div>
               <div className="grid gap-1">
                 <Label htmlFor="movement-tracking">Tracking ref</Label>
-                <Input id="movement-tracking" value={trackingRef} onChange={(e) => setTrackingRef(e.target.value)} />
+                <Input
+                  id="movement-tracking"
+                  value={trackingRef}
+                  onChange={(e) => setTrackingRef(e.target.value)}
+                  data-testid="movement-tracking"
+                />
               </div>
             </div>
           )}
@@ -522,9 +742,13 @@ export function MovementDialog({
             <Input id="movement-note" value={note} onChange={(e) => setNote(e.target.value)} data-testid="movement-note" />
           </div>
 
-          {ticketId !== undefined && (
+          {anchoredTicketId !== null && (
             <Tag tone="outline" className="w-fit" data-testid="movement-ticket-anchor">
-              Charges ticket {ticketId.slice(0, 8)}…
+              {chosenTicket !== null
+                ? `Charges ${chosenTicket.label}`
+                : ticketLabel !== undefined
+                  ? `Charges ${ticketLabel}`
+                  : `Charges ticket ${anchoredTicketId.slice(0, 8)}…`}
             </Tag>
           )}
 

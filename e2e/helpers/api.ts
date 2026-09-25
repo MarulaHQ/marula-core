@@ -2,12 +2,12 @@
 // The harness talks to the live demo-seeded core-api directly for scratch-data
 // staging (approvals queue, calendar connections) so the UI tests exercise the
 // final close-out surfaces against REAL data, never a moving mock.
-// The stack script writes E2E_API_URL with a trailing slash; strip it so
-// every `${API_URL}/api/v1…` join stays single-slash (health checks and
-// authedFetch both 404 on `//api/v1`).
-export const API_URL = (
-  process.env.E2E_API_URL ?? "http://localhost:8080"
-).replace(/\/+$/, "");
+//
+// `scripts/e2e-stack.sh` writes E2E_API_URL with a trailing slash; every
+// helper concatenates `/api/v1…`, and a doubled `//api` path 404s on the
+// router. Normalize once here so the documented invocation (source the stack
+// env, run Playwright) works with no hand-editing (Wave 32 lane 6).
+export const API_URL = (process.env.E2E_API_URL ?? "http://localhost:8080").replace(/\/+$/, "");
 export const WEB_URL = process.env.E2E_WEB_URL ?? "http://localhost:3000";
 
 export const DEMO_OWNER_EMAIL = "owner@demo.local";

@@ -38,6 +38,8 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { OrderStatusTag, ReceiptStateTag } from "../../../components/purchasing/status";
+import { MovementDialog, type MovementKind } from "../../../components/stock/movement-dialog";
+import { ScanBar, type ScanEvent } from "../../../components/scan/scan-bar";
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { rejectionText } from "../../../lib/error-copy";
@@ -133,6 +135,17 @@ export default function PurchaseOrderPage(): ReactNode {
   const [receiveBusy, setReceiveBusy] = useState(false);
   const [receiveError, setReceiveError] = useState<string | null>(null);
   const [receiveAllowVisible, setReceiveAllowVisible] = useState(false);
+  const [receiveScanNotice, setReceiveScanNotice] = useState<string | null>(null);
+  const [receiveScanCounts, setReceiveScanCounts] = useState<Record<string, number>>({});
+  const [receivedLines, setReceivedLines] = useState<{ itemId: string; name: string }[]>([]);
+  const [ticketOptions, setTicketOptions] = useState<{ id: string; label: string }[]>([]);
+  const [dispatch, setDispatch] = useState<{
+    open: boolean;
+    itemId?: string;
+    kind?: MovementKind;
+  }>({
+    open: false,
+  });
 
   const [editingLine, setEditingLine] = useState<PurchaseOrderLineView | null>(null);
   const [lineForm, setLineForm] = useState<LineForm>({ description: "", qty: "", unitCost: "" });
@@ -171,8 +184,16 @@ export default function PurchaseOrderPage(): ReactNode {
     if (auth.status !== "authed") return;
     void refresh();
     void (async () => {
-      const { data } = await api.api.GET("/api/v1/stock-items", { params: { query: { limit: 500 } } });
-      setStockItems(data ?? []);
+      const [itemsRes, ticketsRes] = await Promise.all([
+        api.api.GET("/api/v1/stock-items", { params: { query: { limit: 500 } } }),
+        api.api.GET("/api/v1/tickets", { params: { query: { limit: 200 } } }),
+      ]);
+      setStockItems(itemsRes.data ?? []);
+      setTicketOptions(
+        ((ticketsRes.data ?? []) as components["schemas"]["TicketWithFields"][])
+          .filter((ticket) => ticket.category !== "closed")
+          .map((ticket) => ({ id: ticket.id, label: `${ticket.number} · ${ticket.title}` })),
+      );
     })();
   }, [auth.status, orderId]);
 
@@ -294,6 +315,8 @@ export default function PurchaseOrderPage(): ReactNode {
       allowOver: false,
     });
     setReceiveError(null);
+    setReceiveScanNotice(null);
+    setReceiveScanCounts({});
     setReceiveAllowVisible(false);
     setReceiveOpen(true);
   }
@@ -306,6 +329,7 @@ export default function PurchaseOrderPage(): ReactNode {
       return;
     }
     const receiveLines: ReceiveLineInput[] = [];
+    const received: { itemId: string; name: string }[] = [];
     for (const line of detail.lines) {
       const raw = receive.qtys[line.id] ?? "";
       if (raw.trim() === "") continue;
@@ -339,6 +363,9 @@ export default function PurchaseOrderPage(): ReactNode {
         entry.serial_numbers = serialNumbers;
       }
       receiveLines.push(entry);
+      if (line.stock_item_id != null) {
+        received.push({ itemId: line.stock_item_id, name: line.description });
+      }
     }
     if (receiveLines.length === 0) {
       setReceiveError("Enter a quantity for at least one line.");
@@ -384,6 +411,55 @@ export default function PurchaseOrderPage(): ReactNode {
     }
     setReceiveOpen(false);
     setNotice("Receipt recorded.");
+    setReceivedLines(received);
+  }
+
+  /**
+   * Scan-to-receive: an item or unit stages its open PO line (one unit per
+   * scan), a location sets the put-away bin. Nothing commits here — the
+   * operator still records the receipt.
+   */
+  function receiveScan(event: ScanEvent): void {
+    const resolution = event.resolution;
+    setReceiveScanNotice(null);
+    if (resolution.kind === "stock_location") {
+      if (resolution.location_id != null) {
+        setReceive((cur) => ({ ...cur, locationId: resolution.location_id ?? "" }));
+      }
+      return;
+    }
+    const scannedItemId = resolution.stock_item_id ?? resolution.entity_id ?? null;
+    const line = detail?.lines.find((candidate) => candidate.stock_item_id === scannedItemId) ?? null;
+    if (line === null) {
+      setReceiveScanNotice(`“${resolution.input}” is not on this order — nothing to stage.`);
+      return;
+    }
+    if (isSerialized(line)) {
+      if (resolution.kind !== "serialized_unit" || resolution.secondary == null || resolution.secondary === "") {
+        setReceiveScanNotice(`“${line.description}” is serialized — scan a unit's serial code.`);
+        return;
+      }
+      const serial = resolution.secondary;
+      setReceive((cur) => {
+        const existing = (cur.serials[line.id] ?? "")
+          .split(/[\n,]+/)
+          .map((value) => value.trim())
+          .filter((value) => value !== "");
+        if (existing.includes(serial)) return cur;
+        const serials = [...existing, serial];
+        return {
+          ...cur,
+          qtys: { ...cur.qtys, [line.id]: String(serials.length) },
+          serials: { ...cur.serials, [line.id]: serials.join("\n") },
+        };
+      });
+    } else {
+      setReceive((cur) => {
+        const count = (receiveScanCounts[line.id] ?? 0) + 1;
+        return { ...cur, qtys: { ...cur.qtys, [line.id]: String(count) } };
+      });
+      setReceiveScanCounts((cur) => ({ ...cur, [line.id]: (cur[line.id] ?? 0) + 1 }));
+    }
   }
 
   function openLineEdit(line: PurchaseOrderLineView): void {
@@ -743,6 +819,26 @@ export default function PurchaseOrderPage(): ReactNode {
         <p className="text-xs" role="status" style={{ color: "var(--m-status-success-fg)" }} data-testid="purchasing-action-notice">
           {notice}
         </p>
+      )}
+      {receivedLines.length > 0 && (
+        <Card className="m-rise grid gap-2 p-4" data-testid="purchasing-received-dispatch">
+          <p className="text-xs" style={{ color: "var(--m-text-secondary)" }}>
+            Received into the ledger. Dispatch straight to a ticket without opening it:
+          </p>
+          <div className="flex flex-wrap gap-1">
+            {receivedLines.map((line) => (
+              <Button
+                key={line.itemId}
+                size="sm"
+                variant="secondary"
+                onClick={() => setDispatch({ open: true, itemId: line.itemId, kind: "consume" })}
+                data-testid={`purchasing-dispatch-${line.itemId}`}
+              >
+                Dispatch {line.name}
+              </Button>
+            ))}
+          </div>
+        </Card>
       )}
 
       <Card className="m-rise grid gap-3 p-4">
@@ -1229,6 +1325,18 @@ export default function PurchaseOrderPage(): ReactNode {
       <Dialog open={receiveOpen} onOpenChange={setReceiveOpen}>
         <DialogContent title="Receive goods">
           <div className="grid max-h-[80vh] gap-3 overflow-auto p-1">
+            <div data-testid="purchasing-receive-scan">
+              <ScanBar
+                surface="receiving"
+                onScan={receiveScan}
+                hint="Scan a unit's code to stage its line, or a bin code to set the location."
+              />
+            </div>
+            {receiveScanNotice !== null && (
+              <p className="text-xs" role="status" style={{ color: "var(--m-status-warning-fg)" }} data-testid="purchasing-receive-scan-notice">
+                {receiveScanNotice}
+              </p>
+            )}
             <div className="grid gap-1">
               <Label htmlFor="purchasing-receive-location">Location</Label>
               <Select
@@ -1440,6 +1548,23 @@ export default function PurchaseOrderPage(): ReactNode {
           </div>
         </DialogContent>
       </Dialog>
+
+      <MovementDialog
+        open={dispatch.open}
+        onOpenChange={(open) => setDispatch((cur) => ({ ...cur, open }))}
+        items={stockItems}
+        locations={locations}
+        initialKind={dispatch.kind}
+        initialItemId={dispatch.itemId}
+        ticketOptions={ticketOptions}
+        scanSurface="stock-locations"
+        searchableItems
+        onRecorded={() => {
+          setNotice("Dispatched — the movement is on the chosen ticket's timeline.");
+          setDispatch({ open: false });
+          void refresh();
+        }}
+      />
     </div>
   );
 }

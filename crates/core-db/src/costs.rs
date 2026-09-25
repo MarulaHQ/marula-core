@@ -15,7 +15,11 @@ use core_domain::entities::{CostLineKind, TicketCostLine, TicketExpense};
 use sqlx::Postgres;
 use uuid::Uuid;
 
-const COST_COLS: &str = "id, org_id, ticket_id, kind, description, quantity, unit_cost_minor, currency, billable, fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_amount_minor, invoice_line_id, created_by, created_at, updated_at";
+// `quantity` is NUMERIC (migration 0056) while the entity carries f64; the
+// explicit cast keeps the decode honest, same as the `fx_rate_used` alias
+// below. Without it every list read panics on ColumnDecode (mismatched
+// NUMERIC → FLOAT8).
+const COST_COLS: &str = "id, org_id, ticket_id, kind, description, quantity::double precision AS quantity, unit_cost_minor, currency, billable, fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_amount_minor, invoice_line_id, created_by, created_at, updated_at";
 const EXPENSE_COLS: &str = "id, org_id, ticket_id, description, amount_minor, currency, billable, fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_amount_minor, invoice_line_id, incurred_by, incurred_at, created_at, updated_at";
 
 fn cost_line_from(row: sqlx::postgres::PgRow) -> DbResult<TicketCostLine> {

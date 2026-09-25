@@ -64,6 +64,11 @@ export interface CheckoutDialogProps {
   /** Pre-picked holder (the caller); the select still lists the others. */
   defaultHolderId: string;
   onCheckedOut(): void;
+  /** Seed the first row (a scan or an item-detail dispatch). */
+  initialItemId?: string;
+  initialSerialId?: string;
+  /** Display label for a seeded serial that is not in the loaded options. */
+  initialSerialLabel?: string;
 }
 
 export function CheckoutDialog({
@@ -75,6 +80,9 @@ export function CheckoutDialog({
   holders,
   defaultHolderId,
   onCheckedOut,
+  initialItemId,
+  initialSerialId,
+  initialSerialLabel,
 }: CheckoutDialogProps): ReactNode {
   const toolItems = items.filter((item) => item.is_tool && item.active);
   const [holderId, setHolderId] = useState("");
@@ -92,11 +100,18 @@ export function CheckoutDialog({
 
   useEffect(() => {
     if (!open) return;
+    const seeded = initialItemId !== undefined && initialItemId !== "";
     setHolderId(defaultHolderId);
     setFromLocationId("");
     setDueDate(dateInputValue(1));
     setKitId("");
-    setRows([{ key: 1, itemId: "", serialId: "" }]);
+    setRows([
+      {
+        key: 1,
+        itemId: seeded ? (initialItemId ?? "") : "",
+        serialId: seeded ? (initialSerialId ?? "") : "",
+      },
+    ]);
     setNextKey(2);
     setSerialOptions({});
     setAvailability(null);
@@ -104,7 +119,30 @@ export function CheckoutDialog({
     setNotes("");
     setError(null);
     setBusy(false);
-  }, [open, defaultHolderId]);
+    if (seeded) {
+      void (async () => {
+        const { data } = await api.api.GET("/api/v1/stock-items/{id}/serials", {
+          params: {
+            path: { id: initialItemId ?? "" },
+            query: { status: "in_stock", location_id: null, limit: 100 },
+          },
+        });
+        const options = data ?? [];
+        const scanned =
+          initialSerialId === undefined || initialSerialId === ""
+            ? null
+            : ({
+                id: initialSerialId,
+                serial_number: initialSerialLabel ?? initialSerialId,
+              } as StockSerialView);
+        const merged =
+          scanned !== null && !options.some((option) => option.id === scanned.id)
+            ? [scanned, ...options]
+            : options;
+        setSerialOptions({ 1: merged });
+      })();
+    }
+  }, [open, defaultHolderId, initialItemId, initialSerialId, initialSerialLabel]);
 
   // Kit readiness at the chosen location — the pre-write check (F).
   useEffect(() => {
