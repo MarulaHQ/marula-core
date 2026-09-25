@@ -10,6 +10,7 @@ pub mod instant;
 pub mod org_tx;
 pub mod otel_http;
 pub mod realtime;
+pub mod routing;
 pub mod routes;
 pub mod state;
 pub mod vault_scale;

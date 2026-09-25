@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO travel_entry_drafts\n             (id, org_id, user_id, ticket_id, started_at, ended_at, distance,\n              distance_unit, vehicle, billable, notes, status, created_by)\n           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'draft', $12)\n           RETURNING id, org_id, user_id, ticket_id, started_at, ended_at, distance,\n              distance_unit, vehicle, billable, notes, status,\n              submitted_time_entry_id, created_by, created_at, updated_at",
+  "query": "UPDATE travel_entry_drafts\n           SET expense_id = $3, updated_at = now()\n           WHERE org_id = $1 AND id = $2 AND expense_id IS NULL\n           RETURNING id, org_id, user_id, ticket_id, started_at, ended_at, distance,\n              distance_unit, vehicle, billable, notes, status,\n              submitted_time_entry_id, appointment_id, expense_id, created_by, created_at, updated_at",
   "describe": {
     "columns": [
       {
@@ -70,16 +70,26 @@
       },
       {
         "ordinal": 13,
-        "name": "created_by",
+        "name": "appointment_id",
         "type_info": "Uuid"
       },
       {
         "ordinal": 14,
+        "name": "expense_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 15,
+        "name": "created_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 16,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 15,
+        "ordinal": 17,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
@@ -88,15 +98,6 @@
       "Left": [
         "Uuid",
         "Uuid",
-        "Uuid",
-        "Uuid",
-        "Timestamptz",
-        "Timestamptz",
-        "Float8",
-        "Text",
-        "Text",
-        "Bool",
-        "Text",
         "Uuid"
       ]
     },
@@ -114,10 +115,12 @@
       true,
       false,
       true,
+      true,
+      true,
       false,
       false,
       false
     ]
   },
-  "hash": "68a991251e97538bdc63aed80ae0b8dc4b6b9ad77fe56df2073f40efc4839768"
+  "hash": "4394fade34af809854b2af3eb20cf4cb5058d0d53513d01f2b98a28e8867d5ea"
 }

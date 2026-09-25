@@ -113,6 +113,39 @@ pub struct Config {
     /// registration at all, not a 403). Unset in production — never
     /// default-on.
     pub dev_tools: bool,
+    /// Routing provider selection (Wave 32 lane 7, ADR 0014): operator
+    /// infrastructure config, env-parsed like the email transport because
+    /// credentials are operator secrets — never org settings.
+    /// `ROUTING_PROVIDER` = `none` (default; built-in heuristic) | `osrm`
+    /// | `ors` | `mapbox` | `contract`.
+    pub routing: RoutingChoice,
+}
+
+/// Which distance/duration provider the process registers (Wave 32 lane 7).
+/// `None` = NONE-mode: the built-in per-mile heuristic answers and
+/// suggestion-grade features stay silent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RoutingChoice {
+    None,
+    /// Self-hosted OSRM table/route server.
+    Osrm { base_url: String },
+    /// Self-hosted or hosted OpenRouteService.
+    Ors {
+        base_url: String,
+        api_key: Option<String>,
+    },
+    /// Mapbox (first-party in-core provider).
+    Mapbox {
+        access_token: String,
+        profile: String,
+    },
+    /// An out-of-tree pack speaking the Meridian Routing Contract
+    /// (`docs/routing-providers.md`).
+    Contract {
+        id: String,
+        base_url: String,
+        token: Option<String>,
+    },
 }
 
 /// Parses OBJECT_STORE plus its companion vars. Unknown values degrade to
@@ -129,6 +162,77 @@ fn object_store_from_env() -> core_store::StoreChoice {
         _ => core_store::StoreChoice::Local(
             std::env::var("OBJECT_STORE_LOCAL_DIR").unwrap_or_else(|_| "./data/objects".into()),
         ),
+    }
+}
+
+/// Parses the routing provider selection plus its companion vars (Wave 32
+/// lane 7). Unset / unknown values degrade to the documented NONE mode
+/// (built-in heuristic) rather than failing boot — a missing routing
+/// server never takes scheduling down. A named provider with an empty
+/// required credential degrades the same way, loudly.
+fn routing_from_env() -> RoutingChoice {
+    match std::env::var("ROUTING_PROVIDER").as_deref() {
+        Ok("osrm") => {
+            let base_url = std::env::var("ROUTING_OSRM_URL").unwrap_or_default();
+            if base_url.trim().is_empty() {
+                tracing::warn!("ROUTING_PROVIDER=osrm without ROUTING_OSRM_URL — staying in NONE mode");
+                return RoutingChoice::None;
+            }
+            RoutingChoice::Osrm { base_url }
+        }
+        Ok("ors") => {
+            let base_url = std::env::var("ROUTING_ORS_URL").unwrap_or_default();
+            if base_url.trim().is_empty() {
+                tracing::warn!("ROUTING_PROVIDER=ors without ROUTING_ORS_URL — staying in NONE mode");
+                return RoutingChoice::None;
+            }
+            RoutingChoice::Ors {
+                base_url,
+                api_key: std::env::var("ROUTING_ORS_API_KEY")
+                    .ok()
+                    .filter(|v| !v.trim().is_empty()),
+            }
+        }
+        Ok("mapbox") => {
+            let access_token = std::env::var("MAPBOX_ACCESS_TOKEN").unwrap_or_default();
+            if access_token.trim().is_empty() {
+                tracing::warn!(
+                    "ROUTING_PROVIDER=mapbox without MAPBOX_ACCESS_TOKEN — staying in NONE mode"
+                );
+                return RoutingChoice::None;
+            }
+            RoutingChoice::Mapbox {
+                access_token,
+                profile: std::env::var("MAPBOX_PROFILE")
+                    .ok()
+                    .filter(|v| !v.trim().is_empty())
+                    .unwrap_or_else(|| "driving".into()),
+            }
+        }
+        Ok("contract") => {
+            let base_url = std::env::var("ROUTING_CONTRACT_URL").unwrap_or_default();
+            if base_url.trim().is_empty() {
+                tracing::warn!(
+                    "ROUTING_PROVIDER=contract without ROUTING_CONTRACT_URL — staying in NONE mode"
+                );
+                return RoutingChoice::None;
+            }
+            RoutingChoice::Contract {
+                id: std::env::var("ROUTING_CONTRACT_ID")
+                    .ok()
+                    .filter(|v| !v.trim().is_empty())
+                    .unwrap_or_else(|| "pack".into()),
+                base_url,
+                token: std::env::var("ROUTING_CONTRACT_TOKEN")
+                    .ok()
+                    .filter(|v| !v.trim().is_empty()),
+            }
+        }
+        Ok("none") | Ok("") | Err(_) => RoutingChoice::None,
+        Ok(other) => {
+            tracing::warn!(provider = other, "unknown ROUTING_PROVIDER — staying in NONE mode");
+            RoutingChoice::None
+        }
     }
 }
 
@@ -186,6 +290,9 @@ impl Config {
             plugin_signing_key: None,
             plugin_signing_keys: None,
             dev_tools: true,
+            // Desktop/test profile: NONE mode — never dials a routing
+            // service the operator did not configure.
+            routing: RoutingChoice::None,
         }
     }
 
@@ -362,6 +469,7 @@ impl Config {
                 .ok()
                 .filter(|v| !v.trim().is_empty()),
             dev_tools,
+            routing: routing_from_env(),
         })
     }
 }
@@ -517,6 +625,7 @@ impl Config {
             plugin_signing_key: None,
             plugin_signing_keys: None,
             dev_tools: false,
+            routing: RoutingChoice::None,
         }
     }
 }

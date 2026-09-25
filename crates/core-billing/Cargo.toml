@@ -27,3 +27,4 @@ tracing-subscriber = { workspace = true }
 core-api = { path = "../core-api" }
 core-db = { path = "../core-db" }
 core-store = { path = "../core-store" }
+core-routing = { path = "../core-routing" }

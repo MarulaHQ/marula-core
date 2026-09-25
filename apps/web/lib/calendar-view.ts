@@ -27,7 +27,20 @@ export interface CalendarEntry {
   status: CalendarItem["status"];
   userId: string | null;
   number: string | null;
+  /** Wave 32 lane 7: booked travel minutes immediately before the
+   *  appointment (0 = none). Rendered as a distinct band, never merged
+   *  into the appointment block. */
+  travelMinutes: number;
+  /** `heuristic` | `measured` when the estimate carries provenance. */
+  travelQuality: string | null;
 }
+
+/** The routing fields ride `CalendarItem` additively; the generated SDK
+ *  type gains them on the next openapi re-pin (Wave 32 lane 7). */
+type CalendarItemWithTravel = CalendarItem & {
+  travel_minutes?: number | null;
+  travel_quality?: string | null;
+};
 
 /** One calendar entry per external busy mirror, from the exclusion reason marker. */
 export function isSyncFedExclusion(exclusion: CalendarExclusion): boolean {
@@ -35,6 +48,7 @@ export function isSyncFedExclusion(exclusion: CalendarExclusion): boolean {
 }
 
 export function entryFromItem(item: CalendarItem): CalendarEntry {
+  const routed = item as CalendarItemWithTravel;
   return {
     kind: item.item_type === "on_call" ? "on_call" : "appointment",
     id: item.id,
@@ -46,6 +60,8 @@ export function entryFromItem(item: CalendarItem): CalendarEntry {
     status: item.status ?? null,
     userId: item.user_id,
     number: null,
+    travelMinutes: routed.travel_minutes ?? 0,
+    travelQuality: routed.travel_quality ?? null,
   };
 }
 
@@ -67,6 +83,8 @@ export function entryFromExclusion(exclusion: CalendarExclusion): CalendarEntry 
     status: null,
     userId: exclusion.user_id,
     number: null,
+    travelMinutes: 0,
+    travelQuality: null,
   };
 }
 
@@ -88,6 +106,8 @@ export function entryFromTicketDeadline(ticket: {
     status: null,
     userId: null,
     number: ticket.number,
+    travelMinutes: 0,
+    travelQuality: null,
   };
 }
 

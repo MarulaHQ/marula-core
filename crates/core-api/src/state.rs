@@ -18,6 +18,10 @@ pub struct AppState {
     /// Object storage edge (attachments): local-fs none mode by default,
     /// S3/MinIO when configured. See crates/core-store.
     pub store: Arc<dyn core_store::ObjectStore>,
+    /// Routing provider registry (Wave 32 lane 7): operator-configured
+    /// providers behind the `core-routing` seam. Empty ⇒ NONE mode (the
+    /// built-in heuristic answers; suggestion-grade features stay silent).
+    pub routing: Arc<core_routing::RoutingRegistry>,
     /// RLS-enforced pool for views-only surfaces (`routes::reports`).
     ///
     /// Reports compile org-blind SQL and rely ENTIRELY on row-level

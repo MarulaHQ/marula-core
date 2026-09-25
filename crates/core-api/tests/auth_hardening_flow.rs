@@ -41,6 +41,7 @@ async fn test_state(admin_url: &str) -> AppState {
             &Config::from_env_allow_dev_fallback().expect("config"),
         )),
         store: Arc::new(core_store::memory::MemoryStore::new()),
+        routing: std::sync::Arc::new(core_routing::RoutingRegistry::new()),
         reporting: core_api::state::AppState::reporting_pool_lazy(admin_url)
             .expect("lazy reporting pool"),
     }

@@ -316,14 +316,52 @@ fn subtract_intervals(
 
 /// Booked minutes for a dispatch day: the union of LIVE appointment spans
 /// clipped to `[from, to]`, merged so touching/stacked bookings never
-/// double-count. Cancelled bookings contribute nothing. Travel placeholders
-/// are NOT included — they are annotations, not occupied capacity, until
-/// the RoutingProvider lane lands.
+/// double-count. Cancelled bookings contribute nothing.
+///
+/// This is the travel-FREE primitive. Dispatch capacity uses
+/// [`occupied_minutes`]: once the RoutingProvider lane lands, travel is
+/// occupied capacity the same as the booking itself.
 pub fn booked_minutes<I>(appointments: I, from: DateTime<Utc>, to: DateTime<Utc>) -> i64
 where
     I: IntoIterator<Item = (DateTime<Utc>, DateTime<Utc>)>,
 {
-    let clipped: Vec<(DateTime<Utc>, DateTime<Utc>)> = appointments
+    minutes_from_spans(appointments.into_iter().collect(), from, to)
+}
+
+/// Occupied minutes for a dispatch day (Wave 32 lane 7 doctrine): the
+/// union of every live booking's **travel block + appointment span**,
+/// clipped to `[from, to]` and merged so travel never double-counts
+/// against the appointment it precedes (nor against a back-to-back
+/// booking that already starts when the previous ends).
+///
+/// Travel occupies `[starts_at - travel_minutes, starts_at)` — the
+/// appointment's own time is never reduced ("the booked travel time ADDS
+/// to the appointment time, never replaces it"). Negative travel is
+/// clamped to zero; cancelled bookings are filtered by the caller.
+pub fn occupied_minutes<I>(appointments: I, from: DateTime<Utc>, to: DateTime<Utc>) -> i64
+where
+    I: IntoIterator<Item = (DateTime<Utc>, DateTime<Utc>, i64)>,
+{
+    minutes_from_spans(
+        appointments
+            .into_iter()
+            .map(|(s, e, travel_minutes)| {
+                let travel = travel_minutes.max(0);
+                (s - chrono::Duration::minutes(travel), e)
+            })
+            .collect(),
+        from,
+        to,
+    )
+}
+
+/// Shared clipping + merging + minute summation for booked/occupied math.
+fn minutes_from_spans(
+    spans: Vec<(DateTime<Utc>, DateTime<Utc>)>,
+    from: DateTime<Utc>,
+    to: DateTime<Utc>,
+) -> i64 {
+    let clipped: Vec<(DateTime<Utc>, DateTime<Utc>)> = spans
         .into_iter()
         .filter_map(|(s, e)| {
             let s = s.max(from);
@@ -674,5 +712,40 @@ mod tests {
                 prop_assert_eq!(contained, counted, "minute {} mismatch", off);
             }
         }
+    }
+
+    #[test]
+    fn occupied_minutes_counts_travel_but_never_double_counts() {
+        let from = utc(2026, 5, 18, 0, 0);
+        let to = from + Duration::days(1);
+
+        // One 60-minute booking with 30 minutes of travel: 90 occupied.
+        let appt = utc(2026, 5, 18, 9, 0);
+        let end = appt + Duration::minutes(60);
+        assert_eq!(occupied_minutes([(appt, end, 30)], from, to), 90);
+
+        // A back-to-back booking at 10:00 (the previous ends 10:00) with
+        // its own 30 minutes of travel: the union is 08:30-11:00 and the
+        // overlapping minutes between the two travel blocks count ONCE
+        // (150, not 90 + 90).
+        let second = utc(2026, 5, 18, 10, 0);
+        let second_end = second + Duration::minutes(60);
+        assert_eq!(
+            occupied_minutes([(appt, end, 30), (second, second_end, 30)], from, to),
+            150
+        );
+
+        // Zero/negative travel degrades to the plain booked span.
+        assert_eq!(occupied_minutes([(appt, end, 0)], from, to), 60);
+        assert_eq!(occupied_minutes([(appt, end, -15)], from, to), 60);
+        assert_eq!(booked_minutes([(appt, end)], from, to), 60);
+
+        // Travel clipped at the window edge: a booking at 00:10 with
+        // 30 minutes of travel reaches back to 23:40 the previous day, so
+        // only its 10 in-day travel minutes plus the 20-minute booking
+        // occupy this day.
+        let early = utc(2026, 5, 18, 0, 10);
+        let early_end = early + Duration::minutes(20);
+        assert_eq!(occupied_minutes([(early, early_end, 30)], from, to), 30);
     }
 }

@@ -11,6 +11,7 @@ import { ME_FIXTURE, MockApi, seedAuthTokens } from "../helpers/mock-api";
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
   usePathname: () => "/dispatch/travel",
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 const DRAFT_ID = "50000000-0000-4000-8000-000000000001";
@@ -43,6 +44,44 @@ function setupApi(): MockApi {
   const mock = new MockApi();
   mock.on("GET", "/api/v1/me", () => ({ json: ME_FIXTURE }));
   mock.on("GET", "/api/v1/dispatch/travel-drafts", () => ({ json: rows }));
+  mock.on("GET", "/api/v1/dispatch/reconciliation", () => ({
+    json: {
+      from: "2026-08-20T00:00:00Z",
+      to: "2026-09-02T00:00:00Z",
+      currency: "USD",
+      mileage_rate_minor: 67,
+      mileage_rate_unit: "mi",
+      reimburse_techs: true,
+      rows: [
+        {
+          user_id: "u1",
+          display_name: "Alex Technician",
+          draft_count: 1,
+          submitted_count: 0,
+          expensed_count: 0,
+          distance: 20.2,
+          distance_unit: "mi",
+          minutes: 45,
+          expense_minor: 0,
+          reimbursement_minor: 1353,
+          billable_minor: 0,
+        },
+      ],
+      totals: {
+        user_id: "00000000-0000-0000-0000-000000000000",
+        display_name: "Total",
+        draft_count: 1,
+        submitted_count: 0,
+        expensed_count: 0,
+        distance: 20.2,
+        distance_unit: "mi",
+        minutes: 45,
+        expense_minor: 0,
+        reimbursement_minor: 1353,
+        billable_minor: 0,
+      },
+    },
+  }));
   mock.on("POST", "/api/v1/dispatch/travel-drafts", ({ body }) => {
     const b = body as Record<string, unknown>;
     const row = {

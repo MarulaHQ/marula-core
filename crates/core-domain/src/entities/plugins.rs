@@ -50,10 +50,19 @@ pub enum PluginCapability {
     /// resolves onto the same `secrets:create` matrix gate a human writer
     /// passes and every actual ingress payload is sealed bytes on arrival.
     VaultIngress,
+    /// Wave 32 lane 7 (ADR 0014): routing-provider packs. Each scope maps
+    /// onto the scheduling view gate — a routing pack READS schedule
+    /// context (coordinates, times) and returns distances/durations; it
+    /// never writes scheduling state. The four scopes mirror the seam's
+    /// capability vocabulary exactly.
+    RoutingMatrix,
+    RoutingRoute,
+    RoutingGeocode,
+    RoutingIsochrone,
 }
 
 impl PluginCapability {
-    pub const ALL: [PluginCapability; 15] = [
+    pub const ALL: [PluginCapability; 19] = [
         PluginCapability::TicketsRead,
         PluginCapability::TicketsWrite,
         PluginCapability::ClientsRead,
@@ -69,6 +78,10 @@ impl PluginCapability {
         PluginCapability::ReportingRead,
         PluginCapability::FinancialRead,
         PluginCapability::VaultIngress,
+        PluginCapability::RoutingMatrix,
+        PluginCapability::RoutingRoute,
+        PluginCapability::RoutingGeocode,
+        PluginCapability::RoutingIsochrone,
     ];
 
     /// The capability key as declared in a manifest / grant list.
@@ -93,6 +106,10 @@ impl PluginCapability {
             // of the closed vocabulary; uniqueness and round-tripping are
             // unaffected by the separator choice).
             PluginCapability::VaultIngress => "vault:ingress",
+            PluginCapability::RoutingMatrix => "routing.matrix",
+            PluginCapability::RoutingRoute => "routing.route",
+            PluginCapability::RoutingGeocode => "routing.geocode",
+            PluginCapability::RoutingIsochrone => "routing.isochrone",
         }
     }
 
@@ -171,6 +188,17 @@ impl PluginCapability {
             PluginCapability::VaultIngress => Permission::Matrix {
                 module: Module::Secrets,
                 action: Action::Create,
+            },
+            // Routing packs read scheduling context to answer a route
+            // query; the resolved permission is the scheduling VIEW gate
+            // (the same gate a read-only dispatcher passes). Granting
+            // routing scopes never confers scheduling edits.
+            PluginCapability::RoutingMatrix
+            | PluginCapability::RoutingRoute
+            | PluginCapability::RoutingGeocode
+            | PluginCapability::RoutingIsochrone => Permission::Matrix {
+                module: Module::Scheduling,
+                action: Action::View,
             },
         }
     }
@@ -272,6 +300,140 @@ pub struct ConnectorProfile {
     /// for consent-time visibility and install-record provenance, max 32.
     #[serde(default)]
     pub scopes: Vec<String>,
+    /// Wave 32 lane 7 (ADR 0014): present when the pack answers the
+    /// Meridian Routing Contract endpoints (`/routing/matrix`, …). The
+    /// declaration mirrors the operator config 1:1 so consent shows
+    /// exactly what the adapter will honor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routing: Option<RoutingProfile>,
+}
+
+/// The routing-capability declaration a provider pack carries. Closed
+/// vocabularies only; a pack cannot declare a capability or mode the seam
+/// does not speak.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct RoutingProfile {
+    /// Closed set: `matrix` | `route` | `geocode` | `isochrone`.
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+    /// Closed set: `driving` | `walking` | `cycling` | `public_transport`.
+    #[serde(default)]
+    pub modes: Vec<String>,
+    /// The pack's contract root: https-only absolute URL, no credentials.
+    pub base_url: String,
+    /// `measured` | `heuristic` — relay packs are measured; a heuristic
+    /// pack is allowed but never unlocks suggestion-grade features.
+    #[serde(default = "default_routing_quality")]
+    pub quality: String,
+    /// `none` | `departure` | `arrival` | `both` — which time control the
+    /// pack honors. Anything it does not honor must not be claimed.
+    #[serde(default = "default_routing_time_control")]
+    pub time_control: String,
+    /// Contract revision the pack implements; the core speaks revision 1.
+    #[serde(default = "default_contract_revision")]
+    pub contract_revision: u32,
+}
+
+fn default_routing_quality() -> String {
+    "measured".into()
+}
+
+fn default_routing_time_control() -> String {
+    "none".into()
+}
+
+fn default_contract_revision() -> u32 {
+    ROUTING_CONTRACT_REVISION
+}
+
+/// The routing contract revision the core adapter speaks
+/// (`docs/routing-providers.md`).
+pub const ROUTING_CONTRACT_REVISION: u32 = 1;
+/// Declared capability modes/caps for a routing profile.
+pub const ROUTING_CAPABILITY_KEYS: &[&str] = &["matrix", "route", "geocode", "isochrone"];
+pub const ROUTING_MODE_KEYS: &[&str] = &["driving", "walking", "cycling", "public_transport"];
+pub const ROUTING_QUALITY_KEYS: &[&str] = &["measured", "heuristic"];
+pub const ROUTING_TIME_CONTROL_KEYS: &[&str] = &["none", "departure", "arrival", "both"];
+const MAX_ROUTING_CAPABILITIES: usize = 4;
+const MAX_ROUTING_MODES: usize = 4;
+
+impl RoutingProfile {
+    /// Validates the closed routing declaration: https-only contract root
+    /// without credentials, capabilities/modes/quality/time-control inside
+    /// their closed vocabularies, no duplicates, within caps, and the
+    /// contract revision the core can actually call.
+    pub fn validate(&self) -> Result<(), crate::error::DomainError> {
+        if self.capabilities.is_empty() {
+            return Err(crate::error::DomainError::Validation(
+                "routing profile declares no capabilities".into(),
+            ));
+        }
+        if self.capabilities.len() > MAX_ROUTING_CAPABILITIES {
+            return Err(crate::error::DomainError::Validation(format!(
+                "routing profile declares {} capabilities (max {MAX_ROUTING_CAPABILITIES})",
+                self.capabilities.len()
+            )));
+        }
+        for (i, capability) in self.capabilities.iter().enumerate() {
+            if !ROUTING_CAPABILITY_KEYS.contains(&capability.as_str()) {
+                return Err(crate::error::DomainError::Validation(format!(
+                    "routing capability {capability:?} is not one of: {}",
+                    ROUTING_CAPABILITY_KEYS.join(", ")
+                )));
+            }
+            if self.capabilities[..i].contains(capability) {
+                return Err(crate::error::DomainError::Validation(format!(
+                    "routing capability {capability:?} is declared twice"
+                )));
+            }
+        }
+        if self.modes.is_empty() {
+            return Err(crate::error::DomainError::Validation(
+                "routing profile declares no travel modes".into(),
+            ));
+        }
+        if self.modes.len() > MAX_ROUTING_MODES {
+            return Err(crate::error::DomainError::Validation(format!(
+                "routing profile declares {} modes (max {MAX_ROUTING_MODES})",
+                self.modes.len()
+            )));
+        }
+        for (i, mode) in self.modes.iter().enumerate() {
+            if !ROUTING_MODE_KEYS.contains(&mode.as_str()) {
+                return Err(crate::error::DomainError::Validation(format!(
+                    "routing mode {mode:?} is not one of: {}",
+                    ROUTING_MODE_KEYS.join(", ")
+                )));
+            }
+            if self.modes[..i].contains(mode) {
+                return Err(crate::error::DomainError::Validation(format!(
+                    "routing mode {mode:?} is declared twice"
+                )));
+            }
+        }
+        if !ROUTING_QUALITY_KEYS.contains(&self.quality.as_str()) {
+            return Err(crate::error::DomainError::Validation(format!(
+                "routing quality {:?} is not one of: {}",
+                self.quality,
+                ROUTING_QUALITY_KEYS.join(", ")
+            )));
+        }
+        if !ROUTING_TIME_CONTROL_KEYS.contains(&self.time_control.as_str()) {
+            return Err(crate::error::DomainError::Validation(format!(
+                "routing time_control {:?} is not one of: {}",
+                self.time_control,
+                ROUTING_TIME_CONTROL_KEYS.join(", ")
+            )));
+        }
+        if self.contract_revision != ROUTING_CONTRACT_REVISION {
+            return Err(crate::error::DomainError::Validation(format!(
+                "routing contract revision {} is not supported (core speaks {ROUTING_CONTRACT_REVISION})",
+                self.contract_revision
+            )));
+        }
+        ConnectorProfile::validate_endpoint(&self.base_url)
+    }
 }
 
 /// Capacities of the modeled connector profile (deny oversized
@@ -313,6 +475,12 @@ impl ConnectorProfile {
                     "connector scope {scope:?} violates the scope charset/size rules"
                 )));
             }
+        }
+        // Wave 32 lane 7: the optional routing declaration rides the same
+        // profile gate — a pack that answers the Routing Contract declares
+        // its capabilities here, validated against the closed vocabulary.
+        if let Some(routing) = &self.routing {
+            routing.validate()?;
         }
         Ok(())
     }
@@ -1342,6 +1510,7 @@ mod tests {
                 "https://relay.immybot.dev/webhook".into(),
             ],
             scopes: vec!["graph:mail.read".into(), "graph:calendars.readwrite".into()],
+            routing: None,
         });
         assert!(m.validate().is_ok());
 
@@ -1360,6 +1529,7 @@ mod tests {
             ConnectorProfile {
                 webhook_endpoints: vec![url.into()],
                 scopes: vec!["graph:mail.read".into()],
+                routing: None,
             }
             .validate()
             .is_err()
@@ -1371,6 +1541,7 @@ mod tests {
         let ok = ConnectorProfile {
             webhook_endpoints: vec!["https://hooks.example.com/x".into()],
             scopes: vec![],
+            routing: None,
         };
         assert!(ok.validate().is_ok());
         // Over-cap declarations refuse.
@@ -1380,6 +1551,7 @@ mod tests {
         assert!(ConnectorProfile {
             webhook_endpoints: many,
             scopes: vec![],
+            routing: None,
         }
         .validate()
         .is_err());
@@ -1387,15 +1559,67 @@ mod tests {
         assert!(ConnectorProfile {
             webhook_endpoints: vec![],
             scopes,
+            routing: None,
         }
         .validate()
         .is_err());
         assert!(ConnectorProfile {
             webhook_endpoints: vec![],
             scopes: vec!["bad scope with spaces".into()],
+            routing: None,
         }
         .validate()
         .is_err());
+    }
+
+    #[test]
+    fn routing_profile_should_validate_closed_vocabulary_and_contract_revision() {
+        let valid = RoutingProfile {
+            capabilities: vec!["matrix".into(), "route".into()],
+            modes: vec!["driving".into(), "cycling".into()],
+            base_url: "https://relay.example.com".into(),
+            quality: "measured".into(),
+            time_control: "departure".into(),
+            contract_revision: ROUTING_CONTRACT_REVISION,
+        };
+        assert!(valid.validate().is_ok());
+
+        let mut insecure = valid.clone();
+        insecure.base_url = "http://relay.example.com".into();
+        assert!(insecure.validate().is_err());
+
+        let mut unknown_capability = valid.clone();
+        unknown_capability.capabilities = vec!["teleport".into()];
+        assert!(unknown_capability.validate().is_err());
+
+        let mut duplicated = valid.clone();
+        duplicated.capabilities = vec!["matrix".into(), "matrix".into()];
+        assert!(duplicated.validate().is_err());
+
+        let mut unknown_mode = valid.clone();
+        unknown_mode.modes = vec!["hoverboard".into()];
+        assert!(unknown_mode.validate().is_err());
+
+        let mut future_revision = valid.clone();
+        future_revision.contract_revision = ROUTING_CONTRACT_REVISION + 1;
+        assert!(future_revision.validate().is_err());
+
+        let mut no_modes = valid.clone();
+        no_modes.modes = vec![];
+        assert!(no_modes.validate().is_err());
+
+        // Every routing capability maps onto the scheduling VIEW gate —
+        // a routing grant never confers scheduling edits.
+        for key in ["routing.matrix", "routing.route", "routing.geocode", "routing.isochrone"] {
+            let capability = PluginCapability::parse(key).expect("closed vocabulary");
+            assert_eq!(
+                capability.permission(),
+                Permission::Matrix {
+                    module: Module::Scheduling,
+                    action: Action::View,
+                }
+            );
+        }
     }
 
     #[test]

@@ -523,6 +523,10 @@ pub mod types {
     /// time-entry path; `time_entry.created` co-emits for the entry
     /// itself — this payload carries the draft→entry provenance pair.
     pub const TRAVEL_DRAFT_SUBMITTED: &str = "travel_draft.submitted";
+    /// Wave 32 lane 7 (p32-dispatch-routing): the dispatcher set (or
+    /// cleared) a technician-day's journey start point — routing's
+    /// scheduling input, audited like every other scheduling mutation.
+    pub const JOURNEY_START_POINT_SET: &str = "journey_start_point.set";
     /// Projects line (TASKLIST Phase 3, migration 0030): project/phase/task
     /// lifecycle, saved views, templates, and the milestone billing seam.
     pub const PROJECT_CREATED: &str = "project.created";
@@ -2580,6 +2584,24 @@ pub struct TravelDraftSubmitted {
     pub distance: f64,
     pub distance_unit: String,
     pub vehicle: String,
+}
+
+/// journey_start_point.set — the dispatcher pinned (or changed) the day's
+/// journey start for one technician. Payload carries the resolved shape,
+/// not the request.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct JourneyStartPointSet {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub start_point_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub user_id: uuid::Uuid,
+    /// Local calendar day the start point applies to (`YYYY-MM-DD`).
+    pub day: chrono::NaiveDate,
+    /// `home` | `office` | `site` | `address`.
+    pub kind: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub site_id: Option<uuid::Uuid>,
 }
 
 // ---- configuration identity (ADR 0003, Wave 12 lane 3) ---------------------

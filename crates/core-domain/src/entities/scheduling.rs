@@ -75,9 +75,31 @@ impl AppointmentStatus {
     }
 }
 
+/// The resolved journey start point a travel estimate ran from (Wave 32
+/// lane 7). Snapshotted onto the appointment so the estimate stays
+/// explainable after the start point or the site changes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TravelOrigin {
+    /// `home` | `office` | `site` | `address`.
+    pub kind: String,
+    pub label: Option<String>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub site_id: Option<uuid::Uuid>,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+    /// How it was resolved: `explicit` (dispatcher-set day start) or
+    /// `previous_day_site` (auto-suggested continuity).
+    pub source: Option<String>,
+}
+
 /// A booked slot on one user's calendar, optionally tied to a ticket and
-/// client/site. `travel_minutes` is a dispatch-board placeholder — never
-/// interpreted by scheduling rules in this stage.
+/// client/site. `travel_minutes` is travel time booked immediately BEFORE
+/// `starts_at` (Wave 32 lane 7): it ADDS to the appointment and occupies
+/// dispatch capacity (`crate::scheduling::occupied_minutes`), never
+/// replacing or shrinking the booked span. The `travel_*` fields carry
+/// the estimate's provenance so a heuristic number is never mistaken for
+/// a measured one.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Appointment {
@@ -106,6 +128,20 @@ pub struct Appointment {
     /// link (Wave 11 lane 4); NULL for every other creation path.
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub scheduling_link_id: Option<uuid::Uuid>,
+    /// Where the estimate travelled FROM; `None` when no provider
+    /// provenance exists (manual minutes or no estimate).
+    #[serde(default)]
+    pub travel_from: Option<TravelOrigin>,
+    /// Provider-reported leg distance in metres.
+    #[serde(default)]
+    pub travel_distance_meters: Option<i32>,
+    /// Provider id that produced `travel_minutes` (`none` = built-in
+    /// heuristic); `None` for manual values.
+    #[serde(default)]
+    pub travel_provider: Option<String>,
+    /// `heuristic` | `measured`; `None` whenever `travel_provider` is.
+    #[serde(default)]
+    pub travel_quality: Option<String>,
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
     pub created_at: DateTime<Utc>,
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]

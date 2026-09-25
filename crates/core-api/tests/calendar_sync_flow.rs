@@ -39,6 +39,7 @@ async fn test_state() -> (AppState, Router) {
         oidc: OidcHttpClient::new(),
         mail: Arc::new(core_api::email::MailStack::from_config(&config)),
         store: Arc::new(MemoryStore::new()),
+        routing: Arc::new(core_routing::RoutingRegistry::new()),
         reporting: core_api::state::AppState::reporting_pool_lazy(&reporting_url)
             .expect("lazy reporting pool"),
     };

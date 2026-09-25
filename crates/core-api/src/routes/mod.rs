@@ -110,6 +110,7 @@ pub mod report_defs;
 pub mod report_schedules;
 pub mod reports;
 pub mod roles;
+pub mod routing;
 pub mod scan;
 pub mod scheduling;
 pub mod scheduling_links;
@@ -1813,6 +1814,22 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/dispatch/travel-drafts/{id}/submit"),
             post(dispatch::travel_draft_submit),
+        )
+        // dispatch v3 — routing (Wave 32 lane 7): day journey plans +
+        // warnings, suggestion-grade improvements, journey start points,
+        // mileage reconciliation, expense-from-draft.
+        .route(&rp("/dispatch/routing"), get(routing::routing_day))
+        .route(
+            &rp("/dispatch/journey-start"),
+            get(routing::journey_start_get).put(routing::journey_start_set),
+        )
+        .route(
+            &rp("/dispatch/reconciliation"),
+            get(routing::reconciliation),
+        )
+        .route(
+            &rp("/dispatch/travel-drafts/{id}/expense"),
+            post(routing::travel_draft_expense),
         )
         .layer(middleware::from_fn_with_state(state.clone(), require_auth));
 

@@ -225,6 +225,7 @@ mod tests {
             plugin_signing_key: None,
             plugin_signing_keys: None,
             dev_tools: false,
+            routing: crate::config::RoutingChoice::None,
             webauthn_rp_id: "localhost".into(),
             webauthn_rp_origin: "http://localhost:3000".into(),
             public_base_url: "http://localhost:8080".into(),

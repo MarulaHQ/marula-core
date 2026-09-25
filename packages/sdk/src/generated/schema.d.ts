@@ -3395,6 +3395,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/dispatch/journey-start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/dispatch/journey-start — the resolved start point plus the
+         *     explicit override, if any.
+         */
+        get: operations["dispatch_journey_start_get"];
+        /**
+         * PUT /api/dispatch/journey-start — set (or replace) the technician's
+         *     start point for one day.
+         */
+        put: operations["dispatch_journey_start_set"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/dispatch/match": {
         parameters: {
             query?: never;
@@ -3460,6 +3484,47 @@ export interface paths {
          *     `cleared: false` (the dispatcher's intent is already satisfied).
          */
         delete: operations["dispatch_queue_clear"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dispatch/reconciliation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/dispatch/reconciliation — planned-vs-actual rollup over the
+         *     existing travel drafts and their linked expenses: mileage, time, and
+         *     reimbursements per technician, in the org's base currency.
+         */
+        get: operations["dispatch_reconciliation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dispatch/routing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/dispatch/routing — the day's journey plans, typed warnings,
+         *     and (measured providers only) suggestion-grade route improvements.
+         */
+        get: operations["dispatch_routing_day"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -3551,6 +3616,28 @@ export interface paths {
          *     drafts are frozen (the time entry already exists).
          */
         patch: operations["dispatch_travel_draft_patch"];
+        trace?: never;
+    };
+    "/api/v1/dispatch/travel-drafts/{id}/expense": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/dispatch/travel-drafts/{id}/expense — book the draft's
+         *     mileage as a ticket expense at the org rate (the reimbursement the
+         *     business owes the technician or bills the client). One expense per
+         *     draft, idempotent through the standard envelope.
+         */
+        post: operations["dispatch_travel_draft_expense"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/dispatch/travel-drafts/{id}/submit": {
@@ -11725,8 +11812,12 @@ export interface components {
         };
         /**
          * @description A booked slot on one user's calendar, optionally tied to a ticket and
-         *     client/site. `travel_minutes` is a dispatch-board placeholder — never
-         *     interpreted by scheduling rules in this stage.
+         *     client/site. `travel_minutes` is travel time booked immediately BEFORE
+         *     `starts_at` (Wave 32 lane 7): it ADDS to the appointment and occupies
+         *     dispatch capacity (`crate::scheduling::occupied_minutes`), never
+         *     replacing or shrinking the booked span. The `travel_*` fields carry
+         *     the estimate's provenance so a heuristic number is never mistaken for
+         *     a measured one.
          */
         Appointment: {
             /** Format: uuid */
@@ -11755,8 +11846,21 @@ export interface components {
             /** Format: uuid */
             ticket_id?: string | null;
             title: string;
+            /**
+             * Format: int32
+             * @description Provider-reported leg distance in metres.
+             */
+            travel_distance_meters?: number | null;
+            travel_from?: null | components["schemas"]["TravelOrigin"];
             /** Format: int32 */
             travel_minutes: number;
+            /**
+             * @description Provider id that produced `travel_minutes` (`none` = built-in
+             *     heuristic); `None` for manual values.
+             */
+            travel_provider?: string | null;
+            /** @description `heuristic` | `measured`; `None` whenever `travel_provider` is. */
+            travel_quality?: string | null;
             /** Format: date-time */
             updated_at: string;
             /** Format: uuid */
@@ -12651,6 +12755,15 @@ export interface components {
             /** Format: uuid */
             ticket_id?: string | null;
             title?: string | null;
+            /**
+             * Format: int32
+             * @description Appointment-only (Wave 32 lane 7): booked travel minutes sitting
+             *     immediately BEFORE the appointment — the calendar renders them
+             *     visually distinct from the booking block.
+             */
+            travel_minutes?: number | null;
+            /** @description `heuristic` | `measured` when the estimate carries provenance. */
+            travel_quality?: string | null;
             /** Format: uuid */
             user_id: string;
         };
@@ -13504,6 +13617,7 @@ export interface components {
          *     the platform's egress posture from the declared endpoint list.
          */
         ConnectorProfile: {
+            routing?: null | components["schemas"]["RoutingProfile"];
             /**
              * @description The outbound scopes the connector asks the upstream SaaS for
              *     (e.g. `graph:mail.read`); opaque strings to the core — they exist
@@ -14775,6 +14889,12 @@ export interface components {
         };
         /** @description POST /api/dispatch/travel-drafts body. */
         CreateTravelDraftRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * Format: uuid
+             * @description Wave 32 lane 7: the planned appointment this trip reconciles
+             *     against (optional — ad-hoc travel against a ticket stays legal).
+             */
+            appointment_id?: string | null;
             billable?: boolean;
             /** Format: double */
             distance: number;
@@ -14794,6 +14914,15 @@ export interface components {
              */
             user_id?: string | null;
             vehicle: string;
+        };
+        CreateTravelExpenseRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * Format: int64
+             * @description Overrides the computed reimbursement amount when present.
+             */
+            amount_minor?: number | null;
+            /** @description Overrides the description when present. */
+            description?: string | null;
         };
         CreateVendorRequest: components["schemas"]["MutationParams"] & {
             account_number?: string | null;
@@ -15446,7 +15575,12 @@ export interface components {
             ticket_number?: string | null;
             title: string;
             /** Format: int32 */
+            travel_distance_meters?: number | null;
+            travel_from?: null | components["schemas"]["TravelOrigin"];
+            /** Format: int32 */
             travel_minutes: number;
+            travel_provider?: string | null;
+            travel_quality?: string | null;
             /** Format: uuid */
             user_id: string;
         };
@@ -16949,6 +17083,67 @@ export interface components {
         IssuedInvoice: {
             invoice: components["schemas"]["Invoice"];
             lines: components["schemas"]["InvoiceLine"][];
+        };
+        JourneyLegView: {
+            /** Format: int64 */
+            distance_meters?: number | null;
+            error?: string | null;
+            from_kind: string;
+            from_label?: string | null;
+            /** Format: int64 */
+            minutes?: number | null;
+            provider?: string | null;
+            quality?: string | null;
+            /** Format: uuid */
+            to_appointment_id: string;
+        };
+        JourneyStartMutationResponse: {
+            mutation: components["schemas"]["MutationMeta"];
+            start_point: components["schemas"]["StartPointView"];
+            /** Format: uuid */
+            start_point_id: string;
+        };
+        JourneyStartQuery: {
+            /**
+             * Format: date
+             * @description The day; defaults to today (UTC).
+             */
+            date?: string | null;
+            /**
+             * Format: uuid
+             * @description Whose journey; defaults to the caller (another user requires
+             *     owner/admin).
+             */
+            user_id?: string | null;
+        };
+        JourneyStartView: {
+            /** Format: date */
+            date: string;
+            explicit?: null | components["schemas"]["StartPointView"];
+            resolved?: null | components["schemas"]["StartPointView"];
+            /** Format: uuid */
+            user_id: string;
+        };
+        JourneyStopView: {
+            /** Format: uuid */
+            appointment_id: string;
+            /** Format: date-time */
+            ends_at: string;
+            label?: string | null;
+            leg?: null | components["schemas"]["JourneyLegView"];
+            place?: null | components["schemas"]["TravelPlaceView"];
+            /** Format: date-time */
+            starts_at: string;
+            /** Format: int32 */
+            travel_distance_meters?: number | null;
+            travel_from?: null | components["schemas"]["TravelOrigin"];
+            /**
+             * Format: int64
+             * @description Booked travel minutes into this stop (the appointment field).
+             */
+            travel_minutes: number;
+            travel_provider?: string | null;
+            travel_quality?: string | null;
         };
         /** @description A KB article. */
         KbArticle: {
@@ -18824,7 +19019,7 @@ export interface components {
          *     no key for them).
          * @enum {string}
          */
-        PluginCapability: "TicketsRead" | "TicketsWrite" | "ClientsRead" | "ClientsWrite" | "TimeRead" | "TimeWrite" | "ProjectsRead" | "ProjectsWrite" | "KbRead" | "KbWrite" | "DocumentsRead" | "DocumentsWrite" | "ReportingRead" | "FinancialRead" | "VaultIngress";
+        PluginCapability: "TicketsRead" | "TicketsWrite" | "ClientsRead" | "ClientsWrite" | "TimeRead" | "TimeWrite" | "ProjectsRead" | "ProjectsWrite" | "KbRead" | "KbWrite" | "DocumentsRead" | "DocumentsWrite" | "ReportingRead" | "FinancialRead" | "VaultIngress" | "RoutingMatrix" | "RoutingRoute" | "RoutingGeocode" | "RoutingIsochrone";
         /**
          * @description Install lifecycle. Deny-by-default: `Disabled` until an explicit
          *     admin enable; `Revoked` is terminal (registry revocation or explicit
@@ -20747,8 +20942,65 @@ export interface components {
             unit_cost_minor?: number | null;
         };
         ReconciliationQuery: {
+            /**
+             * Format: date-time
+             * @description Inclusive window start (default: 14 days before `to`).
+             */
+            from?: string | null;
+            /**
+             * Format: date-time
+             * @description Exclusive window end (default: now). Capped at 366 days.
+             */
+            to?: string | null;
+            /** Format: uuid */
+            user_id?: string | null;
+        };
+        ReconciliationRow: {
+            /**
+             * Format: int64
+             * @description Linked expenses flagged billable (client-facing).
+             */
+            billable_minor: number;
+            display_name: string;
+            /**
+             * Format: double
+             * @description Distance normalized to `mileage_rate_unit`.
+             */
+            distance: number;
+            distance_unit: string;
             /** Format: int64 */
-            limit?: number | null;
+            draft_count: number;
+            /**
+             * Format: int64
+             * @description Linked expenses total in the org's base currency.
+             */
+            expense_minor: number;
+            /** Format: int64 */
+            expensed_count: number;
+            /** Format: int64 */
+            minutes: number;
+            /**
+             * Format: int64
+             * @description Mileage reimbursement owed to the technician at the org rate.
+             */
+            reimbursement_minor: number;
+            /** Format: int64 */
+            submitted_count: number;
+            /** Format: uuid */
+            user_id: string;
+        };
+        ReconciliationView: {
+            currency: string;
+            /** Format: date-time */
+            from: string;
+            /** Format: int64 */
+            mileage_rate_minor: number;
+            mileage_rate_unit: string;
+            reimburse_techs: boolean;
+            rows: components["schemas"]["ReconciliationRow"][];
+            /** Format: date-time */
+            to: string;
+            totals: components["schemas"]["ReconciliationRow"];
         };
         RecordBillRequest: components["schemas"]["MutationParams"] & {
             /**
@@ -21264,6 +21516,67 @@ export interface components {
             /** Format: uuid */
             purchase_order_id: string;
             purchase_order_number: string;
+        };
+        RoutingDayQuery: {
+            /**
+             * Format: date
+             * @description The day to assemble; defaults to today (UTC), matching the board.
+             */
+            date?: string | null;
+        };
+        RoutingDayView: {
+            /** Format: date */
+            date: string;
+            /** Format: date-time */
+            from: string;
+            status: components["schemas"]["RoutingProviderStatus"];
+            suggestions: components["schemas"]["SuggestionSetView"];
+            technicians: components["schemas"]["TechnicianJourneyView"][];
+            /** Format: date-time */
+            to: string;
+        };
+        /**
+         * @description The routing-capability declaration a provider pack carries. Closed
+         *     vocabularies only; a pack cannot declare a capability or mode the seam
+         *     does not speak.
+         */
+        RoutingProfile: {
+            /** @description The pack's contract root: https-only absolute URL, no credentials. */
+            base_url: string;
+            /** @description Closed set: `matrix` | `route` | `geocode` | `isochrone`. */
+            capabilities?: string[];
+            /**
+             * Format: int32
+             * @description Contract revision the pack implements; the core speaks revision 1.
+             */
+            contract_revision?: number;
+            /** @description Closed set: `driving` | `walking` | `cycling` | `public_transport`. */
+            modes?: string[];
+            /**
+             * @description `measured` | `heuristic` — relay packs are measured; a heuristic
+             *     pack is allowed but never unlocks suggestion-grade features.
+             */
+            quality?: string;
+            /**
+             * @description `none` | `departure` | `arrival` | `both` — which time control the
+             *     pack honors. Anything it does not honor must not be claimed.
+             */
+            time_control?: string;
+        };
+        /**
+         * @description Serialized provider posture (mirrors `core_routing::RoutingStatusView`
+         *     with a schema-friendly shape).
+         */
+        RoutingProviderStatus: {
+            capabilities: string[];
+            measured: boolean;
+            modes: string[];
+            provider_id: string;
+            provider_label: string;
+            /** @description `heuristic` | `measured`. */
+            quality: string;
+            reason?: string | null;
+            suggestions_available: boolean;
         };
         /**
          * @description Wire format selector for an import payload.
@@ -22022,6 +22335,22 @@ export interface components {
             /** @description true = admin-stamped verification; false = revokes the stamp. */
             verified: boolean;
         };
+        SetJourneyStartRequest: components["schemas"]["MutationParams"] & {
+            address?: string | null;
+            /** Format: date */
+            date: string;
+            /** @description `home` | `office` | `site` | `address`. */
+            kind: string;
+            label?: string | null;
+            /** Format: double */
+            latitude?: number | null;
+            /** Format: double */
+            longitude?: number | null;
+            /** Format: uuid */
+            site_id?: string | null;
+            /** Format: uuid */
+            user_id?: string | null;
+        };
         /** @description PUT /api/dispatch/queue/{ticket_id} body. */
         SetQueueRankRequest: components["schemas"]["MutationParams"] & {
             note?: string | null;
@@ -22448,6 +22777,18 @@ export interface components {
             /** Format: uuid */
             uploaded_by: string;
         };
+        StartPointView: {
+            kind: string;
+            label?: string | null;
+            /** Format: double */
+            latitude?: number | null;
+            /** Format: double */
+            longitude?: number | null;
+            /** Format: uuid */
+            site_id?: string | null;
+            /** @description `explicit` | `previous_day_site`. */
+            source: string;
+        };
         StartTimerRequest: components["schemas"]["MutationParams"] & {
             /** Format: uuid */
             ticket_id: string;
@@ -22628,6 +22969,15 @@ export interface components {
              */
             state?: string | null;
         };
+        SuggestionSetView: {
+            /**
+             * @description False in NONE mode — suggestion-grade features require a measured
+             *     provider (ADR 0010 visibly-absent posture).
+             */
+            available: boolean;
+            items: components["schemas"]["TravelSuggestionView"][];
+            reason?: string | null;
+        };
         SuggestionSurface: {
             answers: components["schemas"]["SuggestionAnswer"][];
             /** @description `shadow` rows drive nothing and are labeled as such. */
@@ -22783,6 +23133,20 @@ export interface components {
             display_name: string;
             /** Format: uuid */
             user_id: string;
+        };
+        TechnicianJourneyView: {
+            display_name: string;
+            start_point?: null | components["schemas"]["StartPointView"];
+            stops: components["schemas"]["JourneyStopView"][];
+            timezone: string;
+            /**
+             * Format: int64
+             * @description Sum of leg minutes actually estimated for this day.
+             */
+            total_travel_minutes: number;
+            /** Format: uuid */
+            user_id: string;
+            warnings: components["schemas"]["TravelWarningView"][];
         };
         /**
          * @description One technician column: capacity stats plus everything the board draws
@@ -23707,6 +24071,12 @@ export interface components {
         };
         /** @description One travel/mileage draft. */
         TravelDraftView: {
+            /**
+             * Format: uuid
+             * @description Wave 32 lane 7: the planned appointment this trip reconciles
+             *     against, when linked.
+             */
+            appointment_id?: string | null;
             billable: boolean;
             /** Format: date-time */
             created_at: string;
@@ -23716,6 +24086,12 @@ export interface components {
             distance_unit: string;
             /** Format: date-time */
             ended_at: string;
+            /**
+             * Format: uuid
+             * @description Wave 32 lane 7: the expense this draft's mileage produced, once
+             *     reimbursed.
+             */
+            expense_id?: string | null;
             /** Format: uuid */
             id: string;
             notes?: string | null;
@@ -23732,6 +24108,63 @@ export interface components {
             /** Format: uuid */
             user_id: string;
             vehicle: string;
+        };
+        /**
+         * @description The resolved journey start point a travel estimate ran from (Wave 32
+         *     lane 7). Snapshotted onto the appointment so the estimate stays
+         *     explainable after the start point or the site changes.
+         */
+        TravelOrigin: {
+            /** @description `home` | `office` | `site` | `address`. */
+            kind: string;
+            label?: string | null;
+            /** Format: double */
+            latitude?: number | null;
+            /** Format: double */
+            longitude?: number | null;
+            /** Format: uuid */
+            site_id?: string | null;
+            /**
+             * @description How it was resolved: `explicit` (dispatcher-set day start) or
+             *     `previous_day_site` (auto-suggested continuity).
+             */
+            source?: string | null;
+        };
+        TravelPlaceView: {
+            kind: string;
+            label?: string | null;
+            /** Format: double */
+            latitude?: number | null;
+            /** Format: double */
+            longitude?: number | null;
+            /** Format: uuid */
+            site_id?: string | null;
+        };
+        TravelSuggestionView: {
+            /** Format: uuid */
+            appointment_id: string;
+            /** @description `swap_adjacent` | `reassign`. */
+            kind: string;
+            label: string;
+            /** Format: int64 */
+            minutes_saved: number;
+            /** Format: uuid */
+            swap_with_appointment_id?: string | null;
+            /** Format: uuid */
+            target_user_id?: string | null;
+        };
+        TravelWarningView: {
+            /** Format: uuid */
+            appointment_id?: string | null;
+            /** Format: int64 */
+            gap_minutes?: number | null;
+            kind: string;
+            message: string;
+            provider_reason?: string | null;
+            /** Format: int64 */
+            required_minutes?: number | null;
+            /** Format: int64 */
+            short_minutes?: number | null;
         };
         /** @description One field of one applied write — per-field undo granularity. */
         UndoFieldStep: {
@@ -30929,6 +31362,77 @@ export interface operations {
             };
         };
     };
+    dispatch_journey_start_get: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Whose journey; defaults to the caller (another user requires
+                 *     owner/admin).
+                 */
+                user_id?: string | null;
+                /** @description The day; defaults to today (UTC). */
+                date?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JourneyStartView"];
+                };
+            };
+        };
+    };
+    dispatch_journey_start_set: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetJourneyStartRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JourneyStartMutationResponse"];
+                };
+            };
+            /** @description site not found in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid start point */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     dispatch_match: {
         parameters: {
             query?: {
@@ -31036,6 +31540,53 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    dispatch_reconciliation: {
+        parameters: {
+            query?: {
+                /** @description Inclusive window start (default: 14 days before `to`). */
+                from?: string | null;
+                /** @description Exclusive window end (default: now). Capped at 366 days. */
+                to?: string | null;
+                user_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReconciliationView"];
+                };
+            };
+        };
+    };
+    dispatch_routing_day: {
+        parameters: {
+            query?: {
+                /** @description The day to assemble; defaults to today (UTC), matching the board. */
+                date?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoutingDayView"];
+                };
             };
         };
     };
@@ -31239,6 +31790,52 @@ export interface operations {
                 content?: never;
             };
             /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    dispatch_travel_draft_expense: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTravelExpenseRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExpenseMutationResponse"];
+                };
+            };
+            /** @description draft not found in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description draft already expensed or key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid amount */
             422: {
                 headers: {
                     [name: string]: unknown;

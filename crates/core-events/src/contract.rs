@@ -4742,6 +4742,10 @@ fn sample_appointment(status: AppointmentStatus) -> Appointment {
         travel_minutes: 35,
         notes: None,
         scheduling_link_id: None,
+        travel_from: None,
+        travel_distance_meters: None,
+        travel_provider: None,
+        travel_quality: None,
         created_at: st(7),
         updated_at: st(7),
     }

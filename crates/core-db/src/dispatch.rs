@@ -273,6 +273,12 @@ pub struct TravelDraftRow {
     /// `draft` | `submitted` (the DB CHECK pins the vocabulary).
     pub status: String,
     pub submitted_time_entry_id: Option<Uuid>,
+    /// Wave 32 lane 7: the planned appointment this trip reconciles
+    /// against (optional — ad-hoc travel against a ticket stays legal).
+    pub appointment_id: Option<Uuid>,
+    /// Wave 32 lane 7: the ticket_expense this draft's mileage produced
+    /// when reimbursed; set makes the draft settled.
+    pub expense_id: Option<Uuid>,
     pub created_by: Uuid,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -286,11 +292,11 @@ pub async fn insert_travel_draft(
         TravelDraftRow,
         r#"INSERT INTO travel_entry_drafts
              (id, org_id, user_id, ticket_id, started_at, ended_at, distance,
-              distance_unit, vehicle, billable, notes, status, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'draft', $12)
+              distance_unit, vehicle, billable, notes, status, created_by, appointment_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'draft', $12, $13)
            RETURNING id, org_id, user_id, ticket_id, started_at, ended_at, distance,
               distance_unit, vehicle, billable, notes, status,
-              submitted_time_entry_id, created_by, created_at, updated_at"#,
+              submitted_time_entry_id, appointment_id, expense_id, created_by, created_at, updated_at"#,
         draft.id,
         draft.org_id,
         draft.user_id,
@@ -303,6 +309,7 @@ pub async fn insert_travel_draft(
         draft.billable,
         draft.notes,
         draft.created_by,
+        draft.appointment_id,
     )
     .fetch_one(conn)
     .await
@@ -318,7 +325,7 @@ pub async fn get_travel_draft(
         TravelDraftRow,
         r#"SELECT id, org_id, user_id, ticket_id, started_at, ended_at, distance,
               distance_unit, vehicle, billable, notes, status,
-              submitted_time_entry_id, created_by, created_at, updated_at
+              submitted_time_entry_id, appointment_id, expense_id, created_by, created_at, updated_at
            FROM travel_entry_drafts WHERE org_id = $1 AND id = $2"#,
         org_id,
         id,
@@ -385,7 +392,7 @@ pub async fn patch_travel_draft(
         .push(
             " AND status = 'draft' RETURNING id, org_id, user_id, ticket_id, started_at, \
                ended_at, distance, distance_unit, vehicle, billable, notes, status, \
-               submitted_time_entry_id, created_by, created_at, updated_at",
+               submitted_time_entry_id, appointment_id, expense_id, created_by, created_at, updated_at",
         );
     let row = q
         .build_query_as::<TravelDraftRow>()
@@ -425,7 +432,7 @@ pub async fn list_travel_drafts(
         TravelDraftRow,
         r#"SELECT id, org_id, user_id, ticket_id, started_at, ended_at, distance,
               distance_unit, vehicle, billable, notes, status,
-              submitted_time_entry_id, created_by, created_at, updated_at
+              submitted_time_entry_id, appointment_id, expense_id, created_by, created_at, updated_at
            FROM travel_entry_drafts
            WHERE org_id = $1
              AND ($2::uuid IS NULL OR user_id = $2)
@@ -458,7 +465,7 @@ pub async fn mark_travel_draft_submitted(
            WHERE org_id = $1 AND id = $2 AND status = 'draft'
            RETURNING id, org_id, user_id, ticket_id, started_at, ended_at, distance,
               distance_unit, vehicle, billable, notes, status,
-              submitted_time_entry_id, created_by, created_at, updated_at"#,
+              submitted_time_entry_id, appointment_id, expense_id, created_by, created_at, updated_at"#,
         org_id,
         id,
         time_entry_id,
@@ -467,6 +474,64 @@ pub async fn mark_travel_draft_submitted(
     .await?
     .ok_or(DbError::NotFound)?;
     Ok(row)
+}
+
+/// Stamps the ticket_expense a draft's mileage produced (Wave 32 lane 7
+/// reconciliation). Works on draft OR submitted rows (mileage is often
+/// reimbursed after the time entry cleared approval); an already-settled
+/// draft refuses so one trip never produces two expenses.
+pub async fn attach_travel_draft_expense(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    id: Uuid,
+    expense_id: Uuid,
+) -> DbResult<TravelDraftRow> {
+    let row = sqlx::query_as!(
+        TravelDraftRow,
+        r#"UPDATE travel_entry_drafts
+           SET expense_id = $3, updated_at = now()
+           WHERE org_id = $1 AND id = $2 AND expense_id IS NULL
+           RETURNING id, org_id, user_id, ticket_id, started_at, ended_at, distance,
+              distance_unit, vehicle, billable, notes, status,
+              submitted_time_entry_id, appointment_id, expense_id, created_by, created_at, updated_at"#,
+        org_id,
+        id,
+        expense_id,
+    )
+    .fetch_optional(&mut *conn)
+    .await?
+    .ok_or(DbError::NotFound)?;
+    Ok(row)
+}
+
+/// Reconciliation window read: every draft (any status) whose worked
+/// window starts inside `[from, to)` for the org, optionally one user,
+/// oldest first so a settlement sheet reads chronologically.
+pub async fn list_travel_drafts_for_reconciliation(
+    executor: impl sqlx::Executor<'_, Database = Postgres>,
+    org_id: Uuid,
+    user_id: Option<Uuid>,
+    from: DateTime<Utc>,
+    to: DateTime<Utc>,
+) -> DbResult<Vec<TravelDraftRow>> {
+    let rows = sqlx::query_as!(
+        TravelDraftRow,
+        r#"SELECT id, org_id, user_id, ticket_id, started_at, ended_at, distance,
+              distance_unit, vehicle, billable, notes, status,
+              submitted_time_entry_id, appointment_id, expense_id, created_by, created_at, updated_at
+           FROM travel_entry_drafts
+           WHERE org_id = $1
+             AND ($2::uuid IS NULL OR user_id = $2)
+             AND started_at >= $3 AND started_at < $4
+           ORDER BY started_at, id"#,
+        org_id,
+        user_id,
+        from,
+        to,
+    )
+    .fetch_all(executor)
+    .await?;
+    Ok(rows)
 }
 
 // --- connector status ledger --------------------------------------------------

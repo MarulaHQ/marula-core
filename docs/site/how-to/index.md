@@ -28,6 +28,8 @@ the tag is **both** or points to the staff/client catalog below.
 - [Manage AI access](admin-ai-access.md) — org master switch + per-surface
   grants
 - [Manage dashboards & report schedules](admin-dashboards-reports.md)
+- [Turn on travel time & mileage reconciliation](admin-routing-travel.md) —
+  provider config, day start points, warnings, reimbursements
 - [Set up labels and label templates](admin-labels.md) — typed templates,
   Zebra/DYMO stock, QR deep links, browser and ZPL print targets
 - [Connect an IdP (SSO)](admin-sso.md) — the IdP handoff round-trip

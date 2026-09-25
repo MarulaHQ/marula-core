@@ -41,8 +41,49 @@ import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 
-type TravelDraftView = components["schemas"]["TravelDraftView"];
+type TravelDraftView = components["schemas"]["TravelDraftView"] & {
+  /** Wave 32 lane 7 links; the SDK gains them on the next openapi re-pin. */
+  appointment_id?: string | null;
+  expense_id?: string | null;
+};
 type TravelDraftMutationResponse = components["schemas"]["TravelDraftMutationResponse"];
+
+/** Reconciliation view (Wave 32 lane 7) — local shape until the SDK
+ *  re-pin picks up the new endpoint. */
+type ReconciliationRow = {
+  user_id: string;
+  display_name: string;
+  draft_count: number;
+  submitted_count: number;
+  expensed_count: number;
+  distance: number;
+  distance_unit: string;
+  minutes: number;
+  expense_minor: number;
+  reimbursement_minor: number;
+  billable_minor: number;
+};
+type ReconciliationView = {
+  currency: string;
+  mileage_rate_minor: number;
+  mileage_rate_unit: string;
+  reimburse_techs: boolean;
+  rows: ReconciliationRow[];
+  totals: ReconciliationRow;
+};
+
+function formatMinor(minor: number, currency: string): string {
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency,
+  }).format(minor / 100);
+}
+
+function formatMinutes(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return hours > 0 ? `${hours}h ${rest}m` : `${rest}m`;
+}
 
 type FormState = {
   ticket_id: string;
@@ -75,6 +116,7 @@ function toIso(local: string): string {
 export default function TravelDraftsPage() {
   const auth = useRequireAuth();
   const [drafts, setDrafts] = useState<TravelDraftView[] | null>(null);
+  const [rollup, setRollup] = useState<ReconciliationView | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | "draft" | "submitted">("all");
   const [actionError, setActionError] = useState<string | null>(null);
@@ -84,6 +126,7 @@ export default function TravelDraftsPage() {
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [submittingId, setSubmittingId] = useState<string | null>(null);
+  const [expensingId, setExpensingId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const { data, error } = await api.api.GET("/api/v1/dispatch/travel-drafts");
@@ -93,11 +136,36 @@ export default function TravelDraftsPage() {
     }
     setDrafts(data);
     setLoadError(null);
+    const to = new Date();
+    const from = new Date(to.getTime() - 14 * 24 * 60 * 60 * 1000);
+    const reconciliation = (await api.api.GET(
+      "/api/v1/dispatch/reconciliation" as never,
+      {
+        params: { query: { from: from.toISOString(), to: to.toISOString() } },
+      } as never,
+    )) as { data?: unknown; error?: unknown };
+    if (reconciliation.error === undefined && reconciliation.data !== undefined) {
+      setRollup(reconciliation.data as ReconciliationView);
+    }
   }, []);
 
   useEffect(() => {
     if (auth.status === "authed") void refresh();
   }, [auth.status, refresh]);
+
+  // Time-entry context entry point (Wave 32 lane 7): the approvals queue
+  // and ticket surfaces link here with ?ticket_id=…, so logging the
+  // trip's actual mileage starts from the entry that prompted it. Read
+  // from `window` in the effect (client-only) so the page keeps
+  // prerendering without a Suspense boundary.
+  useEffect(() => {
+    const ticketId = new URLSearchParams(window.location.search).get("ticket_id");
+    if (ticketId !== null && ticketId.trim() !== "") {
+      setForm({ ...emptyForm(), ticket_id: ticketId.trim() });
+      setFormError(null);
+      setFormOpen(true);
+    }
+  }, []);
 
   const openCreate = () => {
     setEditingId(null);
@@ -252,6 +320,24 @@ export default function TravelDraftsPage() {
     void refresh();
   };
 
+  const createExpense = async (d: TravelDraftView) => {
+    setActionError(null);
+    setExpensingId(d.id);
+    const { error } = await api.api.POST(
+      "/api/v1/dispatch/travel-drafts/{id}/expense" as never,
+      {
+        params: { path: { id: d.id } },
+        body: { idempotency_key: crypto.randomUUID() },
+      } as never,
+    );
+    setExpensingId(null);
+    if (error !== undefined) {
+      setActionError("The reimbursement expense was rejected.");
+      return;
+    }
+    void refresh();
+  };
+
   if (auth.status !== "authed") return null;
 
   const visible = (drafts ?? [])
@@ -375,7 +461,20 @@ export default function TravelDraftsPage() {
                         </Button>
                       </span>
                     ) : (
-                      <span style={{ color: "var(--m-text-muted)" }}>—</span>
+                      <span className="flex justify-end gap-2">
+                        {d.expense_id ? (
+                          <StatusTag tone="success">expensed</StatusTag>
+                        ) : (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => void createExpense(d)}
+                            disabled={expensingId === d.id}
+                          >
+                            {expensingId === d.id ? <Spinner /> : null} Expense
+                          </Button>
+                        )}
+                      </span>
                     )}
                   </Td>
                 </Tr>
@@ -404,6 +503,90 @@ export default function TravelDraftsPage() {
               </div>
             )}
           </Card>
+
+      <Card data-testid="reconciliation-card">
+        <div className="border-b px-4 py-3" style={{ borderColor: "var(--m-border)" }}>
+          <h2 className="text-sm font-semibold">Reconciliation &amp; reimbursements</h2>
+          <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+            Last 14 days of logged travel, priced at the org mileage rate.
+            Creating an expense books the reimbursement against the ticket.
+          </p>
+        </div>
+        {rollup === null ? (
+          <div className="p-4">
+            <Spinner />
+          </div>
+        ) : rollup.rows.length === 0 ? (
+          <div className="p-4">
+            <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+              No travel logged in the last 14 days.
+            </p>
+          </div>
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <Th>Technician</Th>
+                <Th className="text-right">Trips</Th>
+                <Th className="text-right">Distance</Th>
+                <Th className="text-right">Time</Th>
+                <Th className="text-right">Expenses</Th>
+                <Th className="text-right">Reimbursable</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {rollup.rows.map((row) => (
+                <Tr key={row.user_id}>
+                  <Td>{row.display_name}</Td>
+                  <Td className="text-right tabular-nums">
+                    {row.draft_count}
+                    {row.submitted_count > 0 ? ` · ${row.submitted_count} submitted` : ""}
+                  </Td>
+                  <Td className="text-right tabular-nums">
+                    {row.distance.toFixed(1)} {row.distance_unit}
+                  </Td>
+                  <Td className="text-right tabular-nums">{formatMinutes(row.minutes)}</Td>
+                  <Td className="text-right tabular-nums">
+                    {formatMinor(row.expense_minor, rollup.currency)}
+                  </Td>
+                  <Td className="text-right tabular-nums">
+                    {formatMinor(row.reimbursement_minor, rollup.currency)}
+                  </Td>
+                </Tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr
+                className="border-t text-[12px] tabular-nums"
+                style={{ borderColor: "var(--m-border)", color: "var(--m-text-secondary)" }}
+              >
+                <Td>Total</Td>
+                <Td className="text-right">{rollup.totals.draft_count}</Td>
+                <Td className="text-right">
+                  {rollup.totals.distance.toFixed(1)} {rollup.totals.distance_unit}
+                </Td>
+                <Td className="text-right">{formatMinutes(rollup.totals.minutes)}</Td>
+                <Td className="text-right">
+                  {formatMinor(rollup.totals.expense_minor, rollup.currency)}
+                </Td>
+                <Td className="text-right">
+                  {formatMinor(rollup.totals.reimbursement_minor, rollup.currency)}
+                </Td>
+              </tr>
+            </tfoot>
+          </Table>
+        )}
+        {rollup !== null ? (
+          <div
+            className="border-t px-4 py-2 text-[11px] tabular-nums"
+            style={{ borderColor: "var(--m-border)", color: "var(--m-text-muted)" }}
+          >
+            Rate {formatMinor(rollup.mileage_rate_minor, rollup.currency)} per{" "}
+            {rollup.mileage_rate_unit}
+            {rollup.reimburse_techs ? "" : " · technician reimbursement off"}
+          </div>
+        ) : null}
+      </Card>
 
       <Dialog open={formOpen} onOpenChange={(o) => { setFormOpen(o); if (!o) setFormError(null); }}>
         <DialogContent

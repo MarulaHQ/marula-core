@@ -476,6 +476,7 @@ async fn bootstrap_backend() -> anyhow::Result<(Backend, String, String)> {
         mail: Arc::new(core_api::email::MailStack::from_config(&config)),
         reporting: core_api::state::AppState::reporting_pool(&config.database_url).await,
         store: core_store::build(&config.object_store),
+        routing: core_api::routing::build_registry(&config),
     };
     tokio::spawn(core_api::realtime::run_listener(
         config.database_url.clone(),

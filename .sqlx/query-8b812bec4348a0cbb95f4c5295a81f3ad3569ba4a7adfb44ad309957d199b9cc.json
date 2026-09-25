@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE travel_entry_drafts\n           SET status = 'submitted', submitted_time_entry_id = $3, updated_at = now()\n           WHERE org_id = $1 AND id = $2 AND status = 'draft'\n           RETURNING id, org_id, user_id, ticket_id, started_at, ended_at, distance,\n              distance_unit, vehicle, billable, notes, status,\n              submitted_time_entry_id, created_by, created_at, updated_at",
+  "query": "UPDATE travel_entry_drafts\n           SET status = 'submitted', submitted_time_entry_id = $3, updated_at = now()\n           WHERE org_id = $1 AND id = $2 AND status = 'draft'\n           RETURNING id, org_id, user_id, ticket_id, started_at, ended_at, distance,\n              distance_unit, vehicle, billable, notes, status,\n              submitted_time_entry_id, appointment_id, expense_id, created_by, created_at, updated_at",
   "describe": {
     "columns": [
       {
@@ -70,16 +70,26 @@
       },
       {
         "ordinal": 13,
-        "name": "created_by",
+        "name": "appointment_id",
         "type_info": "Uuid"
       },
       {
         "ordinal": 14,
+        "name": "expense_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 15,
+        "name": "created_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 16,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 15,
+        "ordinal": 17,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
@@ -105,10 +115,12 @@
       true,
       false,
       true,
+      true,
+      true,
       false,
       false,
       false
     ]
   },
-  "hash": "400e7ad757164a96a8e28a5e58dcf7ec5bb302fcf734fec83496db74c4b6ff8c"
+  "hash": "8b812bec4348a0cbb95f4c5295a81f3ad3569ba4a7adfb44ad309957d199b9cc"
 }

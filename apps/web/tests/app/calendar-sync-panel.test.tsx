@@ -224,6 +224,8 @@ describe("CalendarSyncPanel", () => {
               status: null,
               userId: null,
               number: null,
+              travelMinutes: 0,
+              travelQuality: null,
             },
           ]}
         />
