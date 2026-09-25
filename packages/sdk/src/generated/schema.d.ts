@@ -4744,6 +4744,105 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/label-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/label-templates — org templates, optionally per purpose. */
+        get: operations["label_templates_list"];
+        put?: never;
+        /** POST /api/label-templates — create a template (Admin:edit). */
+        post: operations["label_templates_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/label-templates/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/label-templates/preview — render a DRAFT template against
+         *     deterministic sample values (the designer's live preview).
+         */
+        post: operations["label_templates_preview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/label-templates/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/label-templates/{id}. */
+        get: operations["label_templates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/label-templates/{id} — absent fields keep their value
+         *     (Admin:edit).
+         */
+        patch: operations["label_templates_update"];
+        trace?: never;
+    };
+    "/api/v1/label-templates/{id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/label-templates/{id}/archive — archival is a flag; the
+         *     archived template frees the purpose's default slot.
+         */
+        post: operations["label_templates_archive"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/labels/render": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/labels/render — resolve a real entity and render its label:
+         *     browser-print geometry + the exact ZPL the desktop shell transports.
+         */
+        post: operations["labels_render"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mcp/capabilities": {
         parameters: {
             query?: never;
@@ -7914,6 +8013,23 @@ export interface paths {
          *     roles and forks are org-owned data and are never restorable.
          */
         post: operations["roles_restore"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scan/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/scan/resolve — resolve scanned text into a typed entity. */
+        post: operations["scan_resolve"];
         delete?: never;
         options?: never;
         head?: never;
@@ -14120,6 +14236,25 @@ export interface components {
             name: string;
             note?: string | null;
         };
+        /**
+         * @description Create body. `width_mm`/`height_mm` are required exactly when
+         *     `size_preset = "custom"`; millimetres are rounded to a tenth.
+         */
+        CreateLabelTemplateRequest: components["schemas"]["MutationParams"] & {
+            barcode_token?: string | null;
+            /** Format: int32 */
+            dpi?: number | null;
+            fields?: string[];
+            /** Format: double */
+            height_mm?: number | null;
+            include_qr?: boolean;
+            is_default?: boolean;
+            name: string;
+            purpose: string;
+            size_preset: string;
+            /** Format: double */
+            width_mm?: number | null;
+        };
         CreateLayoutRequest: components["schemas"]["MutationParams"] & {
             description?: string;
             fields?: components["schemas"]["LayoutField"][];
@@ -16983,6 +17118,108 @@ export interface components {
             members: components["schemas"]["KitMemberView"][];
             mutation: components["schemas"]["MutationMeta"];
         };
+        LabelBarcode: {
+            data: string;
+            /** Format: double */
+            height_mm: number;
+            token: string;
+            /**
+             * Format: double
+             * @description Band width: the FULL content width (the QR sits above it, never over it).
+             */
+            width_mm: number;
+            /** Format: double */
+            y_mm: number;
+        };
+        /** @description Which entity a rendered label names. */
+        LabelEntityView: {
+            /**
+             * @description The canonical deep link — the QR payload, and what `POST
+             *     /api/scan/resolve` hands back for the printed label.
+             */
+            deep_link: string;
+            display_name: string;
+            /** Format: uuid */
+            entity_id: string;
+            purpose: string;
+        };
+        LabelLine: {
+            /**
+             * Format: double
+             * @description The effective font size for this line: `0.72 × height_mm` when the
+             *     text fits, shrunk (floor `0.45 × height_mm`) until it does. The ZPL
+             *     `^A0N` height and the browser preview both use THIS number, so the
+             *     print and the preview can never disagree on how big the text is.
+             */
+            font_mm: number;
+            /**
+             * Format: double
+             * @description The line box height (spacing).
+             */
+            height_mm: number;
+            text: string;
+            token: string;
+            /**
+             * @description True when even the smallest font could not fit the text and the tail
+             *     was cut — surfaced in the UI, never silent.
+             */
+            truncated: boolean;
+            /** Format: double */
+            y_mm: number;
+        };
+        LabelQr: {
+            data: string;
+            /** Format: double */
+            size_mm: number;
+            /** Format: double */
+            y_mm: number;
+        };
+        /**
+         * @description The rendered label: geometry in millimetres, the QR and Code128 as
+         *     inline SVG markup (render them as images — never as script), and
+         *     optionally the exact ZPL the desktop shell sends to a Zebra printer.
+         */
+        LabelRenderResponse: {
+            code128_svg?: string | null;
+            entity: components["schemas"]["LabelEntityView"];
+            label: components["schemas"]["ResolvedLabel"];
+            qr_svg?: string | null;
+            /** @description True when deterministic sample values were rendered (designer preview). */
+            sample: boolean;
+            template: components["schemas"]["LabelTemplateView"];
+            zpl?: string | null;
+        };
+        LabelTemplateMutationResponse: components["schemas"]["LabelTemplateView"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        /**
+         * @description The template as the API exposes it; `width_mm`/`height_mm` are the
+         *     resolved physical size (preset or custom), so clients never re-derive it.
+         */
+        LabelTemplateView: {
+            active: boolean;
+            barcode_token?: string | null;
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** Format: int32 */
+            dpi: number;
+            fields: string[];
+            /** Format: double */
+            height_mm: number;
+            /** Format: uuid */
+            id: string;
+            include_qr: boolean;
+            is_default: boolean;
+            name: string;
+            /** Format: uuid */
+            org_id: string;
+            purpose: string;
+            size_preset: string;
+            updated_at: string;
+            /** Format: double */
+            width_mm: number;
+        };
         LadderStepSpec: {
             /**
              * Format: int64
@@ -19226,6 +19463,24 @@ export interface components {
             name: string;
             permissions: unknown;
         };
+        /**
+         * @description Draft render body (the designer preview). Same shape as create minus the
+         *     template identity: nothing is persisted.
+         */
+        PreviewLabelRequest: {
+            barcode_token?: string | null;
+            /** Format: int32 */
+            dpi?: number | null;
+            fields?: string[];
+            /** Format: double */
+            height_mm?: number | null;
+            include_qr?: boolean;
+            name?: string | null;
+            purpose: string;
+            size_preset: string;
+            /** Format: double */
+            width_mm?: number | null;
+        };
         PreviewQuery: {
             /**
              * Format: date
@@ -20556,6 +20811,17 @@ export interface components {
         RegistryResponse: {
             settings: components["schemas"]["DeclarationView"][];
         };
+        RenderLabelRequest: {
+            /**
+             * Format: uuid
+             * @description The entity the template's purpose points at (stock item id, serial
+             *     id, location id, or device asset id).
+             */
+            entity_id: string;
+            include_zpl?: boolean;
+            /** Format: uuid */
+            template_id: string;
+        };
         RenderTemplateRequest: {
             /**
              * Format: uuid
@@ -20832,6 +21098,21 @@ export interface components {
             /** @enum {string} */
             kind: "toggle";
         };
+        /** @description The deterministic rendered label: absolute geometry in millimetres. */
+        ResolvedLabel: {
+            barcode?: null | components["schemas"]["LabelBarcode"];
+            /** Format: int32 */
+            dpi: number;
+            /** @description Lines dropped because they could not fit at the minimum line height. */
+            dropped_lines: number;
+            /** Format: double */
+            height_mm: number;
+            lines: components["schemas"]["LabelLine"][];
+            purpose: string;
+            qr?: null | components["schemas"]["LabelQr"];
+            /** Format: double */
+            width_mm: number;
+        };
         /**
          * @description A link with its target resolved to a display label for the UI
          *     (typed read model; the raw row never carries the label).
@@ -21044,6 +21325,56 @@ export interface components {
              * @description Inclusive window end (UTC day). Max span with `from`: 366 days.
              */
             to?: string | null;
+        };
+        /** @description One candidate when a code matches more than one row of the same kind. */
+        ScanCandidateView: {
+            display_name: string;
+            /** Format: uuid */
+            entity_id: string;
+            kind: string;
+            secondary?: string | null;
+        };
+        /**
+         * @description The typed meaning of one scanned string. `entity_id` is the resolved
+         *     entity: the stock item, the serialized unit, the location, or the device
+         *     asset. `deep_link` is always the canonical link for that entity, so a
+         *     caller can print/re-show exactly what it scanned.
+         */
+        ScanResolutionView: {
+            /** @description Populated when the winning kind matched more than one row. */
+            candidates?: components["schemas"]["ScanCandidateView"][];
+            deep_link?: string | null;
+            /** Format: uuid */
+            device_asset_id?: string | null;
+            display_name: string;
+            /** Format: uuid */
+            entity_id?: string | null;
+            input: string;
+            /** @description Serialized units only: the unit is a tool (`is_tool` on its item). */
+            is_tool: boolean;
+            /** @description Stock items/serials only: "serialized" | "consumable". */
+            item_kind?: string | null;
+            /** @description "stock_item" | "serialized_unit" | "stock_location" | "device_asset" | "unknown" */
+            kind: string;
+            /** Format: uuid */
+            location_id?: string | null;
+            secondary?: string | null;
+            /** Format: uuid */
+            serial_id?: string | null;
+            /** @description Serialized units only: in_stock | out | checked_out | loaned. */
+            serial_status?: string | null;
+            /**
+             * Format: uuid
+             * @description Present for stock_item and serialized_unit: the parent item.
+             */
+            stock_item_id?: string | null;
+        };
+        ScanResolveRequest: {
+            /**
+             * @description The raw scanned text (keyboard-wedge burst, camera decode, or a
+             *     pasted deep link).
+             */
+            text: string;
         };
         /**
          * @description Outcome of the malware scan that runs between webhook receipt and
@@ -22459,8 +22790,9 @@ export interface components {
             variables: string[];
         };
         TemplateListQuery: {
-            /** @description Narrow the listing to one source system. */
-            source_system?: string | null;
+            /** @description Defaults to true: the pickers only ever want live templates. */
+            active_only?: boolean | null;
+            purpose?: string | null;
         };
         TemplateMutationResponse: components["schemas"]["ProjectTemplate"];
         TemplateVariableView: {
@@ -23613,6 +23945,23 @@ export interface components {
             code?: string | null;
             name?: string | null;
             note?: string | null;
+        };
+        UpdateLabelTemplateRequest: components["schemas"]["MutationParams"] & {
+            active?: boolean | null;
+            /** @description Absent keeps the current token; `null` clears it (no barcode). */
+            barcode_token?: string | null;
+            /** Format: int32 */
+            dpi?: number | null;
+            fields?: string[] | null;
+            /** Format: double */
+            height_mm?: number | null;
+            include_qr?: boolean | null;
+            is_default?: boolean | null;
+            name?: string | null;
+            purpose?: string | null;
+            size_preset?: string | null;
+            /** Format: double */
+            width_mm?: number | null;
         };
         UpdateLayoutRequest: components["schemas"]["MutationParams"] & {
             description?: string;
@@ -33327,6 +33676,229 @@ export interface operations {
             };
         };
     };
+    label_templates_list: {
+        parameters: {
+            query?: {
+                /** @description Filter to one print purpose */
+                purpose?: string;
+                /** @description Defaults to true */
+                active_only?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LabelTemplateView"][];
+                };
+            };
+        };
+    };
+    label_templates_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLabelTemplateRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LabelTemplateMutationResponse"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    label_templates_preview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreviewLabelRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LabelRenderResponse"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    label_templates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Template id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LabelTemplateView"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    label_templates_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Template id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateLabelTemplateRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LabelTemplateMutationResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    label_templates_archive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Template id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LabelTemplateMutationResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    labels_render: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenderLabelRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LabelRenderResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     mcp_capabilities_list: {
         parameters: {
             query?: never;
@@ -39673,6 +40245,35 @@ export interface operations {
             };
             /** @description version conflict or idempotency key reused */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    scan_resolve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScanResolveRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScanResolutionView"];
+                };
+            };
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

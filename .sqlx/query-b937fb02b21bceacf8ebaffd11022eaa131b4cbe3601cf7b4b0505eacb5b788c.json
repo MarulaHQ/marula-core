@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE label_templates SET is_default = false, updated_at = now()\n           WHERE org_id = $1 AND purpose = $2 AND id <> $3 AND is_default",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b937fb02b21bceacf8ebaffd11022eaa131b4cbe3601cf7b4b0505eacb5b788c"
+}

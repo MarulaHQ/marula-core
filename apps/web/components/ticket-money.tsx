@@ -37,6 +37,8 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { runEnvelopeMutation } from "../lib/envelope-write";
 import { money } from "../lib/format";
+import { ticketPartDraft } from "../lib/scan/routing";
+import { ScanBar } from "./scan/scan-bar";
 
 type TicketCostLine = components["schemas"]["TicketCostLine"];
 type TicketExpense = components["schemas"]["TicketExpense"];
@@ -69,6 +71,7 @@ export function TicketMoney({ ticketId }: { ticketId: string }) {
   const [clBillable, setClBillable] = useState(true);
   const [clBusy, setClBusy] = useState(false);
   const [clError, setClError] = useState<string | null>(null);
+  const [scanNote, setScanNote] = useState<string | null>(null);
 
   // add-expense form
   const [exDesc, setExDesc] = useState("");
@@ -154,8 +157,30 @@ export function TicketMoney({ ticketId }: { ticketId: string }) {
     void refresh();
   };
 
-  const addExpense = async () => {
-    setExError(null);
+  // Scan-to-parts (Wave 32 lane 5): a resolved stock item or serialized
+  // unit FILLS the cost-line form — description, quantity 1, and the
+  // item's last-known unit cost when the caller may read it. Nothing
+  // submits: the human reviews and presses Add line.
+  const onScanToPart = async (resolution: components["schemas"]["ScanResolutionView"]) => {
+    const itemId = resolution.stock_item_id ?? resolution.entity_id;
+    let item: components["schemas"]["StockItemView"] | null = null;
+    if (itemId != null) {
+      const { data } = await api.api.GET("/api/v1/stock-items/{id}", {
+        params: { path: { id: itemId } },
+      });
+      if (data !== undefined) item = data as components["schemas"]["StockItemView"];
+    }
+    const draft = ticketPartDraft(resolution, item);
+    setClKind("parts");
+    setClDesc(draft.description);
+    setClQty(String(draft.quantity));
+    setClUnit(draft.unitCost);
+    setClCurrency(draft.currency.toUpperCase());
+    setScanNote(draft.note);
+    setClError(null);
+  };
+
+  const addExpense = async () => {    setExError(null);
     const amount = Math.round(Number(exAmount) * 100);
     if (!Number.isFinite(amount) || amount <= 0) {
       setExError("Amount must be greater than zero.");
@@ -319,7 +344,7 @@ export function TicketMoney({ ticketId }: { ticketId: string }) {
   return (
     <div className="grid content-start gap-3" data-testid="money-panel">
       <Card>
-        <h3 className="p-4 pb-2 text-[12px] font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
+        <h3 className="p-4 pb-2 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
           Cost lines
         </h3>
         {lines === null ? (
@@ -349,15 +374,15 @@ export function TicketMoney({ ticketId }: { ticketId: string }) {
                 return (
                   <Tr key={line.id}>
                     <Td><StatusTag tone={line.kind === "parts" ? "neutral" : line.kind === "flat" ? "success" : "warning"}>{line.kind}</StatusTag></Td>
-                    <Td className="text-[12px]">
+                    <Td className="text-xs">
                       <span className="inline-flex items-center gap-1">
                         {billed ? <BilledLock /> : null}
                         {line.description}
                       </span>
                     </Td>
-                    <Td className="text-right text-[12px] tabular-nums">{line.quantity}</Td>
-                    <Td className="text-right text-[12px] tabular-nums">{money(line.unit_cost_minor, line.currency)}</Td>
-                    <Td className="text-right text-[12px] tabular-nums font-medium">{money(Math.round(line.quantity * line.unit_cost_minor), line.currency)}</Td>
+                    <Td className="text-right text-xs tabular-nums">{line.quantity}</Td>
+                    <Td className="text-right text-xs tabular-nums">{money(line.unit_cost_minor, line.currency)}</Td>
+                    <Td className="text-right text-xs tabular-nums font-medium">{money(Math.round(line.quantity * line.unit_cost_minor), line.currency)}</Td>
                     <Td>
                       <input
                         type="checkbox"
@@ -380,6 +405,23 @@ export function TicketMoney({ ticketId }: { ticketId: string }) {
             </tbody>
           </Table>
         )}
+        <div className="px-4 pb-2">
+          <ScanBar
+            surface="ticket-parts"
+            hint="Scan a part or a serialized unit to fill the line below — review it, then add it."
+            onScan={({ resolution }) => void onScanToPart(resolution)}
+            onRejected={(message) => setScanNote(message)}
+          />
+          {scanNote !== null ? (
+            <p
+              className="mt-1 text-[11px]"
+              data-testid="ticket-parts-scan-note"
+              style={{ color: "var(--m-text-secondary)" }}
+            >
+              {scanNote}
+            </p>
+          ) : null}
+        </div>
         <form
           className="flex flex-wrap items-end gap-2 p-4"
           onSubmit={(e) => {
@@ -414,7 +456,7 @@ export function TicketMoney({ ticketId }: { ticketId: string }) {
             <Label htmlFor="cl-cur">Cur.</Label>
             <Input id="cl-cur" maxLength={3} value={clCurrency} onChange={(e) => setClCurrency(e.target.value.toUpperCase())} />
           </div>
-          <label className="flex items-center gap-1 pb-1 text-[12px]">
+          <label className="flex items-center gap-1 pb-1 text-xs">
             <input type="checkbox" checked={clBillable} onChange={(e) => setClBillable(e.target.checked)} />
             Billable
           </label>
@@ -422,13 +464,13 @@ export function TicketMoney({ ticketId }: { ticketId: string }) {
             {clBusy ? <Spinner /> : null} Add line
           </Button>
           {clError !== null ? (
-            <p role="alert" className="w-full text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>{clError}</p>
+            <p role="alert" className="w-full text-xs" style={{ color: "var(--m-status-danger-fg)" }}>{clError}</p>
           ) : null}
         </form>
       </Card>
 
       <Card>
-        <h3 className="p-4 pb-2 text-[12px] font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
+        <h3 className="p-4 pb-2 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
           Expenses
         </h3>
         {expenses === null ? (
@@ -455,14 +497,14 @@ export function TicketMoney({ ticketId }: { ticketId: string }) {
                 const billed = expense.invoice_line_id != null;
                 return (
                   <Tr key={expense.id}>
-                    <Td className="text-[12px]">
+                    <Td className="text-xs">
                       <span className="inline-flex items-center gap-1">
                         {billed ? <BilledLock /> : null}
                         {expense.description}
                       </span>
                     </Td>
-                    <Td className="text-[12px]">{new Date(expense.incurred_at).toLocaleDateString()}</Td>
-                    <Td className="text-right text-[12px] tabular-nums">{money(expense.amount_minor, expense.currency)}</Td>
+                    <Td className="text-xs">{new Date(expense.incurred_at).toLocaleDateString()}</Td>
+                    <Td className="text-right text-xs tabular-nums">{money(expense.amount_minor, expense.currency)}</Td>
                     <Td>
                       <input
                         type="checkbox"
@@ -504,7 +546,7 @@ export function TicketMoney({ ticketId }: { ticketId: string }) {
             <Label htmlFor="ex-cur">Cur.</Label>
             <Input id="ex-cur" maxLength={3} value={exCurrency} onChange={(e) => setExCurrency(e.target.value.toUpperCase())} />
           </div>
-          <label className="flex items-center gap-1 pb-1 text-[12px]">
+          <label className="flex items-center gap-1 pb-1 text-xs">
             <input type="checkbox" checked={exBillable} onChange={(e) => setExBillable(e.target.checked)} />
             Billable
           </label>
@@ -512,12 +554,12 @@ export function TicketMoney({ ticketId }: { ticketId: string }) {
             {exBusy ? <Spinner /> : null} Add expense
           </Button>
           {exError !== null ? (
-            <p role="alert" className="w-full text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>{exError}</p>
+            <p role="alert" className="w-full text-xs" style={{ color: "var(--m-status-danger-fg)" }}>{exError}</p>
           ) : null}
         </form>
       </Card>
 
-      <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }} data-testid="money-total">
+      <p className="text-xs" style={{ color: "var(--m-text-secondary)" }} data-testid="money-total">
         Billable total: <strong>{money(billableTotal, totalCurrency)}</strong>
         {lines !== null && lines.some((l) => l.invoice_line_id != null) ? (
           <span className="ml-2" style={{ color: "var(--m-text-muted)" }}>

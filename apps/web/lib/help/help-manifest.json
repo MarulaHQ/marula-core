@@ -38,6 +38,12 @@
           "audience": "both",
           "updated": "2026-09-23",
           "title": "How to use the keyboard shortcuts"
+        },
+        {
+          "path": "how-to/staff-scanning",
+          "audience": "both",
+          "updated": "2026-09-24",
+          "title": "How to scan barcodes and QR codes"
         }
       ]
     },
@@ -446,6 +452,22 @@
           "audience": "both",
           "updated": "2026-09-23",
           "title": "How to use the keyboard shortcuts"
+        }
+      ]
+    },
+    "settings-labels": {
+      "docs": [
+        {
+          "path": "how-to/admin-labels",
+          "audience": "admin",
+          "updated": "2026-09-24",
+          "title": "How to set up labels and label templates"
+        },
+        {
+          "path": "how-to/staff-scanning",
+          "audience": "both",
+          "updated": "2026-09-24",
+          "title": "How to scan barcodes and QR codes"
         }
       ]
     }

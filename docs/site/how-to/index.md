@@ -28,6 +28,8 @@ the tag is **both** or points to the staff/client catalog below.
 - [Manage AI access](admin-ai-access.md) — org master switch + per-surface
   grants
 - [Manage dashboards & report schedules](admin-dashboards-reports.md)
+- [Set up labels and label templates](admin-labels.md) — typed templates,
+  Zebra/DYMO stock, QR deep links, browser and ZPL print targets
 - [Connect an IdP (SSO)](admin-sso.md) — the IdP handoff round-trip
 - [Upgrade to the latest release](upgrade.md) — including the N−2 rule
 - [Customize without code](customize.md) — custom fields, boards,
@@ -43,6 +45,8 @@ Audience tag: **both** unless a guide is staff-only by nature.
 - [Dispatch from the board](staff-dispatch.md)
 - [Use the keyboard shortcuts](staff-keyboard-shortcuts.md) — the Alt
   command registry, the hold-Alt overlay, and the ? cheat sheet
+- [Scan barcodes and QR codes](staff-scanning.md) — what a scan means on
+  each surface, and why it never hijacks a form
 - [Get help inside Meridian](get-help.md) — the ? help panel, guide
   search, and turning feature tours off
 

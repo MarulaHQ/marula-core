@@ -50,6 +50,7 @@ pub mod integrations;
 pub mod invoices;
 pub mod kb;
 pub mod kb_rich;
+pub mod labels;
 pub mod loans;
 pub mod manifest;
 pub mod mfa;

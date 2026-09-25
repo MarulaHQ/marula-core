@@ -16,6 +16,9 @@ use tauri::{Manager, RunEvent};
 const PREFERRED_PG_PORT: u16 = 15434;
 const PREFERRED_API_PORT: u16 = 15433;
 const PREFERRED_WEB_PORT: u16 = 15435;
+/// Raw-ZPL transport timeout (label printing must fail fast and honestly,
+/// not hang the webview when the printer is off or the address is wrong).
+const ZPL_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
 /// Dev JWT secret — must match the compose/dev default so the demo seed's
 /// at-rest seal key derives identically (crates/core-db/src/demo.rs).
 const DEV_JWT_SECRET: &str = "dev-only-insecure-secret-change-me";
@@ -564,13 +567,92 @@ fn install_sigterm_handler(data_dir: PathBuf) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Raw ZPL transport (Wave 32 lane 5, `p32-labels-scanning`)
+// ---------------------------------------------------------------------------
+
+/// Sends raw ZPL bytes to a networked Zebra printer over a TCP socket — the
+/// printer's standard raw port (9100 unless the caller says otherwise).
+/// This is the desktop-only half of the label print contract: the web app
+/// renders the label server-side and hands the exact ZPL string down; this
+/// command transports those bytes and NOTHING else — it never parses,
+/// rewrites, or "improves" the stream.
+async fn send_zpl_to(host: &str, port: u16, zpl: &[u8]) -> anyhow::Result<()> {
+    use tokio::io::AsyncWriteExt;
+    if host.trim().is_empty() {
+        bail!("printer host is empty");
+    }
+    let addr = format!("{}:{}", host.trim(), port);
+    let mut stream = tokio::time::timeout(ZPL_CONNECT_TIMEOUT, tokio::net::TcpStream::connect(&addr))
+        .await
+        .map_err(|_| anyhow::anyhow!("connecting to {addr} timed out"))?
+        .with_context(|| format!("connecting to {addr}"))?;
+    tokio::time::timeout(ZPL_CONNECT_TIMEOUT, stream.write_all(zpl))
+        .await
+        .map_err(|_| anyhow::anyhow!("writing to {addr} timed out"))?
+        .with_context(|| format!("writing ZPL to {addr}"))?;
+    tokio::time::timeout(ZPL_CONNECT_TIMEOUT, stream.shutdown())
+        .await
+        .map_err(|_| anyhow::anyhow!("closing {addr} timed out"))?
+        .with_context(|| format!("closing {addr}"))?;
+    Ok(())
+}
+
+/// Tauri command: the web app's typed raw-ZPL door. Errors come back as
+/// strings the UI shows as-is ("connecting to 10.0.0.9:9100: Connection
+/// refused") — never a silent success.
+#[tauri::command]
+async fn print_raw_zpl(host: String, port: Option<u16>, zpl: String) -> Result<(), String> {
+    send_zpl_to(&host, port.unwrap_or(9100), zpl.as_bytes())
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Command-level check without a physical printer: a local listener
+    /// stands in for the Zebra and must receive the EXACT ZPL bytes.
+    #[tokio::test]
+    async fn print_raw_zpl_delivers_exact_bytes_to_a_listener() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let printer = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.expect("accept");
+            let mut buf = Vec::new();
+            tokio::io::AsyncReadExt::read_to_end(&mut sock, &mut buf)
+                .await
+                .expect("read");
+            buf
+        });
+        let zpl = "^XA\n^CI28\n^FO12,12\n^A0N,26,16\n^FH^FDHello^FS\n^XZ\n";
+        send_zpl_to("127.0.0.1", addr.port(), zpl.as_bytes())
+            .await
+            .expect("send");
+        let received = printer.await.expect("printer task");
+        assert_eq!(
+            String::from_utf8(received).expect("utf8"),
+            zpl,
+            "the printer receives the exact ZPL bytes the core rendered"
+        );
+    }
+
+    #[tokio::test]
+    async fn empty_host_is_refused_honestly() {
+        let err = send_zpl_to("   ", 9100, b"^XA^XZ\n").await.unwrap_err();
+        assert!(format!("{err:#}").contains("empty"), "{err:#}");
+    }
+}
+
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
-
     // The backend must be up before the webview loads: the web app reads
     // the injected API base URL before its own scripts run, and login has
     // nothing to talk to until the API listens. First run may take a
@@ -591,6 +673,10 @@ fn main() {
         // ships in this lane); release workflow lives in
         // docs/desktop-release.md.
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // Wave 32 lane 5: typed raw-ZPL door for label printing. Custom
+        // app commands are not ACL-gated (only plugin commands are), and
+        // the webview only reaches them from the local app.
+        .invoke_handler(tauri::generate_handler![print_raw_zpl])
         .manage(backend)
         .setup(move |app| {
             // Rust-built window so the initialization script (API base

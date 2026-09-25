@@ -3,7 +3,7 @@
 
 **Meridian Core API 0.1.0** — The single write surface for Project Meridian. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**506 paths · 680 operations · 986 schemas.**
+**543 paths · 732 operations · 1080 schemas.**
 
 ## agent-proposals
 
@@ -261,6 +261,15 @@
 | `PATCH` | `/api/v1/catalog-items/{id}` <a id="catalog_items_update"></a> | PATCH /api/catalog-items/{id} — absent fields keep their value. | [UpdateCatalogItemRequest](#schema-updatecatalogitemrequest) |
 | `POST` | `/api/v1/catalog-items/{id}/archive` <a id="catalog_items_archive"></a> | POST /api/catalog-items/{id}/archive — flip `active` off (data, never a delete). Already-archived items archive as a no-op replay of state. | [ArchiveCatalogItemRequest](#schema-archivecatalogitemrequest) |
 
+## client-loans
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/client-loans` <a id="client_loans_list"></a> | GET /api/client-loans. | — |
+| `POST` | `/api/v1/client-loans` <a id="client_loans_issue"></a> | POST /api/client-loans — instant-first (IF1/IF2). | [IssueLoanRequest](#schema-issueloanrequest) |
+| `GET` | `/api/v1/client-loans/{id}` <a id="client_loans_get"></a> | GET /api/client-loans/{id}. | — |
+| `POST` | `/api/v1/client-loans/{id}/return` <a id="client_loans_return"></a> | POST /api/client-loans/{id}/return — instant-first (IF1/IF2). | [ReturnLoanRequest](#schema-returnloanrequest) |
+
 ## clients
 
 | Method | Path | Operation | Request body |
@@ -428,6 +437,12 @@
 |---|---|---|---|
 | `GET` | `/api/v1/events/stream` <a id="events_stream"></a> | GET /api/events/stream — live contract-event + presence frames. | — |
 
+## external-links
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `DELETE` | `/api/v1/external-links/{id}` <a id="external_links_delete"></a> | DELETE /api/external-links/{id} | — |
+
 ## fx
 
 | Method | Path | Operation | Request body |
@@ -508,6 +523,23 @@
 | `GET` | `/api/v1/kb/external-documents/{id}` <a id="kb_get_external_document"></a> | GET /api/kb/external-documents/{id} | — |
 | `PATCH` | `/api/v1/kb/external-documents/{id}` <a id="kb_update_external_document"></a> | PATCH /api/kb/external-documents/{id} — instant-first (IF1/IF2). A URL change resets the link-check columns: the old verification is about the old URL. | [UpdateExternalDocumentRequest](#schema-updateexternaldocumentrequest) |
 | `POST` | `/api/v1/kb/external-documents/{id}/link-check` <a id="kb_link_check_external_document"></a> | POST /api/kb/external-documents/{id}/link-check — performs one server-side HTTPS HEAD (GET fallback) and records the outcome as data. `unreachable` covers DNS/TLS/timeouts/non-2xx; the endpoint never fails on an unreachable link — the record is the result. | — |
+
+## label-templates
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/label-templates` <a id="label_templates_list"></a> | GET /api/label-templates — org templates, optionally per purpose. | — |
+| `POST` | `/api/v1/label-templates` <a id="label_templates_create"></a> | POST /api/label-templates — create a template (Admin:edit). | [CreateLabelTemplateRequest](#schema-createlabeltemplaterequest) |
+| `GET` | `/api/v1/label-templates/{id}` <a id="label_templates_get"></a> | GET /api/label-templates/{id}. | — |
+| `PATCH` | `/api/v1/label-templates/{id}` <a id="label_templates_update"></a> | PATCH /api/label-templates/{id} — absent fields keep their value (Admin:edit). | [UpdateLabelTemplateRequest](#schema-updatelabeltemplaterequest) |
+| `POST` | `/api/v1/label-templates/{id}/archive` <a id="label_templates_archive"></a> | POST /api/label-templates/{id}/archive — archival is a flag; the archived template frees the purpose's default slot. | — |
+| `POST` | `/api/v1/label-templates/preview` <a id="label_templates_preview"></a> | POST /api/label-templates/preview — render a DRAFT template against deterministic sample values (the designer's live preview). | [PreviewLabelRequest](#schema-previewlabelrequest) |
+
+## labels
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `POST` | `/api/v1/labels/render` <a id="labels_render"></a> | POST /api/labels/render — resolve a real entity and render its label: browser-print geometry + the exact ZPL the desktop shell transports. | [RenderLabelRequest](#schema-renderlabelrequest) |
 
 ## mcp
 
@@ -745,6 +777,7 @@
 | `POST` | `/api/v1/projects` <a id="projects_create"></a> | POST /api/projects — creates the project and emits `project.created` in one transaction. Instant-first (IF1/IF2): idempotency-keyed, version-gated, read-your-write response. | [CreateProjectRequest](#schema-createprojectrequest) |
 | `GET` | `/api/v1/projects/{id}` <a id="projects_get_one"></a> | GET /api/projects/{id} | — |
 | `PATCH` | `/api/v1/projects/{id}` <a id="projects_patch"></a> | PATCH /api/projects/{id} — tri-state partial update. Instant-first (IF1/IF2): idempotency-keyed, version-gated, returns prior + new values. | [PatchProjectRequest](#schema-patchprojectrequest) |
+| `GET` | `/api/v1/projects/{id}/cost-rollup` <a id="projects_cost_rollup"></a> | GET /api/projects/{id}/cost-rollup — posted PO bills in base currency (ADR 0002 locked) plus the project budget for comparison. | — |
 | `GET` | `/api/v1/projects/{id}/phases` <a id="projects_list_phases"></a> | GET /api/projects/{id}/phases — ordered by sort_order. | — |
 | `POST` | `/api/v1/projects/{id}/phases` <a id="projects_create_phase"></a> | POST /api/projects/{id}/phases — adds a phase; emits `project.phase_created`. | [CreatePhaseRequest](#schema-createphaserequest) |
 | `PATCH` | `/api/v1/projects/{id}/phases/{phase_id}` <a id="projects_patch_phase"></a> | PATCH /api/projects/{id}/phases/{phase_id} — tri-state partial update. | [PatchPhaseRequest](#schema-patchphaserequest) |
@@ -768,6 +801,28 @@
 |---|---|---|---|
 | `GET` | `/api/v1/public/scheduling-links/{token}` <a id="public_scheduling_link_view"></a> | GET /api/public/scheduling-links/{token} — unauthenticated, token- scoped, rate-limited. First view stamps the link's lifecycle (`first_viewed_at` + count) and emits `scheduling_link.viewed`. | — |
 | `POST` | `/api/v1/public/scheduling-links/{token}/book` <a id="public_scheduling_link_book"></a> | POST /api/public/scheduling-links/{token}/book — unauthenticated but token-scoped and rate-limited. Race-safe exactly like portal appointment-request approval: the availability + conflict gate and the single-winner link flip run INSIDE the booking transaction, and the appointments EXCLUDE constraint is the concurrency backstop. | [BookRequest](#schema-bookrequest) |
+
+## purchase-orders
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/purchase-orders` <a id="purchase_orders_list"></a> | GET /api/purchase-orders | — |
+| `POST` | `/api/v1/purchase-orders` <a id="purchase_orders_create"></a> | POST /api/purchase-orders | [CreateOrderRequest](#schema-createorderrequest) |
+| `GET` | `/api/v1/purchase-orders/{id}` <a id="purchase_orders_get"></a> | GET /api/purchase-orders/{id} — header + lines + receipts + bill. | — |
+| `PATCH` | `/api/v1/purchase-orders/{id}` <a id="purchase_orders_update"></a> | PATCH /api/purchase-orders/{id} — draft-only header edits. | [UpdateOrderRequest](#schema-updateorderrequest) |
+| `GET` | `/api/v1/purchase-orders/{id}/bill` <a id="purchase_orders_get_bill"></a> | GET /api/purchase-orders/{id}/bill | — |
+| `PUT` | `/api/v1/purchase-orders/{id}/bill` <a id="purchase_orders_record_bill"></a> | PUT /api/purchase-orders/{id}/bill — record or edit the draft bill. | [RecordBillRequest](#schema-recordbillrequest) |
+| `POST` | `/api/v1/purchase-orders/{id}/bill/post` <a id="purchase_orders_post_bill"></a> | POST /api/purchase-orders/{id}/bill/post — the rollup moment: locks the ADR 0002 FX snapshot and stamps `posted_at`. | [CloseOrderRequest](#schema-closeorderrequest) |
+| `POST` | `/api/v1/purchase-orders/{id}/cancel` <a id="purchase_orders_cancel"></a> | POST /api/purchase-orders/{id}/cancel — draft|ordered, nothing received. | [CancelOrderRequest](#schema-cancelorderrequest) |
+| `POST` | `/api/v1/purchase-orders/{id}/close` <a id="purchase_orders_close"></a> | POST /api/purchase-orders/{id}/close — received|partially_received → closed; the close disposition is the typed under-receipt record. | [CloseOrderRequest](#schema-closeorderrequest) |
+| `GET` | `/api/v1/purchase-orders/{id}/deeplinks` <a id="purchase_orders_deeplinks"></a> | GET /api/purchase-orders/{id}/deeplinks — the one-click open list: vendor portal links first, then PO-level links, then per-line links (with their line context), each https-validated at write time. | — |
+| `POST` | `/api/v1/purchase-orders/{id}/lines` <a id="purchase_orders_add_line"></a> | POST /api/purchase-orders/{id}/lines — draft-only line add. | [OrderLineInput](#schema-orderlineinput) |
+| `DELETE` | `/api/v1/purchase-orders/{id}/lines/{line_id}` <a id="purchase_orders_delete_line"></a> | DELETE /api/purchase-orders/{id}/lines/{line_id} — draft-only. | [DeleteOrderLineRequest](#schema-deleteorderlinerequest) |
+| `PATCH` | `/api/v1/purchase-orders/{id}/lines/{line_id}` <a id="purchase_orders_update_line"></a> | PATCH /api/purchase-orders/{id}/lines/{line_id} — draft-only line edit. | [AddOrderLineRequest](#schema-addorderlinerequest) |
+| `GET` | `/api/v1/purchase-orders/{id}/links` <a id="purchase_orders_list_links"></a> | GET /api/purchase-orders/{id}/links | — |
+| `POST` | `/api/v1/purchase-orders/{id}/links` <a id="purchase_orders_add_link"></a> | POST /api/purchase-orders/{id}/links — PO-level or (with `line_id`) a per-line order/tracking URL. | [CreateLinkRequest](#schema-createlinkrequest) |
+| `POST` | `/api/v1/purchase-orders/{id}/order` <a id="purchase_orders_send"></a> | POST /api/purchase-orders/{id}/order — draft → ordered. | [CloseOrderRequest](#schema-closeorderrequest) |
+| `POST` | `/api/v1/purchase-orders/{id}/receive` <a id="purchase_orders_receive"></a> | POST /api/purchase-orders/{id}/receive — the receipt that posts into the lane-1 movement ledger at `location_id`. | [ReceiveOrderRequest](#schema-receiveorderrequest) |
 
 ## quotes
 
@@ -826,6 +881,12 @@
 | `PUT` | `/api/v1/roles/{id}` <a id="roles_update"></a> | PUT /api/roles/{id} — the custom-roles EDITOR (Wave 22): updates a custom row's name and/or permission set. Builtin presets are typed refusals (rb1) — restore is the ONLY preset-matrix mutation. | [UpdateRoleRequest](#schema-updaterolerequest) |
 | `POST` | `/api/v1/roles/{id}/fork` <a id="roles_fork"></a> | POST /api/roles/{id}/fork — duplicate a role (typically a preset) into a mutable custom copy on the same matrix. The origin row is untouched. | [ForkRoleRequest](#schema-forkrolerequest) |
 | `POST` | `/api/v1/roles/{id}/restore` <a id="roles_restore"></a> | POST /api/roles/{id}/restore — reset a preset row's permission array to the canonical shipped set (RB1: the presets stay canonical). Custom roles and forks are org-owned data and are never restorable. | [RestoreRoleRequest](#schema-restorerolerequest) |
+
+## scan
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `POST` | `/api/v1/scan/resolve` <a id="scan_resolve"></a> | POST /api/scan/resolve — resolve scanned text into a typed entity. | [ScanResolveRequest](#schema-scanresolverequest) |
 
 ## scheduling
 
@@ -987,6 +1048,12 @@
 | `GET` | `/api/v1/stock-locations/{id}` <a id="stock_locations_get"></a> | GET /api/stock-locations/{id}. | — |
 | `PATCH` | `/api/v1/stock-locations/{id}` <a id="stock_locations_update"></a> | PATCH /api/stock-locations/{id}. | [UpdateStockLocationRequest](#schema-updatestocklocationrequest) |
 
+## stock-serials
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/stock-serials` <a id="stock_serials_whereabouts"></a> | GET /api/stock-serials — WHERE IS IT NOW, per serialized unit (tools and loaned devices; each row carries its live holder or client). | — |
+
 ## tags
 
 | Method | Path | Operation | Request body |
@@ -1111,11 +1178,51 @@
 | `POST` | `/api/v1/timers/stop` <a id="timers_stop"></a> | POST /api/timers/stop — stops the session and materializes a time entry (rounded up to the minute) in the same transaction. | [StopTimerRequest](#schema-stoptimerrequest) |
 | `GET` | `/api/v1/timers/working-set` <a id="timers_working_set"></a> | GET /api/timers/working-set — recent sessions (running first): the docked working set the UI renders. | — |
 
+## tool-checkouts
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/tool-checkouts` <a id="tool_checkouts_list"></a> | GET /api/tool-checkouts. | — |
+| `POST` | `/api/v1/tool-checkouts` <a id="tool_checkouts_create"></a> | POST /api/tool-checkouts — instant-first (IF1/IF2). | [CreateCheckoutRequest](#schema-createcheckoutrequest) |
+| `GET` | `/api/v1/tool-checkouts/{id}` <a id="tool_checkouts_get"></a> | GET /api/tool-checkouts/{id}. | — |
+| `POST` | `/api/v1/tool-checkouts/{id}/checkin` <a id="tool_checkouts_checkin"></a> | POST /api/tool-checkouts/{id}/checkin — instant-first (IF1/IF2). | [CheckinRequest](#schema-checkinrequest) |
+
+## tool-kits
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/tool-kits` <a id="tool_kits_list"></a> | GET /api/tool-kits. | — |
+| `POST` | `/api/v1/tool-kits` <a id="tool_kits_create"></a> | POST /api/tool-kits — instant-first (IF1/IF2). | [CreateKitRequest](#schema-createkitrequest) |
+| `GET` | `/api/v1/tool-kits/{id}` <a id="tool_kits_get"></a> | GET /api/tool-kits/{id}. | — |
+| `PATCH` | `/api/v1/tool-kits/{id}` <a id="tool_kits_update"></a> | PATCH /api/tool-kits/{id} — instant-first (IF1/IF2). | [UpdateKitRequest](#schema-updatekitrequest) |
+| `GET` | `/api/v1/tool-kits/{id}/availability` <a id="tool_kits_availability"></a> | GET /api/tool-kits/{id}/availability — can the kit go out here? | — |
+| `POST` | `/api/v1/tool-kits/{id}/members` <a id="tool_kits_add_member"></a> | POST /api/tool-kits/{id}/members — add a member tool to the kit. | [AddKitMemberRequest](#schema-addkitmemberrequest) |
+| `DELETE` | `/api/v1/tool-kits/{id}/members/{member_id}` <a id="tool_kits_remove_member"></a> | DELETE /api/tool-kits/{id}/members/{member_id}. | — |
+
+## tools
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/tools/availability` <a id="tools_availability"></a> | GET /api/tools/availability — in-stock counts per tool item + location. | — |
+
 ## users
 
 | Method | Path | Operation | Request body |
 |---|---|---|---|
 | `PATCH` | `/api/v1/users/me` <a id="users_me_patch"></a> | Wave 26 onboarding leg (b): the per-user first-run "check your profile" step needs a self-editable name/timezone. Self-scoped: PATCH /api/v1/users/me changes ONLY the caller's own display name and timezone (email is immutable here by design), with an audit row in the same transaction. | [PatchMeRequest](#schema-patchmerequest) |
+
+## vendors
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/vendors` <a id="vendors_list"></a> | GET /api/vendors | — |
+| `POST` | `/api/v1/vendors` <a id="vendors_create"></a> | POST /api/vendors | [CreateVendorRequest](#schema-createvendorrequest) |
+| `GET` | `/api/v1/vendors/{id}` <a id="vendors_get"></a> | GET /api/vendors/{id} — entity + contacts + links. | — |
+| `PATCH` | `/api/v1/vendors/{id}` <a id="vendors_update"></a> | PATCH /api/vendors/{id} | [UpdateVendorRequest](#schema-updatevendorrequest) |
+| `GET` | `/api/v1/vendors/{id}/contacts` <a id="vendors_list_contacts"></a> | GET /api/vendors/{id}/contacts | — |
+| `POST` | `/api/v1/vendors/{id}/contacts` <a id="vendors_replace_contacts"></a> | POST /api/vendors/{id}/contacts — replace-on-write. | [ReplaceContactsRequest](#schema-replacecontactsrequest) |
+| `GET` | `/api/v1/vendors/{id}/links` <a id="vendors_list_links"></a> | GET /api/vendors/{id}/links | — |
+| `POST` | `/api/v1/vendors/{id}/links` <a id="vendors_add_link"></a> | POST /api/vendors/{id}/links | [CreateLinkRequest](#schema-createlinkrequest) |
 
 ## webhooks
 
@@ -1144,7 +1251,9 @@
 | <a id="schema-actor"></a>`Actor` | object | Who performed the audited action. Append-only provenance record. Portal variants carry the client-side tier so audit trails distinguish staff actions from client-portal actions at the storage layer (a |
 | <a id="schema-addchecklistitemrequest"></a>`AddChecklistItemRequest` | composite |  |
 | <a id="schema-addcommentrequest"></a>`AddCommentRequest` | composite |  |
+| <a id="schema-addkitmemberrequest"></a>`AddKitMemberRequest` | composite | POST /api/tool-kits/{id}/members. |
 | <a id="schema-addmemberrequest"></a>`AddMemberRequest` | composite |  |
+| <a id="schema-addorderlinerequest"></a>`AddOrderLineRequest` | composite | POST /purchase-orders/{id}/lines body: the line plus IF1 params. |
 | <a id="schema-adjustrequest"></a>`AdjustRequest` | composite |  |
 | <a id="schema-agentproposalpage"></a>`AgentProposalPage` | object | GET /api/agent-proposals envelope. |
 | <a id="schema-agentproposalview"></a>`AgentProposalView` | object | One IF8 proposal with the full snapshot the approval decision needs. |
@@ -1228,6 +1337,7 @@
 | <a id="schema-billingfrequency"></a>`BillingFrequency` | string | Billing period length. Period boundaries derive from the contract's `billing_anchor`: the anchor is the first period's start date and each subsequent period starts one frequency step later (calendar-a |
 | <a id="schema-billinglinekind"></a>`BillingLineKind` | string | Which billing rule produced a candidate line. |
 | <a id="schema-billingmethod"></a>`BillingMethod` | string | How the project turns delivered work into money. The value rides the milestone event payload so core-billing can route without re-reading the project row (event payloads are additive-only, policy §2). |
+| <a id="schema-billmutationresponse"></a>`BillMutationResponse` | object |  |
 | <a id="schema-board"></a>`Board` | object |  |
 | <a id="schema-boardexposureview"></a>`BoardExposureView` | object |  |
 | <a id="schema-boardgroup"></a>`BoardGroup` | object | A named, ordered nav grouping of boards within one org (TASKLIST 2.11). Groups are organization-wide; `owner_id` records who controls the group. |
@@ -1264,6 +1374,7 @@
 | <a id="schema-calendarsyncevent"></a>`CalendarSyncEvent` | object | The inbound mirror of one external event. `exclusion_id` names the `calendar_exclusions` row the event currently feeds into the 2.12 availability foundation (NULL while not busy — cancelled or transpa |
 | <a id="schema-calendarsyncstatus"></a>`CalendarSyncStatus` | string | Connection health: `error` records the last poll failure while the connection stays configured; writes resume when a poll succeeds. |
 | <a id="schema-calendarviewresponse"></a>`CalendarViewResponse` | object |  |
+| <a id="schema-cancelorderrequest"></a>`CancelOrderRequest` | composite |  |
 | <a id="schema-candidateview"></a>`CandidateView` | composite |  |
 | <a id="schema-capabilitygrantlist"></a>`CapabilityGrantList` | object |  |
 | <a id="schema-capabilitygrantview"></a>`CapabilityGrantView` | object | One granted capability with its dial position. |
@@ -1279,11 +1390,15 @@
 | <a id="schema-categorymutationresponse"></a>`CategoryMutationResponse` | composite | Instant-first mutation response (IF2): category fields at the top level plus the additive `mutation` metadata. |
 | <a id="schema-changestatusrequest"></a>`ChangeStatusRequest` | composite |  |
 | <a id="schema-chatturnrequest"></a>`ChatTurnRequest` | object |  |
+| <a id="schema-checkinlinerequest"></a>`CheckinLineRequest` | object |  |
+| <a id="schema-checkinrequest"></a>`CheckinRequest` | composite | POST /api/tool-checkouts/{id}/checkin. |
 | <a id="schema-checklistitem"></a>`ChecklistItem` | object | One line of a ticket's pre-close checklist. Items instantiated from the board's template carry `template_item_id`; those are REQUIRED when the board enforces pre-close checklists (see `crate::notes`). |
 | <a id="schema-checklistprogress"></a>`ChecklistProgress` | object | Derived-at-read-time checklist progress (never materialized — see the 0016 migration header for the justification). `required_open` counts unchecked template-derived instances: the close-blocking set  |
 | <a id="schema-checklisttemplate"></a>`ChecklistTemplate` | object | A board's pre-close checklist template. Exactly one per board (UNIQUE in storage): the deterministic gate consulted at close time. |
 | <a id="schema-checklisttemplateitem"></a>`ChecklistTemplateItem` | object | One required step in a template. Instances on tickets link back to this id (`checklist_items.template_item_id`), so enforcement follows identity, never fragile text matching. |
 | <a id="schema-checklisttemplateview"></a>`ChecklistTemplateView` | object | GET /api/boards/{id}/checklist-template response: the template (if any), its items, and the enforcement posture actually applied at close time. |
+| <a id="schema-checkoutitemrequest"></a>`CheckoutItemRequest` | object |  |
+| <a id="schema-checkoutlistquery"></a>`CheckoutListQuery` | object |  |
 | <a id="schema-chunkrequest"></a>`ChunkRequest` | composite | POST /imports/batches/{id}/chunks request body. |
 | <a id="schema-chunksummarywire"></a>`ChunkSummaryWire` | object | u32-friendly mirror of [`core_domain::import_core::ChunkSummary`] so the generated SDK gets plain integers without overflow caveats. |
 | <a id="schema-cifieldprecedence"></a>`CiFieldPrecedence` | object | A per-type/per-source precedence override (CI5). |
@@ -1297,10 +1412,16 @@
 | <a id="schema-claimsharelinkrequest"></a>`ClaimShareLinkRequest` | object |  |
 | <a id="schema-client"></a>`Client` | object |  |
 | <a id="schema-clientcompletenessview"></a>`ClientCompletenessView` | object | The backend documentation-completeness read model — the weights live here; the web card renders the facts. |
+| <a id="schema-clientloandetailresponse"></a>`ClientLoanDetailResponse` | object |  |
+| <a id="schema-clientloanlineview"></a>`ClientLoanLineView` | object |  |
+| <a id="schema-clientloanmutationresponse"></a>`ClientLoanMutationResponse` | object |  |
+| <a id="schema-clientloanview"></a>`ClientLoanView` | object |  |
 | <a id="schema-clientmutationresponse"></a>`ClientMutationResponse` | composite | Instant-first mutation response (IF2): client fields at the top level (unchanged shape) plus the additive `mutation` metadata. |
 | <a id="schema-clientorgmap"></a>`ClientOrgMap` | object | The durable operator mapping a reconciliation accept writes: one row per (source system, vendor org id), pointing at one Meridian client. |
 | <a id="schema-clientoverriderow"></a>`ClientOverrideRow` | object | The stored client row, as provenance on a resolved entry (who last set it and when — the audit subject; the append-only trail keeps the full history). |
 | <a id="schema-clientworkflowresolution"></a>`ClientWorkflowResolution` | object | The client's full resolved workflow: one entry per registry declaration, registry order preserved. |
+| <a id="schema-closekind"></a>`CloseKind` | string |  |
+| <a id="schema-closeorderrequest"></a>`CloseOrderRequest` | composite |  |
 | <a id="schema-commentlistquery"></a>`CommentListQuery` | object |  |
 | <a id="schema-committedchunkref"></a>`CommittedChunkRef` | object | One committed chunk's position in the resume view. |
 | <a id="schema-completeallrequest"></a>`CompleteAllRequest` | composite | POST /api/tickets/{id}/checklist/complete-all request (Wave 17 lane 11 §5.3): the close gate's Option A batch — every listed item flips to `checked` and each lands its auto-append note, ALL in one tra |
@@ -1329,6 +1450,7 @@
 | <a id="schema-contact"></a>`Contact` | object |  |
 | <a id="schema-contactfeedupsertrequest"></a>`ContactFeedUpsertRequest` | composite |  |
 | <a id="schema-contactfeedupsertresponse"></a>`ContactFeedUpsertResponse` | object |  |
+| <a id="schema-contactsmutationresponse"></a>`ContactsMutationResponse` | object |  |
 | <a id="schema-contract"></a>`Contract` | object | A commercial agreement with one client. Money fields are integer minor units (cents for USD) — floats are forbidden near amounts (§5). |
 | <a id="schema-contractdetail"></a>`ContractDetail` | composite | The contract aggregate as one view: the agreement plus its rate card and fee schedule. |
 | <a id="schema-contractfixedfee"></a>`ContractFixedFee` | object | Fixed-fee schedule entry: becomes a candidate line when `due_on` falls inside the evaluation window (and the effective window). |
@@ -1353,6 +1475,7 @@
 | <a id="schema-createcalendarrequest"></a>`CreateCalendarRequest` | object |  |
 | <a id="schema-createcatalogitemrequest"></a>`CreateCatalogItemRequest` | composite | POST /api/catalog-items body. |
 | <a id="schema-createcategoryrequest"></a>`CreateCategoryRequest` | composite |  |
+| <a id="schema-createcheckoutrequest"></a>`CreateCheckoutRequest` | composite | POST /api/tool-checkouts. |
 | <a id="schema-createclientrequest"></a>`CreateClientRequest` | composite |  |
 | <a id="schema-createconnectionrequest"></a>`CreateConnectionRequest` | object |  |
 | <a id="schema-createcontactrequest"></a>`CreateContactRequest` | object |  |
@@ -1371,9 +1494,12 @@
 | <a id="schema-createimporttemplaterequest"></a>`CreateImportTemplateRequest` | object | POST /api/imports/templates request. |
 | <a id="schema-createinterfacerequest"></a>`CreateInterfaceRequest` | object |  |
 | <a id="schema-createinvoicerunrequest"></a>`CreateInvoiceRunRequest` | composite |  |
+| <a id="schema-createkitrequest"></a>`CreateKitRequest` | composite | POST /api/tool-kits. |
+| <a id="schema-createlabeltemplaterequest"></a>`CreateLabelTemplateRequest` | composite | Create body. `width_mm`/`height_mm` are required exactly when `size_preset = "custom"`; millimetres are rounded to a tenth. |
 | <a id="schema-createlayoutrequest"></a>`CreateLayoutRequest` | composite |  |
 | <a id="schema-createlinkrequest"></a>`CreateLinkRequest` | object |  |
 | <a id="schema-createoncallrequest"></a>`CreateOnCallRequest` | object |  |
+| <a id="schema-createorderrequest"></a>`CreateOrderRequest` | composite |  |
 | <a id="schema-createpasswordrequest"></a>`CreatePasswordRequest` | composite |  |
 | <a id="schema-createphaserequest"></a>`CreatePhaseRequest` | composite |  |
 | <a id="schema-createportaluserrequest"></a>`CreatePortalUserRequest` | object |  |
@@ -1405,6 +1531,7 @@
 | <a id="schema-createticketrequest"></a>`CreateTicketRequest` | composite |  |
 | <a id="schema-createtimeentryrequest"></a>`CreateTimeEntryRequest` | object |  |
 | <a id="schema-createtraveldraftrequest"></a>`CreateTravelDraftRequest` | composite | POST /api/dispatch/travel-drafts body. |
+| <a id="schema-createvendorrequest"></a>`CreateVendorRequest` | composite |  |
 | <a id="schema-createviewrequest"></a>`CreateViewRequest` | object |  |
 | <a id="schema-createwebhookrequest"></a>`CreateWebhookRequest` | object |  |
 | <a id="schema-creditnote"></a>`CreditNote` | object | The credit document. `issued_against_invoice_id` is the issuing context (may be `None` for a free-standing client credit); applications may target any issued invoice of the same client and currency. |
@@ -1442,7 +1569,10 @@
 | <a id="schema-dedupeworkflow"></a>`DedupeWorkflow` | object | One org's Jev dedupe workflow (the `dedupe_workflows` row). |
 | <a id="schema-dedupeworkflowrequest"></a>`DedupeWorkflowRequest` | object |  |
 | <a id="schema-dedupeworkflowview"></a>`DedupeWorkflowView` | object |  |
+| <a id="schema-deeplinkentry"></a>`DeeplinkEntry` | object | One resolved one-click link on a PO, in open order. |
+| <a id="schema-deeplinkvendor"></a>`DeeplinkVendor` | object |  |
 | <a id="schema-definitionscope"></a>`DefinitionScope` | string | Visibility scope of a stored definition: `org` (published org-wide, admins only) or `self` (private to the creator). |
+| <a id="schema-deleteorderlinerequest"></a>`DeleteOrderLineRequest` | composite |  |
 | <a id="schema-deliveryattemptview"></a>`DeliveryAttemptView` | object |  |
 | <a id="schema-deliverylistquery"></a>`DeliveryListQuery` | object | GET /api/report-schedules/{id}/deliveries query. |
 | <a id="schema-deliverypage"></a>`DeliveryPage` | object |  |
@@ -1513,6 +1643,9 @@
 | <a id="schema-externaldocumentlistquery"></a>`ExternalDocumentListQuery` | object |  |
 | <a id="schema-externaldocumentmutationresponse"></a>`ExternalDocumentMutationResponse` | composite | Instant-first mutation response (IF2) for external documents. |
 | <a id="schema-externaldocurlkind"></a>`ExternalDocUrlKind` | string | The closed external-document vocabulary. The classifier in `core-kb` maps a URL to exactly one of these; `other` is the honest fallback for any link that is neither SharePoint, OneDrive, nor Google Dr |
+| <a id="schema-externallink"></a>`ExternalLink` | object | A typed external URL bound to a subject (vendor / PO / PO line / device asset). No polymorphic FK — the write path checks that the subject row exists in the org. |
+| <a id="schema-externallinkkind"></a>`ExternalLinkKind` | string |  |
+| <a id="schema-externallinksubject"></a>`ExternalLinkSubject` | string |  |
 | <a id="schema-favoriterequest"></a>`FavoriteRequest` | object |  |
 | <a id="schema-feedupsertrequest"></a>`FeedUpsertRequest` | composite | The feeder upsert input — lane 8's seam (NinjaOne / IT Glue / Auvik). |
 | <a id="schema-feedupsertresponse"></a>`FeedUpsertResponse` | composite | Instant-first mutation response (IF2): item fields flattened at the top level plus the additive feed-sync evidence and `mutation` metadata. |
@@ -1555,12 +1688,27 @@
 | <a id="schema-invoicestatus"></a>`InvoiceStatus` | string | Document lifecycle of an invoice. |
 | <a id="schema-issuecreditnoterequest"></a>`IssueCreditNoteRequest` | composite | POST /api/credit-notes body. |
 | <a id="schema-issuedinvoice"></a>`IssuedInvoice` | object | One issued invoice: the document plus its lines. |
+| <a id="schema-issueloanrequest"></a>`IssueLoanRequest` | composite | POST /api/client-loans. |
 | <a id="schema-kbarticle"></a>`KbArticle` | object | A KB article. |
 | <a id="schema-kbarticlestatus"></a>`KbArticleStatus` | string | Article lifecycle. Closed vocabulary so filtering and the client-facing rule stay deterministic: `draft` (staff authoring), `published` (readable, searchable), `archived` (retired, out of the active t |
 | <a id="schema-kbcategory"></a>`KbCategory` | object | A KB category: grouping + ordering for the article tree. |
 | <a id="schema-kbembed"></a>`KbEmbed` | object | One embed instance attached to a KB article. Its sanction source is the registry row resolved at write time (`provider_slug` snapshots the handle; `provider_id` clears when the provider row is deleted |
 | <a id="schema-kbembedprovider"></a>`KbEmbedProvider` | object | An oEmbed allowlist entry. `org_id` is `None` for the platform-shipped system rows (`is_system`, immutable from the API); org rows are the admin-managed registry extensions. |
 | <a id="schema-kbexternaldocument"></a>`KbExternalDocument` | object | A linked external document (KB2): a SharePoint/OneDrive/Drive URL with title, permission note, and the last link-check result. `article_id` attaches it to an article — client-facing exposure rides tha |
+| <a id="schema-kitavailabilitymemberview"></a>`KitAvailabilityMemberView` | object |  |
+| <a id="schema-kitavailabilityquery"></a>`KitAvailabilityQuery` | object | GET /api/tool-kits/{id}/availability?location_id= |
+| <a id="schema-kitavailabilityresponse"></a>`KitAvailabilityResponse` | object |  |
+| <a id="schema-kitdetailresponse"></a>`KitDetailResponse` | object |  |
+| <a id="schema-kitlistquery"></a>`KitListQuery` | object |  |
+| <a id="schema-kitmemberview"></a>`KitMemberView` | object |  |
+| <a id="schema-kitmutationwithmembersresponse"></a>`KitMutationWithMembersResponse` | object |  |
+| <a id="schema-labelbarcode"></a>`LabelBarcode` | object |  |
+| <a id="schema-labelentityview"></a>`LabelEntityView` | object | Which entity a rendered label names. |
+| <a id="schema-labelline"></a>`LabelLine` | object |  |
+| <a id="schema-labelqr"></a>`LabelQr` | object |  |
+| <a id="schema-labelrenderresponse"></a>`LabelRenderResponse` | object | The rendered label: geometry in millimetres, the QR and Code128 as inline SVG markup (render them as images — never as script), and optionally the exact ZPL the desktop shell sends to a Zebra printer. |
+| <a id="schema-labeltemplatemutationresponse"></a>`LabelTemplateMutationResponse` | composite |  |
+| <a id="schema-labeltemplateview"></a>`LabelTemplateView` | object | The template as the API exposes it; `width_mm`/`height_mm` are the resolved physical size (preset or custom), so clients never re-derive it. |
 | <a id="schema-ladderstepspec"></a>`LadderStepSpec` | object |  |
 | <a id="schema-layoutfield"></a>`LayoutField` | object | One field in a layout's schema. The `fields` column stores an array of these (as JSON); the API validates document `fields` objects against them. |
 | <a id="schema-layoutmutationresponse"></a>`LayoutMutationResponse` | composite |  |
@@ -1568,15 +1716,21 @@
 | <a id="schema-linkcheckresponse"></a>`LinkCheckResponse` | composite | The link-check response: the refreshed row plus the outcome. |
 | <a id="schema-linkcheckstatus"></a>`LinkCheckStatus` | string | Outcome of a link-check. `unreachable` covers DNS/TLS/HTTP failures — the record exists but could not be verified. |
 | <a id="schema-linkkind"></a>`LinkKind` | string | Either endpoint of a link. Documents, passwords, assets, and secret records can link FROM; documents, passwords, clients, tickets, KB articles, assets, and secret records can be linked TO (asset kind  |
+| <a id="schema-linkmutationresponse"></a>`LinkMutationResponse` | object |  |
 | <a id="schema-linksview"></a>`LinksView` | object |  |
 | <a id="schema-listcandidatesquery"></a>`ListCandidatesQuery` | object |  |
 | <a id="schema-listconfigitemsquery"></a>`ListConfigItemsQuery` | object |  |
 | <a id="schema-listentitycandidatesquery"></a>`ListEntityCandidatesQuery` | object |  |
 | <a id="schema-listentriesquery"></a>`ListEntriesQuery` | object |  |
+| <a id="schema-listordersquery"></a>`ListOrdersQuery` | object |  |
 | <a id="schema-listorgusersquery"></a>`ListOrgUsersQuery` | object |  |
 | <a id="schema-listratingsquery"></a>`ListRatingsQuery` | object |  |
 | <a id="schema-listtaxonomyquery"></a>`ListTaxonomyQuery` | object |  |
 | <a id="schema-listtraveldraftsquery"></a>`ListTravelDraftsQuery` | object |  |
+| <a id="schema-listvendorsquery"></a>`ListVendorsQuery` | object |  |
+| <a id="schema-loanitemrequest"></a>`LoanItemRequest` | object | One device to issue: from org stock (item + optional serial) or an existing fleet asset. |
+| <a id="schema-loanlistquery"></a>`LoanListQuery` | object |  |
+| <a id="schema-loanreturnlinerequest"></a>`LoanReturnLineRequest` | object |  |
 | <a id="schema-locationlistquery"></a>`LocationListQuery` | object |  |
 | <a id="schema-loginrequest"></a>`LoginRequest` | object |  |
 | <a id="schema-loginresponse"></a>`LoginResponse` | object | Login outcome: tokens directly, or a short-lived MFA bridge token when any second factor is enrolled. Untagged so legacy clients that ignore `mfa_required` keep parsing the plain token pair they alway |
@@ -1650,6 +1804,8 @@
 | <a id="schema-oncallblock"></a>`OnCallBlock` | object | An absolute UTC on-call rotation segment for one user. |
 | <a id="schema-onhandquery"></a>`OnHandQuery` | object |  |
 | <a id="schema-onhandrow"></a>`OnHandRow` | object | The stock-on-hand read model row (`qty leaking thresholds`). |
+| <a id="schema-orderlineinput"></a>`OrderLineInput` | object |  |
+| <a id="schema-ordermutationresponse"></a>`OrderMutationResponse` | composite |  |
 | <a id="schema-orgbillingpreview"></a>`OrgBillingPreview` | object | Org-wide preview: every billable contract's evaluation for the window plus the grand total — the shape a Wave-9 invoice run will consume. |
 | <a id="schema-orgprofileresponse"></a>`OrgProfileResponse` | object |  |
 | <a id="schema-orgreconcilerequest"></a>`OrgReconcileRequest` | composite |  |
@@ -1740,6 +1896,7 @@
 | <a id="schema-presenceroster"></a>`PresenceRoster` | object | GET /api/tickets/{id}/presence response. |
 | <a id="schema-presenceviewer"></a>`PresenceViewer` | object | One presence viewer on an entity (roster + roster frames). |
 | <a id="schema-presetview"></a>`PresetView` | object | The canonical definition of one shipped preset (RB1): the presets stay canonical even though every org carries its own rows — restore resets a row to this set. |
+| <a id="schema-previewlabelrequest"></a>`PreviewLabelRequest` | object | Draft render body (the designer preview). Same shape as create minus the template identity: nothing is persisted. |
 | <a id="schema-previewquery"></a>`PreviewQuery` | object |  |
 | <a id="schema-pricingfeedapplyresponse"></a>`PricingFeedApplyResponse` | object |  |
 | <a id="schema-pricingfeedbatchrequest"></a>`PricingFeedBatchRequest` | object |  |
@@ -1748,6 +1905,7 @@
 | <a id="schema-pricingfeedoutcomeview"></a>`PricingFeedOutcomeView` | object |  |
 | <a id="schema-priority"></a>`Priority` | string | Industry-standard four-tier priority. |
 | <a id="schema-project"></a>`Project` | object | A project engagement under a client (or internal when `client_id` is `None`). |
+| <a id="schema-projectcostrollupview"></a>`ProjectCostRollupView` | object |  |
 | <a id="schema-projectinstantiateresponse"></a>`ProjectInstantiateResponse` | composite | The instantiation result: the applied project plus the expansion counts (clients render "created N phases, M tasks" without refetching). |
 | <a id="schema-projectlistquery"></a>`ProjectListQuery` | object |  |
 | <a id="schema-projectmutationresponse"></a>`ProjectMutationResponse` | composite | Instant-first mutation response for the project entity (IF2): applied snapshot at the top level plus the additive `mutation` metadata. |
@@ -1772,6 +1930,17 @@
 | <a id="schema-pullitem"></a>`PullItem` | object | One exported row: internal id, stable source key when the row was ever pushed under one, and the canonical projection (the SAME field catalog the push side diffs against). |
 | <a id="schema-pullpage"></a>`PullPage` | object | GET /api/migration/pull/{family} envelope. |
 | <a id="schema-pullquery"></a>`PullQuery` | object | GET /api/migration/pull/{family} query. |
+| <a id="schema-purchasebill"></a>`PurchaseBill` | object | The vendor bill: recorded as a draft, posted (FX-locked) into project cost rollups. |
+| <a id="schema-purchaseorder"></a>`PurchaseOrder` | object | One purchase order header. |
+| <a id="schema-purchaseorderdeeplinks"></a>`PurchaseOrderDeeplinks` | object |  |
+| <a id="schema-purchaseorderdetail"></a>`PurchaseOrderDetail` | object |  |
+| <a id="schema-purchaseorderline"></a>`PurchaseOrderLine` | object | One PO line: quantity at milli precision, cost in minor units. |
+| <a id="schema-purchaseorderlineview"></a>`PurchaseOrderLineView` | object | Ledger-visible PO line (cost fields are `financial:read`-gated). |
+| <a id="schema-purchaseorderrollup"></a>`PurchaseOrderRollup` | object | The rolled-up money on a PO: ordered and received amounts in the PO currency, integer minor units. |
+| <a id="schema-purchaseorderstatus"></a>`PurchaseOrderStatus` | string |  |
+| <a id="schema-purchasereceipt"></a>`PurchaseReceipt` | object | One receipt document: goods that landed at a location against a PO. |
+| <a id="schema-purchasereceiptline"></a>`PurchaseReceiptLine` | object | One receipt line: what moved, and the ledger row it posted. |
+| <a id="schema-purchasereceiptview"></a>`PurchaseReceiptView` | composite | A receipt document with its traceability lines (each stamps the lane-1 ledger `movement_id` it posted). |
 | <a id="schema-pushcheckpoint"></a>`PushCheckpoint` | object | The checkpoint cursor of a push session: what the server has committed and what it expects next. `last_committed_chunk` is `-1` on a fresh session. |
 | <a id="schema-pushchunkreport"></a>`PushChunkReport` | object | The per-row report of one chunk — the D2 contract shape, kept Serialize+Deserialize so a committed chunk's stored copy replays faithfully on an exact re-send. |
 | <a id="schema-pushchunkrequest"></a>`PushChunkRequest` | composite | POST /api/migration/push/sessions/{id}/chunks body. |
@@ -1818,8 +1987,13 @@
 | <a id="schema-ratinglistview"></a>`RatingListView` | object |  |
 | <a id="schema-ratingmineview"></a>`RatingMineView` | object |  |
 | <a id="schema-ratingsummary"></a>`RatingSummary` | object |  |
+| <a id="schema-receiptmutationresponse"></a>`ReceiptMutationResponse` | object |  |
+| <a id="schema-receiptstate"></a>`ReceiptState` | string |  |
+| <a id="schema-receivelineinput"></a>`ReceiveLineInput` | object |  |
+| <a id="schema-receiveorderrequest"></a>`ReceiveOrderRequest` | composite |  |
 | <a id="schema-receiverequest"></a>`ReceiveRequest` | composite | POST /api/stock/{receive\|consume\|adjust\|transfer\|ship-out} bodies. All quantities are `milli` thousandths of the item's unit (parity with quote lines); signed legs are normalized per kind below. |
 | <a id="schema-reconciliationquery"></a>`ReconciliationQuery` | object |  |
+| <a id="schema-recordbillrequest"></a>`RecordBillRequest` | composite |  |
 | <a id="schema-recordpaymentrequest"></a>`RecordPaymentRequest` | composite |  |
 | <a id="schema-recordraterequest"></a>`RecordRateRequest` | composite |  |
 | <a id="schema-recoverycodesresponse"></a>`RecoveryCodesResponse` | object |  |
@@ -1832,8 +2006,10 @@
 | <a id="schema-registerrequest"></a>`RegisterRequest` | object |  |
 | <a id="schema-registryresponse"></a>`RegistryResponse` | object |  |
 | <a id="schema-renderedtemplate"></a>`RenderedTemplate` | object |  |
+| <a id="schema-renderlabelrequest"></a>`RenderLabelRequest` | object |  |
 | <a id="schema-rendertemplaterequest"></a>`RenderTemplateRequest` | object |  |
 | <a id="schema-reparentcategoryrequest"></a>`ReparentCategoryRequest` | composite |  |
+| <a id="schema-replacecontactsrequest"></a>`ReplaceContactsRequest` | composite |  |
 | <a id="schema-replaceladderrequest"></a>`ReplaceLadderRequest` | object |  |
 | <a id="schema-replaceticketskillsrequest"></a>`ReplaceTicketSkillsRequest` | composite | PUT /api/dispatch/tickets/{ticket_id}/required-skills body. |
 | <a id="schema-replaceuserskillsrequest"></a>`ReplaceUserSkillsRequest` | composite | PUT /api/dispatch/users/{user_id}/skills body. |
@@ -1852,6 +2028,7 @@
 | <a id="schema-resolution"></a>`Resolution` | object | The effective state of one construct after resolution. |
 | <a id="schema-resolutionsource"></a>`ResolutionSource` | string | Which layer supplied the effective value. |
 | <a id="schema-resolveddetail"></a>`ResolvedDetail` | object | Render-ready details of a resolved reference value: names and the semantic category travel WITH the resolution so consumers never branch on labels and never need a second lookup. |
+| <a id="schema-resolvedlabel"></a>`ResolvedLabel` | object | The deterministic rendered label: absolute geometry in millimetres. |
 | <a id="schema-resolvedlink"></a>`ResolvedLink` | composite | A link with its target resolved to a display label for the UI (typed read model; the raw row never carries the label). |
 | <a id="schema-resolveembedrequest"></a>`ResolveEmbedRequest` | object |  |
 | <a id="schema-resolveratequery"></a>`ResolveRateQuery` | object |  |
@@ -1859,12 +2036,14 @@
 | <a id="schema-restorerolerequest"></a>`RestoreRoleRequest` | composite |  |
 | <a id="schema-restoretemplaterequest"></a>`RestoreTemplateRequest` | composite |  |
 | <a id="schema-retiretaxonomynoderequest"></a>`RetireTaxonomyNodeRequest` | composite |  |
+| <a id="schema-returnloanrequest"></a>`ReturnLoanRequest` | composite | POST /api/client-loans/{id}/return. |
 | <a id="schema-revertdetail"></a>`RevertDetail` | object | What the revert restored. |
 | <a id="schema-revertticketrequest"></a>`RevertTicketRequest` | composite | POST /api/tickets/{id}/revert body. |
 | <a id="schema-revokecatalogentryrequest"></a>`RevokeCatalogEntryRequest` | object |  |
 | <a id="schema-rolemutationresponse"></a>`RoleMutationResponse` | composite | Instant-first mutation response (IF2): the role at the top level plus the additive `mutation` metadata. |
 | <a id="schema-roleslistresponse"></a>`RolesListResponse` | object |  |
 | <a id="schema-roleview"></a>`RoleView` | object | One org role row (preset or custom). `permissions` is the raw matrix vocabulary: `{"matrix": {"module", "action"}}` entries plus bare special strings (`"financial:read"`, `"special:manage_users"`, …). |
+| <a id="schema-rollupbillview"></a>`RollupBillView` | object |  |
 | <a id="schema-rowformat"></a>`RowFormat` | string | Wire format selector for an import payload. |
 | <a id="schema-rowoutcome"></a>`RowOutcome` | object |  |
 | <a id="schema-rowreport"></a>`RowReport` | object | Per-row dry-run/commit report entry. The wire shape contract from D2: every row maps to exactly one of `errors[]`, `ok`, `would_skip`, `would_update`. |
@@ -1872,6 +2051,9 @@
 | <a id="schema-runbatchresponse"></a>`RunBatchResponse` | object | POST /imports/batches/{id}/run response: the batch is queued for the worker exactly once; poll the batch view for counters. |
 | <a id="schema-runreportresponse"></a>`RunReportResponse` | object | Per-row fate report — the D2 contract shape (`row_index → errors[] \| ok \| would_skip \| would_update`). |
 | <a id="schema-runspecrequest"></a>`RunSpecRequest` | object | POST /api/reports/run-spec body: an inline spec (validated through the same registry as stored definitions) plus the run window. This is the builder's PREVIEW-before-save surface — nothing is persiste |
+| <a id="schema-scancandidateview"></a>`ScanCandidateView` | object | One candidate when a code matches more than one row of the same kind. |
+| <a id="schema-scanresolutionview"></a>`ScanResolutionView` | object | The typed meaning of one scanned string. `entity_id` is the resolved entity: the stock item, the serialized unit, the location, or the device asset. `deep_link` is always the canonical link for that e |
+| <a id="schema-scanresolverequest"></a>`ScanResolveRequest` | object |  |
 | <a id="schema-scanstatus"></a>`ScanStatus` | string | Outcome of the malware scan that runs between webhook receipt and persistence. `skipped` is the documented "none" mode (no scanner configured) — never a silent pass of an actual verdict. |
 | <a id="schema-schedulecadence"></a>`ScheduleCadence` | string | Wire cadence of a schedule (snake_case slugs matching the stored column and the worker's parser). |
 | <a id="schema-schedulelistquery"></a>`ScheduleListQuery` | object | GET /api/report-schedules query. |
@@ -2037,6 +2219,16 @@
 | <a id="schema-timesettingsresponse"></a>`TimeSettingsResponse` | object |  |
 | <a id="schema-tokenpair"></a>`TokenPair` | object | Token pair returned by all auth flows. |
 | <a id="schema-tokenrequest"></a>`TokenRequest` | object |  |
+| <a id="schema-toolavailabilityquery"></a>`ToolAvailabilityQuery` | object |  |
+| <a id="schema-toolavailabilityview"></a>`ToolAvailabilityView` | object |  |
+| <a id="schema-toolcheckoutdetailresponse"></a>`ToolCheckoutDetailResponse` | object |  |
+| <a id="schema-toolcheckoutlineview"></a>`ToolCheckoutLineView` | object |  |
+| <a id="schema-toolcheckoutmutationresponse"></a>`ToolCheckoutMutationResponse` | object |  |
+| <a id="schema-toolcheckoutview"></a>`ToolCheckoutView` | object |  |
+| <a id="schema-toolkitmutationresponse"></a>`ToolKitMutationResponse` | composite |  |
+| <a id="schema-toolkitview"></a>`ToolKitView` | object |  |
+| <a id="schema-toolserialsquery"></a>`ToolSerialsQuery` | object |  |
+| <a id="schema-toolserialwhereaboutsview"></a>`ToolSerialWhereaboutsView` | object |  |
 | <a id="schema-totpdisablerequest"></a>`TotpDisableRequest` | object |  |
 | <a id="schema-totpenrollbeginresponse"></a>`TotpEnrollBeginResponse` | object |  |
 | <a id="schema-totpenrollverifyrequest"></a>`TotpEnrollVerifyRequest` | object |  |
@@ -2066,7 +2258,10 @@
 | <a id="schema-updatefielddefrequest"></a>`UpdateFieldDefRequest` | object |  |
 | <a id="schema-updategrouprequest"></a>`UpdateGroupRequest` | composite |  |
 | <a id="schema-updateinstallrequest"></a>`UpdateInstallRequest` | object |  |
+| <a id="schema-updatekitrequest"></a>`UpdateKitRequest` | composite | PATCH /api/tool-kits/{id} — absent fields keep their value. |
+| <a id="schema-updatelabeltemplaterequest"></a>`UpdateLabelTemplateRequest` | composite |  |
 | <a id="schema-updatelayoutrequest"></a>`UpdateLayoutRequest` | composite |  |
+| <a id="schema-updateorderrequest"></a>`UpdateOrderRequest` | composite |  |
 | <a id="schema-updatepasswordrequest"></a>`UpdatePasswordRequest` | composite |  |
 | <a id="schema-updatepreferencerequest"></a>`UpdatePreferenceRequest` | object |  |
 | <a id="schema-updateproposalview"></a>`UpdateProposalView` | object |  |
@@ -2090,6 +2285,7 @@
 | <a id="schema-updatetaxonomynoderequest"></a>`UpdateTaxonomyNodeRequest` | composite |  |
 | <a id="schema-updatetemplaterequest"></a>`UpdateTemplateRequest` | object | PUT /api/imports/templates/{id} request — all fields optional. |
 | <a id="schema-updatetimesettingsrequest"></a>`UpdateTimeSettingsRequest` | object |  |
+| <a id="schema-updatevendorrequest"></a>`UpdateVendorRequest` | composite |  |
 | <a id="schema-updatewebhookrequest"></a>`UpdateWebhookRequest` | object |  |
 | <a id="schema-upsertedgesourcerequest"></a>`UpsertEdgeSourceRequest` | object |  |
 | <a id="schema-upsertmemberrequest"></a>`UpsertMemberRequest` | object |  |
@@ -2101,6 +2297,11 @@
 | <a id="schema-vaultentryview"></a>`VaultEntryView` | object | A vault entry as the asset detail page sees it: metadata only — reveal rides the audited `/passwords/{id}/reveal` endpoint. |
 | <a id="schema-velocitymutationless"></a>`VelocityMutationless` | object |  |
 | <a id="schema-velocityquery"></a>`VelocityQuery` | object |  |
+| <a id="schema-vendor"></a>`Vendor` | object | One org-owned supplier/reseller. |
+| <a id="schema-vendorcontact"></a>`VendorContact` | object | A typed contact on a vendor. |
+| <a id="schema-vendorcontactinput"></a>`VendorContactInput` | object |  |
+| <a id="schema-vendordetail"></a>`VendorDetail` | object | Vendor detail: the entity plus its typed contacts and external links. |
+| <a id="schema-vendormutationresponse"></a>`VendorMutationResponse` | composite |  |
 | <a id="schema-verdictresponse"></a>`VerdictResponse` | object |  |
 | <a id="schema-verifypublisherrequest"></a>`VerifyPublisherRequest` | object |  |
 | <a id="schema-verifystatus"></a>`VerifyStatus` | object |  |
@@ -2126,4 +2327,4 @@
 | <a id="schema-workbenchside"></a>`WorkbenchSide` | composite | One side of the workbench comparison: the item view plus its FULL tier state (observed/curated/field_sources) and identity keys. |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 27 operation groups; schema count 986 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 28 operation groups; schema count 1080 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*

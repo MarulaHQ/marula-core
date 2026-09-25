@@ -450,34 +450,35 @@ use core_domain::events::{
     CreditNoteIssued, CreditNoteRefunded, DispatchQueueUpdated, DispatchStatusUpdated,
     DocumentAttachmentAdded, DocumentAttachmentDeleted, FxBaseCurrencyChanged, FxRateRecorded,
     ImportBatchFinished, ImportBatchStarted, InvoiceCreated, InvoiceDunningChanged,
-    InvoicePaymentRecorded, InvoiceRunCompleted, InvoiceVoided, LoanIssued, LoanReturned,
-    MeetingTypeDeleted, MigrationPushSessionFinished, MigrationPushSessionStarted,
-    NotificationCreated, OnCallChanged, PipelineDealCreated, PipelineDealStageChanged,
-    PipelineDealUpdated, PipelineStageCreated, PipelineStageUpdated, PluginCatalogEntryCreated,
-    PluginInstallRevoked, PluginInstallUpdated, PluginInstalled, PluginPublisherRevoked,
-    PluginPublisherVerified, PluginRatingRecorded, PluginSettingsUpdated,
-    PluginStagedImportApproved, PluginStagedImportCreated, PluginStagedImportRefused,
-    PluginUpdatePending, PmScheduleChanged, PmScheduleDeleted, PodVisibilityUpdated,
-    ProjectCreated, ProjectMilestoneCompleted, ProjectPhaseCompleted, ProjectPhaseCreated,
-    ProjectPhaseUpdated, ProjectTaskCompleted, ProjectTaskCreated, ProjectTaskUpdated,
-    ProjectTemplateRemoved, ProjectTemplateUpdated, ProjectUpdated, ProjectViewRemoved,
-    ProjectViewUpdated, PurchaseBillPosted, PurchaseOrderCreated, PurchaseOrderStatusChanged,
-    PurchaseOrderUpdated, PurchaseReceiptRecorded, QuoteAccepted, QuoteConverted, QuoteCreated,
-    QuoteDeclined, QuoteExpired, QuoteSent, QuoteUpdated, RoleForked, RoleRestored,
-    SchedulingLinkCreated, SchedulingLinkRevoked, SchedulingLinkScheduled, SchedulingLinkViewed,
-    ScorecardSettingsUpdated, SecretFolderCreated, SecretFolderDeleted, SecretFolderForked,
-    SecretFolderUpdated, SecretGrantDeleted, SecretGrantUpdated, SecretRecordCreated,
-    SecretRecordDeleted, SecretRecordUpdated, SecretRevealed, SecretRotationDue,
-    SecretShareLinkClaimed, SecretShareLinkCreated, SiteCreated, SiteUpdated, StockItemArchived,
-    StockItemCreated, StockItemUpdated, StockLevelLow, StockMovementRecorded, TagCreated,
-    TagDeleted, TagUpdated, TemplateCreated, TemplateRemoved, TemplateUpdated, TicketAssigned,
-    TicketBoardMoved, TicketChecklistUpdated, TicketCommentAdded, TicketCostLineAdded,
-    TicketCostLineRemoved, TicketCreated, TicketExpenseRecorded, TicketExpenseRemoved,
-    TicketLinkChanged, TicketMerged, TicketReverted, TicketStatusChanged, TicketTagsChanged,
-    TimeEntryApprovalApproved, TimeEntryApprovalRejected, TimeEntryApprovalSubmitted,
-    TimeEntryCreated, TimerPaused, TimerStarted, TimerStopped, ToolCheckinCompleted,
-    ToolCheckoutCompleted, ToolKitCreated, ToolKitUpdated, TravelDraftSubmitted, UserActivated,
-    UserDeactivated, UserInvited, UserRoleChanged, VendorCreated, VendorUpdated,
+    InvoicePaymentRecorded, InvoiceRunCompleted, InvoiceVoided, LabelTemplateCreated,
+    LabelTemplateUpdated, LoanIssued, LoanReturned, MeetingTypeDeleted,
+    MigrationPushSessionFinished, MigrationPushSessionStarted, NotificationCreated, OnCallChanged,
+    PipelineDealCreated, PipelineDealStageChanged, PipelineDealUpdated, PipelineStageCreated,
+    PipelineStageUpdated, PluginCatalogEntryCreated, PluginInstallRevoked, PluginInstallUpdated,
+    PluginInstalled, PluginPublisherRevoked, PluginPublisherVerified, PluginRatingRecorded,
+    PluginSettingsUpdated, PluginStagedImportApproved, PluginStagedImportCreated,
+    PluginStagedImportRefused, PluginUpdatePending, PmScheduleChanged, PmScheduleDeleted,
+    PodVisibilityUpdated, ProjectCreated, ProjectMilestoneCompleted, ProjectPhaseCompleted,
+    ProjectPhaseCreated, ProjectPhaseUpdated, ProjectTaskCompleted, ProjectTaskCreated,
+    ProjectTaskUpdated, ProjectTemplateRemoved, ProjectTemplateUpdated, ProjectUpdated,
+    ProjectViewRemoved, ProjectViewUpdated, PurchaseBillPosted, PurchaseOrderCreated,
+    PurchaseOrderStatusChanged, PurchaseOrderUpdated, PurchaseReceiptRecorded, QuoteAccepted,
+    QuoteConverted, QuoteCreated, QuoteDeclined, QuoteExpired, QuoteSent, QuoteUpdated, RoleForked,
+    RoleRestored, SchedulingLinkCreated, SchedulingLinkRevoked, SchedulingLinkScheduled,
+    SchedulingLinkViewed, ScorecardSettingsUpdated, SecretFolderCreated, SecretFolderDeleted,
+    SecretFolderForked, SecretFolderUpdated, SecretGrantDeleted, SecretGrantUpdated,
+    SecretRecordCreated, SecretRecordDeleted, SecretRecordUpdated, SecretRevealed,
+    SecretRotationDue, SecretShareLinkClaimed, SecretShareLinkCreated, SiteCreated, SiteUpdated,
+    StockItemArchived, StockItemCreated, StockItemUpdated, StockLevelLow, StockMovementRecorded,
+    TagCreated, TagDeleted, TagUpdated, TemplateCreated, TemplateRemoved, TemplateUpdated,
+    TicketAssigned, TicketBoardMoved, TicketChecklistUpdated, TicketCommentAdded,
+    TicketCostLineAdded, TicketCostLineRemoved, TicketCreated, TicketExpenseRecorded,
+    TicketExpenseRemoved, TicketLinkChanged, TicketMerged, TicketReverted, TicketStatusChanged,
+    TicketTagsChanged, TimeEntryApprovalApproved, TimeEntryApprovalRejected,
+    TimeEntryApprovalSubmitted, TimeEntryCreated, TimerPaused, TimerStarted, TimerStopped,
+    ToolCheckinCompleted, ToolCheckoutCompleted, ToolKitCreated, ToolKitUpdated,
+    TravelDraftSubmitted, UserActivated, UserDeactivated, UserInvited, UserRoleChanged,
+    VendorCreated, VendorUpdated,
 };
 use core_domain::money::{CurrencyCode, Money};
 use core_domain::policy::BoardRole;
@@ -2954,6 +2955,29 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             }
         ),
     },
+    // -- label templates (Wave 32 lane 5, migration 0105) --------------------
+    PublishedEvent {
+        event_type: types::LABEL_TEMPLATE_CREATED,
+        entity: "label_template",
+        variant: "default",
+        shape: typed_shape!(
+            LabelTemplateCreated,
+            LabelTemplateCreated {
+                template: sample_label_template(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::LABEL_TEMPLATE_UPDATED,
+        entity: "label_template",
+        variant: "default",
+        shape: typed_shape!(
+            LabelTemplateUpdated,
+            LabelTemplateUpdated {
+                template: sample_label_template(),
+            }
+        ),
+    },
     // -- purchasing + vendors (Wave 32 lane 2, migration 0103) --------------
     PublishedEvent {
         event_type: types::VENDOR_CREATED,
@@ -4477,6 +4501,29 @@ fn sample_tool_kit() -> core_domain::entities::ToolKit {
         name: "Electrical toolbox".into(),
         code: Some("TB-ELEC-1".into()),
         note: None,
+        active: true,
+        created_by: Some(su(4)),
+        created_at: st(1),
+        updated_at: st(1),
+    }
+}
+
+/// Representative label template for label samples (Wave 32 lane 5).
+fn sample_label_template() -> core_domain::entities::LabelTemplate {
+    use core_domain::entities::LabelTemplate;
+    LabelTemplate {
+        id: su(80),
+        org_id: su(2),
+        name: "Serialized unit — 2×1".into(),
+        purpose: "serialized_unit".into(),
+        size_preset: "zebra_2x1".into(),
+        width_tenths_mm: None,
+        height_tenths_mm: None,
+        dpi: 203,
+        barcode_token: Some("serial".into()),
+        include_qr: true,
+        fields: vec!["name".into(), "serial".into(), "location".into()],
+        is_default: true,
         active: true,
         created_by: Some(su(4)),
         created_at: st(1),
