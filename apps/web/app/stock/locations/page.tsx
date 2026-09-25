@@ -39,6 +39,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { rejectionText } from "../../../lib/error-copy";
+import { LabelPrintButton } from "../../../components/labels/label-print-button";
 
 type StockLocationView = components["schemas"]["StockLocationView"];
 
@@ -275,7 +276,8 @@ export default function StockLocationsPage(): ReactNode {
 
   function cardActions(location: StockLocationView): ReactNode {
     return (
-      <div className="flex flex-wrap gap-1">
+      <div className="flex flex-wrap items-start gap-1">
+        <LabelPrintButton purpose="stock_location" entityId={location.id} entityLabel={location.name} />
         <Button size="sm" variant="secondary" onClick={() => openEdit(location)} data-testid={`stock-location-edit-${location.id}`}>
           Edit
         </Button>

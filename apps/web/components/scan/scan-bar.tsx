@@ -26,7 +26,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api } from "../../lib/api";
 import type { ScanResolution } from "../../lib/labels/model";
-import { accepts, kindLabel, rejectionCopy, scanSummary } from "../../lib/scan/routing";
+import { accepts, kindLabel, rejectionCopy, scanDetail } from "../../lib/scan/routing";
 import {
   burstLandedInForeignField,
   createWedgeState,
@@ -41,6 +41,8 @@ interface ScanEvent {
   resolution: ScanResolutionView;
   source: "bar" | "wedge";
 }
+
+export type { ScanEvent };
 
 export interface ScanBarProps {
   /** Surface key in `SURFACE_ACCEPTS` — decides which kinds apply here. */
@@ -253,7 +255,7 @@ export function ScanBar({
             >
               {kindLabel(last.resolution.kind)}
             </span>
-            <span data-testid="scan-chip-summary">{scanSummary(last.resolution)}</span>
+            <span data-testid="scan-chip-summary">{scanDetail(last.resolution)}</span>
             <span style={{ color: "var(--m-text-muted)" }}>
               {last.source === "wedge" ? "keyboard wedge" : "entered"}
             </span>

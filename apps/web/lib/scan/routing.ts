@@ -24,6 +24,7 @@ export const SURFACE_ACCEPTS: Record<string, ScanKind[]> = {
   "ticket-parts": ["stock_item", "serialized_unit"],
   receiving: ["stock_item", "serialized_unit", "stock_location"],
   "stock-locations": ["stock_item", "stock_location"],
+  dispatch: ["stock_item", "serialized_unit"],
   tools: ["serialized_unit"],
   assets: ["device_asset"],
 };
@@ -50,6 +51,17 @@ export function scanSummary(resolution: ScanResolution): string {
   const parts = [kindLabel(resolution.kind)];
   if (resolution.display_name !== "") parts.push(resolution.display_name);
   if (resolution.secondary != null && resolution.secondary !== "") parts.push(resolution.secondary);
+  return parts.join(" · ");
+}
+
+/**
+ * The scan chip's detail line: name · secondary, kind excluded — the chip
+ * already renders the kind as its badge, so repeating it here reads twice.
+ */
+export function scanDetail(resolution: ScanResolution): string {
+  const parts = [resolution.display_name, resolution.secondary ?? ""].filter(
+    (part) => part !== "",
+  );
   return parts.join(" · ");
 }
 

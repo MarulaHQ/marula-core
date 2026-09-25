@@ -20740,6 +20740,13 @@ export interface components {
             /** @description Serialized receives carry one entry per physical unit. */
             serial_numbers?: string[] | null;
             /**
+             * Format: uuid
+             * @description Optional ticket anchor. A return/restock of parts from a job carries
+             *     the ticket so the movement lands on that ticket's timeline instead of
+             *     forcing a detour through the stock surfaces (Wave 32 lane 6).
+             */
+            ticket_id?: string | null;
+            /**
              * Format: int64
              * @description Unit cost in the item's cost currency (locked at receipt on the
              *     ledger row; ADR 0002 inventory-receipt lock moment).

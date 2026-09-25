@@ -24,7 +24,7 @@
 
 import type { components } from "@meridian/sdk";
 import { snapshotOf } from "@meridian/sdk";
-import { Spinner, StatusTag } from "@meridian/ui";
+import { Spinner, StatusTag, Button } from "@meridian/ui";
 import { TranscribeControl } from "../../../components/attachments/transcribe-control";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -63,13 +63,43 @@ import { WbContextPanel } from "../../../components/workbench-v2/context-panel";
 import { WbAgentPanel } from "../../../components/workbench-v2/agent-panel";
 import { DecisionSuggestionsCard } from "../../../components/workbench-v2/decision-card";
 import { WbComposer } from "../../../components/workbench-v2/composer";
-import { MovementDialog } from "../../../components/stock/movement-dialog";
+import { MovementDialog, type MovementKind } from "../../../components/stock/movement-dialog";
+import { LabelPrintButton } from "../../../components/labels/label-print-button";
+import { formatQtyMilli } from "../../../lib/stock-format";
 import { WrapUpSheet } from "../../../components/workbench-v2/wrap-up-sheet";
 import { TasksGateDialog, type GateBlocks } from "../../../components/notes/close-gate-dialog";
 import { registerWrapUpTarget } from "../../../components/workbench-v2/wrap-up-bridge";
 import "../../../components/workbench-v2/workbench.css";
 
 type BoardStatus = components["schemas"]["BoardStatus"];
+type StockMovementView = components["schemas"]["StockMovementView"];
+type StockItemView = components["schemas"]["StockItemView"];
+
+/** The panel's receipt after a recorded movement — kind + the ledger row. */
+interface PartsReceipt {
+  kind: MovementKind;
+  movement: StockMovementView;
+}
+
+function receiptSentence(
+  receipt: PartsReceipt,
+  item: StockItemView | undefined,
+  clientName: string | null,
+): string {
+  const movement = receipt.movement;
+  const name = item?.name ?? "the item";
+  const qty = formatQtyMilli(Math.abs(movement.qty_milli), item?.unit ?? "");
+  switch (receipt.kind) {
+    case "ship-out":
+      return `Shipped ${qty} · ${name}${clientName !== null ? ` to ${clientName}` : ""} — the movement is on this ticket's timeline.`;
+    case "receive":
+      return `Returned ${qty} · ${name} to stock — the movement is on this ticket's timeline.`;
+    case "consume":
+      return `Used ${qty} · ${name} — the movement is on this ticket's timeline.`;
+    default:
+      return `Recorded ${receipt.kind} — the movement is on this ticket's timeline.`;
+  }
+}
 
 export type WbTab = "activity" | "details" | "related" | "time" | "files" | "notes";
 
@@ -276,7 +306,7 @@ export default function TicketWorkbenchPage() {
   const [takeItBusy, setTakeItBusy] = useState(false);
   const [partsOpen, setPartsOpen] = useState(false);
   const [partsReload, setPartsReload] = useState(0);
-  const [partsNotice, setPartsNotice] = useState<string | null>(null);
+  const [partsReceipt, setPartsReceipt] = useState<PartsReceipt | null>(null);
   const [partsItems, setPartsItems] = useState<components["schemas"]["StockItemView"][]>([]);
   const [partsLocations, setPartsLocations] = useState<components["schemas"]["StockLocationView"][]>([]);
   const [partsLoadError, setPartsLoadError] = useState<string | null>(null);
@@ -873,10 +903,10 @@ async function changeStatus(statusId: string): Promise<void> {
                   background: "var(--m-surface)",
                   color: isMerged ? "var(--m-text-muted)" : "var(--m-text-secondary)",
                 }}
-                title="Consume stock parts against this ticket"
+                title="Parts &amp; shipping — use on the job, ship to the client, return stock, print labels"
                 onClick={() => void openParts()}
               >
-                {iconOnlyActions ? "◫" : "Parts used"}
+                {iconOnlyActions ? "◫" : "Parts & shipping"}
               </button>
               <Link
                 href={`/tickets/classic/${ticket.id}`}
@@ -1178,10 +1208,54 @@ async function changeStatus(statusId: string): Promise<void> {
               {error}
             </p>
           )}
-          {partsNotice !== null && (
-            <p className="text-xs" style={{ color: "var(--m-status-success-fg)" }} role="status" data-testid="wb-parts-notice">
-              {partsNotice}
-            </p>
+          {partsReceipt !== null && (
+            <div
+              className="grid gap-2 rounded-lg border p-2.5 text-xs"
+              style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
+              role="status"
+              data-testid="wb-parts-receipt"
+            >
+              <p
+                style={{ color: "var(--m-status-success-fg)" }}
+                data-testid="wb-parts-notice"
+              >
+                {receiptSentence(
+                  partsReceipt,
+                  partsItems.find((i) => i.id === partsReceipt.movement.stock_item_id),
+                  clientName,
+                )}
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                {partsReceipt.kind === "ship-out" &&
+                  (((partsReceipt.movement.carrier != null && partsReceipt.movement.carrier !== "") ||
+                    (partsReceipt.movement.tracking_ref != null &&
+                      partsReceipt.movement.tracking_ref !== "")) && (
+                    <span className="font-mono" style={{ color: "var(--m-text-secondary)" }}>
+                      {[partsReceipt.movement.carrier, partsReceipt.movement.tracking_ref]
+                        .filter((part) => part != null && part !== "")
+                        .join(" · ")}
+                    </span>
+                  ))}
+                {partsReceipt.kind === "ship-out" && (
+                  <LabelPrintButton
+                    purpose={partsReceipt.movement.serial_id != null ? "serialized_unit" : "stock_item"}
+                    entityId={partsReceipt.movement.serial_id ?? partsReceipt.movement.stock_item_id}
+                    entityLabel={
+                      partsItems.find((i) => i.id === partsReceipt.movement.stock_item_id)?.name ??
+                      "Shipped item"
+                    }
+                  />
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  data-testid="wb-parts-receipt-dismiss"
+                  onClick={() => setPartsReceipt(null)}
+                >
+                  Dismiss
+                </Button>
+              </div>
+            </div>
           )}
         </div>
 
@@ -1293,13 +1367,20 @@ async function changeStatus(statusId: string): Promise<void> {
           onOpenChange={setPartsOpen}
           items={partsItems}
           locations={partsLocations}
+          clients={
+            clientName !== null && ticket.client_id != null
+              ? [{ id: ticket.client_id, name: clientName }]
+              : []
+          }
           initialKind="consume"
+          initialClientId={ticket.client_id ?? undefined}
           ticketId={ticket.id}
-          lockKind
-          title="Parts used"
-          onRecorded={() => {
-            setPartsNotice("Parts recorded — the movement is on this ticket's timeline.");
-            window.setTimeout(() => setPartsNotice(null), 8000);
+          ticketLabel={`${ticket.number} · ${ticket.title}`}
+          scanSurface="ticket-parts"
+          searchableItems
+          title="Parts & shipping"
+          onRecorded={(movement, recordedKind) => {
+            setPartsReceipt({ kind: recordedKind ?? "consume", movement });
             setPartsReload((n) => n + 1);
           }}
         />

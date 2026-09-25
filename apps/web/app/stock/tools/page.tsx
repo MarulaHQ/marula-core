@@ -38,6 +38,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { CheckInDialog } from "../../../components/stock/check-in-dialog";
 import { CheckoutDialog, type HolderOption } from "../../../components/stock/checkout-dialog";
+import { ScanBar, type ScanEvent } from "../../../components/scan/scan-bar";
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { rejectionText } from "../../../lib/error-copy";
@@ -78,6 +79,12 @@ export default function StockToolsPage(): ReactNode {
 
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [checkinId, setCheckinId] = useState<string | null>(null);
+  const [checkoutSeed, setCheckoutSeed] = useState<{
+    itemId: string;
+    serialId?: string;
+    serialLabel?: string;
+  } | null>(null);
+  const [scanNotice, setScanNotice] = useState<string | null>(null);
 
   const [kitCreateOpen, setKitCreateOpen] = useState(false);
   const [kitForm, setKitForm] = useState({ name: "", code: "", note: "" });
@@ -125,6 +132,46 @@ export default function StockToolsPage(): ReactNode {
     if (auth.status !== "authed") return;
     void refresh();
   }, [auth.status, me?.user_id]);
+
+  /**
+   * Scan-to-checkout / scan-to-check-in: an in-stock unit seeds the
+   * checkout row; a unit that is already out finds its open checkout and
+   * opens the check-in. A non-tool scan is refused with a sentence.
+   */
+  async function toolsScan(event: ScanEvent): Promise<void> {
+    const resolution = event.resolution;
+    setScanNotice(null);
+    if (!resolution.is_tool) {
+      setScanNotice(`“${resolution.display_name}” is not a tool — nothing to check here.`);
+      return;
+    }
+    if (resolution.serial_status === "checked_out" || resolution.serial_status === "loaned") {
+      const { data } = await api.api.GET("/api/v1/tool-checkouts", {
+        params: { query: { status: "open", limit: 200 } },
+      });
+      const open = (data ?? []).find((row) =>
+        row.lines.some((line) => line.serial_id === resolution.serial_id),
+      );
+      if (open === undefined) {
+        setScanNotice(
+          `“${resolution.secondary ?? resolution.display_name}” reads out with no open checkout — check the ledger.`,
+        );
+        return;
+      }
+      setCheckinId(open.checkout.id);
+      return;
+    }
+    if (resolution.serial_id == null) {
+      setScanNotice("That tool code did not name a unit — scan the unit's label.");
+      return;
+    }
+    setCheckoutSeed({
+      itemId: resolution.stock_item_id ?? resolution.entity_id ?? "",
+      serialId: resolution.serial_id,
+      serialLabel: resolution.secondary ?? "",
+    });
+    setCheckoutOpen(true);
+  }
 
   const holderLabel = useMemo(() => {
     const map = new Map(holders.map((holder) => [holder.id, holder.label]));
@@ -309,6 +356,14 @@ export default function StockToolsPage(): ReactNode {
         </div>
       </header>
 
+      <div className="max-w-xl" data-testid="tools-scan">
+        <ScanBar
+          surface="tools"
+          onScan={(event) => void toolsScan(event)}
+          hint="Scan a tool unit to check it out, or to check it in when it is already out."
+        />
+      </div>
+
       {directoryDenied && (
         <p className="text-xs" style={{ color: "var(--m-text-muted)" }} data-testid="tools-directory-note">
           The staff directory needs a manager role. The holder picker lists you only.
@@ -322,6 +377,11 @@ export default function StockToolsPage(): ReactNode {
       {notice !== null && (
         <p className="text-xs" role="status" style={{ color: "var(--m-status-success-fg)" }} data-testid="tools-notice">
           {notice}
+        </p>
+      )}
+      {scanNotice !== null && (
+        <p className="text-xs" role="status" style={{ color: "var(--m-status-warning-fg)" }} data-testid="tools-scan-notice">
+          {scanNotice}
         </p>
       )}
 
@@ -479,14 +539,21 @@ export default function StockToolsPage(): ReactNode {
 
       <CheckoutDialog
         open={checkoutOpen}
-        onOpenChange={setCheckoutOpen}
+        onOpenChange={(open) => {
+          setCheckoutOpen(open);
+          if (!open) setCheckoutSeed(null);
+        }}
         items={items ?? []}
         locations={locations}
         kits={kits}
         holders={holders}
         defaultHolderId={me?.user_id ?? ""}
+        initialItemId={checkoutSeed?.itemId}
+        initialSerialId={checkoutSeed?.serialId}
+        initialSerialLabel={checkoutSeed?.serialLabel}
         onCheckedOut={() => {
           setNotice("Tools checked out.");
+          setCheckoutSeed(null);
           void refresh();
         }}
       />
