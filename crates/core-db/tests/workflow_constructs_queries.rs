@@ -465,6 +465,15 @@ async fn costs_candidate_feed_and_billed_once_guard() {
         )
         .await
         .expect("cost");
+        // The list read must survive the NUMERIC→f64 decode: migration 0056
+        // stores quantity as numeric while the entity carries f64, so
+        // COST_COLS casts it explicitly. Regression line for the
+        // list_cost_lines panic (reproduced through the API route).
+        let listed = costs::list_cost_lines(&mut *tx, org, t.id)
+            .await
+            .expect("cost lines list");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].quantity, 2.0, "numeric quantity decodes to f64");
         costs::insert_expense(
             &mut *tx,
             &core_domain::entities::TicketExpense {
