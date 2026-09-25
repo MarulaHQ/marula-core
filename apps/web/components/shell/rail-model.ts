@@ -66,7 +66,32 @@ export const RAIL_SECTIONS: RailSection[] = [
     match: ["/assets", "/inventory"],
     links: [
       { label: "Devices", href: "/assets" },
-      { label: "Inventory", href: "/inventory" },
+      // Renamed from "Inventory" (Wave 32 lane 4): this surface is the
+      // configuration-item ledger + merge queue, not physical stock. The
+      // route keeps its path; /stock owns physical goods now.
+      { label: "Config inventory", href: "/inventory" },
+    ],
+  },
+  {
+    id: "stock",
+    label: "Stock",
+    href: "/stock",
+    match: ["/stock"],
+    links: [
+      { label: "Stock", href: "/stock" },
+      { label: "Locations", href: "/stock/locations" },
+      { label: "Tools", href: "/stock/tools" },
+      { label: "Loans", href: "/stock/loans" },
+    ],
+  },
+  {
+    id: "purchasing",
+    label: "Purchasing",
+    href: "/purchasing",
+    match: ["/purchasing"],
+    links: [
+      { label: "Purchase orders", href: "/purchasing" },
+      { label: "Vendors", href: "/purchasing/vendors" },
     ],
   },
   {

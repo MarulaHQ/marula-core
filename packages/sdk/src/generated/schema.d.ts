@@ -10402,6 +10402,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tickets/{id}/stock-movements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/tickets/{id}/stock-movements — the job's parts-used ledger
+         *     read: every movement anchored to this ticket, newest first. Ticket
+         *     visibility gates the read; cost fields stay `financial:read`-gated
+         *     (RB2), same as the per-item ledger read.
+         */
+        get: operations["ticket_stock_movements"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tickets/{id}/tags": {
         parameters: {
             query?: never;
@@ -14173,6 +14195,17 @@ export interface components {
              * @description Absolute https URL; SharePoint/OneDrive/Drive-class hosts are
              *     classified server-side — the client cannot lie about the kind.
              */
+            url: string;
+        };
+        CreateExternalLinkRequest: components["schemas"]["MutationParams"] & {
+            carrier?: string | null;
+            kind: components["schemas"]["ExternalLinkKind"];
+            label?: string | null;
+            /**
+             * Format: uuid
+             * @description PO-line links only: the line inside the route's order.
+             */
+            line_id?: string | null;
             url: string;
         };
         CreateFieldDefRequest: {
@@ -39099,7 +39132,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateLinkRequest"];
+                "application/json": components["schemas"]["CreateExternalLinkRequest"];
             };
         };
         responses: {
@@ -45520,6 +45553,29 @@ export interface operations {
             };
         };
     };
+    ticket_stock_movements: {
+        parameters: {
+            query?: {
+                limit?: number | null;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockMovementView"][];
+                };
+            };
+        };
+    };
     tickets_list_tags: {
         parameters: {
             query?: never;
@@ -46734,7 +46790,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateLinkRequest"];
+                "application/json": components["schemas"]["CreateExternalLinkRequest"];
             };
         };
         responses: {

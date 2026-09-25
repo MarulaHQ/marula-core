@@ -275,7 +275,7 @@ pub struct ContactsMutationResponse {
 }
 
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
-pub struct CreateLinkRequest {
+pub struct CreateExternalLinkRequest {
     pub kind: ExternalLinkKind,
     pub url: String,
     #[serde(default)]
@@ -1192,7 +1192,7 @@ async fn insert_link(
     subject_kind: ExternalLinkSubject,
     subject_id: Uuid,
     expected_order: Option<Uuid>,
-    req: CreateLinkRequest,
+    req: CreateExternalLinkRequest,
 ) -> ApiResult<Json<LinkMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::Edit))?;
@@ -1329,7 +1329,7 @@ pub async fn list_vendor_links(
 /// POST /api/vendors/{id}/links
 #[utoipa::path(operation_id = "vendors_add_link", post, path = "/api/vendors/{id}/links", tag = "purchasing", security(("bearer" = [])),
     params(("id" = Uuid, Path)),
-    request_body = CreateLinkRequest,
+    request_body = CreateExternalLinkRequest,
     responses((status = 200, body = LinkMutationResponse),
               (status = 404, description = "vendor not visible in scope"),
               (status = 422, description = "the url must be https")))]
@@ -1337,7 +1337,7 @@ pub async fn create_vendor_link(
     axum::extract::State(state): axum::extract::State<AppState>,
     extensions: Extensions,
     axum::extract::Path(id): axum::extract::Path<Uuid>,
-    axum::extract::Json(req): axum::extract::Json<CreateLinkRequest>,
+    axum::extract::Json(req): axum::extract::Json<CreateExternalLinkRequest>,
 ) -> ApiResult<Json<LinkMutationResponse>> {
     insert_link(
         state,
@@ -1390,7 +1390,7 @@ pub async fn list_order_links(
 /// per-line order/tracking URL.
 #[utoipa::path(operation_id = "purchase_orders_add_link", post, path = "/api/purchase-orders/{id}/links", tag = "purchasing", security(("bearer" = [])),
     params(("id" = Uuid, Path)),
-    request_body = CreateLinkRequest,
+    request_body = CreateExternalLinkRequest,
     responses((status = 200, body = LinkMutationResponse),
               (status = 404, description = "order or line not visible in scope"),
               (status = 422, description = "line not in this order, or non-https url")))]
@@ -1398,7 +1398,7 @@ pub async fn create_order_link(
     axum::extract::State(state): axum::extract::State<AppState>,
     extensions: Extensions,
     axum::extract::Path(id): axum::extract::Path<Uuid>,
-    axum::extract::Json(req): axum::extract::Json<CreateLinkRequest>,
+    axum::extract::Json(req): axum::extract::Json<CreateExternalLinkRequest>,
 ) -> ApiResult<Json<LinkMutationResponse>> {
     match req.line_id {
         Some(line_id) => {

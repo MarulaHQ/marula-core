@@ -11,7 +11,10 @@ if [ -f e2e/.e2e-stack.env ]; then
   set -a; . e2e/.e2e-stack.env; set +a
   export NEXT_PUBLIC_WS_PORT="${E2E_WS_PORT:-}"
 fi
-export NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-http://localhost:8080}"
+# The stack env carries E2E_API_URL; the bundle inlines it so the web
+# build can never drift to a stale default (p37 doctrine: the env file
+# wins, callers never hand-set ports).
+export NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-${E2E_API_URL:-http://localhost:8080}}"
 export NEXT_PUBLIC_WS_PORT="${NEXT_PUBLIC_WS_PORT:-8081}"
 
 pnpm --filter @meridian/ui build

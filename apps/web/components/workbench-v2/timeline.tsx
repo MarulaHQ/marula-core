@@ -19,15 +19,19 @@ import { Spinner } from "@meridian/ui";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { api, downloadAttachment } from "../../lib/api";
+import { formatSignedQty } from "../../lib/stock-format";
 import type { Attachment, TicketComment } from "../../lib/instant/read-models";
 
 type AuditEvent = components["schemas"]["AuditEvent"];
 type TimeEntry = components["schemas"]["TimeEntry"];
 type TicketEmailRow = components["schemas"]["TicketEmailRow"];
+type StockMovementView = components["schemas"]["StockMovementView"];
+type StockItemView = components["schemas"]["StockItemView"];
+type StockLocationView = components["schemas"]["StockLocationView"];
 
-export type WbFilter = "all" | "notes" | "client" | "internal" | "system" | "time" | "agent";
+export type WbFilter = "all" | "notes" | "client" | "internal" | "system" | "time" | "agent" | "parts";
 
-type WbKind = "client" | "internal" | "system" | "time" | "agent";
+type WbKind = "client" | "internal" | "system" | "time" | "agent" | "parts";
 
 interface WbEntry {
   id: string;
@@ -54,6 +58,7 @@ const FILTERS: { value: WbFilter; label: string }[] = [
   { value: "system", label: "System" },
   { value: "time", label: "Time" },
   { value: "agent", label: "Agent" },
+  { value: "parts", label: "Parts" },
 ];
 
 function kindIcon(kind: WbKind): ReactNode {
@@ -78,6 +83,14 @@ function kindIcon(kind: WbKind): ReactNode {
       <svg aria-hidden width="12" height="12" viewBox="0 0 18 18" fill="none">
         <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="1.6" />
         <path d="M9 5.5V9l2.4 1.6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (kind === "parts") {
+    return (
+      <svg aria-hidden width="12" height="12" viewBox="0 0 18 18" fill="none">
+        <path d="M3 6.5 9 3.2l6 3.3v5L9 14.8l-6-3.3v-5Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+        <path d="M3 6.5 9 9.8l6-3.3M9 9.8v5" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
       </svg>
     );
   }
@@ -120,34 +133,66 @@ export interface WbTimelineProps {
   comments: TicketComment[];
   attachments: Attachment[];
   namesByUser: Map<string, string>;
+  /** Bumps when a parts-used write lands so the ledger read re-runs. */
+  reloadToken?: number;
 }
 
-export function WbTimeline({ ticketId, comments, attachments, namesByUser }: WbTimelineProps): ReactNode {
+export function WbTimeline({ ticketId, comments, attachments, namesByUser, reloadToken = 0 }: WbTimelineProps): ReactNode {
   const [filter, setFilter] = useState<WbFilter>("all");
   const [events, setEvents] = useState<AuditEvent[] | null>(null);
   const [entries, setEntries] = useState<TimeEntry[] | null>(null);
   const [emails, setEmails] = useState<TicketEmailRow[] | null>(null);
+  const [movements, setMovements] = useState<StockMovementView[] | null>(null);
+  const [stockNames, setStockNames] = useState<Map<string, { name: string; unit: string }>>(new Map());
+  const [locationNames, setLocationNames] = useState<Map<string, string>>(new Map());
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoadError(null);
     void (async () => {
-      const [audit, time, mail] = await Promise.all([
+      const [audit, time, mail, parts] = await Promise.all([
         api.api.GET("/api/v1/audit-events", { params: { query: { action: "ticket.", limit: 200 } } }),
         api.api.GET("/api/v1/tickets/{id}/time-entries", { params: { path: { id: ticketId } } }),
         api.api.GET("/api/v1/tickets/{id}/emails", { params: { path: { id: ticketId } } }),
+        api.api.GET("/api/v1/tickets/{id}/stock-movements", {
+          params: { path: { id: ticketId }, query: { limit: 100 } },
+        }),
       ]);
       if (cancelled) return;
       if (audit.data === undefined) setLoadError("Could not load ticket events");
       else setEvents((audit.data.events ?? []).filter((e) => e.entity_type === "ticket" && e.entity_id === ticketId));
       setEntries(time.data === undefined ? null : (time.data ?? []));
       setEmails(mail.data === undefined ? null : (mail.data.messages ?? []));
+      // A 403 on the parts read only means the viewer cannot see stock;
+      // the rest of the timeline still renders.
+      setMovements(parts.data === undefined ? [] : (parts.data ?? []));
     })();
     return () => {
       cancelled = true;
     };
-  }, [ticketId]);
+  }, [ticketId, reloadToken]);
+
+  // Names for the parts rows, fetched lazily only when the ledger carries
+  // movements so an untouched ticket pays nothing extra.
+  useEffect(() => {
+    if (movements === null || movements.length === 0) return;
+    if (stockNames.size > 0) return;
+    let cancelled = false;
+    void (async () => {
+      const [itemsRes, locationsRes] = await Promise.all([
+        api.api.GET("/api/v1/stock-items", { params: { query: { limit: 500 } } }),
+        api.api.GET("/api/v1/stock-locations", { params: { query: {} } }),
+      ]);
+      if (cancelled) return;
+      setStockNames(new Map((itemsRes.data ?? []).map((i) => [i.id, { name: i.name, unit: i.unit }])));
+      setLocationNames(new Map((locationsRes.data ?? []).map((l) => [l.id, l.name])));
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [movements]);
 
   const attachmentsFor = (commentId: string | null): Attachment[] =>
     attachments.filter((a) =>
@@ -235,11 +280,37 @@ export function WbTimeline({ ticketId, comments, attachments, namesByUser }: WbT
         billable: null,
       });
     }
+    for (const m of movements ?? []) {
+      const item = stockNames.get(m.stock_item_id);
+      const qty = formatSignedQty(m.qty_milli, item?.unit ?? "");
+      const from = m.from_location_id === null || m.from_location_id === undefined ? null : locationNames.get(m.from_location_id) ?? null;
+      const to = m.to_location_id === null || m.to_location_id === undefined ? null : locationNames.get(m.to_location_id) ?? null;
+      const route = from !== null && to !== null ? `${from} → ${to}` : from ?? to;
+      const extras = [
+        route,
+        m.carrier !== null && m.carrier !== undefined && m.carrier !== "" ? `carrier ${m.carrier}` : null,
+        m.tracking_ref !== null && m.tracking_ref !== undefined && m.tracking_ref !== "" ? `tracking ${m.tracking_ref}` : null,
+      ].filter((part): part is string => part !== null);
+      rows.push({
+        id: `parts-${m.id}`,
+        at: m.created_at,
+        kind: "parts",
+        visibility: "internal",
+        title: "Parts used",
+        org: item?.name ?? `item ${m.stock_item_id.slice(0, 8)}`,
+        tag: "PARTS",
+        body: `${qty}${m.note !== null && m.note !== undefined && m.note !== "" ? ` · ${m.note}` : ""}`,
+        meta: extras.length > 0 ? extras.join(" · ") : null,
+        attachments: [],
+        timeLabel: null,
+        billable: null,
+      });
+    }
     rows.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
     return rows;
     // attachmentsFor is stable per attachments identity
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [comments, events, entries, emails, namesByUser, attachments]);
+  }, [comments, events, entries, emails, movements, stockNames, locationNames, namesByUser, attachments]);
 
   const filtered = stream.filter((row) => {
     if (filter === "all") return true;

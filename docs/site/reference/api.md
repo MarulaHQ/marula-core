@@ -3,7 +3,7 @@
 
 **Meridian Core API 0.1.0** — The single write surface for Project Meridian. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**543 paths · 732 operations · 1080 schemas.**
+**544 paths · 733 operations · 1081 schemas.**
 
 ## agent-proposals
 
@@ -820,7 +820,7 @@
 | `DELETE` | `/api/v1/purchase-orders/{id}/lines/{line_id}` <a id="purchase_orders_delete_line"></a> | DELETE /api/purchase-orders/{id}/lines/{line_id} — draft-only. | [DeleteOrderLineRequest](#schema-deleteorderlinerequest) |
 | `PATCH` | `/api/v1/purchase-orders/{id}/lines/{line_id}` <a id="purchase_orders_update_line"></a> | PATCH /api/purchase-orders/{id}/lines/{line_id} — draft-only line edit. | [AddOrderLineRequest](#schema-addorderlinerequest) |
 | `GET` | `/api/v1/purchase-orders/{id}/links` <a id="purchase_orders_list_links"></a> | GET /api/purchase-orders/{id}/links | — |
-| `POST` | `/api/v1/purchase-orders/{id}/links` <a id="purchase_orders_add_link"></a> | POST /api/purchase-orders/{id}/links — PO-level or (with `line_id`) a per-line order/tracking URL. | [CreateLinkRequest](#schema-createlinkrequest) |
+| `POST` | `/api/v1/purchase-orders/{id}/links` <a id="purchase_orders_add_link"></a> | POST /api/purchase-orders/{id}/links — PO-level or (with `line_id`) a per-line order/tracking URL. | [CreateExternalLinkRequest](#schema-createexternallinkrequest) |
 | `POST` | `/api/v1/purchase-orders/{id}/order` <a id="purchase_orders_send"></a> | POST /api/purchase-orders/{id}/order — draft → ordered. | [CloseOrderRequest](#schema-closeorderrequest) |
 | `POST` | `/api/v1/purchase-orders/{id}/receive` <a id="purchase_orders_receive"></a> | POST /api/purchase-orders/{id}/receive — the receipt that posts into the lane-1 movement ledger at `location_id`. | [ReceiveOrderRequest](#schema-receiveorderrequest) |
 
@@ -1134,6 +1134,7 @@
 | `GET` | `/api/v1/tickets/{id}/similar-tickets` <a id="tickets_similar_tickets"></a> | GET /api/tickets/{id}/similar-tickets — retrieval top-k + per-candidate relatedness Noul. Degrade-never-5xx: a quiet decision edge returns the plain retrieval list, never an error. | — |
 | `GET` | `/api/v1/tickets/{id}/sla` <a id="tickets_sla_status"></a> | GET /api/tickets/{id}/comments — optional kind filter; internal notes require ticket view. The portal surface must consume the dedicated client-visible read (`core-db::tickets::list_client_visible_comments`), never this staff endpoint. GET /api/tickets/{id}/sla — clock state plus a live business-time remaining estimate for the resolution budget (drives the UI badge). | — |
 | `POST` | `/api/v1/tickets/{id}/status` <a id="tickets_change_status"></a> | POST /api/tickets/{id}/status — the guarded lifecycle transition: domain transition rules, pre-close checklist enforcement (typed 409 listing the incomplete required items when the board enforces), SLA pause bookkeeping, and the `ticket.status_changed` event, all in one tx. Instant-first (IF1/IF2): idempotency-keyed, version-gated, read-your-write. | [ChangeStatusRequest](#schema-changestatusrequest) |
+| `GET` | `/api/v1/tickets/{id}/stock-movements` <a id="ticket_stock_movements"></a> | GET /api/tickets/{id}/stock-movements — the job's parts-used ledger read: every movement anchored to this ticket, newest first. Ticket visibility gates the read; cost fields stay `financial:read`-gated (RB2), same as the per-item ledger read. | — |
 | `GET` | `/api/v1/tickets/{id}/tags` <a id="tickets_list_tags"></a> | GET /api/tickets/{id}/tags — the ticket's applied tags. | — |
 | `POST` | `/api/v1/tickets/{id}/tags` <a id="tickets_apply_tag"></a> | POST /api/tickets/{id}/tags — apply a tag to a ticket (idempotent). | [ApplyTagRequest](#schema-applytagrequest) |
 | `DELETE` | `/api/v1/tickets/{id}/tags/{tag_id}` <a id="tickets_remove_tag"></a> | DELETE /api/tickets/{id}/tags/{tag_id} — remove one applied tag. | — |
@@ -1222,7 +1223,7 @@
 | `GET` | `/api/v1/vendors/{id}/contacts` <a id="vendors_list_contacts"></a> | GET /api/vendors/{id}/contacts | — |
 | `POST` | `/api/v1/vendors/{id}/contacts` <a id="vendors_replace_contacts"></a> | POST /api/vendors/{id}/contacts — replace-on-write. | [ReplaceContactsRequest](#schema-replacecontactsrequest) |
 | `GET` | `/api/v1/vendors/{id}/links` <a id="vendors_list_links"></a> | GET /api/vendors/{id}/links | — |
-| `POST` | `/api/v1/vendors/{id}/links` <a id="vendors_add_link"></a> | POST /api/vendors/{id}/links | [CreateLinkRequest](#schema-createlinkrequest) |
+| `POST` | `/api/v1/vendors/{id}/links` <a id="vendors_add_link"></a> | POST /api/vendors/{id}/links | [CreateExternalLinkRequest](#schema-createexternallinkrequest) |
 
 ## webhooks
 
@@ -1489,6 +1490,7 @@
 | <a id="schema-createexclusionrequest"></a>`CreateExclusionRequest` | object |  |
 | <a id="schema-createexpenserequest"></a>`CreateExpenseRequest` | composite |  |
 | <a id="schema-createexternaldocumentrequest"></a>`CreateExternalDocumentRequest` | composite |  |
+| <a id="schema-createexternallinkrequest"></a>`CreateExternalLinkRequest` | composite |  |
 | <a id="schema-createfielddefrequest"></a>`CreateFieldDefRequest` | object |  |
 | <a id="schema-creategrouprequest"></a>`CreateGroupRequest` | object |  |
 | <a id="schema-createimporttemplaterequest"></a>`CreateImportTemplateRequest` | object | POST /api/imports/templates request. |
@@ -2327,4 +2329,4 @@
 | <a id="schema-workbenchside"></a>`WorkbenchSide` | composite | One side of the workbench comparison: the item view plus its FULL tier state (observed/curated/field_sources) and identity keys. |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 28 operation groups; schema count 1080 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 28 operation groups; schema count 1081 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
