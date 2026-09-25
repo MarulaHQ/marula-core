@@ -63,6 +63,7 @@ import { WbContextPanel } from "../../../components/workbench-v2/context-panel";
 import { WbAgentPanel } from "../../../components/workbench-v2/agent-panel";
 import { DecisionSuggestionsCard } from "../../../components/workbench-v2/decision-card";
 import { WbComposer } from "../../../components/workbench-v2/composer";
+import { MovementDialog } from "../../../components/stock/movement-dialog";
 import { WrapUpSheet } from "../../../components/workbench-v2/wrap-up-sheet";
 import { TasksGateDialog, type GateBlocks } from "../../../components/notes/close-gate-dialog";
 import { registerWrapUpTarget } from "../../../components/workbench-v2/wrap-up-bridge";
@@ -273,6 +274,12 @@ export default function TicketWorkbenchPage() {
   // "Take It" primary action: one self-assign → status → timer envelope.
   const { active: activeTimer, refresh: refreshTimers } = useTimer();
   const [takeItBusy, setTakeItBusy] = useState(false);
+  const [partsOpen, setPartsOpen] = useState(false);
+  const [partsReload, setPartsReload] = useState(0);
+  const [partsNotice, setPartsNotice] = useState<string | null>(null);
+  const [partsItems, setPartsItems] = useState<components["schemas"]["StockItemView"][]>([]);
+  const [partsLocations, setPartsLocations] = useState<components["schemas"]["StockLocationView"][]>([]);
+  const [partsLoadError, setPartsLoadError] = useState<string | null>(null);
   // Bumped on Take It; the Agent panel refreshes its data and reacts once.
   const [takeItNonce, setTakeItNonce] = useState(0);
 
@@ -372,6 +379,23 @@ async function changeStatus(statusId: string): Promise<void> {
   // the workflow allows it, open the timer, then drop the eye on the
   // Activity composer. Each write is a real API call; any typed rejection
   // rolls back that step and surfaces the copy, later steps still settle.
+  async function openParts(): Promise<void> {
+    setError(null);
+    if (partsItems.length === 0 || partsLocations.length === 0) {
+      const [itemsRes, locationsRes] = await Promise.all([
+        api.api.GET("/api/v1/stock-items", { params: { query: { limit: 500 } } }),
+        api.api.GET("/api/v1/stock-locations", { params: { query: {} } }),
+      ]);
+      if (itemsRes.data === undefined) {
+        setError("Could not load stock items for the parts flow.");
+        return;
+      }
+      setPartsItems((itemsRes.data ?? []).filter((i) => i.active));
+      setPartsLocations(locationsRes.data ?? []);
+    }
+    setPartsOpen(true);
+  }
+
   async function takeIt(): Promise<void> {
     setTakeItBusy(true);
     try {
@@ -839,6 +863,21 @@ async function changeStatus(statusId: string): Promise<void> {
                 {iconOnlyActions ? "Take" : "Take It"}
               </button>
               )}
+              <button
+                type="button"
+                data-testid="wb-parts-used"
+                disabled={isMerged}
+                className="flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 leading-none text-[12px] font-semibold disabled:cursor-not-allowed"
+                style={{
+                  borderColor: "var(--m-border)",
+                  background: "var(--m-surface)",
+                  color: isMerged ? "var(--m-text-muted)" : "var(--m-text-secondary)",
+                }}
+                title="Consume stock parts against this ticket"
+                onClick={() => void openParts()}
+              >
+                {iconOnlyActions ? "◫" : "Parts used"}
+              </button>
               <Link
                 href={`/tickets/classic/${ticket.id}`}
                 data-testid="wb-open-classic"
@@ -1002,6 +1041,7 @@ async function changeStatus(statusId: string): Promise<void> {
               comments={model?.comments ?? []}
               attachments={model?.attachments ?? []}
               namesByUser={namesByUser}
+              reloadToken={partsReload}
             />
           )}
           {activeTab === "details" && (
@@ -1138,6 +1178,11 @@ async function changeStatus(statusId: string): Promise<void> {
               {error}
             </p>
           )}
+          {partsNotice !== null && (
+            <p className="text-xs" style={{ color: "var(--m-status-success-fg)" }} role="status" data-testid="wb-parts-notice">
+              {partsNotice}
+            </p>
+          )}
         </div>
 
         {/* Floating composer */}
@@ -1239,6 +1284,24 @@ async function changeStatus(statusId: string): Promise<void> {
           statusId={ticket.status_id}
           onChangeStatus={changeStatus}
           onRefresh={() => void refresh()}
+        />
+      )}
+
+      {ticket !== null && (
+        <MovementDialog
+          open={partsOpen}
+          onOpenChange={setPartsOpen}
+          items={partsItems}
+          locations={partsLocations}
+          initialKind="consume"
+          ticketId={ticket.id}
+          lockKind
+          title="Parts used"
+          onRecorded={() => {
+            setPartsNotice("Parts recorded — the movement is on this ticket's timeline.");
+            window.setTimeout(() => setPartsNotice(null), 8000);
+            setPartsReload((n) => n + 1);
+          }}
         />
       )}
 

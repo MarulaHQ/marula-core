@@ -48,6 +48,25 @@ function DevicesIcon() {
   );
 }
 
+function StockIcon() {
+  return (
+    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <path d="M2.5 6.5 9 3l6.5 3.5v5L9 15l-6.5-3.5v-5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+      <path d="M2.5 6.5 9 10l6.5-3.5M9 10v5" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function PurchasingIcon() {
+  return (
+    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <path d="M2 3.5h2l1.6 8.2a1 1 0 0 0 1 .8h6.9a1 1 0 0 0 1-.8L15.8 6H5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="7" cy="15" r="1.2" stroke="currentColor" strokeWidth="1.4" />
+      <circle cx="13" cy="15" r="1.2" stroke="currentColor" strokeWidth="1.4" />
+    </svg>
+  );
+}
+
 function AutomationIcon() {
   return (
     <svg aria-hidden="true" width="18" height="18" viewBox="0 0 18 18" fill="none">
@@ -92,6 +111,8 @@ const SECTION_ICONS: Record<string, () => React.JSX.Element> = {
   tickets: TicketsIcon,
   clients: ClientsIcon,
   devices: DevicesIcon,
+  stock: StockIcon,
+  purchasing: PurchasingIcon,
   automation: AutomationIcon,
   knowledge: KnowledgeIcon,
   reports: ReportsIcon,

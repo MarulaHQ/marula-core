@@ -123,6 +123,10 @@ pub fn routes(gen: ApiGeneration) -> Router<AppState> {
             &format!("{base}/stock/consumption-velocity"),
             get(consumption_velocity_route),
         )
+        .route(
+            &format!("{base}/tickets/{{id}}/stock-movements"),
+            get(ticket_movements),
+        )
 }
 
 // --- wire structs -----------------------------------------------------------
@@ -2228,6 +2232,58 @@ pub async fn item_movements(
     .await
     .map_err(ApiError::from)?;
     let movements = core_db::stock::list_movements(
+        &mut tx,
+        authed.principal.user.org_id,
+        id,
+        q.limit.unwrap_or(LIST_LIMIT).min(LIST_LIMIT),
+    )
+    .await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(
+        movements
+            .into_iter()
+            .map(|mv| mv_view(mv, financial))
+            .collect(),
+    ))
+}
+
+/// GET /api/tickets/{id}/stock-movements — the job's parts-used ledger
+/// read: every movement anchored to this ticket, newest first. Ticket
+/// visibility gates the read; cost fields stay `financial:read`-gated
+/// (RB2), same as the per-item ledger read.
+#[utoipa::path(
+    operation_id = "ticket_stock_movements",
+    get,
+    path = "/api/tickets/{id}/stock-movements",
+    tag = "commercial",
+    security(("bearer" = [])),
+    params(("id" = Uuid, Path), MovementListQuery),
+    responses((status = 200, body = [StockMovementView]))
+)]
+pub async fn ticket_movements(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    extensions: Extensions,
+    axum::extract::Path(id): axum::extract::Path<Uuid>,
+    axum::extract::Query(q): axum::extract::Query<MovementListQuery>,
+) -> ApiResult<Json<Vec<StockMovementView>>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(
+        &authed.principal,
+        Permission::Matrix {
+            module: core_domain::policy::Module::Tickets,
+            action: Action::View,
+        },
+    )?;
+    let financial = financial_read(&authed);
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let movements = core_db::stock::list_movements_for_ticket(
         &mut tx,
         authed.principal.user.org_id,
         id,

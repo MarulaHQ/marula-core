@@ -31,6 +31,8 @@ the tag is **both** or points to the staff/client catalog below.
 - [Set up labels and label templates](admin-labels.md) — typed templates,
   Zebra/DYMO stock, QR deep links, browser and ZPL print targets
 - [Connect an IdP (SSO)](admin-sso.md) — the IdP handoff round-trip
+- [Buy: vendors, purchase orders, receiving, bills](admin-purchasing.md)
+  — the order lifecycle, receipts into stock, posted bills
 - [Upgrade to the latest release](upgrade.md) — including the N−2 rule
 - [Customize without code](customize.md) — custom fields, boards,
   automations
@@ -47,6 +49,10 @@ Audience tag: **both** unless a guide is staff-only by nature.
   command registry, the hold-Alt overlay, and the ? cheat sheet
 - [Scan barcodes and QR codes](staff-scanning.md) — what a scan means on
   each surface, and why it never hijacks a form
+- [Run stock, parts, and locations](staff-stock-and-parts.md) — receive,
+  use parts on a ticket, thresholds, transfers
+- [Check tools out, and run client loans](staff-tools-and-loans.md) —
+  who-has-what, check-in, loan issue and return
 - [Get help inside Meridian](get-help.md) — the ? help panel, guide
   search, and turning feature tours off
 

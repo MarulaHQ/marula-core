@@ -116,6 +116,15 @@ export async function runEnvelopeMutation<P extends { idempotency_key?: string |
       for (const [id, version] of options.versions(result.data)) {
         rememberVersion(id, version);
       }
+    } else if (options.entityId !== undefined && result.data !== undefined) {
+      // Default echo: `mutation.version` is the token the NEXT write to the
+      // same entity must carry, so a second write in one dialog (a second
+      // kit member, another PO line, one more vendor link) advances the
+      // cursor instead of replaying a stale one.
+      const meta = (result.data as { mutation?: { version?: unknown } }).mutation;
+      if (meta !== undefined && typeof meta.version === "number") {
+        rememberVersion(options.entityId, meta.version);
+      }
     }
     return { ok: true };
   } catch (error) {

@@ -44,6 +44,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { money } from "../../../lib/format";
+import { formatQtyMilli } from "../../../lib/stock-format";
 import { daysUntil, QUOTE_STATUS_TONE } from "../../../lib/money-summary";
 
 type Quote = components["schemas"]["Quote"];
@@ -51,6 +52,8 @@ type QuoteStatus = components["schemas"]["QuoteStatus"];
 type QuoteLineInput = components["schemas"]["QuoteLineInput"];
 type CatalogItem = components["schemas"]["CatalogItemView"];
 type Client = components["schemas"]["Client"];
+type StockItemView = components["schemas"]["StockItemView"];
+type OnHandRow = components["schemas"]["OnHandRow"];
 
 type QuoteAction = "send" | "accept" | "decline" | "expire" | "convert-to-invoice";
 
@@ -91,6 +94,9 @@ export default function QuotesPage(): ReactNode {
   const [quotes, setQuotes] = useState<Quote[] | null>(null);
   const [catalog, setCatalog] = useState<CatalogItem[] | null>(null);
   const [clients, setClients] = useState<Client[] | null>(null);
+  const [stockItems, setStockItems] = useState<StockItemView[]>([]);
+  const [stockOnHand, setStockOnHand] = useState<OnHandRow[]>([]);
+  const [stockPick, setStockPick] = useState<Record<number, string>>({});
   const [statusFilter, setStatusFilter] = useState<QuoteStatus | "all">("all");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -122,6 +128,14 @@ export default function QuotesPage(): ReactNode {
       setQuotes(quoteRes.data ?? []);
       setCatalog(catalogRes.data ?? []);
       setClients(clientRes.data ?? []);
+    })();
+    void (async () => {
+      const [stockRes, onHandRes] = await Promise.all([
+        api.api.GET("/api/v1/stock-items", { params: { query: { limit: 500 } } }),
+        api.api.GET("/api/v1/stock/on-hand", { params: { query: { limit: 1000 } } }),
+      ]);
+      setStockItems(stockRes.data ?? []);
+      setStockOnHand(onHandRes.data ?? []);
     })();
   }, [auth.status]);
 
@@ -160,6 +174,34 @@ export default function QuotesPage(): ReactNode {
       unit_amount_minor: item.unit_price_minor,
       taxable: item.taxable,
     });
+  }
+
+  /**
+   * Pulls a line from stock: the item's own identity fills the line, and a
+   * soft catalog link (when the stock item has one) brings the sell price.
+   * Availability is shown, never reserved — a quote is not a hold.
+   */
+  function pickStockItem(index: number, itemId: string): void {
+    const item = stockItems.find((s) => s.id === itemId);
+    if (item === undefined) return;
+    const linked = (catalog ?? []).find((c) => c.id === item.catalog_item_id);
+    setLine(index, {
+      catalog_item_id: linked?.id ?? null,
+      description: item.name,
+      unit: item.unit,
+      unit_amount_minor: linked?.unit_price_minor ?? 0,
+      taxable: linked?.taxable ?? true,
+    });
+  }
+
+  function stockAvailability(itemId: string | null): { totalMilli: number; low: boolean } | null {
+    if (itemId === null) return null;
+    const rows = stockOnHand.filter((row) => row.stock_item_id === itemId);
+    if (rows.length === 0) return { totalMilli: 0, low: false };
+    return {
+      totalMilli: rows.reduce((sum, row) => sum + row.qty_milli, 0),
+      low: rows.some((row) => row.low),
+    };
   }
 
   async function refreshQuotes(): Promise<void> {
@@ -376,14 +418,14 @@ export default function QuotesPage(): ReactNode {
                     style={{ borderColor: "var(--m-border)" }}
                     data-testid={`quote-line-${index}`}
                   >
-                    <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.3fr)]">
                       <div className="grid gap-1">
                         <Label>From catalog</Label>
                         <Select
                           value={line.catalog_item_id ?? "none"}
                           onValueChange={(v) => pickCatalogItem(index, v)}
                         >
-                          <SelectTrigger data-testid={`quote-line-item-${index}`}>
+                          <SelectTrigger data-testid={`quote-line-item-${index}`} className="w-full [&>span]:truncate">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -397,6 +439,30 @@ export default function QuotesPage(): ReactNode {
                         </Select>
                       </div>
                       <div className="grid gap-1">
+                        <Label>From stock</Label>
+                        <Select
+                          value={stockPick[index] ?? "none"}
+                          onValueChange={(v) => {
+                            setStockPick((cur) => ({ ...cur, [index]: v }));
+                            if (v !== "none") pickStockItem(index, v);
+                          }}
+                        >
+                          <SelectTrigger data-testid={`quote-line-stock-${index}`} className="w-full [&>span]:truncate">
+                            <SelectValue placeholder="— none —" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">— none —</SelectItem>
+                            {stockItems
+                              .filter((item) => item.active)
+                              .map((item) => (
+                                <SelectItem key={item.id} value={item.id}>
+                                  {item.name}
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid gap-1">
                         <Label>Description</Label>
                         <Input
                           value={line.description ?? ""}
@@ -404,6 +470,27 @@ export default function QuotesPage(): ReactNode {
                         />
                       </div>
                     </div>
+                    {(() => {
+                      const stockItem = stockItems.find((s) => s.id === stockPick[index]);
+                      const availability = stockAvailability(stockItem?.id ?? null);
+                      if (stockItem === undefined || availability === null) return null;
+                      return (
+                        <p
+                          className="text-[12px]"
+                          style={{
+                            color:
+                              availability.totalMilli > 0
+                                ? "var(--m-text-secondary)"
+                                : "var(--m-status-warning-fg)",
+                          }}
+                          data-testid={`quote-line-availability-${index}`}
+                        >
+                          {formatQtyMilli(availability.totalMilli, stockItem.unit)} on hand
+                          {availability.low ? " · low stock" : ""}
+                          {availability.totalMilli === 0 ? " — the line is not reserved" : ""}
+                        </p>
+                      );
+                    })()}
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                       <div className="grid gap-1">
                         <Label>Quantity</Label>
@@ -436,6 +523,7 @@ export default function QuotesPage(): ReactNode {
                               unit_amount_minor: Number.isNaN(v) ? 0 : Math.round(v * 100),
                             });
                           }}
+                          data-testid={`quote-line-price-${index}`}
                         />
                       </div>
                       <div className="grid content-end gap-1">

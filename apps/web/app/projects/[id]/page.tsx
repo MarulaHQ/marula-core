@@ -76,6 +76,7 @@ export default function ProjectDetailPage() {
   const [phases, setPhases] = useState<ProjectPhase[]>([]);
   const [tasks, setTasks] = useState<ProjectTask[]>([]);
   const [deps, setDeps] = useState<Record<string, ProjectTask[]>>({});
+  const [rollup, setRollup] = useState<components["schemas"]["ProjectCostRollupView"] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [actionError, setActionError] = useState<string | null>(null);
@@ -131,6 +132,12 @@ export default function ProjectDetailPage() {
       }),
     );
     setDeps(Object.fromEntries(entries));
+    // Posted purchase bills in base currency; without financial:read the
+    // route answers 403 and the strip simply stays absent.
+    const cost = await api.api.GET("/api/v1/projects/{id}/cost-rollup", {
+      params: { path: { id: projectId } },
+    });
+    setRollup(cost.data ?? null);
   }, [projectId]);
 
   useEffect(() => {
@@ -484,6 +491,19 @@ export default function ProjectDetailPage() {
             pct={pProgress.milestonesTotal === 0 ? 0 : Math.round((pProgress.milestonesDone / pProgress.milestonesTotal) * 100)}
           />
         ) : null}
+        {rollup !== null ? (
+          <span
+            className="text-[12px] tabular-nums"
+            style={{ color: "var(--m-text-secondary)" }}
+            data-testid="project-cost-rollup"
+          >
+            PO cost{" "}
+            <strong className="font-mono">{money(rollup.po_bill_base_minor, rollup.base_currency)}</strong>
+            {rollup.budget_minor !== null && rollup.budget_minor !== undefined
+              ? ` of ${money(rollup.budget_minor, rollup.budget_currency ?? rollup.base_currency)} budget`
+              : ""}
+          </span>
+        ) : null}
         {overdue.length > 0 ? (
           <Tag tone="danger" data-testid="risk-overdue">
             {overdue.length} overdue task{overdue.length === 1 ? "" : "s"}
@@ -509,6 +529,37 @@ export default function ProjectDetailPage() {
         <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
           {actionError}
         </p>
+      ) : null}
+
+      {rollup !== null && rollup.bills.length > 0 ? (
+        <Card className="m-rise p-4" style={{ animationDelay: "70ms" }} data-testid="project-cost-bills">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold">Purchase bills</h2>
+            <span className="text-[12px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
+              posted in {rollup.base_currency}
+            </span>
+          </div>
+          <ul className="mt-2 grid gap-1">
+            {rollup.bills.map((bill) => (
+              <li key={bill.bill_id} className="flex flex-wrap items-center justify-between gap-2 text-[12px]">
+                <Link
+                  href={`/purchasing/${bill.purchase_order_id}`}
+                  className="underline decoration-[var(--m-border)] underline-offset-2"
+                >
+                  {bill.purchase_order_number}
+                </Link>
+                <span className="font-mono tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+                  {money(bill.amount_minor, bill.currency)}
+                  {bill.base_amount_minor !== null &&
+                  bill.base_amount_minor !== undefined &&
+                  bill.currency !== rollup.base_currency
+                    ? ` · ${money(bill.base_amount_minor, rollup.base_currency)} locked`
+                    : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
       ) : null}
 
       <Card className="m-rise p-0" style={{ animationDelay: "80ms" }}>
