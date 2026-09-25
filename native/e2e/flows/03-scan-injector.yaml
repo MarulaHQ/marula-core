@@ -1,0 +1,27 @@
+# Scan injector: the deterministic scan path (no camera needed).
+# An unknown payload must land on the honest "Nothing matches" state, and a
+# deep-link payload must open the typed scan-result screen.
+appId: tech.meridian.app
+---
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: "today-screen"
+    timeout: 20000
+- tapOn: "Scan"
+- tapOn:
+    id: "scan-input"
+- inputText: "NOPE-NOPE-000"
+- tapOn:
+    id: "scan-resolve"
+- extendedWaitUntil:
+    visible:
+      id: "scan-resolution"
+    timeout: 10000
+- assertVisible: "No match"
+- openLink: "meridian://scan-result?text=NOPE-NOPE-000"
+- extendedWaitUntil:
+    visible:
+      id: "scan-result-screen"
+    timeout: 10000
+- assertVisible: "Scan result"

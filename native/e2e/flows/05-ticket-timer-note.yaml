@@ -1,0 +1,28 @@
+# Ticket detail: notes and timer are server-backed entities.
+# Opens a ticket from the board and exercises both mutations.
+appId: tech.meridian.app
+---
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: "today-screen"
+    timeout: 20000
+- tapOn: "Board"
+- tapOn:
+    id: "ticket-row-.*"
+- assertVisible:
+    id: "note-input"
+- tapOn:
+    id: "ticket-timer-start"
+- extendedWaitUntil:
+    visible:
+      id: "timer-bar"
+    timeout: 15000
+- tapOn:
+    id: "ticket-timer-stop"
+- tapOn:
+    id: "note-input"
+- inputText: "Maestro site note"
+- tapOn:
+    id: "note-submit"
+- assertVisible: "Maestro site note"

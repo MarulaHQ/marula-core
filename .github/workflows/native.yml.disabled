@@ -1,0 +1,118 @@
+name: Native (Expo / React Native)
+
+# Wave 33 lane 1 foundation wiring. Two lanes of checks:
+#
+#   native-checks (ubuntu)  — typecheck, lint, unit tests, web export.
+#     Cheap, deterministic, and the only lane that belongs on every merge.
+#
+#   maestro-ios (macOS)     — boots the e2e stack, builds the iOS app, runs
+#     the Maestro flows on a simulator. macOS runner minutes stay OFF the
+#     per-merge path by design: this job runs at lane close, nightly, and
+#     on manual dispatch only.
+#
+# NOTE: like every workflow in this repo, triggers are disabled at the file
+# level (see commit f00cdb3). Re-enable with `git mv` when CI minutes are
+# provisioned; the job graph below is complete.
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "45 5 * * *" # nightly, after the perf sweep
+
+permissions:
+  contents: read
+
+jobs:
+  native-checks:
+    name: Native checks (ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm --filter @meridian/native typecheck
+      - name: Lint
+        run: pnpm --filter @meridian/native lint
+      - name: Unit tests (offline queue, cache, realtime, sync engine)
+        run: pnpm --filter @meridian/native test
+      - name: Expo web export (bundle check — fast-iteration surface)
+        run: pnpm --filter @meridian/native export:web
+      - name: Upload web export
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-web-export
+          path: native/dist
+          retention-days: 7
+
+  maestro-ios:
+    name: Maestro simulator matrix (macOS)
+    runs-on: macos-14
+    timeout-minutes: 90
+    # Lane close / nightly only — never the per-merge path.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Preflight — Docker + Xcode required
+        run: |
+          command -v docker >/dev/null || { echo "::error::Docker is required to boot the e2e stack on this runner"; exit 1; }
+          xcodebuild -version
+      - name: Install workspace
+        run: pnpm install --frozen-lockfile
+      - name: Boot the e2e stack (per-run ports + reseed)
+        run: bash scripts/e2e-stack.sh up
+      - name: Export stack env for the app build
+        run: |
+          set -a
+          . e2e/.e2e-stack.env
+          set +a
+          echo "EXPO_PUBLIC_API_URL=http://localhost:${API_PORT}" >> "$GITHUB_ENV"
+          echo "EXPO_PUBLIC_WS_URL=ws://localhost:${WS_PORT}/ws" >> "$GITHUB_ENV"
+      - name: Boot a simulator
+        run: |
+          DEVICE=$(xcrun simctl list devices available | grep -m1 'iPhone' | sed -E 's/.*\(([0-9A-F-]+)\).*/\1/')
+          echo "SIMULATOR_UDID=$DEVICE" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEVICE" || true
+      - name: Build + install the app (Release, New Architecture)
+        run: pnpm --filter @meridian/native exec expo run:ios --configuration Release --device "$SIMULATOR_UDID" --no-bundler
+        env:
+          CI: "1"
+          # The dev-menu offline toggle and scan injector are off in release
+          # builds; this verification build opts in so Maestro can exercise
+          # the deterministic offline path without OS network tricks.
+          EXPO_PUBLIC_ENABLE_DEV_TOOLS: "1"
+      - name: Install Maestro
+        run: curl -Ls "https://get.maestro.mobile.dev" | bash
+      - name: Run Maestro flows
+        run: |
+          export PATH="$PATH:$HOME/.maestro/bin"
+          maestro test native/e2e/flows || true
+      - name: Collect simulator captures
+        if: always()
+        run: |
+          mkdir -p native/artifacts
+          xcrun simctl io "$SIMULATOR_UDID" screenshot native/artifacts/failure.png || true
+      - name: Upload Maestro artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maestro-artifacts
+          path: native/artifacts
+          retention-days: 14
+      - name: Tear down the stack
+        if: always()
+        run: bash scripts/e2e-stack.sh down "$(grep -m1 RUN_ID e2e/.e2e-stack.env | cut -d= -f2)" || true
