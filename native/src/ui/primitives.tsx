@@ -26,6 +26,15 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { shape, type, useTheme, type StatusPair } from "./tokens";
 
+/** The top inset a raw surface must apply: zero when the tab shell's chrome
+ * already cleared the band, the device inset otherwise (iOS notch/Dynamic
+ * Island, Android cutouts and status bar). */
+export function useTopInset(): number {
+  const insets = useSafeAreaInsets();
+  const shellHandlesTop = useContext(ShellTopContext);
+  return shellHandlesTop ? 0 : insets.top;
+}
+
 /** The tab shell renders notice chrome (offline banner, timer bar) above its
  * screens. When that chrome is visible it clears the status bar itself, so
  * the screens below must not add the top inset a second time. */

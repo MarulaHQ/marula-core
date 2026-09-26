@@ -4,15 +4,17 @@ import { router, useLocalSearchParams } from "expo-router";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { TicketDetail } from "@/tickets/ticket-detail";
+import { useTopInset } from "@/ui/primitives";
 import { RequireAuth } from "@/ui/require-auth";
 import { type, useTheme } from "@/ui/tokens";
 
 export default function TicketRoute() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { tokens } = useTheme();
+  const topInset = useTopInset();
   return (
     <RequireAuth>
-      <View style={[styles.shell, { backgroundColor: tokens.background }]}>
+      <View style={[styles.shell, { backgroundColor: tokens.background, paddingTop: topInset }]}>
         <View style={[styles.navBar, { borderBottomColor: tokens.border }]}>
           <Text
             testID="ticket-back"

@@ -195,6 +195,8 @@ function LineRow({
       style={[styles.line, { opacity: busy ? 0.6 : 1 }]}
     >
       <View
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
         style={[
           styles.checkbox,
           {
@@ -255,6 +257,8 @@ function KitRow({
         accessibilityRole="checkbox"
         accessibilityState={{ checked: ticked }}
         hitSlop={8}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
         style={[
           styles.checkbox,
           {

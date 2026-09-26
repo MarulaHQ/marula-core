@@ -40,6 +40,13 @@ appId: tech.meridian.app
     id: "theme-light"
 - tapOn: "Today, tab.*"
 - takeScreenshot: light-today-fieldops
+- scrollUntilVisible:
+    element:
+      id: "day-pack"
+    direction: DOWN
+    visibilityPercentage: 40
+    centerElement: true
+- takeScreenshot: light-day-pack
 - tapOn: "Scan, tab.*"
 - tapOn:
     id: "scan-camera"
@@ -70,6 +77,11 @@ appId: tech.meridian.app
       id: "scan-screen"
     timeout: 10000
 - tapOn: "Today, tab.*"
+- scrollUntilVisible:
+    element:
+      text: "Stock"
+    direction: UP
+    visibilityPercentage: 60
 - tapOn: "Stock"
 - extendedWaitUntil:
     visible:
@@ -82,6 +94,11 @@ appId: tech.meridian.app
     visible:
       id: "today-screen"
     timeout: 10000
+- scrollUntilVisible:
+    element:
+      text: "Move stock"
+    direction: UP
+    visibilityPercentage: 60
 - tapOn: "Move stock"
 - extendedWaitUntil:
     visible:
@@ -133,6 +150,11 @@ appId: tech.meridian.app
     timeout: 15000
 - takeScreenshot: light-ticket-live-timer
 - tapOn: "Today, tab.*"
+- scrollUntilVisible:
+    element:
+      text: "Tools"
+    direction: UP
+    visibilityPercentage: 60
 - tapOn: "Tools"
 - extendedWaitUntil:
     visible:
@@ -159,6 +181,18 @@ appId: tech.meridian.app
     id: "theme-dark"
 - takeScreenshot: dark-more-field
 - tapOn: "Today, tab.*"
+- scrollUntilVisible:
+    element:
+      id: "day-pack"
+    direction: DOWN
+    visibilityPercentage: 40
+    centerElement: true
+- takeScreenshot: dark-day-pack
+- scrollUntilVisible:
+    element:
+      text: "Move stock"
+    direction: UP
+    visibilityPercentage: 60
 - tapOn: "Move stock"
 - takeScreenshot: dark-move-stock
 - tapOn:
@@ -171,6 +205,11 @@ appId: tech.meridian.app
 - tapOn: "Scan, tab.*"
 - takeScreenshot: dark-scan
 - tapOn: "Today, tab.*"
+- scrollUntilVisible:
+    element:
+      text: "Stock"
+    direction: UP
+    visibilityPercentage: 60
 - tapOn: "Stock"
 - takeScreenshot: dark-stock-lookup
 - tapOn:

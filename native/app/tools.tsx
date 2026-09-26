@@ -197,12 +197,22 @@ export default function ToolsScreen() {
                 {row.checkout.overdue ? <Pill pair={tokens.danger} label="OVERDUE" /> : null}
                 {mine ? <Pill pair={infoPair(tokens)} label="YOURS" /> : null}
               </View>
-              <Mono muted>Due {due.toLocaleString()}</Mono>
-              {row.lines.slice(0, 4).map((line) => (
-                <Text key={line.id} style={[styles.line, { color: tokens.textSecondary }]}>
-                  {serialLabel(line.serial_id, line.stock_item_id)}
-                </Text>
-              ))}
+              <Mono muted>
+                Due{" "}
+                {due.toLocaleString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </Mono>
+              {row.lines.length > 1
+                ? row.lines.slice(0, 4).map((line) => (
+                    <Text key={line.id} style={[styles.line, { color: tokens.textSecondary }]}>
+                      {serialLabel(line.serial_id, line.stock_item_id)}
+                    </Text>
+                  ))
+                : null}
               {mine ? (
                 <Button
                   label="Return all"

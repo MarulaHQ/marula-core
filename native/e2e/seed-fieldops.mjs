@@ -208,6 +208,24 @@ async function ensureDayPackFixture(itemId) {
   if (ticket === undefined || ticket.id === undefined) return null;
   const picks = await api("GET", `/day-pack/picks?ticket_id=${ticket.id}`);
   const existing = picks.find((row) => row.pick?.stock_item_id === itemId);
+  // Clean any tick a previous run left so the flow always starts at zero.
+  const pack = await api("GET", "/day-pack");
+  const localDay = (() => {
+    const now = new Date();
+    const month = `${now.getMonth() + 1}`.padStart(2, "0");
+    const day = `${now.getDate()}`.padStart(2, "0");
+    return `${now.getFullYear()}-${month}-${day}`;
+  })();
+  for (const trip of pack.trips ?? []) {
+    for (const line of trip.lines ?? []) {
+      if (line.tick != null && line.tick.line_key !== undefined) {
+        await api(
+          "DELETE",
+          `/day-pack/ticks?date=${localDay}&line_key=${encodeURIComponent(line.tick.line_key)}`,
+        );
+      }
+    }
+  }
   if (existing === undefined) {
     await api("POST", "/day-pack/picks", {
       ticket_id: ticket.id,

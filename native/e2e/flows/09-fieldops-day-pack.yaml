@@ -1,0 +1,30 @@
+# Field ops — the day pack on the phone (Wave 33 lane 2 mirror of Wave 32 lane 8).
+#
+# The fixture (native/e2e/seed-fieldops.mjs) puts one pick on the demo
+# technician's own ticket, so Today carries exactly one pack line. Ticking
+# writes the plan note; the header count flips with it, and the second tap
+# removes the tick. The tick never touches the movement ledger.
+appId: tech.meridian.app
+---
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: "today-screen"
+    timeout: 20000
+- scrollUntilVisible:
+    element:
+      id: "day-pack"
+    direction: DOWN
+    visibilityPercentage: 40
+    centerElement: true
+- assertVisible: "What to grab"
+- assertVisible: ".*Cable ties.*"
+- assertVisible: "0 OF 1"
+- tapOn: ".*Cable ties.*"
+- extendedWaitUntil:
+    visible: "1 OF 1"
+    timeout: 15000
+- tapOn: ".*Cable ties.*"
+- extendedWaitUntil:
+    visible: "0 OF 1"
+    timeout: 15000

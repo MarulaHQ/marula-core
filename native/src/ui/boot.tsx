@@ -2,12 +2,14 @@
 
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 
+import { useTopInset } from "./primitives";
 import { type, useTheme } from "./tokens";
 
 export function BootScreen() {
+  const topInset = useTopInset();
   const { tokens } = useTheme();
   return (
-    <View style={[styles.screen, { backgroundColor: tokens.background }]}>
+    <View style={[styles.screen, { backgroundColor: tokens.background, paddingTop: topInset }]}>
       <Text style={[styles.wordmark, { color: tokens.text }]}>Meridian</Text>
       <ActivityIndicator color={tokens.primary} />
     </View>
