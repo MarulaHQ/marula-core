@@ -98,6 +98,57 @@ export default function NotificationPreferencesPage() {
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
 
+  // Daily digest opt-in (Wave 34 lane 8): a user-scope typed setting pair
+  // (`email.digest`, `email.digest_hour`), read through the settings
+  // surface and sent at the chosen hour in this account's timezone.
+  const [digest, setDigest] = useState<"off" | "daily">("off");
+  const [digestHour, setDigestHour] = useState(7);
+  const [digestSaving, setDigestSaving] = useState(false);
+  const [digestSaved, setDigestSaved] = useState(false);
+  const [digestError, setDigestError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (auth.status !== "authed") return;
+    void (async () => {
+      const { data } = await api.api.GET("/api/v1/settings/user");
+      if (!data) return;
+      for (const row of data) {
+        if (row.key === "email.digest" && typeof row.value === "string") {
+          setDigest(row.value === "daily" ? "daily" : "off");
+        }
+        if (row.key === "email.digest_hour" && typeof row.value === "number") {
+          setDigestHour(row.value);
+        }
+      }
+    })();
+  }, [auth.status]);
+
+  const saveDigest = async () => {
+    setDigestSaving(true);
+    setDigestError(null);
+    try {
+      for (const [key, value] of [
+        ["email.digest", digest],
+        ["email.digest_hour", digestHour],
+      ] as const) {
+        const res = await api.api.PUT("/api/v1/settings/user", {
+          body: { key, value },
+        });
+        if (res.error) {
+          throw new Error(
+            (res.error as { error?: { message?: string } }).error?.message ??
+              "The digest setting was rejected.",
+          );
+        }
+      }
+      setDigestSaved(true);
+    } catch (e) {
+      setDigestError(friendlyMutationText(e));
+    } finally {
+      setDigestSaving(false);
+    }
+  };
+
   useEffect(() => {
     if (auth.status !== "authed") return;
     void (async () => {
@@ -175,6 +226,88 @@ export default function NotificationPreferencesPage() {
         title="Notifications"
         description="Times shown in each row's timezone. Quiet hours hold non-critical email during the window; SLA breaches and escalations always break through. Rows without your override follow the org default or the built-in."
       />
+
+      <div
+        className="rounded-md border p-3 grid gap-3"
+        style={{
+          borderColor: "var(--m-border)",
+          background: "var(--m-surface)",
+        }}
+      >
+        <div>
+          <div className="text-[13px] font-semibold">Daily digest email</div>
+          <p
+            className="mt-0.5 text-[12px]"
+            style={{ color: "var(--m-text-secondary)" }}
+          >
+            One email a day summarizing your unread notifications, sent at the
+            hour you pick in your account timezone. Because it is scheduled
+            rather than interruptive, quiet hours do not hold it.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <Select
+            value={digest}
+            onValueChange={(v) => {
+              setDigest(v === "daily" ? "daily" : "off");
+              setDigestSaved(false);
+            }}
+          >
+            <SelectTrigger className="w-[150px]" aria-label="Daily digest">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="off">Off</SelectItem>
+              <SelectItem value="daily">Daily</SelectItem>
+            </SelectContent>
+          </Select>
+          <label className="flex items-center gap-2 text-[12px]">
+            <span style={{ color: "var(--m-text-secondary)" }}>Send at</span>
+            <Select
+              value={String(digestHour)}
+              onValueChange={(v) => {
+                setDigestHour(Number.parseInt(v, 10));
+                setDigestSaved(false);
+              }}
+            >
+              <SelectTrigger className="w-[110px]" aria-label="Digest send hour">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Array.from({ length: 24 }, (_, hour) => (
+                  <SelectItem key={hour} value={String(hour)}>
+                    {String(hour).padStart(2, "0")}:00
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
+          <Button
+            variant="secondary"
+            disabled={digestSaving}
+            onClick={() => void saveDigest()}
+          >
+            {digestSaving ? "Saving…" : "Save digest"}
+          </Button>
+          {digestSaved && !digestError ? (
+            <span
+              className="text-[12px]"
+              style={{ color: "var(--m-status-success-fg)" }}
+            >
+              Saved.
+            </span>
+          ) : null}
+          {digestError ? (
+            <span
+              className="text-[12px]"
+              role="alert"
+              style={{ color: "var(--m-status-danger-fg)" }}
+            >
+              {digestError}
+            </span>
+          ) : null}
+        </div>
+      </div>
 
       <div
         className="rounded-md border overflow-hidden"

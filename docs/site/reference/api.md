@@ -3,7 +3,7 @@
 
 **Meridian Core API 0.1.0** — The single write surface for Project Meridian. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**548 paths · 738 operations · 1101 schemas.**
+**554 paths · 748 operations · 1125 schemas.**
 
 ## agent-proposals
 
@@ -357,6 +357,21 @@
 | `POST` | `/api/v1/credit-notes/{id}/apply` <a id="credit_notes_apply"></a> | POST /api/credit-notes/{id}/apply — allocate part of the remaining credit onto an issued invoice. The allocation inserts a real payment receipt (provider `credit_note`) through the same apply path as ordinary payments, then moves the credit's counter in the SAME transaction (both compare-and-set: over-allocation is impossible). | [ApplyCreditNoteRequest](#schema-applycreditnoterequest) |
 | `POST` | `/api/v1/credit-notes/{id}/refund` <a id="credit_notes_refund"></a> | POST /api/credit-notes/{id}/refund — pay part of the remaining credit back to the client. v1 approves the refund locally (none-mode provider, exactly like charges); the amount may never exceed the remaining credit. | [RefundCreditNoteRequest](#schema-refundcreditnoterequest) |
 | `POST` | `/api/v1/credit-notes/{id}/void` <a id="credit_notes_void"></a> | POST /api/credit-notes/{id}/void — withdraw a note that has moved nothing. Terminal. | [VoidCreditNoteRequest](#schema-voidcreditnoterequest) |
+
+## day-pack
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/day-pack` <a id="day_pack_read"></a> | day_pack_read | — |
+| `GET` | `/api/v1/day-pack/picks` <a id="day_pack_picks_list"></a> | day_pack_picks_list | — |
+| `POST` | `/api/v1/day-pack/picks` <a id="day_pack_pick_create"></a> | day_pack_pick_create | [CreatePickRequest](#schema-createpickrequest) |
+| `DELETE` | `/api/v1/day-pack/picks/{id}` <a id="day_pack_pick_delete"></a> | day_pack_pick_delete | — |
+| `GET` | `/api/v1/day-pack/rules` <a id="day_pack_rules_list"></a> | day_pack_rules_list | — |
+| `POST` | `/api/v1/day-pack/rules` <a id="day_pack_rule_create"></a> | day_pack_rule_create | [CreateRuleRequest](#schema-createrulerequest) |
+| `DELETE` | `/api/v1/day-pack/rules/{id}` <a id="day_pack_rule_delete"></a> | day_pack_rule_delete | — |
+| `PATCH` | `/api/v1/day-pack/rules/{id}` <a id="day_pack_rule_patch"></a> | day_pack_rule_patch | [PatchRuleRequest](#schema-patchrulerequest) |
+| `DELETE` | `/api/v1/day-pack/ticks` <a id="day_pack_tick_delete"></a> | day_pack_tick_delete | — |
+| `POST` | `/api/v1/day-pack/ticks` <a id="day_pack_tick_create"></a> | day_pack_tick_create | [CreateTickRequest](#schema-createtickrequest) |
 
 ## dedupe
 
@@ -1509,6 +1524,7 @@
 | <a id="schema-createorderrequest"></a>`CreateOrderRequest` | composite |  |
 | <a id="schema-createpasswordrequest"></a>`CreatePasswordRequest` | composite |  |
 | <a id="schema-createphaserequest"></a>`CreatePhaseRequest` | composite |  |
+| <a id="schema-createpickrequest"></a>`CreatePickRequest` | composite |  |
 | <a id="schema-createportaluserrequest"></a>`CreatePortalUserRequest` | object |  |
 | <a id="schema-createprojectrequest"></a>`CreateProjectRequest` | composite |  |
 | <a id="schema-createproposalrequest"></a>`CreateProposalRequest` | object | POST /api/agent-proposals body. |
@@ -1536,6 +1552,7 @@
 | <a id="schema-createtemplaterequest"></a>`CreateTemplateRequest` | object |  |
 | <a id="schema-createticketlinkrequest"></a>`CreateTicketLinkRequest` | composite |  |
 | <a id="schema-createticketrequest"></a>`CreateTicketRequest` | composite |  |
+| <a id="schema-createtickrequest"></a>`CreateTickRequest` | composite |  |
 | <a id="schema-createtimeentryrequest"></a>`CreateTimeEntryRequest` | object |  |
 | <a id="schema-createtraveldraftrequest"></a>`CreateTravelDraftRequest` | composite | POST /api/dispatch/travel-drafts body. |
 | <a id="schema-createtravelexpenserequest"></a>`CreateTravelExpenseRequest` | composite |  |
@@ -1553,6 +1570,19 @@
 | <a id="schema-curatefieldsrequest"></a>`CurateFieldsRequest` | composite |  |
 | <a id="schema-customizationmanifest"></a>`CustomizationManifest` | object | The customization manifest envelope, `manifest_version` 1. |
 | <a id="schema-daycapacity"></a>`DayCapacity` | object | One technician's capacity for one day of the horizon. |
+| <a id="schema-daypackavailabilityview"></a>`DayPackAvailabilityView` | object |  |
+| <a id="schema-daypackcounts"></a>`DayPackCounts` | object |  |
+| <a id="schema-daypackholderview"></a>`DayPackHolderView` | object |  |
+| <a id="schema-daypackkitview"></a>`DayPackKitView` | object |  |
+| <a id="schema-daypacklineview"></a>`DayPackLineView` | object |  |
+| <a id="schema-daypackquery"></a>`DayPackQuery` | object |  |
+| <a id="schema-daypackreminderview"></a>`DayPackReminderView` | object |  |
+| <a id="schema-daypacksourceview"></a>`DayPackSourceView` | object |  |
+| <a id="schema-daypackstopview"></a>`DayPackStopView` | object |  |
+| <a id="schema-daypacktickview"></a>`DayPackTickView` | object |  |
+| <a id="schema-daypacktomorrowview"></a>`DayPackTomorrowView` | object |  |
+| <a id="schema-daypacktripview"></a>`DayPackTripView` | object |  |
+| <a id="schema-daypackview"></a>`DayPackView` | object |  |
 | <a id="schema-dayweekquery"></a>`DayWeekQuery` | object |  |
 | <a id="schema-dealdetail"></a>`DealDetail` | composite | The deal aggregate: document + transition ledger. |
 | <a id="schema-deallistquery"></a>`DealListQuery` | object | GET /api/pipeline/deals query. |
@@ -1581,6 +1611,7 @@
 | <a id="schema-deeplinkvendor"></a>`DeeplinkVendor` | object |  |
 | <a id="schema-definitionscope"></a>`DefinitionScope` | string | Visibility scope of a stored definition: `org` (published org-wide, admins only) or `self` (private to the creator). |
 | <a id="schema-deleteorderlinerequest"></a>`DeleteOrderLineRequest` | composite |  |
+| <a id="schema-deletetickquery"></a>`DeleteTickQuery` | object |  |
 | <a id="schema-deliveryattemptview"></a>`DeliveryAttemptView` | object |  |
 | <a id="schema-deliverylistquery"></a>`DeliveryListQuery` | object | GET /api/report-schedules/{id}/deliveries query. |
 | <a id="schema-deliverypage"></a>`DeliveryPage` | object |  |
@@ -1832,6 +1863,7 @@
 | <a id="schema-overrideregistryresponse"></a>`OverrideRegistryResponse` | object |  |
 | <a id="schema-overridevaluekind"></a>`OverrideValueKind` | string | The value shapes a client override accepts. The wire value is the plain JSON payload (uuid string / boolean); the kind exists so validation can reject a mistyped payload before persistence. |
 | <a id="schema-owneddeletequery"></a>`OwnedDeleteQuery` | object |  |
+| <a id="schema-packruleview"></a>`PackRuleView` | object |  |
 | <a id="schema-passwordentry"></a>`PasswordEntry` | object | A vault credential. `secret_ciphertext` is AES-256-GCM from core-api crypto::seal — plaintext NEVER reaches the database layer, and this entity never carries it either (reveal is a dedicated, audited  |
 | <a id="schema-passwordhistoryentry"></a>`PasswordHistoryEntry` | object | One archived secret ciphertext from a credential's change history. |
 | <a id="schema-passwordlistquery"></a>`PasswordListQuery` | object |  |
@@ -1847,6 +1879,7 @@
 | <a id="schema-patchphaserequest"></a>`PatchPhaseRequest` | composite |  |
 | <a id="schema-patchportaluserrequest"></a>`PatchPortalUserRequest` | object |  |
 | <a id="schema-patchprojectrequest"></a>`PatchProjectRequest` | composite |  |
+| <a id="schema-patchrulerequest"></a>`PatchRuleRequest` | composite |  |
 | <a id="schema-patchtaskrequest"></a>`PatchTaskRequest` | composite |  |
 | <a id="schema-patchtemplaterequest"></a>`PatchTemplateRequest` | object |  |
 | <a id="schema-patchticketrequest"></a>`PatchTicketRequest` | composite |  |
@@ -1856,6 +1889,7 @@
 | <a id="schema-paymentmutationresponse"></a>`PaymentMutationResponse` | object | Payment receipt response. The invoice is nested (not flattened) so the stored replay payload — `{payment, invoice}` plus the merged mutation metadata — deserializes into this shape byte-identically. |
 | <a id="schema-phasemutationresponse"></a>`PhaseMutationResponse` | composite |  |
 | <a id="schema-phasestatus"></a>`PhaseStatus` | string | Lifecycle of a phase. |
+| <a id="schema-pickmutationresponse"></a>`PickMutationResponse` | object |  |
 | <a id="schema-pipelinedeal"></a>`PipelineDeal` | object | An opportunity: one client, optionally one quote, one current stage. |
 | <a id="schema-pipelinedealtransition"></a>`PipelineDealTransition` | object | One immutable stage move (or the initial placement, with a NULL `from_stage_id`). Appended in the same transaction as the move. |
 | <a id="schema-pipelinestage"></a>`PipelineStage` | object | One ordered stage of the org's pipeline. |
@@ -2067,6 +2101,7 @@
 | <a id="schema-rowoutcome"></a>`RowOutcome` | object |  |
 | <a id="schema-rowreport"></a>`RowReport` | object | Per-row dry-run/commit report entry. The wire shape contract from D2: every row maps to exactly one of `errors[]`, `ok`, `would_skip`, `would_update`. |
 | <a id="schema-rowspayload"></a>`RowsPayload` | object | The encoded row source shared by dry-run and chunk posts. |
+| <a id="schema-rulemutationresponse"></a>`RuleMutationResponse` | object |  |
 | <a id="schema-runbatchresponse"></a>`RunBatchResponse` | object | POST /imports/batches/{id}/run response: the batch is queued for the worker exactly once; poll the batch view for counters. |
 | <a id="schema-runreportresponse"></a>`RunReportResponse` | object | Per-row fate report — the D2 contract shape (`row_index → errors[] \| ok \| would_skip \| would_update`). |
 | <a id="schema-runspecrequest"></a>`RunSpecRequest` | object | POST /api/reports/run-spec body: an inline spec (validated through the same registry as stored definitions) plus the run window. This is the builder's PREVIEW-before-save surface — nothing is persiste |
@@ -2221,6 +2256,9 @@
 | <a id="schema-ticketmatch"></a>`TicketMatch` | composite | Skills-matched staffing for one unassigned ticket. Tickets with no required skills are not listed (the plain queue ordering covers them). |
 | <a id="schema-ticketmutationresponse"></a>`TicketMutationResponse` | composite | Instant-first mutation response (IF2): the enriched ticket fields at the top level (unchanged shape) plus the additive `mutation` metadata — the applied snapshot, monotonic per-entity `seq`/`version`, |
 | <a id="schema-ticketnumber"></a>`TicketNumber` | string | Human-facing ticket number, e.g. `MER-2841`. Globally unique per org, assigned from a per-org sequence. |
+| <a id="schema-ticketpickrowview"></a>`TicketPickRowView` | composite |  |
+| <a id="schema-ticketpicksquery"></a>`TicketPicksQuery` | object |  |
+| <a id="schema-ticketpickview"></a>`TicketPickView` | object |  |
 | <a id="schema-ticketrevertresponse"></a>`TicketRevertResponse` | composite | The reverted ticket with the mutation envelope, plus what was reverted. Deserializable so an IF1 idempotent replay can reconstruct the exact stored response. |
 | <a id="schema-ticketrollup"></a>`TicketRollup` | object | Rollup over the children/members pointing at one ticket, plus the ticket's own billable money lines. |
 | <a id="schema-ticketskillsmutationresponse"></a>`TicketSkillsMutationResponse` | composite | The full-replace mutation envelope (IF2). |
@@ -2230,6 +2268,7 @@
 | <a id="schema-ticketstatuscategory"></a>`TicketStatusCategory` | string | The four semantic categories every ticket status maps to (§5). Customization (labels, ordering, per-board sets) can never add, remove, or re-bind these: SLA timers, pause logic, automations, billing,  |
 | <a id="schema-ticketstatusmutationresponse"></a>`TicketStatusMutationResponse` | composite | Same additive envelope for status transitions (plain ticket body). |
 | <a id="schema-ticketwithfields"></a>`TicketWithFields` | composite | A ticket payload enriched with its custom-field values (detail + list). |
+| <a id="schema-tickmutationresponse"></a>`TickMutationResponse` | object |  |
 | <a id="schema-timeapprovalaction"></a>`TimeApprovalAction` | string | The audit-trail action of a [`TimeEntryApprovalRecord`] (append-only decision trail; differs from [`ApprovalAction`] in that it names the recorded past, not the requested transition). |
 | <a id="schema-timeentry"></a>`TimeEntry` | object | A durable, reviewable record of worked time. Created from a timer session or entered manually; subject to bulk review and approval workflows. |
 | <a id="schema-timeentryapprovalrecord"></a>`TimeEntryApprovalRecord` | object | One append-only approval decision (the audit row behind the queue's history view). `seq` is monotonic per entry — the client's ordering key. |
@@ -2354,4 +2393,4 @@
 | <a id="schema-workbenchside"></a>`WorkbenchSide` | composite | One side of the workbench comparison: the item view plus its FULL tier state (observed/curated/field_sources) and identity keys. |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 28 operation groups; schema count 1101 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 28 operation groups; schema count 1125 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*

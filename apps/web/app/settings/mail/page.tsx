@@ -1,16 +1,17 @@
-// /settings/mail — placeholder pending full mail administration.
+// /settings/mail — permanent redirect to /settings/email.
 //
-// Purpose: honest disabled state; inbound routing already has a working
-// admin API but its dedicated manager surface ships with a later wave
-// (deep-linkable today via /settings/security-adjacent admin tooling).
-// Non-purpose: no mail logic.
-//
-// Note: org-level inbound routing IS configurable through
-// /api/v1/email/inbound-settings; this page defers to that surface rather
-// than duplicating it.
+// The mail administration surface shipped as /settings/email (Wave 34 lane
+// 8); this route stays as a redirect so old deep links keep working.
+"use client";
 
-import { SettingsPendingPanel } from "../../../components/settings-pending-panel";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { Spinner } from "@meridian/ui";
 
-export default function MailSettingsPage() {
-  return <SettingsPendingPanel title="Mail" owner="mail administration wave" />;
+export default function MailSettingsRedirect() {
+  const router = useRouter();
+  useEffect(() => {
+    router.replace("/settings/email");
+  }, [router]);
+  return <Spinner />;
 }

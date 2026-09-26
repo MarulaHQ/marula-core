@@ -27,8 +27,10 @@ pub mod config;
 pub mod decision;
 pub mod dedupe_sweep;
 pub mod delivery;
+pub mod digest;
 pub mod effects;
 pub mod email;
+pub mod mail_config;
 pub mod notifier;
 pub mod pm_sweep;
 pub mod queue_runner;
@@ -42,7 +44,6 @@ use anyhow::Context as _;
 use axum::extract::State;
 use axum::routing::get;
 use axum::{Json, Router};
-use core_domain::notifications::NoopMailTransport;
 use core_events::Publisher;
 use serde_json::json;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -84,29 +85,55 @@ pub async fn run(
         });
     }
 
-    // Notification email fan-out: noop transport until a real MailTransport
-    // adapter is configured (standalone-first "none" mode). Best-effort
-    // consumer; liveness is reported by the relay.
+    // Notification email fan-out (Wave 34 lane 8): the worker decides WHO
+    // gets mail (prefs + quiet hours), core-api renders the branded wrapper
+    // and enqueues it onto the outbound ledger — so notification mail gets
+    // retries and a delivery state like every other message.
     tokio::spawn(notifier::run_notifier(
         pool.clone(),
         config.redis_url.clone(),
-        NoopMailTransport,
+        Arc::new(notifier::HttpNotificationSink::new(
+            config.internal_api_url.clone(),
+            config.internal_token.clone(),
+        )),
         shutdown.clone(),
     ));
 
-    // Outbound email send loop (disabled cleanly when unconfigured).
+    // Outbound email send loop: transports resolve PER ORG at send time
+    // (settings + sealed credential; env transport is the fallback).
     let email_alive = Arc::new(AtomicBool::new(true));
     let transport = core_mail::build_transport(&config.email.transport_kind);
+    let mail_resolver: Arc<dyn mail_config::OrgMailResolver> =
+        Arc::new(mail_config::DbOrgMailResolver::new(
+            pool.clone(),
+            config.webhook_secret_key,
+            config.email.transport_kind.clone(),
+        ));
     {
         let email_alive = Arc::clone(&email_alive);
         let email_config = config.email.clone();
-        let email_transport = Arc::clone(&transport);
+        let email_resolver = Arc::clone(&mail_resolver);
         let email_shutdown = shutdown.clone();
         tokio::spawn(async move {
-            email::run_email_loop(email_config, email_transport, email_shutdown).await;
+            email::run_email_loop(email_config, email_resolver, email_shutdown).await;
             email_alive.store(false, Ordering::Relaxed);
         });
     }
+
+    // Daily digest sweep (Wave 34 lane 8): opted-in users get one email at
+    // their chosen local hour; core-api owns the once-per-day marker.
+    tokio::spawn(digest::run_digest_loop(
+        pool.clone(),
+        digest::DigestLoopConfig {
+            core_api_url: config.internal_api_url.clone(),
+            internal_token: config.internal_token.clone(),
+            poll_secs: std::env::var("DIGEST_POLL_SECS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(900),
+        },
+        shutdown.clone(),
+    ));
 
     // Scheduled report delivery (TASKLIST R4): transport-unset deploys
     // run the LEDGERED log-skip none mode — schedules still advance and

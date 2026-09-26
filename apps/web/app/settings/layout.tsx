@@ -64,7 +64,7 @@ const GROUPS: NavGroup[] = [
   {
     label: "Systems",
     items: [
-      { href: "/settings/mail", label: "Mail", pending: true },
+      { href: "/settings/email", label: "Email" },
       { href: "/settings/integrations", label: "Integrations" },
       { href: "/settings/plugins", label: "Plugins" },
       { href: "/settings/agent-platform", label: "Agent platform" },

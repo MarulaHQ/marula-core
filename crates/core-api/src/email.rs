@@ -17,10 +17,11 @@ use chrono::Utc;
 use core_db::emails::{self, InboundRoute, NewMessage};
 use core_domain::entities::{EmailDirection, ScanStatus};
 use core_domain::events::{self, types, EmailMessageRecorded, TicketCommentAdded};
+use core_domain::settings as registry;
 use core_domain::status::{NoteKind, Priority};
 use core_mail::inbound::{normalize_message_key, plan_inbound, InboundOutcome};
 use serde_json::json;
-use sqlx::{Postgres, Transaction};
+use sqlx::{PgConnection, Postgres, Transaction};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -63,6 +64,117 @@ impl MailStack {
 }
 
 use core_mail::TransportKind;
+
+/// The resolved From/Reply-To/signature identity for one outbound message:
+/// org settings overlaid by the ticket's board identity when there is one,
+/// with the process env defaults as the last fallback.
+pub struct MailIdentity {
+    pub from_address: String,
+    pub from_name: Option<String>,
+    pub reply_to: Option<String>,
+    pub signature: Option<String>,
+    /// Transport label recorded on the ledger row (informational; the
+    /// worker resolves the actual adapter per org at send time).
+    pub transport_label: String,
+}
+
+/// Brand values for the notification/digest wrapper header.
+pub struct BrandValues {
+    pub brand_name: String,
+    pub logo_url: Option<String>,
+}
+
+/// One stored org setting as trimmed text; `None` when unset or blank.
+async fn stored_text(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    key: &str,
+) -> ApiResult<Option<String>> {
+    let value = core_db::settings::get_org_value(&mut *conn, org_id, key).await?;
+    Ok(value
+        .and_then(|v| v.as_str().map(str::to_string))
+        .filter(|s| !s.trim().is_empty()))
+}
+
+/// Org-level mail identity (settings over the process defaults).
+pub async fn resolve_org_identity(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    fallback_from: &str,
+    fallback_name: Option<&str>,
+) -> ApiResult<MailIdentity> {
+    let transport = stored_text(conn, org_id, registry::EMAIL_TRANSPORT)
+        .await?
+        .unwrap_or_else(|| "none".to_string());
+    Ok(MailIdentity {
+        from_address: stored_text(conn, org_id, registry::EMAIL_FROM_ADDRESS)
+            .await?
+            .unwrap_or_else(|| fallback_from.to_string()),
+        from_name: stored_text(conn, org_id, registry::EMAIL_FROM_NAME)
+            .await?
+            .or_else(|| fallback_name.map(str::to_string)),
+        reply_to: stored_text(conn, org_id, registry::EMAIL_REPLY_TO).await?,
+        signature: stored_text(conn, org_id, registry::EMAIL_SIGNATURE).await?,
+        transport_label: transport,
+    })
+}
+
+/// Full identity for one outbound message. Ticket-linked mail takes the
+/// ticket's board identity field-by-field over the org identity; a missing
+/// ticket silently keeps the org identity (a send must not fail because its
+/// ticket vanished mid-flight).
+pub async fn resolve_mail_identity(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    ticket_id: Option<Uuid>,
+    mail: &MailStack,
+) -> ApiResult<MailIdentity> {
+    let mut identity =
+        resolve_org_identity(conn, org_id, &mail.from_address, mail.from_name.as_deref()).await?;
+    if identity.transport_label == "none" {
+        // No org transport selected: record what the process would use.
+        identity.transport_label = mail.transport.name().to_string();
+    }
+    if let Some(ticket_id) = ticket_id {
+        if let Ok(ticket) = core_db::tickets::get_ticket(&mut *conn, org_id, ticket_id).await {
+            let board = core_db::emails::get_board_identity(&mut *conn, org_id, ticket.board_id)
+                .await?;
+            if let Some(value) = board.from_address {
+                identity.from_address = value;
+            }
+            if let Some(value) = board.from_name {
+                identity.from_name = Some(value);
+            }
+            if let Some(value) = board.reply_to {
+                identity.reply_to = Some(value);
+            }
+            if let Some(value) = board.signature {
+                identity.signature = Some(value);
+            }
+        }
+    }
+    Ok(identity)
+}
+
+/// Brand header values: the configured wordmark/logo, falling back to the
+/// organization name. Logo URLs must be https (mail clients refuse the
+/// rest, and a plain-http logo would be a content leak vector).
+pub async fn resolve_brand(conn: &mut PgConnection, org_id: Uuid) -> ApiResult<BrandValues> {
+    let brand_name = match stored_text(conn, org_id, registry::EMAIL_BRAND_NAME).await? {
+        Some(name) => name,
+        None => core_db::orgs::get_org(&mut *conn, org_id)
+            .await
+            .map(|org| org.name)
+            .unwrap_or_default(),
+    };
+    let logo_url = stored_text(conn, org_id, registry::EMAIL_LOGO_URL)
+        .await?
+        .filter(|url| url.starts_with("https://"));
+    Ok(BrandValues {
+        brand_name,
+        logo_url,
+    })
+}
 
 /// Outcome of processing one webhook POST — terminal statuses surfaced to
 /// the provider so it can stop retrying.
@@ -544,12 +656,20 @@ pub struct OutboundEnqueue<'a> {
     pub ticket_id: Option<Uuid>,
 }
 
-/// Shared outbound enqueue: renders the kind, writes the ledger + retry
-/// rows, and emits `email.message_recorded` (outcome `queued`). Caller
-/// owns the transaction.
+/// Shared outbound enqueue: resolves the from/reply-to identity (org, then
+/// the ticket's board when there is one), appends the effective signature,
+/// renders the kind, writes the ledger + retry rows, and emits
+/// `email.message_recorded` (outcome `queued`). Caller owns the transaction.
 pub async fn enqueue_outbound(tx: &mut Tx, req: OutboundEnqueue<'_>) -> ApiResult<()> {
     if req.to_addresses.is_empty() {
         return Ok(());
+    }
+    let identity = resolve_mail_identity(&mut **tx, req.org_id, req.ticket_id, req.mail).await?;
+    let mut body = req.kind.body();
+    if let Some(signature) = identity.signature.as_deref() {
+        if !signature.trim().is_empty() {
+            body = format!("{}\n\n{}", body.trim_end(), signature.trim());
+        }
     }
     let message_id = emails::enqueue_outbound(
         tx,
@@ -563,12 +683,12 @@ pub async fn enqueue_outbound(tx: &mut Tx, req: OutboundEnqueue<'_>) -> ApiResul
                 .map(|r| normalize_message_key(r))
                 .collect(),
             subject: req.kind.subject(),
-            from_address: req.mail.from_address.clone(),
-            from_name: req.mail.from_name.clone(),
+            from_address: identity.from_address.clone(),
+            from_name: identity.from_name.clone(),
             to_addresses: req.to_addresses.clone(),
-            body_text: req.kind.body(),
+            body_text: body,
             ticket_id: req.ticket_id,
-            transport: req.mail.transport.name().to_string(),
+            transport: identity.transport_label,
         },
     )
     .await?;
@@ -588,6 +708,55 @@ pub async fn enqueue_outbound(tx: &mut Tx, req: OutboundEnqueue<'_>) -> ApiResul
     )
     .await?;
     Ok(())
+}
+
+/// Enqueues one caller-rendered message (admin probe, digest, notification
+/// fan-out) with the org/board identity applied. Returns the ledger message
+/// id so callers can point at the delivery ledger.
+#[allow(clippy::too_many_arguments)]
+pub async fn enqueue_rendered_outbound(
+    tx: &mut Tx,
+    mail: &MailStack,
+    org_id: Uuid,
+    to: &str,
+    subject: &str,
+    body: &str,
+    ticket_id: Option<Uuid>,
+) -> ApiResult<Uuid> {
+    let identity = resolve_mail_identity(&mut **tx, org_id, ticket_id, mail).await?;
+    let message_id = emails::enqueue_outbound(
+        tx,
+        emails::NewOutbound {
+            org_id,
+            rfc_message_id: emails::new_outbound_message_id(),
+            in_reply_to: None,
+            references: vec![],
+            subject: subject.to_string(),
+            from_address: identity.from_address.clone(),
+            from_name: identity.from_name.clone(),
+            to_addresses: vec![to.to_string()],
+            body_text: body.to_string(),
+            ticket_id,
+            transport: identity.transport_label,
+        },
+    )
+    .await?;
+    emit_event(
+        tx,
+        org_id,
+        types::EMAIL_MESSAGE_RECORDED,
+        "email_message",
+        Some(message_id),
+        &json!({
+            "message_id": message_id,
+            "direction": "outbound",
+            "outcome": "queued",
+            "ticket_id": ticket_id,
+            "comment_id": null,
+        }),
+    )
+    .await?;
+    Ok(message_id)
 }
 
 /// Outbox insert for non-OrgTx contexts (the webhook pipeline). OrgTx's

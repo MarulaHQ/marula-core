@@ -4,7 +4,7 @@ Status: audit-only deliverable · Audit basis: Waves 11–26 GA product as of 20
 
 This is the coverage matrix and information-architecture (Diátaxis) plan for
 the open-source docs. Lane 2 (`p27-docs-fill`) executes the work order at the
-bottom; this page itself is the audit record, wired into the site so the gap
+bottom. This page itself is the audit record, wired into the site so the gap
 stays visible until it is filled.
 
 Method: every scheduled product surface was captured and reviewed in a real
@@ -16,7 +16,7 @@ against this site's existing pages and the self-host doc sources
 `docs/reference/`, ADRs 0005–0011).
 
 Legend: **✅ exists** · **◐ partial** (some coverage, not the task in front of
-the user) · **❌ missing** · **🌀 generated** (never hand-edited; staleness is
+the user) · **❌ missing** · **🌀 generated** (never hand-edited, staleness is
 mechanically checked, currently clean).
 
 ## 1. Coverage matrix (product domains × Diátaxis quadrants)
@@ -33,7 +33,7 @@ mechanically checked, currently clean).
 | Assets & documents (4) | ❌ | ❌ import/connector link state, document versioning semantics | ❌ | ❌ per-connector link-state-as-data, immutable versioning | ◐ ADR 0004 |
 | Provenance, audit, imports (4) | ❌ | ❌ dry-run-first imports, saved mappings | ❌ | ❌ provenance (field-level) vs audit (event-level), append-only | ❌ |
 | Knowledge base & secret vault (2) | ❌ | ❌ KB category grants (ADR 0006), secret reveal auditing | ❌ | ❌ restricted-chains grant model | ◐ ADR 0006 |
-| Agent platform, AI settings, plugins (3) | ❌ first-agent-run lesson | ❌ enroll/approve/run-once, expose-to-automations; AI master switch + per-surface grants; plugin consent lifecycle | ❌ using granted AI surfaces | ❌ deny-by-default decision harness, digest-verified distribution | ◐ ADR 0008/0010/0011; agent-proposals & agent-skills in API ref |
+| Agent platform, AI settings, plugins (3) | ❌ first-agent-run lesson | ❌ enroll/approve/run-once, expose-to-automations, AI master switch + per-surface grants, plugin consent lifecycle | ❌ using granted AI surfaces | ❌ deny-by-default decision harness, digest-verified distribution | ◐ ADR 0008/0010/0011, agent-proposals & agent-skills in API ref |
 | Settings — workspace/people/access, security, API keys, notifications (7) | ❌ | ❌ 2FA/sensitive-changes gate, API-key lifecycle (show once → rotate → revoke), invite flow, quiet hours | ❌ preferences | ❌ scope picker model | ❌ |
 | Integrations & connectors, FX/system (2) | ❌ | ❌ per-connector setup | ❌ | ❌ | ❌ |
 | Auth — login, magic link, SSO, password reset, verify email, invite acceptance (7) | ❌ new-org bootstrap ("Sign in / Create org") | ❌ SSO round-trip, MFA gating | ❌ passwordless parity ("same full sessions") | ◐ `auth-threat-model.md` in `docs/reference/` | ◐ `auth-provider-contract.md` |
@@ -48,9 +48,9 @@ mechanics* (API, upgrades, read model, customization-as-data) but none of the
 
 ## 2. UI/API mismatch notes found during the audit (feed lane 2 / product lanes)
 
-- Settings→SLA escalation rows render `[object Object]m` for P1–P4 offsets — UI bug; don't document names from that broken render.
-- Settings→Notifications shows raw event slugs (`report_delivery`, `ai_cap_warn`, `secret_rotation`) without friendly labels — docs must use semantic names, flag the UX gap.
-- Settings→Mail is an intentional placeholder ("backend lands with the mail administration wave") — **do not document mail configuration.**
+- Settings→SLA escalation rows render `[object Object]m` for P1–P4 offsets — UI bug. Don't document names from that broken render.
+- Settings→Notifications showed raw event slugs (`report_delivery`, `ai_cap_warn`, `secret_rotation`) without friendly labels — **resolved** in Wave 34 lane 8: every kind now renders a friendly label (`lib/use-notifications.ts` `KIND_LABELS`).
+- Settings→Mail was an intentional placeholder ("backend lands with the mail administration wave") — **lifted** in Wave 34 lane 8: `/settings/email` is the mail administration surface, and [how-to/admin-email.md](how-to/admin-email.md) documents it. `/settings/mail` redirects.
 - Board-fields and security pages have plausible transient error states ("Fields could not be loaded…", "Failed to load security state") — distal UI bug indicators, not doc content.
 - `docs/site/index.md` "Where the rest lives" names `docs/runbooks/` which does not exist at that path (runbooks live under `deploy/runbooks/` as a scaffold) — fix the pointer while wiring lane 2.
 
@@ -65,18 +65,18 @@ Conventions for lane 2:
 
 - Prerequisites block on every how-to/tutorial (audience + what must already be true).
 - Product-behavior claims in how-to/explanation pages must match the verified UI strings in `REVIEW.md` captures — behavior claims are evidence-backed, not invented.
-- Generated pages (`reference/api.md`, `reference/upgrade-matrix.md`) stay generated; `reference/read-model.md` stays a catalog pointing at `docs/reference/read-model/*.md`.
-- No describing unbuilt surfaces (mail); placeholder pages get a "not yet shipped" banner instead of config content.
+- Generated pages (`reference/api.md`, `reference/upgrade-matrix.md`) stay generated. `reference/read-model.md` stays a catalog pointing at `docs/reference/read-model/*.md`.
+- No describing unbuilt surfaces. When a surface ships, its placeholder line here is lifted and a how-to lands with it (mail lifted in Wave 34 lane 8 — see [how-to/admin-email.md](how-to/admin-email.md)).
 
 ### Tutorials (learning paths — worked end to end)
 
-1. `first-ticket.md` (exists, rewrite) — currently API-first; keep as the developer edition and add the UI edition: run stack → seeded org → work one ticket to billable time.
+1. `first-ticket.md` (exists, rewrite) — currently API-first. Keep as the developer edition and add the UI edition: run stack → seeded org → work one ticket to billable time.
 2. **First inventory sync** (new) — connect one connector → device inventory → convert a device to an asset → link to client (assets/connector link-state).
 3. **First invoice** (new) — billable time → invoice → credit/void behavior → FX note for multi-currency stacks.
-4. **First agent run** (new) — enroll agent (Settings→Agent platform 7-step ladder) → plan & approve → run once → read the ledger; plus turning an AI surface on for one role (AI master switch → grant → use).
+4. **First agent run** (new) — enroll agent (Settings→Agent platform 7-step ladder) → plan & approve → run once → read the ledger, plus turning an AI surface on for one role (AI master switch → grant → use).
 5. **Portal onboarding** (new) — provision a portal user, expose boards, client first sign-in, first request.
 
-### How-to guides (task-indexed; the index page becomes the task catalog)
+### How-to guides (task-indexed, with the index page as the task catalog)
 
 Admin tasks: upgrade ✅ (exists) · customize ✅ (exists, extend with board/category editing) · manage users & invites · configure SLA calendars & escalation ladders · set workflow categories · author automation rules · manage API keys (show once → rotate via replacement → revoke) · connect an IdP (SSO) · set up the portal (users + exposure) · run a dry-run import with saved mappings · record FX rates & read reconciliation (per-kind, never summed) · configure the plugin consent flow · manage dashboards (widget grid) & report schedules.
 
@@ -87,7 +87,7 @@ Client tasks: portal sign-in · submit & follow requests · invoices · schedule
 ### Reference
 
 - Generated API/upgrade-matrix stays as-is (both currently regenerate clean).
-- `read-model.md` per-view docs exist — wire the remaining views (`v1-clients`, `v1-contacts`, `v1-first-response`, `v1-fx-reconciliation`, board-statuses already linked; audit catalog vs `ops.v1_*` list).
+- `read-model.md` per-view docs exist — wire the remaining views (`v1-clients`, `v1-contacts`, `v1-first-response`, `v1-fx-reconciliation`, board-statuses already linked. Audit catalog vs `ops.v1_*` list).
 - Add: semantic category/taxonomy reference, event catalog (notifications + domain events + audit), settings surface map (the audited left-rail structure), plugin capability surfaces table.
 
 ### Explanation
@@ -97,7 +97,7 @@ Client tasks: portal sign-in · submit & follow requests · invoices · schedule
 
 ### Self-host/operations lane
 
-Do not fork `deploy/README.md` or `docs/desktop-release.md` into the site; instead add **linked** operator pages in the site that embed the canonical commands: local stack (`deploy/docker-compose.yml` — ports/profiles/role-split), observability profile (`OTEL_EXPORTER_OTLP_ENDPOINT` gate, Grafana datasources), backup/restore runbook (the `deploy/runbooks/` scaffold's first real page), desktop packaging pointer. Author `deploy/runbooks/` content under `docs/site/reference/` per its own README.
+Do not fork `deploy/README.md` or `docs/desktop-release.md` into the site. Instead add **linked** operator pages in the site that embed the canonical commands: local stack (`deploy/docker-compose.yml` — ports/profiles/role-split), observability profile (`OTEL_EXPORTER_OTLP_ENDPOINT` gate, Grafana datasources), backup/restore runbook (the `deploy/runbooks/` scaffold's first real page), desktop packaging pointer. Author `deploy/runbooks/` content under `docs/site/reference/` per its own README.
 
 ## 4. Route → doc mapping (for p26 contextual help)
 
@@ -116,18 +116,19 @@ Every in-app surface carries an in-app help entry point (`p26-onboarding-flows`)
 | Agent platform/AI | tutorial: first agent run |
 | Integrations | how-to: connectors |
 | Portal routes | tutorial: portal onboarding + client how-tos |
-| Unmapped (mail placeholder, transients) | "not yet shipped" page + UI-bug lane notes |
+| Email (Settings→Email) | how-to: configure email (routing, SPF/DKIM/DMARC, transport, runbook) |
+| Unmapped (transients) | UI-bug lane notes |
 
 ## 5. Lane 2 (`p27-docs-fill`) work order
 
 1. Fix `docs/site/index.md` runbooks pointer (`deploy/runbooks/`).
-2. Rewrite `tutorials/first-ticket.md` as the UI edition, keep the API edition cross-linked; add N−1 prerequisite mention of the seeded org (`owner@demo.local / demo-password-123`, 16 open tickets).
-3. Tutorials: first-inventory-sync, first-invoice, first-agent-run, portal-onboarding.
+2. Rewrite `tutorials/first-ticket.md` as the UI edition, keep the API edition cross-linked, and add the N−1 prerequisite mention of the seeded org (`owner@demo.local / demo-password-123`, 16 open tickets).
+3. Tutorials: inventory sync, first invoice, first agent run, portal onboarding.
 4. How-to task catalog per §3 (splitting by audience), starting with the P0 set: upgrade ✅ keep, SLA, users/invites, API keys, automation rules, board workflows.
 5. Explanation set per §3 (start: provenance vs audit, FX additivity, deny-by-default AI).
 6. Self-host pages per §3 operations lane + first runbook.
-7. Reference catalog expansion (taxonomy, events, settings map) — hand-written parts only; generated pages remain generated.
-8. Every behavior claim cites the capturing verdict (screens supply the copy); keep the "do not document" list from §2.
+7. Reference catalog expansion (taxonomy, events, settings map) — hand-written parts only. Generated pages remain generated.
+8. Every behavior claim cites the capturing verdict (screens supply the copy). Keep the "do not document" list from §2.
 
 Exit criteria for lane 2: `node docs/site/scripts/check-docs-site.mjs` green,
 this page's ❌/◐ rows re-scored, coverage re-audited against the same
@@ -135,14 +136,28 @@ captures before landing.
 
 ## 6. Lane 2 delivery note (`p27-docs-fill`, 2026-09-22)
 
-Lane 2 shipped the P0 work order: the first-ticket lesson is now the UI
-edition (API edition cross-linked; seeded-org prerequisite), five tutorials
-(inventory sync, invoice, agent run, portal onboarding), the audience-split
-how-to catalog (12 admin guides + staff + client + SSO), five new
-explanation pages, and the self-host runbook spine under `reference/`
-(local stack, observability, backup/restore, reverse proxy/TLS). The
+Lane 2 shipped the P0 work order. The lesson on the first ticket is now
+the UI edition, with the API edition cross-linked and the seeded org named
+as a prerequisite. It added five tutorials (inventory sync, invoice, agent
+run, portal onboarding), the audience-split how-to catalog (12 admin
+guides plus staff, client, and SSO), five explanation pages, and the
+self-host runbook spine under `reference/` (local stack, observability,
+backup/restore, reverse proxy/TLS). The
 docs-site checker now fails on any how-to/tutorial page missing its
-**Audience:** tag. Mail remains undocumented per §2 — named only as a
-not-yet-shipped placeholder, never as configuration guidance. Full page
-inventory, checker output, and the §1 row-by-row re-scoring:
-`design/qa-p27-docs-fill/LANDING.md`.
+**Audience:** tag.
+
+## 7. Wave 34 lane 8 lift note (`p34-email-config-closeout`, 2026-09-26)
+
+The mail do-not-document placeholder is lifted. `/settings/email` ships the
+mail administration surface (inbound routing with collision validation,
+per-board outbound identities, transport selection with sealed credentials,
+the delivery ledger, the test-send probe, notification-email brand and
+defaults, digest policy), and [how-to/admin-email.md](how-to/admin-email.md)
+documents the operator path end to end: the inbound webhook contract, SPF
+/ DKIM / DMARC, the transport choices (including the no-TLS SMTP
+limitation), the retry and delivery-state semantics, notification/digest
+behaviour, reply threading, the clamd-optional scan runbook, and the
+self-host environment variables. The Stage-2 report's two mail honest gaps
+(no transport configuration UI, mail undocumented) are resolved here. The
+one remaining operator dependency is a real provider credential, which the
+test-send probe and delivery log surface rather than hide.

@@ -31,9 +31,12 @@ the tag is **both** or points to the staff/client catalog below.
 - [Turn on travel time & mileage reconciliation](admin-routing-travel.md) —
   provider config, day start points, warnings, reimbursements
 - [Set up labels and label templates](admin-labels.md) — typed templates,
-  Zebra/DYMO stock, QR deep links, browser and ZPL print targets
+  Zebra/DYMO stock, QR deep links, and the print targets in browsers or ZPL
 - [Set up toolboxes and dispatch defaults](admin-toolboxes.md) — kits,
   membership, box tags, and the mappings the day pack reads
+- [Configure email](admin-email.md) — routing addresses, the signed
+  webhook, SPF/DKIM/DMARC, transports, notifications, and the self-host
+  runbook
 - [Connect an IdP (SSO)](admin-sso.md) — the IdP handoff round-trip
 - [Buy: vendors, purchase orders, receiving, bills](admin-purchasing.md)
   — the order lifecycle, receipts into stock, posted bills
@@ -53,7 +56,7 @@ Audience tag: **both** unless a guide is staff-only by nature.
   command registry, the hold-Alt overlay, and the ? cheat sheet
 - [Scan barcodes and QR codes](staff-scanning.md) — what a scan means on
   each surface, and why it never hijacks a form
-- [Run stock, parts, and locations](staff-stock-and-parts.md) — receive,
+- [Run stock and parts](staff-stock-and-parts.md) — receive,
   use parts on a ticket, thresholds, transfers
 - [Check tools out, and run client loans](staff-tools-and-loans.md) —
   who-has-what, check-in, loan issue and return
@@ -69,7 +72,3 @@ Audience tag: **both** (admin hands them the start; steps are client-side).
 - [Portal client-side tasks](client-portal-tasks.md): the four portal
   sections (Requests, Invoices, Knowledge, Schedule) from the client's
   side
-
-Not documented on purpose: mail configuration — Settings→Mail is an
-intentional placeholder until the mail administration wave lands
-("no configuration here changes behavior today").

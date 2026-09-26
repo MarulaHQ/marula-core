@@ -451,6 +451,9 @@ async fn run_one(
                 let message = OutboundEmail {
                     from_address: config.from_address.clone(),
                     from_name: config.from_name.clone(),
+                    // Report mail replies go to the From address; board
+                    // identities apply to ticket mail (Wave 34 lane 8).
+                    reply_to: None,
                     to_addresses: vec![plan.user.email.clone()],
                     subject: format!("Scheduled report: {}", row.name),
                     body_text: csv.clone(),

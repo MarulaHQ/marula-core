@@ -31,6 +31,9 @@ pub struct ClaimedOutbound {
     pub from_address: String,
     #[serde(default)]
     pub from_name: Option<String>,
+    /// Reply-To resolved at claim time from the org/board identity.
+    #[serde(default)]
+    pub reply_to: Option<String>,
     pub to_addresses: Vec<String>,
     #[serde(default)]
     pub subject: Option<String>,
@@ -56,6 +59,7 @@ impl ClaimedOutbound {
         crate::transport::OutboundEmail {
             from_address: self.from_address,
             from_name: self.from_name,
+            reply_to: self.reply_to,
             to_addresses: self.to_addresses,
             subject: self.subject.unwrap_or_default(),
             body_text: self.body_text.unwrap_or_default(),
@@ -86,6 +90,62 @@ pub struct ResultsRequest {
     pub results: Vec<SendResult>,
 }
 
+/// POST /api/internal/email/notification — the worker decided the email leg
+/// of one notification delivers; core-api renders the branded message and
+/// enqueues it on the outbound ledger (single-writer preserved).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotificationEmailRequest {
+    pub org_id: uuid::Uuid,
+    pub user_id: uuid::Uuid,
+    /// Notification kind slug (`mention`, `sla_breach`, …).
+    pub kind: String,
+    pub title: String,
+    #[serde(default)]
+    pub body: Option<String>,
+    #[serde(default)]
+    pub ticket_id: Option<uuid::Uuid>,
+}
+
+/// One digest row as the worker reports it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DigestItemDto {
+    pub title: String,
+    #[serde(default)]
+    pub detail: Option<String>,
+}
+
+/// POST /api/internal/email/digest — the worker determined the recipient's
+/// local digest hour arrived; core-api renders, enforces the org policy and
+/// the once-per-local-day marker, then enqueues.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DigestEmailRequest {
+    pub org_id: uuid::Uuid,
+    pub user_id: uuid::Uuid,
+    /// Recipient-local date label (`YYYY-MM-DD`) — the marker anchor.
+    pub day: String,
+    pub items: Vec<DigestItemDto>,
+}
+
+/// Outcome of an internal email enqueue. `outcome` is one of `queued`,
+/// `skipped_disabled`, `skipped_already_sent`, `skipped_empty`,
+/// `skipped_no_recipient`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnqueueEmailResponse {
+    pub outcome: String,
+    #[serde(default)]
+    pub message_id: Option<uuid::Uuid>,
+}
+
+impl EnqueueEmailResponse {
+    #[must_use]
+    pub fn skipped(outcome: &str) -> Self {
+        Self {
+            outcome: outcome.to_string(),
+            message_id: None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -98,6 +158,7 @@ mod tests {
             rfc_message_id: "<m@a>".into(),
             from_address: "f@a".into(),
             from_name: Some("N".into()),
+            reply_to: None,
             to_addresses: vec!["t@a".into()],
             subject: Some("s".into()),
             body_text: None,
