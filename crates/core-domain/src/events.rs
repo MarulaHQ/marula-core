@@ -120,6 +120,12 @@ pub mod types {
     /// Emitted when a user overrides one preference row.
     pub const NOTIFICATION_PREFS_UPDATED: &str = "notification_prefs.updated";
     pub const EMAIL_MESSAGE_RECORDED: &str = "email.message_recorded";
+    /// CSAT surveys on resolution (Wave 34 lane 2): the worker sent (or
+    /// honestly skipped) the tokenized survey email for a resolved ticket.
+    pub const CSAT_SURVEY_SENT: &str = "csat.survey_sent";
+    /// A client submitted a CSAT score through the single-use portal link.
+    /// Automation rules key their low-score triggers on this event.
+    pub const CSAT_RESPONSE_RECORDED: &str = "csat.response_recorded";
     /// A ladder step fired for a ticket clock (risk/breach/escalate).
     pub const SLA_ESCALATION_FIRED: &str = "sla.escalation_fired";
     /// An automation rule matched and its effects were applied.
@@ -611,6 +617,36 @@ pub struct TicketCreated {
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub assignee_id: Option<UserId>,
     pub created_at: DateTime<Utc>,
+}
+
+/// The tokenized CSAT survey email left `pending` for one ticket — either
+/// delivered now, or delivered once quiet hours end. `skipped` + a reason
+/// records the honest no-send (min interval, transport not configured).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct CsatSurveyQueued {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub ticket_id: TicketId,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub client_id: Option<ClientId>,
+    pub status: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>))]
+    pub skip_reason: Option<String>,
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// A client submitted a CSAT score through the single-use portal link.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct CsatResponseRecorded {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub ticket_id: TicketId,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub client_id: Option<ClientId>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub assignee_id: Option<UserId>,
+    pub score: i16,
+    pub occurred_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

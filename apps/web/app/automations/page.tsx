@@ -65,6 +65,7 @@ const TRIGGER_EVENTS: { value: string; label: string }[] = [
   { value: "ticket.assigned", label: "Ticket assigned" },
   { value: "ticket.comment_added", label: "Comment added" },
   { value: "ticket.closed", label: "Ticket closed" },
+  { value: "csat.response_recorded", label: "CSAT response recorded" },
 ];
 
 const PRIORITIES: Priority[] = ["p1", "p2", "p3", "p4"];
@@ -101,6 +102,7 @@ function conditionText(c: AutomationCondition): string {
   if (c.type === "priority_is") return `Priority is ${PRIORITY_LABEL[c.priority]}`;
   if (c.type === "category_is") return `Status category is ${CATEGORY_LABEL[c.category]}`;
   if (c.type === "title_contains") return `Title contains “${c.needle}”`;
+  if (c.type === "csat_score_below") return `CSAT score below ${c.threshold}`;
   return "Ticket is unassigned";
 }
 

@@ -11,7 +11,7 @@
 // Workbench tokens, light+dark, ≤120ms transitions, responsive.
 "use client";
 
-import { Button, Card, Checkbox, EmptyState, FieldHint, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, Tag } from "@meridian/ui";
+import { Button, Card, Checkbox, EmptyState, FieldHint, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, Table, Tag, Td, Th, Tr } from "@meridian/ui";
 import type { components } from "@meridian/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../lib/api";
@@ -148,10 +148,24 @@ function ScorecardBody({ card }: { card: Scorecard }) {
         )}
       </div>
 
-      <p className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
-        CSAT inputs: {card.csat.available ? "" : "not yet available"} — customer-satisfaction surveys
-        on resolution land in a later release; this slot is reserved.
-      </p>
+      <div className="grid gap-1">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
+          CSAT
+        </h3>
+        {card.csat.available ? (
+          <p className="text-[13px] tabular-nums" style={{ color: "var(--m-text)" }}>
+            {card.csat.responses} response{card.csat.responses === 1 ? "" : "s"}
+            {card.csat.avg_score !== null && card.csat.avg_score !== undefined
+              ? ` · avg ${card.csat.avg_score.toFixed(2)} / 5`
+              : ""}
+            {card.csat.low_scores > 0 ? ` · ${card.csat.low_scores} low` : ""}
+          </p>
+        ) : (
+          <p className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+            Not yet available — no surveys have been answered yet (enable them under Settings → Surveys).
+          </p>
+        )}
+      </div>
     </div>
   );
 }
@@ -373,6 +387,96 @@ export default function ScorecardsPage() {
           ) : null}
         </section>
       )}
+
+      {isManager && <ClientsCsat from={from} to={to} />}
     </div>
+  );
+}
+
+/** Per-client CSAT rollups (Wave 34 lane 2), manager-only. Types mirror the
+ * pinned OpenAPI schemas; the page does not wait on SDK regeneration. */
+interface ClientRollup {
+  client_id: string;
+  client_name: string;
+  responses: number;
+  avg_score: number | null;
+  low_scores: number;
+}
+
+function ClientsCsat({ from, to }: { from: string; to: string }) {
+  const [rollups, setRollups] = useState<ClientRollup[] | null>(null);
+  const [available, setAvailable] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setError(null);
+    api.api
+      .GET("/api/v1/scorecards/clients", { params: { query: { from, to } } })
+      .then(({ data, error: err }) => {
+        if (cancelled) return;
+        if (err !== undefined || !data) {
+          setError("Client CSAT rollups could not be loaded.");
+          setRollups(null);
+          return;
+        }
+        setAvailable(data.available);
+        setRollups((data as unknown as { rollups: ClientRollup[] }).rollups);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Client CSAT rollups could not be loaded.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [from, to]);
+
+  return (
+    <section aria-label="Client CSAT">
+      <h2 className="text-sm font-semibold mb-2" style={{ color: "var(--m-text)" }}>
+        Client satisfaction
+      </h2>
+      {error && (
+        <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
+          {error}
+        </p>
+      )}
+      {!error && rollups === null ? (
+        <div className="p-6 flex justify-center">
+          <Spinner />
+        </div>
+      ) : rollups !== null && !available ? (
+        <Card className="p-6">
+          <EmptyState message="No survey responses yet — enable surveys under Settings → Surveys." />
+        </Card>
+      ) : rollups !== null && rollups.length === 0 ? (
+        <Card className="p-6">
+          <EmptyState message="No client responses in this window." />
+        </Card>
+      ) : rollups ? (
+        <Card className="p-0 overflow-hidden">
+          <Table>
+            <thead>
+              <tr>
+                <Th>Client</Th>
+                <Th style={{ textAlign: "right" }}>Responses</Th>
+                <Th style={{ textAlign: "right" }}>Avg score</Th>
+                <Th style={{ textAlign: "right" }}>Low (≤2)</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {rollups.map((r) => (
+                <Tr key={r.client_id}>
+                  <Td>{r.client_name}</Td>
+                  <Td style={{ textAlign: "right" }}>{r.responses}</Td>
+                  <Td style={{ textAlign: "right" }}>{r.avg_score !== null ? r.avg_score.toFixed(2) : "—"}</Td>
+                  <Td style={{ textAlign: "right" }}>{r.low_scores}</Td>
+                </Tr>
+              ))}
+            </tbody>
+          </Table>
+        </Card>
+      ) : null}
+    </section>
   );
 }

@@ -126,6 +126,19 @@ pub struct DigestEmailRequest {
     pub items: Vec<DigestItemDto>,
 }
 
+/// POST /api/internal/email/csat — the worker ran the survey policy for a
+/// resolved ticket; core-api renders the branded tokenized survey mail and
+/// enqueues it. The raw token rides this request once and lives on only in
+/// the mail link; the survey row stores its SHA-256 hash.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CsatEmailRequest {
+    pub org_id: uuid::Uuid,
+    pub survey_id: uuid::Uuid,
+    pub ticket_id: uuid::Uuid,
+    pub contact_email: String,
+    pub token: String,
+}
+
 /// Outcome of an internal email enqueue. `outcome` is one of `queued`,
 /// `skipped_disabled`, `skipped_already_sent`, `skipped_empty`,
 /// `skipped_no_recipient`.

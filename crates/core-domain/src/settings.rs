@@ -139,6 +139,7 @@ pub enum SettingSection {
     Onboarding,
     Integrations,
     Email,
+    Surveys,
 }
 
 impl SettingSection {
@@ -149,6 +150,7 @@ impl SettingSection {
             SettingSection::Onboarding => "onboarding",
             SettingSection::Integrations => "integrations",
             SettingSection::Email => "email",
+            SettingSection::Surveys => "surveys",
         }
     }
 }
@@ -383,6 +385,20 @@ pub const EMAIL_DIGEST_LAST_SENT: &str = "email.digest_last_sent";
 
 /// Transport selections the settings UI and worker resolver accept.
 pub const EMAIL_TRANSPORT_OPTIONS: &[&str] = &["none", "postmark", "smtp"];
+
+/// CSAT surveys on resolution: master toggle. Off (or transport `none`)
+/// means no surveys are ever queued — the honest not-configured state.
+pub const CSAT_SEND_ON_RESOLVE: &str = "csat.send_on_resolve";
+/// Per-client minimum interval in hours between survey sends; a client that
+/// received a survey more recently is skipped (recorded as `min_interval`).
+pub const CSAT_MIN_INTERVAL_HOURS: &str = "csat.min_interval_hours";
+/// Days a tokenized response link stays valid after send; expired links are
+/// rejected at the portal route, tokens stay single-use regardless.
+pub const CSAT_TOKEN_TTL_DAYS: &str = "csat.token_ttl_days";
+/// Org quiet-hours window (local `HH:MM`, org timezone) surveys defer to.
+/// Empty means no quiet window — surveys send as soon as they are due.
+pub const CSAT_QUIET_FROM: &str = "csat.quiet_from";
+pub const CSAT_QUIET_UNTIL: &str = "csat.quiet_until";
 /// Digest policy options (org scope).
 pub const EMAIL_DIGEST_POLICY_OPTIONS: &[&str] = &["allowed", "disabled"];
 /// Per-user digest options.
@@ -1076,6 +1092,65 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> = std::sync::L
                 description: "Internal idempotency marker: local date of your last \
                              digest send. Written by the digest loop; not a \
                              preference.",
+            },
+            SettingDeclaration {
+                key: CSAT_SEND_ON_RESOLVE,
+                kind: SettingKind::Boolean,
+                default: SettingValue::Boolean(false),
+                scope: SettingScope::Org,
+                section: SettingSection::Surveys,
+                visibility: SettingVisibility::Ui,
+                label: "CSAT survey on resolution",
+                description: "Queue a satisfaction survey whenever a ticket \
+                             resolves. Requires a configured mail transport — \
+                             with transport set to none no surveys are sent \
+                             and the scorecard section stays honestly empty.",
+            },
+            SettingDeclaration {
+                key: CSAT_MIN_INTERVAL_HOURS,
+                kind: SettingKind::Integer { min: 0, max: 8_760 },
+                default: SettingValue::Integer(168),
+                scope: SettingScope::Org,
+                section: SettingSection::Surveys,
+                visibility: SettingVisibility::Ui,
+                label: "Minimum interval per client (hours)",
+                description: "Skip a survey when this client already received \
+                             one within the window. Default 168 = at most one \
+                             survey per client per week.",
+            },
+            SettingDeclaration {
+                key: CSAT_TOKEN_TTL_DAYS,
+                kind: SettingKind::Integer { min: 1, max: 90 },
+                default: SettingValue::Integer(14),
+                scope: SettingScope::Org,
+                section: SettingSection::Surveys,
+                visibility: SettingVisibility::Ui,
+                label: "Response link validity (days)",
+                description: "How long a tokenized response link works after \
+                             the survey email is sent. Links are single-use \
+                             regardless of validity.",
+            },
+            SettingDeclaration {
+                key: CSAT_QUIET_FROM,
+                kind: SettingKind::Text { max_len: 5 },
+                default: SettingValue::Text(String::new()),
+                scope: SettingScope::Org,
+                section: SettingSection::Surveys,
+                visibility: SettingVisibility::Ui,
+                label: "Quiet hours start",
+                description: "Local HH:MM in the org timezone surveys defer \
+                             to; empty means no quiet window.",
+            },
+            SettingDeclaration {
+                key: CSAT_QUIET_UNTIL,
+                kind: SettingKind::Text { max_len: 5 },
+                default: SettingValue::Text(String::new()),
+                scope: SettingScope::Org,
+                section: SettingSection::Surveys,
+                visibility: SettingVisibility::Ui,
+                label: "Quiet hours end",
+                description: "Local HH:MM in the org timezone surveys defer \
+                             to; empty means no quiet window.",
             },
             // Connector enable/disable toggles (Wave 15 lane 4
             // `p15-docs-closeout`): one org-scope Boolean per shipped

@@ -351,6 +351,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             post(internal::notification_email),
         )
         .route(&rp("/internal/email/digest"), post(internal::digest_email))
+        .route(&rp("/internal/email/csat"), post(internal::csat_email))
         // Machine surface for the worker (token-gated inside the handlers,
         // NOT behind the JWT middleware — §4.1: worker effects enter
         // through core-api, never direct DB writes).
@@ -394,6 +395,13 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/portal/tickets/{id}/attachments/{attachment_id}/download"),
             get(portal::download_attachment),
+        )
+        // CSAT surveys on resolution (Wave 34 lane 2): the in-app response
+        // route rides portal auth; the emailed token is scoped to the
+        // caller's client on top.
+        .route(
+            &rp("/portal/csat/{token}"),
+            get(portal::csat_view).post(portal::csat_submit),
         )
         // Portal v2 (TASKLIST Phase 3): invoice view + pay, KB
         // self-service, appointment requests. Same middleware stack, same
@@ -1287,6 +1295,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // coaching scorecards (Wave 14 lane 3, R5): aggregation over the
         // read-model views; private-by-default (self only unless owner/admin)
         .route(&rp("/scorecards"), get(scorecards::team))
+        .route(&rp("/scorecards/clients"), get(scorecards::clients))
         .route(&rp("/scorecards/me"), get(scorecards::me))
         .route(
             &rp("/scorecards/me/settings"),

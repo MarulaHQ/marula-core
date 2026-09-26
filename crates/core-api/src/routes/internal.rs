@@ -21,7 +21,7 @@ use axum::Json;
 use core_domain::events::types;
 use core_domain::settings as registry;
 use core_mail::internal::{
-    ClaimRequest, ClaimResponse, DigestEmailRequest, EnqueueEmailResponse,
+    ClaimRequest, ClaimResponse, CsatEmailRequest, DigestEmailRequest, EnqueueEmailResponse,
     NotificationEmailRequest, ResultsRequest,
 };
 use core_mail::outbound::backoff_delay;
@@ -319,6 +319,95 @@ fn greeting_for(display_name: &str) -> String {
         Some(first) if !first.is_empty() => format!("Hi {first},"),
         _ => "Hi,".to_string(),
     }
+}
+
+// --- Wave 34 lane 2: CSAT survey mail enqueue -------------------------------
+
+/// POST /api/internal/email/csat — the worker ran the survey policy for a
+/// resolved ticket (send-on-resolve, per-client interval, quiet hours).
+/// core-api renders the branded tokenized survey mail, flips the survey row
+/// to `sent` IN THE SAME TRANSACTION as the ledger insert, and emits
+/// `csat.survey_sent` — retries stay inert because `mark_sent` only wins
+/// once, and row state and ledger state never diverge.
+pub async fn csat_email(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<CsatEmailRequest>,
+) -> ApiResult<Response> {
+    ensure_internal_token(&state, &headers)?;
+    org_tx::with_org_tx(&state, req.org_id, req.org_id, |mut ctx| async move {
+        // Only the FIRST delivery attempt transitions the row; a redelivered
+        // request answers `already_sent` without touching the ledger.
+        let won = core_db::csat::mark_sent(
+            &mut *ctx.tx,
+            req.org_id,
+            req.survey_id,
+            chrono::Utc::now(),
+        )
+        .await?;
+        if won.is_none() {
+            return Ok((
+                ctx,
+                Json(EnqueueEmailResponse::skipped("skipped_already_sent")),
+            ));
+        }
+        let identity = crate::email::resolve_org_identity(
+            &mut ctx.tx,
+            req.org_id,
+            &state.mail.from_address,
+            state.mail.from_name.as_deref(),
+        )
+        .await?;
+        let brand = crate::email::resolve_brand(&mut ctx.tx, req.org_id).await?;
+        let link_base = state.config.web_base_url.trim_end_matches('/');
+        let link = format!("{link_base}/portal/csat?token={}", req.token);
+        let rendered = core_mail::brand::render_notification(
+            &core_mail::brand::Brand {
+                brand_name: &brand.brand_name,
+                logo_url: brand.logo_url.as_deref(),
+                greeting: Some("Hi,"),
+                signoff: identity.signature.as_deref(),
+            },
+            "How did we do?",
+            Some(&format!(
+                "Your request has been resolved. Rate your experience here: {link}\n\nThe link works once and stays valid for the period stated in the survey."
+            )),
+        );
+        let message_id = crate::email::enqueue_rendered_outbound(
+            &mut ctx.tx,
+            &state.mail,
+            req.org_id,
+            &req.contact_email,
+            &rendered.subject,
+            &rendered.text_body,
+            Some(req.ticket_id),
+        )
+        .await?;
+        ctx.emit(
+            types::CSAT_SURVEY_SENT,
+            "csat_survey",
+            Some(req.survey_id.to_string().as_str()),
+            &serde_json::to_value(core_domain::events::CsatSurveyQueued {
+                ticket_id: req.ticket_id,
+                client_id: core_db::csat::get(&mut *ctx.tx, req.org_id, req.survey_id)
+                    .await?
+                    .and_then(|s| s.client_id),
+                status: "sent".to_string(),
+                skip_reason: None,
+                occurred_at: chrono::Utc::now(),
+            })
+            .unwrap_or_default(),
+        )
+        .await?;
+        Ok((
+            ctx,
+            Json(EnqueueEmailResponse {
+                outcome: "queued".into(),
+                message_id: Some(message_id),
+            }),
+        ))
+    })
+    .map(|response| response.into_response())
 }
 
 // --- missing-time gap audit run (TASKLIST 2.10) -----------------------------

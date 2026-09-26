@@ -114,12 +114,17 @@ pub struct WorkTypeSlice {
     pub minutes: i64,
 }
 
-/// CSAT inputs slot. The surveys-on-resolution source does not exist yet
-/// (later TASKLIST item); the scorecard reserves the field and reports
-/// `available: false` rather than inventing data.
+/// CSAT inputs slot (Wave 34 lane 2): `available` is the honest feature
+/// gate — true only once the org has real survey data, never fabricated
+/// from a zero-window. Scores are 1-5; "low" means score ≤ 2.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct CsatSection {
     pub available: bool,
+    pub responses: i64,
+    /// Mean of recorded scores in the window; `None` with no responses.
+    pub avg_score: Option<f64>,
+    /// Responses at score ≤ 2 in the window — the automation trigger zone.
+    pub low_scores: i64,
 }
 
 /// One staff member's scorecard over a window.
@@ -172,6 +177,8 @@ fn build_scorecard(
     row: core_db::scorecards::ScorecardRow,
     mix: Vec<core_db::scorecards::WorkTypeMixRow>,
     window: core_reports::Window,
+    csat_available: bool,
+    csat: Option<core_db::csat::CsatUserRollupRow>,
 ) -> Scorecard {
     let mix = mix
         .into_iter()
@@ -214,8 +221,47 @@ fn build_scorecard(
             billable_ratio: ratio(row.approved_billable_minutes, row.approved_minutes),
             by_work_type: mix,
         },
-        csat: CsatSection { available: false },
+        csat: CsatSection {
+            available: csat_available,
+            responses: csat.as_ref().map_or(0, |c| c.responses),
+            avg_score: csat.as_ref().and_then(|c| c.avg_score),
+            low_scores: csat.as_ref().map_or(0, |c| c.low_scores),
+        },
     }
+}
+
+/// Score ≤ 2 counts as "low" everywhere (trigger zone for automations).
+const CSAT_LOW_THRESHOLD: i16 = 2;
+
+/// Org-level availability + per-user rollups in one org-scoped read.
+async fn csat_inputs(
+    tx: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    user_ids: &[Uuid],
+    window: core_reports::Window,
+) -> ApiResult<(
+    bool,
+    std::collections::HashMap<Uuid, core_db::csat::CsatUserRollupRow>,
+)> {
+    let available = core_db::csat::has_surveys(&mut *tx, org_id).await?;
+    let rows = if available && !user_ids.is_empty() {
+        core_db::csat::rollup_for_users(
+            &mut *tx,
+            org_id,
+            user_ids,
+            window.start,
+            window.end,
+            CSAT_LOW_THRESHOLD,
+        )
+        .await?
+    } else {
+        Vec::new()
+    };
+    let mut by_user = std::collections::HashMap::new();
+    for r in rows {
+        by_user.insert(r.user_id, r);
+    }
+    Ok((available, by_user))
 }
 
 /// GET /api/scorecards/me?from&to — the caller's own scorecard.
@@ -235,35 +281,39 @@ pub async fn me(
     let org_id = authed.principal.user.org_id;
     let window = resolve_window(&q, chrono::Utc::now())?;
 
-    let (row, mix) = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| {
-        let user_ids = vec![user_id];
-        async move {
-            let row = core_db::scorecards::scorecard_for_users(
-                &mut *ctx.tx,
-                org_id,
-                &user_ids,
-                window.start,
-                window.end,
-            )
-            .await?
-            .into_iter()
-            .next()
-            .ok_or(ApiError::RlsSparse)?;
-            let mix = core_db::scorecards::work_type_mix(
-                &mut *ctx.tx,
-                org_id,
-                &user_ids,
-                window.start,
-                window.end,
-            )
-            .await?;
-            Ok((ctx, (row, mix)))
-        }
-    })
-    .await?;
+    let (row, mix, csat_available, csat_by_user) =
+        org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| {
+            let user_ids = vec![user_id];
+            async move {
+                let row = core_db::scorecards::scorecard_for_users(
+                    &mut *ctx.tx,
+                    org_id,
+                    &user_ids,
+                    window.start,
+                    window.end,
+                )
+                .await?
+                .into_iter()
+                .next()
+                .ok_or(ApiError::RlsSparse)?;
+                let mix = core_db::scorecards::work_type_mix(
+                    &mut *ctx.tx,
+                    org_id,
+                    &user_ids,
+                    window.start,
+                    window.end,
+                )
+                .await?;
+                let (csat_available, csat_by_user) =
+                    csat_inputs(&mut *ctx.tx, org_id, &user_ids, window).await?;
+                Ok((ctx, (row, mix, csat_available, csat_by_user)))
+            }
+        })
+        .await?;
 
+    let csat = csat_by_user.remove(&user_id);
     Ok(Json(ScorecardResponse {
-        scorecard: build_scorecard(row, mix, window),
+        scorecard: build_scorecard(row, mix, window, csat_available, csat),
     }))
 }
 
@@ -292,36 +342,39 @@ pub async fn team(
     let org_id = authed.principal.user.org_id;
     let window = resolve_window(&q, chrono::Utc::now())?;
 
-    let (_, rows, mixes) = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| {
-        async move {
-            // Active staff only: invited-but-not-redeemed and deactivated
-            // accounts carry no coaching signal.
-            let roster: Vec<Uuid> = sqlx::query_scalar!(
-                r#"SELECT id FROM users WHERE org_id = $1 AND is_active ORDER BY display_name, id"#,
-                org_id
-            )
-            .fetch_all(&mut *ctx.tx)
-            .await?;
-            let rows = core_db::scorecards::scorecard_for_users(
-                &mut *ctx.tx,
-                org_id,
-                &roster,
-                window.start,
-                window.end,
-            )
-            .await?;
-            let mixes = core_db::scorecards::work_type_mix(
-                &mut *ctx.tx,
-                org_id,
-                &roster,
-                window.start,
-                window.end,
-            )
-            .await?;
-            Ok((ctx, (roster, rows, mixes)))
-        }
-    })
-    .await?;
+    let (_, rows, mixes, csat_available, csat_by_user) =
+        org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| {
+            async move {
+                // Active staff only: invited-but-not-redeemed and deactivated
+                // accounts carry no coaching signal.
+                let roster: Vec<Uuid> = sqlx::query_scalar!(
+                    r#"SELECT id FROM users WHERE org_id = $1 AND is_active ORDER BY display_name, id"#,
+                    org_id
+                )
+                .fetch_all(&mut *ctx.tx)
+                .await?;
+                let rows = core_db::scorecards::scorecard_for_users(
+                    &mut *ctx.tx,
+                    org_id,
+                    &roster,
+                    window.start,
+                    window.end,
+                )
+                .await?;
+                let mixes = core_db::scorecards::work_type_mix(
+                    &mut *ctx.tx,
+                    org_id,
+                    &roster,
+                    window.start,
+                    window.end,
+                )
+                .await?;
+                let (csat_available, csat_by_user) =
+                    csat_inputs(&mut *ctx.tx, org_id, &roster, window).await?;
+                Ok((ctx, (roster, rows, mixes, csat_available, csat_by_user)))
+            }
+        })
+        .await?;
 
     let mut by_user: std::collections::HashMap<Uuid, Vec<core_db::scorecards::WorkTypeMixRow>> =
         std::collections::HashMap::new();
@@ -332,7 +385,8 @@ pub async fn team(
         .into_iter()
         .map(|r| {
             let mix = by_user.remove(&r.user_id).unwrap_or_default();
-            build_scorecard(r, mix, window)
+            let csat = csat_by_user.get(&r.user_id).cloned();
+            build_scorecard(r, mix, window, csat_available, csat)
         })
         .collect();
 
@@ -370,35 +424,39 @@ pub async fn get_user(
     }
     let window = resolve_window(&q, chrono::Utc::now())?;
 
-    let (row, mix) = org_tx::with_org_tx(&state, org_id, caller, |mut ctx| {
-        let user_ids = vec![target];
-        async move {
-            let row = core_db::scorecards::scorecard_for_users(
-                &mut *ctx.tx,
-                org_id,
-                &user_ids,
-                window.start,
-                window.end,
-            )
-            .await?
-            .into_iter()
-            .next()
-            .ok_or(ApiError::RlsSparse)?;
-            let mix = core_db::scorecards::work_type_mix(
-                &mut *ctx.tx,
-                org_id,
-                &user_ids,
-                window.start,
-                window.end,
-            )
-            .await?;
-            Ok((ctx, (row, mix)))
-        }
-    })
-    .await?;
+    let (row, mix, csat_available, csat_by_user) =
+        org_tx::with_org_tx(&state, org_id, caller, |mut ctx| {
+            let user_ids = vec![target];
+            async move {
+                let row = core_db::scorecards::scorecard_for_users(
+                    &mut *ctx.tx,
+                    org_id,
+                    &user_ids,
+                    window.start,
+                    window.end,
+                )
+                .await?
+                .into_iter()
+                .next()
+                .ok_or(ApiError::RlsSparse)?;
+                let mix = core_db::scorecards::work_type_mix(
+                    &mut *ctx.tx,
+                    org_id,
+                    &user_ids,
+                    window.start,
+                    window.end,
+                )
+                .await?;
+                let (csat_available, csat_by_user) =
+                    csat_inputs(&mut *ctx.tx, org_id, &user_ids, window).await?;
+                Ok((ctx, (row, mix, csat_available, csat_by_user)))
+            }
+        })
+        .await?;
 
+    let csat = csat_by_user.remove(&target);
     Ok(Json(ScorecardResponse {
-        scorecard: build_scorecard(row, mix, window),
+        scorecard: build_scorecard(row, mix, window, csat_available, csat),
     }))
 }
 
@@ -474,5 +532,86 @@ pub async fn update_settings(
     Ok(Json(ScorecardSettingsResponse {
         user_id: settings.user_id,
         gamification_opt_in: settings.gamification_opt_in,
+    }))
+}
+
+/// One client's CSAT rollup over the window (responses scored 1-5;
+/// "low" = score ≤ 2).
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ClientCsatRollup {
+    pub client_id: Uuid,
+    pub client_name: String,
+    pub responses: i64,
+    pub avg_score: Option<f64>,
+    pub low_scores: i64,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ClientCsatRollupResponse {
+    pub window: ScorecardWindow,
+    pub available: bool,
+    pub rollups: Vec<ClientCsatRollup>,
+}
+
+/// GET /api/scorecards/clients?from&to — per-client CSAT rollups over the
+/// window (owner/admin only). `available: false` until the org records its
+/// first survey, matching the per-tech section's honesty gate.
+#[utoipa::path(operation_id = "scorecard_client_rollups", get, path = "/api/scorecards/clients", tag = "reports", security(("bearer" = [])),
+    params(ScorecardQuery),
+    responses((status = 200, body = ClientCsatRollupResponse),
+              (status = 403, description = "missing reporting:view"),
+              (status = 422, description = "invalid window")))]
+pub async fn clients(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Query(q): Query<ScorecardQuery>,
+) -> ApiResult<Json<ClientCsatRollupResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, reporting_view())?;
+    if !authed.principal.is_owner_or_admin() {
+        return Err(ApiError::Forbidden(
+            "client CSAT rollups are visible to owners and admins only".into(),
+        ));
+    }
+    let user_id = authed.principal.user.id;
+    let org_id = authed.principal.user.org_id;
+    let window = resolve_window(&q, chrono::Utc::now())?;
+
+    let (available, rows) = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| {
+        async move {
+            let available = core_db::csat::has_surveys(&mut *ctx.tx, org_id).await?;
+            let rows = if available {
+                core_db::csat::rollup_for_clients(
+                    &mut *ctx.tx,
+                    org_id,
+                    window.start,
+                    window.end,
+                    CSAT_LOW_THRESHOLD,
+                )
+                .await?
+            } else {
+                Vec::new()
+            };
+            Ok((ctx, (available, rows)))
+        }
+    })
+    .await?;
+
+    Ok(Json(ClientCsatRollupResponse {
+        window: ScorecardWindow {
+            from: window.start,
+            to: window.end,
+        },
+        available,
+        rollups: rows
+            .into_iter()
+            .map(|r| ClientCsatRollup {
+                client_id: r.client_id,
+                client_name: r.client_name,
+                responses: r.responses,
+                avg_score: r.avg_score,
+                low_scores: r.low_scores,
+            })
+            .collect(),
     }))
 }

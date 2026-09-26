@@ -26,6 +26,7 @@ pub mod clients;
 pub mod config_identity;
 pub mod connector;
 pub mod contracts;
+pub mod csat;
 pub mod custom_fields;
 pub mod day_pack;
 pub mod decision;
