@@ -148,13 +148,17 @@ function ScorecardBody({ card }: { card: Scorecard }) {
         )}
       </div>
 
-      <div className="grid gap-1">
+      <div
+        className="grid gap-1 border-t pt-3"
+        style={{ borderColor: "var(--m-border)" }}
+        data-testid="csat-section"
+      >
         <h3 className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
           CSAT
         </h3>
         {card.csat.available ? (
           <p className="text-[13px] tabular-nums" style={{ color: "var(--m-text)" }}>
-            {card.csat.responses} response{card.csat.responses === 1 ? "" : "s"}
+            <strong>{card.csat.responses}</strong> response{card.csat.responses === 1 ? "" : "s"}
             {card.csat.avg_score !== null && card.csat.avg_score !== undefined
               ? ` · avg ${card.csat.avg_score.toFixed(2)} / 5`
               : ""}
@@ -362,19 +366,19 @@ export default function ScorecardsPage() {
                         {fmtPct(card.sla.resolution_attainment)}
                       </strong>
                     </span>
-                    <span>
+                    <span className="whitespace-nowrap">
                       Breached{" "}
                       <strong className="tabular-nums" style={{ color: "var(--m-text)" }}>
                         {card.sla.breached}
                       </strong>
                     </span>
-                    <span>
+                    <span className="whitespace-nowrap">
                       Median response{" "}
                       <strong className="tabular-nums" style={{ color: "var(--m-text)" }}>
                         {fmtSecs(card.response.median_seconds)}
                       </strong>
                     </span>
-                    <span>
+                    <span className="whitespace-nowrap">
                       Approved{" "}
                       <strong className="tabular-nums" style={{ color: "var(--m-text)" }}>
                         {fmtHours(card.workload.approved_minutes)}

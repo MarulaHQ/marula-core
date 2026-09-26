@@ -1,0 +1,109 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, org_id, ticket_id, client_id, contact_email, token_hash,\n                  token_expires_at, status, skip_reason, scheduled_for, sent_at,\n                  score, comment, responded_at, created_at\n           FROM csat_surveys\n           WHERE org_id = $1 AND token_hash = $2\n             AND client_id = $3\n             AND status IN ('sent', 'responded')\n             AND token_expires_at > $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "ticket_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "client_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "contact_email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "token_hash",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "token_expires_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "skip_reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "scheduled_for",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "sent_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 11,
+        "name": "score",
+        "type_info": "Int2"
+      },
+      {
+        "ordinal": 12,
+        "name": "comment",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "responded_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 14,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "3e2390a48d970b13707282ba763b62298b027852f51bef67a459271d545e8f1a"
+}

@@ -67,9 +67,11 @@ export default function SurveysSettingsPage() {
       setTtl(textOf(values, KEYS.ttl, "14"));
       setQuietFrom(textOf(values, KEYS.quietFrom, ""));
       setQuietUntil(textOf(values, KEYS.quietUntil, ""));
-      const transportRow = (transportRes.data ?? []).find(
-        (d) => d.key === "email.transport",
-      );
+      const transportRow = (
+        transportRes.data as unknown as
+          | Array<{ key: string; default?: unknown }>
+          | undefined
+      )?.find((d) => d.key === "email.transport");
       setTransport(
         (values.find((v) => v.key === "email.transport")?.value as string) ??
           (typeof transportRow?.default === "string" ? transportRow.default : "none"),

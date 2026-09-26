@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE csat_surveys\n           SET score = $3, comment = $4, updated_at = now()\n           WHERE org_id = $1 AND id = $2 AND status = 'responded' AND score IS NULL\n           RETURNING ticket_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ticket_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int2",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "69934384e930d563abee2dc611d741a90287cae900b9b3c2ad40226d15dd8537"
+}

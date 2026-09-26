@@ -1,0 +1,107 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, org_id, ticket_id, client_id, contact_email, token_hash,\n                  token_expires_at, status, skip_reason, scheduled_for, sent_at,\n                  score, comment, responded_at, created_at\n           FROM csat_surveys\n           WHERE status = 'pending' AND scheduled_for <= $1\n           ORDER BY scheduled_for\n           LIMIT $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "ticket_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "client_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "contact_email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "token_hash",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "token_expires_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "skip_reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "scheduled_for",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "sent_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 11,
+        "name": "score",
+        "type_info": "Int2"
+      },
+      {
+        "ordinal": 12,
+        "name": "comment",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "responded_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 14,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "ecb09e637d586bf3f7bec613ec580a57b631a9becb3c28733ab54f66cb26e317"
+}

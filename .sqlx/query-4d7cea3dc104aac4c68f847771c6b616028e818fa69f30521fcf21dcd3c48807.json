@@ -1,0 +1,49 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.client_id AS \"client_id!\",\n                  c.name AS \"client_name!\",\n                  COUNT(*)::bigint AS \"responses!\",\n                  AVG(s.score)::float8 AS avg_score,\n                  COUNT(*) FILTER (WHERE s.score <= $4)::bigint AS \"low_scores!\"\n           FROM csat_surveys s\n           JOIN clients c ON c.org_id = s.org_id AND c.id = s.client_id\n           WHERE s.org_id = $1\n             AND s.client_id IS NOT NULL\n             AND s.responded_at IS NOT NULL\n             AND s.responded_at >= $2\n             AND s.responded_at < $3\n           GROUP BY s.client_id, c.name",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "client_id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "client_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "responses!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "avg_score",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 4,
+        "name": "low_scores!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz",
+        "Timestamptz",
+        "Int2"
+      ]
+    },
+    "nullable": [
+      true,
+      false,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "4d7cea3dc104aac4c68f847771c6b616028e818fa69f30521fcf21dcd3c48807"
+}

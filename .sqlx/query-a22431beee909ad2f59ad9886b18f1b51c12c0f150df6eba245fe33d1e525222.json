@@ -1,0 +1,49 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE csat_surveys\n           SET status = 'responded', responded_at = $4, updated_at = now()\n           WHERE org_id = $1 AND token_hash = $2\n             AND status = 'sent'\n             AND token_expires_at > $4\n             AND client_id = $3\n           RETURNING id, org_id, ticket_id, client_id, token_expires_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "ticket_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "client_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "token_expires_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "a22431beee909ad2f59ad9886b18f1b51c12c0f150df6eba245fe33d1e525222"
+}

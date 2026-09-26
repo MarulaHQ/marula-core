@@ -222,7 +222,9 @@ export default function ReplySnippetsSettingsPage(): React.ReactNode {
           <Spinner aria-label="Loading snippets" />
         </div>
       ) : snippets.length === 0 ? (
-        <EmptyState message="No snippets yet. Write your first canned reply above — the composer picks it up immediately." />
+        <div className="text-sm">
+          <EmptyState message="No snippets yet. Write your first canned reply above — the composer picks it up immediately." />
+        </div>
       ) : (
         <div className="grid gap-2" data-testid="snippet-list">
           {snippets.map((s) => (

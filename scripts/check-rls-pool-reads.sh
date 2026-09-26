@@ -91,6 +91,9 @@ allowlist=(
   # and every read after ride set_org/set_org_and_user txs.
   'portal.rs:portal_resolve_login('
   'portal.rs:portal_resolve_session('
+  # Self-host health probe (p36 selfhost-visibility): SELECT 1 liveness
+  # only — no tenant column is read, nothing to scope.
+  'self_host.rs:query_scalar::<_, i32>("SELECT 1")'
   # Dev-tools surface (DX2): mounted ONLY when MERIDIAN_DEV_TOOLS=1, demo
   # org only, and every core_db::demo call self-scopes via
   # set_org(DEMO_ORG_ID) inside its transaction. The best-effort system

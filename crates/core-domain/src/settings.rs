@@ -521,8 +521,7 @@ pub const ROUTING_HEURISTIC_MINUTES_PER_MILE: &str = "routing.heuristic_minutes_
 pub const ROUTING_HEURISTIC_OVERHEAD_MINUTES: &str = "routing.heuristic_overhead_minutes";
 /// Road factor percent: great-circle distance × this / 100 approximates
 /// road distance. 100 would assume straight roads (dishonest); default 125.
-pub const ROUTING_HEURISTIC_ROAD_FACTOR_PERCENT: &str =
-    "routing.heuristic_road_factor_percent";
+pub const ROUTING_HEURISTIC_ROAD_FACTOR_PERCENT: &str = "routing.heuristic_road_factor_percent";
 /// Reimbursement rate in MINOR currency units per `travel.mileage_rate_unit`.
 pub const TRAVEL_MILEAGE_RATE_MINOR: &str = "travel.mileage_rate_minor";
 /// The distance unit the mileage rate is quoted per: `mi` | `km`.
@@ -1544,13 +1543,15 @@ mod tests {
     fn shortcuts_seam_is_additive_and_well_scoped() {
         // Wave 29 lane 1 owns shortcuts.* exclusively; other namespaces
         // stay untouched.
-        let d = declaration(SHORTCUTS_PROFILE).unwrap_or_else(|| panic!("shortcuts.profile declared"));
+        let d =
+            declaration(SHORTCUTS_PROFILE).unwrap_or_else(|| panic!("shortcuts.profile declared"));
         assert!(SHORTCUTS_PROFILE.starts_with("shortcuts."));
         assert_eq!(d.scope, SettingScope::User);
         assert_eq!(d.visibility, SettingVisibility::Ui);
         assert_eq!(d.kind, SettingKind::Enumeration);
         // Default is valid per its own declaration.
-        d.validate(&d.default.clone()).unwrap_or_else(|e| panic!("default invalid: {e}"));
+        d.validate(&d.default.clone())
+            .unwrap_or_else(|e| panic!("default invalid: {e}"));
         // Enumeration membership is enforced at the write gate.
         for good in ["default", "all_off"] {
             assert!(d.validate(&SettingValue::Text(good.into())).is_ok());
@@ -1560,7 +1561,13 @@ mod tests {
         }
         // The lane owns no other keys; nothing under shortcuts.* has been
         // reserved here twice (duplicates fail the registry test above).
-        assert!(declarations().iter().filter(|x| x.key.starts_with("shortcuts.")).count() == 1);
+        assert!(
+            declarations()
+                .iter()
+                .filter(|x| x.key.starts_with("shortcuts."))
+                .count()
+                == 1
+        );
     }
 
     #[test]
@@ -1588,8 +1595,10 @@ mod tests {
         // rate, unit, and reimbursement toggle): 30 → 36. Wave 34 lane 8
         // added the twelve mail-config keys (transport, from/reply-to,
         // signature, brand, logo, smtp ×3, postmark base, digest policy):
-        // 36 → 48.
-        assert_eq!(declarations_for(SettingScope::Org).len(), 48);
+        // 36 → 48. Wave 34 lane 2 added the five CSAT survey keys
+        // (send-on-resolve, min interval, link TTL, quiet from/until):
+        // 48 → 53.
+        assert_eq!(declarations_for(SettingScope::Org).len(), 53);
     }
 
     #[test]
@@ -1630,9 +1639,7 @@ mod tests {
         for key in [EMAIL_FROM_ADDRESS, EMAIL_REPLY_TO] {
             let d = declaration(key).unwrap();
             assert!(d.validate(&SettingValue::Text("a@b.co".into())).is_ok());
-            assert!(d
-                .validate(&SettingValue::Text("x".repeat(255)))
-                .is_err());
+            assert!(d.validate(&SettingValue::Text("x".repeat(255))).is_err());
         }
     }
 

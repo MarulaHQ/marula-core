@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT t.assignee_id AS \"user_id!\",\n                  COUNT(*)::bigint AS \"responses!\",\n                  AVG(s.score)::float8 AS avg_score,\n                  COUNT(*) FILTER (WHERE s.score <= $5)::bigint AS \"low_scores!\"\n           FROM csat_surveys s\n           JOIN tickets t ON t.org_id = s.org_id AND t.id = s.ticket_id\n           WHERE s.org_id = $1\n             AND t.assignee_id = ANY($2)\n             AND s.responded_at IS NOT NULL\n             AND s.responded_at >= $3\n             AND s.responded_at < $4\n           GROUP BY t.assignee_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "responses!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "avg_score",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 3,
+        "name": "low_scores!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray",
+        "Timestamptz",
+        "Timestamptz",
+        "Int2"
+      ]
+    },
+    "nullable": [
+      true,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "9c42127e2b1fb3c86b4dc577d752c8489517c36d2c4653de17f6021b3d835d38"
+}

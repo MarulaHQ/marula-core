@@ -1,0 +1,11 @@
+{
+  "event_type": "reply_snippet.removed",
+  "entity": "reply_snippet",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "snippet_id": "00000000-0000-0000-0000-000000000001",
+    "name": "Rotate the logs"
+  }
+}

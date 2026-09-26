@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE csat_surveys\n           SET status = 'skipped', skip_reason = $3, updated_at = now()\n           WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "05a365495945b04f336a98747e36c192e08be54c4290065ae33c1bf08b52a6f0"
+}

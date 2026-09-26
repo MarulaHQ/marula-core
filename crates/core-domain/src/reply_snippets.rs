@@ -57,7 +57,7 @@ impl ReplySnippet {
             return Err(SnippetError::InvalidBody);
         }
         templates::validate_content(TemplateKind::Ticket, None, &self.body)
-            .map_err(|e| SnippetError::Variable(e))?;
+            .map_err(SnippetError::Variable)?;
         Ok(())
     }
 }

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT email FROM contacts\n           WHERE org_id = $1 AND client_id = $2\n             AND email IS NOT NULL AND email <> ''\n           ORDER BY created_at\n           LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "email",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "f28ddcc79e9d01706629ae091b857e1112ec80eca4fa98fa9c125abb8d585f7a"
+}

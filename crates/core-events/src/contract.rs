@@ -700,7 +700,13 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
         entity: "csat_survey",
         variant: "default",
         shape: untyped_shape!(
-            ["ticket_id", "client_id", "status", "skip_reason", "occurred_at"],
+            [
+                "ticket_id",
+                "client_id",
+                "status",
+                "skip_reason",
+                "occurred_at"
+            ],
             serde_json::json!({
                 "ticket_id": su(1).to_string(),
                 "client_id": su(2).to_string(),
@@ -715,13 +721,84 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
         entity: "csat_survey",
         variant: "default",
         shape: untyped_shape!(
-            ["ticket_id", "client_id", "assignee_id", "score", "occurred_at"],
+            [
+                "ticket_id",
+                "client_id",
+                "assignee_id",
+                "score",
+                "occurred_at"
+            ],
             serde_json::json!({
                 "ticket_id": su(1).to_string(),
                 "client_id": su(2).to_string(),
                 "assignee_id": su(3).to_string(),
                 "score": 5,
                 "occurred_at": st(9).to_rfc3339(),
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::REPLY_SNIPPET_CREATED,
+        entity: "reply_snippet",
+        variant: "default",
+        shape: untyped_shape!(
+            ["snippet_id", "name", "boards"],
+            serde_json::json!({
+                "snippet_id": su(1).to_string(),
+                "name": "Rotate the logs",
+                "boards": 0,
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::REPLY_SNIPPET_UPDATED,
+        entity: "reply_snippet",
+        variant: "default",
+        shape: untyped_shape!(
+            ["snippet_id", "name"],
+            serde_json::json!({
+                "snippet_id": su(1).to_string(),
+                "name": "Rotate the logs",
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::REPLY_SNIPPET_FORKED,
+        entity: "reply_snippet",
+        variant: "default",
+        shape: untyped_shape!(
+            ["snippet_id", "from_snippet_id", "name"],
+            serde_json::json!({
+                "snippet_id": su(1).to_string(),
+                "from_snippet_id": su(2).to_string(),
+                "name": "Rotate the logs (copy)",
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::REPLY_SNIPPET_REMOVED,
+        entity: "reply_snippet",
+        variant: "default",
+        shape: untyped_shape!(
+            ["snippet_id", "name"],
+            serde_json::json!({
+                "snippet_id": su(1).to_string(),
+                "name": "Rotate the logs",
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::JOURNEY_START_POINT_SET,
+        entity: "journey_start_point",
+        variant: "default",
+        shape: untyped_shape!(
+            ["start_point_id", "user_id", "day", "kind", "site_id"],
+            serde_json::json!({
+                "start_point_id": su(1).to_string(),
+                "user_id": su(2).to_string(),
+                "day": "2026-01-09",
+                "kind": "home",
+                "site_id": serde_json::Value::Null,
             })
         ),
     },

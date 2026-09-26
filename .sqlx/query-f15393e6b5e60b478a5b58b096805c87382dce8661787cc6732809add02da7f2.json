@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE csat_surveys\n           SET status = 'sent', sent_at = $3, updated_at = now()\n           WHERE org_id = $1 AND id = $2 AND status = 'pending'\n           RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f15393e6b5e60b478a5b58b096805c87382dce8661787cc6732809add02da7f2"
+}

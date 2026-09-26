@@ -9,7 +9,7 @@
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::{DbError, DbResult};
+use crate::DbResult;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct CsatSurveyRow {
@@ -144,12 +144,7 @@ where
 
 /// A due survey whose transport vanished mid-sweep: record the typed
 /// not-configured state instead of looping forever on a `none` transport.
-pub async fn mark_skipped(
-    pool: &PgPool,
-    org_id: Uuid,
-    id: Uuid,
-    reason: &str,
-) -> DbResult<()> {
+pub async fn mark_skipped(pool: &PgPool, org_id: Uuid, id: Uuid, reason: &str) -> DbResult<()> {
     sqlx::query!(
         r#"UPDATE csat_surveys
            SET status = 'skipped', skip_reason = $3, updated_at = now()
@@ -185,7 +180,7 @@ where
         id,
         sent_at,
     )
-    .fetch_optional(pool)
+    .fetch_optional(executor)
     .await?;
     Ok(row.map(|r| r.id))
 }
@@ -239,7 +234,10 @@ pub async fn consume<'e, E>(
     org_id: Uuid,
     client_id: Uuid,
     now: chrono::DateTime<chrono::Utc>,
-) -> DbResult<Option<ConsumeAttempt>> {
+) -> DbResult<Option<ConsumeAttempt>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let row = sqlx::query!(
         r#"UPDATE csat_surveys
            SET status = 'responded', responded_at = $4, updated_at = now()
@@ -272,7 +270,10 @@ pub async fn record_response<'e, E>(
     survey_id: Uuid,
     score: i16,
     comment: Option<&str>,
-) -> DbResult<Option<Uuid>> {
+) -> DbResult<Option<Uuid>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let row = sqlx::query!(
         r#"UPDATE csat_surveys
            SET score = $3, comment = $4, updated_at = now()
@@ -290,17 +291,20 @@ pub async fn record_response<'e, E>(
 
 /// The assignee of a survey's ticket at response time — used for the
 /// per-tech rollup event payload. `None` when the ticket row vanished.
-pub async fn ticket_assignee(
-    pool: &PgPool,
+pub async fn ticket_assignee<'e, E>(
+    executor: E,
     org_id: Uuid,
     ticket_id: Uuid,
-) -> DbResult<Option<Option<Uuid>>> {
+) -> DbResult<Option<Option<Uuid>>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let row = sqlx::query!(
         r#"SELECT assignee_id FROM tickets WHERE org_id = $1 AND id = $2"#,
         org_id,
         ticket_id,
     )
-    .fetch_optional(pool)
+    .fetch_optional(executor)
     .await?;
     Ok(row.map(|r| r.assignee_id))
 }
@@ -340,7 +344,7 @@ where
     )
     .fetch_one(executor)
     .await?;
-    Ok(n)
+    Ok(n.unwrap_or(false))
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -354,20 +358,23 @@ pub struct CsatUserRollupRow {
 /// Per-tech rollup over responses in the window (matched on the ticket's
 /// assignee at response time — the same attribution the scorecards module
 /// uses for resolution stats).
-pub async fn rollup_for_users(
-    pool: &PgPool,
+pub async fn rollup_for_users<'e, E>(
+    executor: E,
     org_id: Uuid,
     user_ids: &[Uuid],
     from: chrono::DateTime<chrono::Utc>,
     to: chrono::DateTime<chrono::Utc>,
     low_threshold: i16,
-) -> DbResult<Vec<CsatUserRollupRow>> {
+) -> DbResult<Vec<CsatUserRollupRow>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let rows = sqlx::query_as!(
         CsatUserRollupRow,
-        r#"SELECT t.assignee_id AS user_id,
-                  COUNT(*)::bigint AS responses,
+        r#"SELECT t.assignee_id AS "user_id!",
+                  COUNT(*)::bigint AS "responses!",
                   AVG(s.score)::float8 AS avg_score,
-                  COUNT(*) FILTER (WHERE s.score <= $5)::bigint AS low_scores
+                  COUNT(*) FILTER (WHERE s.score <= $5)::bigint AS "low_scores!"
            FROM csat_surveys s
            JOIN tickets t ON t.org_id = s.org_id AND t.id = s.ticket_id
            WHERE s.org_id = $1
@@ -382,7 +389,7 @@ pub async fn rollup_for_users(
         to,
         low_threshold,
     )
-    .fetch_all(pool)
+    .fetch_all(executor)
     .await?;
     Ok(rows)
 }
@@ -390,25 +397,30 @@ pub async fn rollup_for_users(
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct CsatClientRollupRow {
     pub client_id: Uuid,
+    pub client_name: String,
     pub responses: i64,
     pub avg_score: Option<f64>,
     pub low_scores: i64,
 }
 
 /// Per-client rollup over responses in the window.
-pub async fn rollup_for_clients(
-    pool: &PgPool,
+pub async fn rollup_for_clients<'e, E>(
+    executor: E,
     org_id: Uuid,
     from: chrono::DateTime<chrono::Utc>,
     to: chrono::DateTime<chrono::Utc>,
     low_threshold: i16,
-) -> DbResult<Vec<CsatClientRollupRow>> {
+) -> DbResult<Vec<CsatClientRollupRow>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let rows = sqlx::query_as!(
         CsatClientRollupRow,
-        r#"SELECT s.client_id, c.name AS client_name,
-                  COUNT(*)::bigint AS responses,
+        r#"SELECT s.client_id AS "client_id!",
+                  c.name AS "client_name!",
+                  COUNT(*)::bigint AS "responses!",
                   AVG(s.score)::float8 AS avg_score,
-                  COUNT(*) FILTER (WHERE s.score <= $4)::bigint AS low_scores
+                  COUNT(*) FILTER (WHERE s.score <= $4)::bigint AS "low_scores!"
            FROM csat_surveys s
            JOIN clients c ON c.org_id = s.org_id AND c.id = s.client_id
            WHERE s.org_id = $1
@@ -422,7 +434,7 @@ pub async fn rollup_for_clients(
         to,
         low_threshold,
     )
-    .fetch_all(pool)
+    .fetch_all(executor)
     .await?;
     Ok(rows)
 }

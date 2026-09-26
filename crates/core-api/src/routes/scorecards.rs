@@ -281,7 +281,7 @@ pub async fn me(
     let org_id = authed.principal.user.org_id;
     let window = resolve_window(&q, chrono::Utc::now())?;
 
-    let (row, mix, csat_available, csat_by_user) =
+    let (row, mix, csat_available, mut csat_by_user) =
         org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| {
             let user_ids = vec![user_id];
             async move {
@@ -305,7 +305,7 @@ pub async fn me(
                 )
                 .await?;
                 let (csat_available, csat_by_user) =
-                    csat_inputs(&mut *ctx.tx, org_id, &user_ids, window).await?;
+                    csat_inputs(&mut ctx.tx, org_id, &user_ids, window).await?;
                 Ok((ctx, (row, mix, csat_available, csat_by_user)))
             }
         })
@@ -370,7 +370,7 @@ pub async fn team(
                 )
                 .await?;
                 let (csat_available, csat_by_user) =
-                    csat_inputs(&mut *ctx.tx, org_id, &roster, window).await?;
+                    csat_inputs(&mut ctx.tx, org_id, &roster, window).await?;
                 Ok((ctx, (roster, rows, mixes, csat_available, csat_by_user)))
             }
         })
@@ -424,7 +424,7 @@ pub async fn get_user(
     }
     let window = resolve_window(&q, chrono::Utc::now())?;
 
-    let (row, mix, csat_available, csat_by_user) =
+    let (row, mix, csat_available, mut csat_by_user) =
         org_tx::with_org_tx(&state, org_id, caller, |mut ctx| {
             let user_ids = vec![target];
             async move {
@@ -448,7 +448,7 @@ pub async fn get_user(
                 )
                 .await?;
                 let (csat_available, csat_by_user) =
-                    csat_inputs(&mut *ctx.tx, org_id, &user_ids, window).await?;
+                    csat_inputs(&mut ctx.tx, org_id, &user_ids, window).await?;
                 Ok((ctx, (row, mix, csat_available, csat_by_user)))
             }
         })
@@ -577,23 +577,21 @@ pub async fn clients(
     let org_id = authed.principal.user.org_id;
     let window = resolve_window(&q, chrono::Utc::now())?;
 
-    let (available, rows) = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| {
-        async move {
-            let available = core_db::csat::has_surveys(&mut *ctx.tx, org_id).await?;
-            let rows = if available {
-                core_db::csat::rollup_for_clients(
-                    &mut *ctx.tx,
-                    org_id,
-                    window.start,
-                    window.end,
-                    CSAT_LOW_THRESHOLD,
-                )
-                .await?
-            } else {
-                Vec::new()
-            };
-            Ok((ctx, (available, rows)))
-        }
+    let (available, rows) = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        let available = core_db::csat::has_surveys(&mut *ctx.tx, org_id).await?;
+        let rows = if available {
+            core_db::csat::rollup_for_clients(
+                &mut *ctx.tx,
+                org_id,
+                window.start,
+                window.end,
+                CSAT_LOW_THRESHOLD,
+            )
+            .await?
+        } else {
+            Vec::new()
+        };
+        Ok((ctx, (available, rows)))
     })
     .await?;
 

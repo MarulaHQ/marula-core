@@ -6953,6 +6953,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/portal/csat/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/portal/csat/{token} — validity check for the in-app response
+         *     view. Scoped TWICE: the survey row must belong to the caller's client,
+         *     and the token must be live (sent, unexpired). Read-only — rendering the
+         *     form never burns the single-use token.
+         */
+        get: operations["portal_csat_view"];
+        put?: never;
+        /**
+         * POST /api/portal/csat/{token} — the single-use consume + score record.
+         *     The consume UPDATE wins exactly once per token; the event (and the
+         *     audit row) ride the same transaction, so `csat.response_recorded`
+         *     never fires for a replayed or expired link.
+         */
+        post: operations["portal_csat_submit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/portal/invoices": {
         parameters: {
             query?: never;
@@ -7151,6 +7179,89 @@ export interface paths {
         get: operations["portal_me"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/quotes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/portal/quotes — the caller's client's quotes (non-draft
+         *     only), newest first.
+         */
+        get: operations["portal_list_quotes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/quotes/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/portal/quotes/{id} — one quote of the caller's client with
+         *     its lines. A foreign quote or a draft is a bare 404 (no existence
+         *     leak).
+         */
+        get: operations["portal_get_quote"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/quotes/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/portal/quotes/{id}/approve — the client accepts a sent
+         *     quote. Same `sent → accepted` leg as the staff flow; the provider
+         *     can then run the conversion-to-invoice seam.
+         */
+        post: operations["portal_approve_quote"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/quotes/{id}/decline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/portal/quotes/{id}/decline — the client declines a sent
+         *     quote. Same `sent → declined` leg as the staff flow; the optional
+         *     reason is audit-only, never shown back as validation.
+         */
+        post: operations["portal_decline_quote"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8080,6 +8191,93 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reply-snippets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/v1/reply-snippets — the org's snippet library with the
+         *     search-in-composer predicate applied (`board_id` offer filter + `q`
+         *     case-insensitive substring over name and body).
+         */
+        get: operations["list"];
+        put?: never;
+        /** POST /api/v1/reply-snippets — add a snippet to the library. */
+        post: operations["create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reply-snippets/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** DELETE /api/v1/reply-snippets/{id} — remove a snippet from the library. */
+        delete: operations["delete"];
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/v1/reply-snippets/{id} — edit a snippet in place (the
+         *     library is org-owned data; fork-on-edit applies when orgs want a
+         *     divergent copy, via the fork endpoint).
+         */
+        patch: operations["update"];
+        trace?: never;
+    };
+    "/api/v1/reply-snippets/{id}/fork": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/v1/reply-snippets/{id}/fork — duplicate a snippet into a new
+         *     editable copy (templates fork-on-edit provenance pattern). The origin
+         *     is untouched; the copy records `forked_from`.
+         */
+        post: operations["fork"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reply-snippets/{id}/render": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/v1/reply-snippets/{id}/render — resolve the snippet's
+         *     variable tokens against a real ticket context and return the rendered
+         *     body (the composer inserts the RENDERED text; the portal reply renders
+         *     the result). Out-of-vocabulary placeholders are typed 400s.
+         */
+        post: operations["render"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/report-catalog": {
         parameters: {
             query?: never;
@@ -8575,6 +8773,27 @@ export interface paths {
          *     tricks — the scope is derived from the principal, never the request).
          */
         get: operations["scorecard_list_team"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scorecards/clients": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/scorecards/clients?from&to — per-client CSAT rollups over the
+         *     window (owner/admin only). `available: false` until the org records its
+         *     first survey, matching the per-tech section's honesty gate.
+         */
+        get: operations["scorecard_client_rollups"];
         put?: never;
         post?: never;
         delete?: never;
@@ -12463,6 +12682,11 @@ export interface components {
             /** @enum {string} */
             type: "unassigned";
         } | {
+            /** Format: int32 */
+            threshold: number;
+            /** @enum {string} */
+            type: "csat_score_below";
+        } | {
             /**
              * @description Dot-path into the answer entry overriding the default
              *     `"confidence"` key when the rule gates on a specific path.
@@ -13658,6 +13882,26 @@ export interface components {
              *     (never a silent zero and never a padded 100).
              */
             score: number;
+        };
+        /**
+         * @description One client's CSAT rollup over the window (responses scored 1-5;
+         *     "low" = score ≤ 2).
+         */
+        ClientCsatRollup: {
+            /** Format: double */
+            avg_score?: number | null;
+            /** Format: uuid */
+            client_id: string;
+            client_name: string;
+            /** Format: int64 */
+            low_scores: number;
+            /** Format: int64 */
+            responses: number;
+        };
+        ClientCsatRollupResponse: {
+            available: boolean;
+            rollups: components["schemas"]["ClientCsatRollup"][];
+            window: components["schemas"]["ScorecardWindow"];
         };
         ClientLoanDetailResponse: {
             lines: components["schemas"]["ClientLoanLineView"][];
@@ -14899,6 +15143,11 @@ export interface components {
             /** Format: date */
             valid_until: string;
         };
+        CreateReplySnippetRequest: components["schemas"]["MutationParams"] & {
+            board_ids?: string[];
+            body: string;
+            name: string;
+        };
         /** @description POST /api/report-definitions body. */
         CreateReportDefinitionRequest: components["schemas"]["MutationParams"] & {
             description?: string | null;
@@ -15408,12 +15657,24 @@ export interface components {
          */
         CreditNoteStatus: "issued" | "void";
         /**
-         * @description CSAT inputs slot. The surveys-on-resolution source does not exist yet
-         *     (later TASKLIST item); the scorecard reserves the field and reports
-         *     `available: false` rather than inventing data.
+         * @description CSAT inputs slot (Wave 34 lane 2): `available` is the honest feature
+         *     gate — true only once the org has real survey data, never fabricated
+         *     from a zero-window. Scores are 1-5; "low" means score ≤ 2.
          */
         CsatSection: {
             available: boolean;
+            /**
+             * Format: double
+             * @description Mean of recorded scores in the window; `None` with no responses.
+             */
+            avg_score?: number | null;
+            /**
+             * Format: int64
+             * @description Responses at score ≤ 2 in the window — the automation trigger zone.
+             */
+            low_scores: number;
+            /** Format: int64 */
+            responses: number;
         };
         CurateFieldsRequest: components["schemas"]["MutationParams"] & {
             /** @description Per-field human values; a `null` value un-curates the field. */
@@ -17155,6 +17416,9 @@ export interface components {
         } | {
             bool: boolean;
         };
+        ForkReplySnippetRequest: components["schemas"]["MutationParams"] & {
+            name: string;
+        };
         ForkRoleRequest: components["schemas"]["MutationParams"] & {
             /**
              * @description Name of the custom copy. Must not collide with an existing role
@@ -18126,11 +18390,9 @@ export interface components {
             mutation: components["schemas"]["MutationMeta"];
         };
         LinksView: {
-            glitchtip?: string | null;
-            grafana?: string | null;
-            loki?: string | null;
-            otel_metrics?: string | null;
-            tempo?: string | null;
+            from: Record<string, never>[];
+            rollup: components["schemas"]["TicketRollup"];
+            to: Record<string, never>[];
         };
         ListCandidatesQuery: {
             /** @description pending | auto_merged | accepted | rejected */
@@ -20108,6 +20370,25 @@ export interface components {
              */
             user_id: string;
         };
+        PortalCsatSubmit: {
+            comment?: string | null;
+            /**
+             * Format: int32
+             * @description 1 (poor) – 5 (excellent).
+             */
+            score: number;
+        };
+        /** @description Portal CSAT survey state as the in-app response route sees it. */
+        PortalCsatView: {
+            /** Format: date-time */
+            expires_at: string;
+            /** @description `valid` renders the form; `responded` renders the thank-you state. */
+            status: string;
+            /** Format: uuid */
+            ticket_id: string;
+            ticket_number: string;
+            ticket_subject: string;
+        };
         /**
          * @description The client-facing invoice document view. Deliberately NOT the staff
          *     entity: dunning internals and staff notes never reach the portal.
@@ -20232,6 +20513,76 @@ export interface components {
             /** Format: uuid */
             org_id: string;
             role: components["schemas"]["PortalRole"];
+        };
+        /**
+         * @description The client-facing quote view. Deliberately NOT the staff entity: the
+         *     creator provenance and conversion seam ids stay staff-internal — the
+         *     portal sees the document, its validity, and its lifecycle state.
+         */
+        PortalQuote: {
+            /** Format: date-time */
+            created_at: string;
+            currency: string;
+            /** Format: date-time */
+            decided_at?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: date */
+            issued_on: string;
+            notes?: string | null;
+            number: string;
+            /** Format: date-time */
+            sent_at?: string | null;
+            /** @description `sent | accepted | declined | expired` (drafts are staff-internal). */
+            status: string;
+            /** Format: int64 */
+            subtotal_minor: number;
+            /** Format: int64 */
+            tax_minor: number;
+            /** Format: int32 */
+            tax_rate_bps: number;
+            terms?: string | null;
+            /** Format: int64 */
+            total_minor: number;
+            /**
+             * Format: date
+             * @description Last day the quote can be accepted; shown honestly on the portal.
+             */
+            valid_until: string;
+        };
+        /**
+         * @description A quote decision body (approve/decline): envelope params only; the
+         *     target status is the URL. The SAME instant-first envelope the staff
+         *     lifecycle legs use.
+         */
+        PortalQuoteDecisionRequest: components["schemas"]["MutationParams"] & {
+            /** @description Optional reason, recorded in the audit trail (decline-with-reason). */
+            reason?: string | null;
+        };
+        /** @description Instant-first mutation response (IF2) for a portal quote decision. */
+        PortalQuoteDecisionResponse: components["schemas"]["PortalQuote"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        /** @description The quote aggregate as the portal sees it: document + lines. */
+        PortalQuoteDetail: components["schemas"]["PortalQuote"] & {
+            lines: components["schemas"]["PortalQuoteLine"][];
+        };
+        /** @description A client-facing quote line: description/qty/price/amount only. */
+        PortalQuoteLine: {
+            /** Format: int64 */
+            amount_minor: number;
+            description: string;
+            /** Format: int32 */
+            position: number;
+            /**
+             * Format: int64
+             * @description Quantity in thousandths of a unit (1.5 = 1500).
+             */
+            quantity_milli: number;
+            taxable: boolean;
+            unit: string;
+            /** Format: int64 */
+            unit_amount_minor: number;
         };
         PortalRefreshRequest: {
             refresh_token?: string | null;
@@ -21846,6 +22197,13 @@ export interface components {
             /** Format: uuid */
             template_id: string;
         };
+        RenderReplySnippetRequest: {
+            /**
+             * Format: uuid
+             * @description The ticket the variables resolve from.
+             */
+            context_id: string;
+        };
         RenderTemplateRequest: {
             /**
              * Format: uuid
@@ -21854,6 +22212,9 @@ export interface components {
              *     quote id for `quote_invoice`. `null` (or omitted) for `kb`.
              */
             context_id?: string | null;
+        };
+        RenderedReplySnippet: {
+            body: string;
         };
         RenderedTemplate: {
             body: string;
@@ -21887,6 +22248,36 @@ export interface components {
             catchall_address?: string | null;
             /** @description Inbound routing is what makes client replies land on tickets. */
             enabled: boolean;
+        };
+        /**
+         * @description Instant-first mutation response (IF2): the snippet at the top level
+         *     plus the additive `mutation` metadata.
+         */
+        ReplySnippetMutationResponse: components["schemas"]["ReplySnippetView"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        /** @description One canned reply in the org's snippet library. */
+        ReplySnippetView: {
+            /** @description Boards the snippet is offered on. Empty = every board. */
+            board_ids: string[];
+            body: string;
+            /**
+             * Format: uuid
+             * @description Fork-on-edit provenance: the origin snippet this copy was forked
+             *     from, when it is a fork.
+             */
+            forked_from?: string | null;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            updated_at: string;
+            /** Format: uuid */
+            updated_by: string;
+        };
+        ReplySnippetsListResponse: {
+            snippets: components["schemas"]["ReplySnippetView"][];
+            /** @description The closed variable vocabulary snippets may use (ticket context). */
+            vocabulary: string[];
         };
         /** @description GET /api/report-catalog envelope. */
         ReportCatalog: {
@@ -23023,11 +23414,18 @@ export interface components {
          * @enum {string}
          */
         SegmentEnd: "stopped" | "paused" | "switched";
+        SelfHostLinksView: {
+            glitchtip?: string | null;
+            grafana?: string | null;
+            loki?: string | null;
+            otel_metrics?: string | null;
+            tempo?: string | null;
+        };
         SelfHostView: {
             detections: components["schemas"]["DetectionView"][];
             garage: components["schemas"]["GarageView"];
             glitchtip_dsns: components["schemas"]["DsnRow"][];
-            links: components["schemas"]["LinksView"];
+            links: components["schemas"]["SelfHostLinksView"];
             scan: components["schemas"]["ScanView"];
             services: components["schemas"]["ServiceView"][];
         };
@@ -25342,6 +25740,11 @@ export interface components {
             terms?: string | null;
             /** Format: date */
             valid_until?: string | null;
+        };
+        UpdateReplySnippetRequest: components["schemas"]["MutationParams"] & {
+            board_ids?: string[] | null;
+            body?: string | null;
+            name?: string | null;
         };
         /**
          * @description PUT /api/report-definitions/{id} body — full-replace semantics: every
@@ -39224,6 +39627,64 @@ export interface operations {
             };
         };
     };
+    portal_csat_view: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCsatView"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    portal_csat_submit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PortalCsatSubmit"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCsatView"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     portal_list_invoices: {
         parameters: {
             query?: never;
@@ -39492,6 +39953,131 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PortalProfile"];
                 };
+            };
+        };
+    };
+    portal_list_quotes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalQuote"][];
+                };
+            };
+        };
+    };
+    portal_get_quote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalQuoteDetail"];
+                };
+            };
+            /** @description quote not visible to this client */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    portal_approve_quote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PortalQuoteDecisionRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalQuoteDecisionResponse"];
+                };
+            };
+            /** @description quote not visible to this client */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description quote not decidable, version conflict, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    portal_decline_quote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PortalQuoteDecisionRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalQuoteDecisionResponse"];
+                };
+            };
+            /** @description quote not visible to this client */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description quote not decidable, version conflict, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -41633,6 +42219,260 @@ export interface operations {
             };
         };
     };
+    list: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Offer-board filter: only snippets scoped to every board or this
+                 *     board (the composer passes the ticket's board).
+                 */
+                board_id?: string;
+                /**
+                 * @description Search-in-composer predicate: case-insensitive substring over the
+                 *     snippet's name and body.
+                 */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplySnippetsListResponse"];
+                };
+            };
+            /** @description requires tickets:view or admin:view */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateReplySnippetRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplySnippetMutationResponse"];
+                };
+            };
+            /** @description requires admin:create */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure (name/body, or out-of-vocabulary variable) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplySnippetMutationResponse"];
+                };
+            };
+            /** @description requires admin:delete */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description snippet not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateReplySnippetRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplySnippetMutationResponse"];
+                };
+            };
+            /** @description requires admin:edit */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description snippet not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description version gate rejected the write (IF3) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    fork: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForkReplySnippetRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplySnippetMutationResponse"];
+                };
+            };
+            /** @description requires admin:create */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description snippet not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    render: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenderReplySnippetRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RenderedReplySnippet"];
+                };
+            };
+            /** @description out-of-vocabulary or malformed variable */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description requires tickets:view or admin:view */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description snippet or ticket not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     report_catalog: {
         parameters: {
             query?: never;
@@ -42715,6 +43555,44 @@ export interface operations {
                 };
             };
             /** @description team scorecards are owner/admin only */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid window */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    scorecard_client_rollups: {
+        parameters: {
+            query?: {
+                /** @description Inclusive window start (UTC day, YYYY-MM-DD). Default: 30 trailing days. */
+                from?: string | null;
+                /** @description Inclusive window end (UTC day). Max span with `from`: 366 days. */
+                to?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientCsatRollupResponse"];
+                };
+            };
+            /** @description missing reporting:view */
             403: {
                 headers: {
                     [name: string]: unknown;

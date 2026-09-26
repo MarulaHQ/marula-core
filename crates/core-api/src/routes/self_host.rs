@@ -145,12 +145,12 @@ pub async fn get(
         },
         DsnRow {
             service: "realtime".into(),
-            state: dsn_state(&realtime.body).into(),
+            state: dsn_state(&realtime.body),
             detail: Some(dsn_detail(&realtime)),
         },
         DsnRow {
             service: "worker".into(),
-            state: dsn_state(&worker.body).into(),
+            state: dsn_state(&worker.body),
             detail: Some(dsn_detail(&worker)),
         },
     ];
@@ -174,7 +174,7 @@ pub async fn get(
         detections,
         services,
         glitchtip_dsns,
-        links: LinksView {
+        links: SelfHostLinksView {
             glitchtip: env_text("MERIDIAN_GLITCHTIP_URL"),
             grafana: env_text("MERIDIAN_GRAFANA_URL"),
             tempo: env_text("MERIDIAN_TEMPO_URL"),
@@ -183,17 +183,13 @@ pub async fn get(
         },
         garage: GarageView {
             volumes: vec!["garagedata".into(), "garagemeta".into()],
-            container_paths: vec![
-                "/var/lib/garage/data".into(),
-                "/var/lib/garage/meta".into(),
-            ],
+            container_paths: vec!["/var/lib/garage/data".into(), "/var/lib/garage/meta".into()],
             bootstrap_commands: GARAGE_BOOTSTRAP_COMMANDS
                 .iter()
                 .map(|c| (*c).to_string())
                 .collect(),
             admin_api_docs_url:
-                "https://garagehq.deuxfleurs.fr/documentation/reference-manual/admin-api/"
-                    .into(),
+                "https://garagehq.deuxfleurs.fr/documentation/reference-manual/admin-api/".into(),
             s3_endpoint,
             s3_bucket,
         },
@@ -376,7 +372,7 @@ pub struct SelfHostView {
     pub detections: Vec<DetectionView>,
     pub services: Vec<ServiceView>,
     pub glitchtip_dsns: Vec<DsnRow>,
-    pub links: LinksView,
+    pub links: SelfHostLinksView,
     pub garage: GarageView,
 }
 
@@ -441,7 +437,7 @@ pub struct DsnRow {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
-pub struct LinksView {
+pub struct SelfHostLinksView {
     pub glitchtip: Option<String>,
     pub grafana: Option<String>,
     pub tempo: Option<String>,

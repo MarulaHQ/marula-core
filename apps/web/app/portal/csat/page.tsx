@@ -14,7 +14,7 @@
 
 import { Button, Card, EmptyState, Spinner } from "@meridian/ui";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState, type ReactNode } from "react";
 import { portalApi, useRequirePortalAuth } from "../../../lib/portal-api";
 import type { PortalCsatView } from "../../../lib/portal-api";
 
@@ -27,7 +27,21 @@ const SCALE_LABEL: Record<number, string> = {
   5: "Excellent",
 };
 
-export default function PortalCsatPage() {
+export default function PortalCsatPage(): ReactNode {
+  return (
+    <Suspense
+      fallback={
+        <main className="flex min-h-full items-center justify-center p-6" style={{ background: "var(--m-canvas)" }}>
+          <Spinner />
+        </main>
+      }
+    >
+      <PortalCsatInner />
+    </Suspense>
+  );
+}
+
+function PortalCsatInner() {
   useRequirePortalAuth();
   const params = useSearchParams();
   const token = params.get("token") ?? "";
@@ -84,8 +98,7 @@ export default function PortalCsatPage() {
     return (
       <div className="grid place-items-center min-h-[50vh] p-4">
         <EmptyState
-          title="This survey link is invalid, used, or expired"
-          body="Each link works once and only within its validity window. If you received this link recently, sign in and open it from your original email again."
+          message="This survey link is invalid, used, or expired. Each link works once and only within its validity window — open it again from the original email."
         />
       </div>
     );
@@ -138,6 +151,10 @@ export default function PortalCsatPage() {
               {value}
             </button>
           ))}
+        </div>
+        <div className="flex justify-between text-xs" style={{ color: "var(--m-text-muted)" }}>
+          <span>Poor</span>
+          <span>Excellent</span>
         </div>
         {score !== null && (
           <p className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>

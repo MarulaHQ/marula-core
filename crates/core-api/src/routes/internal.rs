@@ -152,15 +152,11 @@ pub async fn notification_email(
         Ok(user) if user.is_active => user,
         Ok(_) => {
             tx.rollback().await.ok();
-            return Ok(
-                Json(EnqueueEmailResponse::skipped("skipped_no_recipient")).into_response(),
-            );
+            return Ok(Json(EnqueueEmailResponse::skipped("skipped_no_recipient")).into_response());
         }
         Err(core_db::DbError::NotFound) => {
             tx.rollback().await.ok();
-            return Ok(
-                Json(EnqueueEmailResponse::skipped("skipped_no_recipient")).into_response(),
-            );
+            return Ok(Json(EnqueueEmailResponse::skipped("skipped_no_recipient")).into_response());
         }
         Err(e) => return Err(e.into()),
     };
@@ -217,12 +213,9 @@ pub async fn digest_email(
         .map_err(ApiError::from)?;
     core_db::settings::lock_digest_slot(&mut tx, req.org_id, req.user_id).await?;
 
-    let policy = core_db::settings::get_org_value(
-        &mut *tx,
-        req.org_id,
-        registry::EMAIL_DIGEST_POLICY,
-    )
-    .await?;
+    let policy =
+        core_db::settings::get_org_value(&mut *tx, req.org_id, registry::EMAIL_DIGEST_POLICY)
+            .await?;
     if policy.as_ref().and_then(Value::as_str) == Some("disabled") {
         tx.rollback().await.ok();
         return Ok(Json(EnqueueEmailResponse::skipped("skipped_disabled")).into_response());
@@ -236,9 +229,7 @@ pub async fn digest_email(
     .await?;
     if marker.as_ref().and_then(Value::as_str) == Some(req.day.as_str()) {
         tx.rollback().await.ok();
-        return Ok(
-            Json(EnqueueEmailResponse::skipped("skipped_already_sent")).into_response(),
-        );
+        return Ok(Json(EnqueueEmailResponse::skipped("skipped_already_sent")).into_response());
     }
     if req.items.is_empty() {
         tx.rollback().await.ok();
@@ -248,15 +239,11 @@ pub async fn digest_email(
         Ok(user) if user.is_active => user,
         Ok(_) => {
             tx.rollback().await.ok();
-            return Ok(
-                Json(EnqueueEmailResponse::skipped("skipped_no_recipient")).into_response(),
-            );
+            return Ok(Json(EnqueueEmailResponse::skipped("skipped_no_recipient")).into_response());
         }
         Err(core_db::DbError::NotFound) => {
             tx.rollback().await.ok();
-            return Ok(
-                Json(EnqueueEmailResponse::skipped("skipped_no_recipient")).into_response(),
-            );
+            return Ok(Json(EnqueueEmailResponse::skipped("skipped_no_recipient")).into_response());
         }
         Err(e) => return Err(e.into()),
     };
@@ -335,7 +322,11 @@ pub async fn csat_email(
     Json(req): Json<CsatEmailRequest>,
 ) -> ApiResult<Response> {
     ensure_internal_token(&state, &headers)?;
-    org_tx::with_org_tx(&state, req.org_id, req.org_id, |mut ctx| async move {
+    let mail = state.mail.clone();
+    let from_address = state.mail.from_address.clone();
+    let from_name = state.mail.from_name.clone();
+    let link_base = state.config.web_base_url.trim_end_matches('/').to_string();
+    let response = org_tx::with_org_tx(&state, req.org_id, req.org_id, |mut ctx| async move {
         // Only the FIRST delivery attempt transitions the row; a redelivered
         // request answers `already_sent` without touching the ledger.
         let won = core_db::csat::mark_sent(
@@ -354,12 +345,11 @@ pub async fn csat_email(
         let identity = crate::email::resolve_org_identity(
             &mut ctx.tx,
             req.org_id,
-            &state.mail.from_address,
-            state.mail.from_name.as_deref(),
+            &from_address,
+            from_name.as_deref(),
         )
         .await?;
         let brand = crate::email::resolve_brand(&mut ctx.tx, req.org_id).await?;
-        let link_base = state.config.web_base_url.trim_end_matches('/');
         let link = format!("{link_base}/portal/csat?token={}", req.token);
         let rendered = core_mail::brand::render_notification(
             &core_mail::brand::Brand {
@@ -375,7 +365,7 @@ pub async fn csat_email(
         );
         let message_id = crate::email::enqueue_rendered_outbound(
             &mut ctx.tx,
-            &state.mail,
+            &mail,
             req.org_id,
             &req.contact_email,
             &rendered.subject,
@@ -383,15 +373,16 @@ pub async fn csat_email(
             Some(req.ticket_id),
         )
         .await?;
+        let client_id = core_db::csat::get(&mut *ctx.tx, req.org_id, req.survey_id)
+            .await?
+            .and_then(|s| s.client_id);
         ctx.emit(
             types::CSAT_SURVEY_SENT,
             "csat_survey",
             Some(req.survey_id.to_string().as_str()),
             &serde_json::to_value(core_domain::events::CsatSurveyQueued {
                 ticket_id: req.ticket_id,
-                client_id: core_db::csat::get(&mut *ctx.tx, req.org_id, req.survey_id)
-                    .await?
-                    .and_then(|s| s.client_id),
+                client_id,
                 status: "sent".to_string(),
                 skip_reason: None,
                 occurred_at: chrono::Utc::now(),
@@ -407,7 +398,8 @@ pub async fn csat_email(
             }),
         ))
     })
-    .map(|response| response.into_response())
+    .await?;
+    Ok(response.into_response())
 }
 
 // --- missing-time gap audit run (TASKLIST 2.10) -----------------------------

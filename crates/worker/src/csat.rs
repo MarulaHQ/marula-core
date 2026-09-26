@@ -31,7 +31,6 @@ const CONSUMER_NAME: &str = "worker";
 const BLOCK_MS: usize = 2_000;
 const COUNT: usize = 50;
 /// Deferred-survey sweep cadence: quiet windows end without an event.
-const SWEEP_SECS: u64 = 60;
 
 #[derive(Debug, Clone)]
 pub struct CsatLoopConfig {
@@ -161,7 +160,7 @@ async fn handle_entry(
         return;
     };
     match process_closed(pool, config, envelope.org_id, ticket_id).await {
-        Ok(()) => ack(conn, &entry.id).await,
+        Ok(_) => ack(conn, &entry.id).await,
         Err(error) => {
             // NOT acking: the group redelivers after restart, so a
             // transient DB failure retries by design.
@@ -184,22 +183,22 @@ async fn ack(conn: &mut redis::aio::MultiplexedConnection, id: &str) {
 
 // --- policy ----------------------------------------------------------------
 
-fn org_bool(pool: &PgPool, org_id: uuid::Uuid, key: &str, default: bool) -> bool {
-    match core_db::settings::get_org_value(pool, org_id, key) {
+async fn org_bool(pool: &PgPool, org_id: uuid::Uuid, key: &str, default: bool) -> bool {
+    match core_db::settings::get_org_value(pool, org_id, key).await {
         Ok(Some(value)) => value.as_bool().unwrap_or(default),
         _ => default,
     }
 }
 
-fn org_int(pool: &PgPool, org_id: uuid::Uuid, key: &str, default: i64) -> i64 {
-    match core_db::settings::get_org_value(pool, org_id, key) {
+async fn org_int(pool: &PgPool, org_id: uuid::Uuid, key: &str, default: i64) -> i64 {
+    match core_db::settings::get_org_value(pool, org_id, key).await {
         Ok(Some(value)) => value.as_i64().unwrap_or(default),
         _ => default,
     }
 }
 
-fn org_text(pool: &PgPool, org_id: uuid::Uuid, key: &str, default: &str) -> String {
-    match core_db::settings::get_org_value(pool, org_id, key) {
+async fn org_text(pool: &PgPool, org_id: uuid::Uuid, key: &str, default: &str) -> String {
+    match core_db::settings::get_org_value(pool, org_id, key).await {
         Ok(Some(value)) => value
             .as_str()
             .map(str::to_string)
@@ -209,15 +208,20 @@ fn org_text(pool: &PgPool, org_id: uuid::Uuid, key: &str, default: &str) -> Stri
 }
 
 /// The org's effective quiet-hours window for surveys (empty = none).
-fn org_quiet(pool: &PgPool, org_id: uuid::Uuid, tz: &str) -> Option<QuietHours> {
-    let from = org_text(pool, org_id, registry::CSAT_QUIET_FROM, "");
-    let until = org_text(pool, org_id, registry::CSAT_QUIET_UNTIL, "");
-    QuietHours::parse(Some(&from), Some(&until), tz).ok().flatten()
+async fn org_quiet(pool: &PgPool, org_id: uuid::Uuid, tz: &str) -> Option<QuietHours> {
+    let from = org_text(pool, org_id, registry::CSAT_QUIET_FROM, "").await;
+    let until = org_text(pool, org_id, registry::CSAT_QUIET_UNTIL, "").await;
+    QuietHours::parse(Some(&from), Some(&until), tz)
+        .ok()
+        .flatten()
 }
 
 /// When quiet hours are active, defer to the window's next end boundary;
 /// otherwise send immediately. The window model owns the timezone/DST math.
-fn defer_until(quiet: &QuietHours, now: chrono::DateTime<chrono::Utc>) -> chrono::DateTime<chrono::Utc> {
+fn defer_until(
+    quiet: &QuietHours,
+    now: chrono::DateTime<chrono::Utc>,
+) -> chrono::DateTime<chrono::Utc> {
     if !quiet.is_quiet(now) {
         return now;
     }
@@ -226,43 +230,36 @@ fn defer_until(quiet: &QuietHours, now: chrono::DateTime<chrono::Utc>) -> chrono
 
 // --- pipeline --------------------------------------------------------------
 
-pub(crate) struct QueueOutcome {
-    pub status: &'static str,
-}
-
 /// The full on-resolve decision for one ticket. Returns the survey status.
 pub(crate) async fn process_closed(
     pool: &PgPool,
     config: &CsatLoopConfig,
     org_id: uuid::Uuid,
     ticket_id: uuid::Uuid,
-) -> anyhow::Result<QueueOutcome> {
+) -> anyhow::Result<&'static str> {
     // Master toggle first: off means nothing, not even an audit row.
-    if !org_bool(pool, org_id, registry::CSAT_SEND_ON_RESOLVE, false) {
-        return Ok(QueueOutcome { status: "off" });
+    if !org_bool(pool, org_id, registry::CSAT_SEND_ON_RESOLVE, false).await {
+        return Ok("off");
     }
     // None-mode honesty: no transport ⇒ no surveys, no rows.
-    if mail_transport_unavailable(pool, org_id) {
-        return Ok(QueueOutcome {
-            status: "transport_not_configured",
-        });
+    if mail_transport_unavailable(pool, org_id).await {
+        return Ok("transport_not_configured");
     }
     let Some((client_id, contact_email)) = survey_recipient(pool, org_id, ticket_id).await? else {
-        return Ok(QueueOutcome { status: "no_recipient" });
+        return Ok("no_recipient");
     };
 
     // Per-client minimum interval: a recent survey suppresses this one, and
     // the skip is LEDGERED so operators see the policy working.
-    let min_interval_hours = org_int(pool, org_id, registry::CSAT_MIN_INTERVAL_HOURS, 168);
+    let min_interval_hours = org_int(pool, org_id, registry::CSAT_MIN_INTERVAL_HOURS, 168).await;
     if min_interval_hours > 0 {
         if let Some(client_id) = client_id {
-            if let Some(last) = core_db::csat::last_sent_for_client(pool, org_id, client_id).await? {
-                let cutoff =
-                    chrono::Utc::now() - chrono::Duration::hours(min_interval_hours);
+            if let Some(last) = core_db::csat::last_sent_for_client(pool, org_id, client_id).await?
+            {
+                let cutoff = chrono::Utc::now() - chrono::Duration::hours(min_interval_hours);
                 if last > cutoff {
-                    let (raw, hash) = new_token();
-                    let _ = raw; // never emailed
-                    let ttl_days = org_int(pool, org_id, registry::CSAT_TOKEN_TTL_DAYS, 14);
+                    let (_, hash) = new_token();
+                    let ttl_days = org_int(pool, org_id, registry::CSAT_TOKEN_TTL_DAYS, 14).await;
                     let survey_id = core_db::csat::queue(
                         pool,
                         org_id,
@@ -275,16 +272,16 @@ pub(crate) async fn process_closed(
                     )
                     .await?;
                     core_db::csat::mark_skipped(pool, org_id, survey_id, "min_interval").await?;
-                    return Ok(QueueOutcome { status: "skipped_min_interval" });
+                    return Ok("skipped_min_interval");
                 }
             }
         }
     }
 
     let (raw, hash) = new_token();
-    let ttl_days = org_int(pool, org_id, registry::CSAT_TOKEN_TTL_DAYS, 14);
-    let tz_name = org_text(pool, org_id, registry::GENERAL_DEFAULT_TIMEZONE, "UTC");
-    let quiet = org_quiet(pool, org_id, &tz_name);
+    let ttl_days = org_int(pool, org_id, registry::CSAT_TOKEN_TTL_DAYS, 14).await;
+    let tz_name = org_text(pool, org_id, registry::GENERAL_DEFAULT_TIMEZONE, "UTC").await;
+    let quiet = org_quiet(pool, org_id, &tz_name).await;
     let now = chrono::Utc::now();
     let scheduled_for = match &quiet {
         Some(q) => defer_until(q, now),
@@ -302,9 +299,18 @@ pub(crate) async fn process_closed(
     )
     .await?;
     if scheduled_for <= chrono::Utc::now() {
-        request_send(pool, config, org_id, survey_id, ticket_id, &raw, &contact_email).await?;
+        request_send(
+            pool,
+            config,
+            org_id,
+            survey_id,
+            ticket_id,
+            &raw,
+            &contact_email,
+        )
+        .await?;
     }
-    Ok(QueueOutcome { status: "queued" })
+    Ok("queued")
 }
 
 /// Sends every pending survey whose scheduled time has arrived (quiet
@@ -315,7 +321,7 @@ pub(crate) async fn sweep_due(pool: &PgPool, config: &CsatLoopConfig) -> anyhow:
     let due = core_db::csat::due(pool, chrono::Utc::now(), 200).await?;
     let mut sent = 0_usize;
     for survey in due {
-        if mail_transport_unavailable(pool, survey.org_id) {
+        if mail_transport_unavailable(pool, survey.org_id).await {
             core_db::csat::mark_skipped(pool, survey.org_id, survey.id, "transport_not_configured")
                 .await?;
             continue;
@@ -399,8 +405,8 @@ async fn request_send(
 /// Transport resolution, worker-side: mirror of the mail_config seam. The
 /// authoritative per-org resolution still happens in core-api at enqueue
 /// time; this check only decides whether to create/defer rows at all.
-fn mail_transport_unavailable(pool: &PgPool, org_id: uuid::Uuid) -> bool {
-    match core_db::settings::get_org_value(pool, org_id, registry::EMAIL_TRANSPORT) {
+async fn mail_transport_unavailable(pool: &PgPool, org_id: uuid::Uuid) -> bool {
+    match core_db::settings::get_org_value(pool, org_id, registry::EMAIL_TRANSPORT).await {
         Ok(Some(value)) => value.as_str() == Some("none"),
         _ => {
             // No override: the env fallback decides. Reading the worker's
@@ -431,9 +437,9 @@ async fn survey_recipient(
              LIMIT 1
            ) cc ON true
            WHERE t.org_id = $1 AND t.id = $2"#,
-        org_id,
-        ticket_id
     )
+    .bind(org_id)
+    .bind(ticket_id)
     .fetch_optional(pool)
     .await?;
     let Some((client_id, contact_email, client_contact_email)) = row else {

@@ -1301,7 +1301,7 @@ use utoipa::OpenApi;
         crate::routes::self_host::DetectionFile,
         crate::routes::self_host::ServiceView,
         crate::routes::self_host::DsnRow,
-        crate::routes::self_host::LinksView,
+        crate::routes::self_host::SelfHostLinksView,
         crate::routes::self_host::GarageView,
         // per-ticket email read (Wave 12 lane 6)
         crate::routes::ticket_emails::TicketEmailsView,

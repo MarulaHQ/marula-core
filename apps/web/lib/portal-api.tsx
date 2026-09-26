@@ -506,10 +506,11 @@ export function PortalAuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     async function restore() {
-      if (loadTokens() === null && !document.cookie.includes("meridian_portal=")) {
-        setStatus("anonymous");
-        return;
-      }
+      // No local short-circuit: the auth cookie is HttpOnly, so it never
+      // shows up in document.cookie — the /portal/me probe below is the
+      // only honest check (the browser attaches the cookie itself). A
+      // hard reload keeps the user signed in instead of bouncing them to
+      // /portal/login.
       try {
         const profile = await portalApi.me();
         if (cancelled) return;

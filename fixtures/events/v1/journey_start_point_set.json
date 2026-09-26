@@ -1,0 +1,14 @@
+{
+  "event_type": "journey_start_point.set",
+  "entity": "journey_start_point",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "start_point_id": "00000000-0000-0000-0000-000000000001",
+    "user_id": "00000000-0000-0000-0000-000000000002",
+    "day": "2026-01-09",
+    "kind": "home",
+    "site_id": null
+  }
+}

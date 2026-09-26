@@ -31,7 +31,6 @@ aes-gcm = { workspace = true }
 hex = { workspace = true }
 rand = { workspace = true }
 sha2 = { workspace = true }
-hex = { workspace = true }
 
 [dev-dependencies]
 chrono = { workspace = true }

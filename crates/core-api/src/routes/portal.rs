@@ -839,29 +839,39 @@ pub async fn csat_view(
     let authed = portal_authed(&extensions)?;
     let org_id = authed.user.org_id;
     let client_id = authed.user.client_id;
-    let survey = core_db::csat::peek(
-        &state.pool,
-        &csat_token_hash(&token),
-        org_id,
-        client_id,
-        chrono::Utc::now(),
-    )
-    .await?
-    .ok_or(ApiError::NotFound)?;
-    let ticket = core_db::portal::get_client_ticket(&state.pool, org_id, client_id, survey.ticket_id)
-        .await
-        .map_err(|_| ApiError::NotFound)?;
-    Ok(Json(PortalCsatView {
-        ticket_id: survey.ticket_id,
-        ticket_number: ticket.number.0,
-        ticket_subject: ticket.title,
-        status: if survey.responded_at.is_some() {
-            "responded".to_string()
-        } else {
-            "valid".to_string()
-        },
-        expires_at: survey.token_expires_at,
-    }))
+    // RLS-scoped: peek + ticket read ride an org-bound tx like every other
+    // tenant read (pool sessions carry no app.org_id GUC).
+    let view = org_tx::with_org_tx(&state, org_id, authed.user.id, |mut ctx| async move {
+        let survey = core_db::csat::peek(
+            &mut *ctx.tx,
+            &csat_token_hash(&token),
+            org_id,
+            client_id,
+            chrono::Utc::now(),
+        )
+        .await?
+        .ok_or(ApiError::NotFound)?;
+        let ticket =
+            core_db::portal::get_client_ticket(&mut *ctx.tx, org_id, client_id, survey.ticket_id)
+                .await
+                .map_err(|_| ApiError::NotFound)?;
+        Ok((
+            ctx,
+            PortalCsatView {
+                ticket_id: survey.ticket_id,
+                ticket_number: ticket.number.0,
+                ticket_subject: ticket.title,
+                status: if survey.responded_at.is_some() {
+                    "responded".to_string()
+                } else {
+                    "valid".to_string()
+                },
+                expires_at: survey.token_expires_at,
+            },
+        ))
+    })
+    .await?;
+    Ok(Json(view))
 }
 
 /// POST /api/portal/csat/{token} — the single-use consume + score record.
@@ -896,15 +906,10 @@ pub async fn csat_submit(
     let hash = csat_token_hash(&token);
 
     let view = org_tx::with_org_tx(&state, org_id, portal_user_id, |mut ctx| async move {
-        let attempt = core_db::csat::consume(
-            &mut *ctx.tx,
-            &hash,
-            org_id,
-            client_id,
-            chrono::Utc::now(),
-        )
-        .await?
-        .ok_or(ApiError::NotFound)?;
+        let attempt =
+            core_db::csat::consume(&mut *ctx.tx, &hash, org_id, client_id, chrono::Utc::now())
+                .await?
+                .ok_or(ApiError::NotFound)?;
         let ticket_id = core_db::csat::record_response(
             &mut *ctx.tx,
             org_id,

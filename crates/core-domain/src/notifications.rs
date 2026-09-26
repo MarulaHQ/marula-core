@@ -64,7 +64,6 @@ impl QuietHours {
     /// `now`, in UTC — the moment a quiet-deferred send becomes due.
     /// Outside quiet hours this is `now` itself (send immediately).
     pub fn next_window_end(&self, now: DateTime<Utc>) -> DateTime<Utc> {
-        use chrono::TimeZone;
         let local = now.with_timezone(&self.tz);
         let until = chrono::NaiveTime::from_hms_opt(self.until.0, self.until.1, 0)
             .expect("valid quiet end");
