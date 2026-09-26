@@ -15,6 +15,7 @@ import { router } from "expo-router";
 import { MODELS, fetchActiveTimer, type TimerSession } from "@/core/models";
 import { pauseTimer, resumeTimer } from "@/core/writes";
 import { useModel, useMutation } from "@/data/sync-context";
+import { useLiveTimer } from "@/live/use-live-timer";
 import { shape, type, useTheme } from "./tokens";
 
 export function isPaused(session: TimerSession): boolean {
@@ -49,6 +50,9 @@ export function TimerBar() {
   const { tokens } = useTheme();
   const timer = useModel(MODELS.activeTimer, fetchActiveTimer);
   const { mutate } = useMutation();
+  // The bar is the one always-mounted timer surface, so it also drives the
+  // lock-screen mirror (one truth: the same server session).
+  const live = useLiveTimer();
   const [now, setNow] = useState(() => Date.now());
   const session = timer.data ?? null;
   const paused = session !== null && isPaused(session);
@@ -86,6 +90,15 @@ export function TimerBar() {
         />
         <Text style={[styles.label, { color: tokens.text }]}>{label}</Text>
       </Pressable>
+      {live.supported && live.enabled && live.activeSessionId !== null ? (
+        <View
+          testID="timer-live"
+          accessibilityLabel="Timer mirrored to the lock screen"
+          style={[styles.live, { borderColor: tokens.border }]}
+        >
+          <Text style={[styles.liveText, { color: tokens.textMuted }]}>LIVE</Text>
+        </View>
+      ) : null}
       <Pressable
         testID={paused ? "timer-resume" : "timer-pause"}
         onPress={() => {
@@ -154,5 +167,16 @@ const styles = StyleSheet.create({
   controlText: {
     fontFamily: type.sansSemiBold,
     fontSize: 12,
+  },
+  live: {
+    borderWidth: 1,
+    borderRadius: shape.radiusPill,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+  },
+  liveText: {
+    fontFamily: type.mono,
+    fontSize: 9,
+    letterSpacing: 0.5,
   },
 });

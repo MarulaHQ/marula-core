@@ -32,7 +32,7 @@ import {
   Screen,
   SectionHeader,
 } from "@/ui/primitives";
-import { accentPair, type, useTheme } from "@/ui/tokens";
+import { infoPair, type, useTheme } from "@/ui/tokens";
 
 export default function StockItemScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -101,7 +101,7 @@ export default function StockItemScreen() {
           {item.data?.part_number != null ? (
             <Pill pair={tokens.neutral} label={String(item.data.part_number)} />
           ) : null}
-          {item.data?.is_tool === true ? <Pill pair={accentPair(tokens)} label="TOOL" /> : null}
+          {item.data?.is_tool === true ? <Pill pair={infoPair(tokens)} label="TOOL" /> : null}
         </View>
       </View>
 
@@ -128,7 +128,7 @@ export default function StockItemScreen() {
                   <Mono muted>{formatQty(row.qty_milli)} {item.data?.unit ?? ""}</Mono>
                 </View>
                 {row.low ? <Pill pair={tokens.warning} label="LOW" /> : null}
-                {selected ? <Pill pair={accentPair(tokens)} label="SELECTED" /> : null}
+                {selected ? <Pill pair={infoPair(tokens)} label="SELECTED" /> : null}
               </Pressable>
             );
           })}

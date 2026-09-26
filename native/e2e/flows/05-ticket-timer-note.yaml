@@ -7,11 +7,11 @@ appId: tech.meridian.app
     visible:
       id: "today-screen"
     timeout: 20000
-- tapOn: "Board"
+- tapOn: "Board, tab.*"
 - tapOn:
     id: "ticket-row-.*"
 - assertVisible:
-    id: "note-input"
+    id: "ticket-parts"
 - tapOn:
     id: "ticket-timer-start"
 - extendedWaitUntil:
@@ -20,9 +20,16 @@ appId: tech.meridian.app
     timeout: 15000
 - tapOn:
     id: "ticket-timer-stop"
+- scrollUntilVisible:
+    element:
+      id: "note-input"
+    direction: DOWN
+    visibilityPercentage: 40
+    centerElement: true
 - tapOn:
     id: "note-input"
 - inputText: "Maestro site note"
+- hideKeyboard
 - tapOn:
     id: "note-submit"
 - assertVisible: "Maestro site note"

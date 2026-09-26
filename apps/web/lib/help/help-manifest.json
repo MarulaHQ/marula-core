@@ -12,6 +12,12 @@
             "title": "How to run a service day from the phone"
           },
         {
+          "path": "how-to/technician-field-ops",
+          "audience": "both",
+          "updated": "2026-09-26",
+          "title": "How to move stock and check out tools in the field"
+        },
+        {
           "path": "how-to/staff-day-pack",
           "audience": "both",
           "updated": "2026-09-25",
@@ -133,6 +139,12 @@
             "updated": "2026-09-26",
             "title": "How to check out tools and use parts on site"
           },
+        {
+          "path": "how-to/technician-field-ops",
+          "audience": "both",
+          "updated": "2026-09-26",
+          "title": "How to move stock and check out tools in the field"
+        },
         {
           "path": "tutorials/first-inventory-sync",
           "audience": "both",

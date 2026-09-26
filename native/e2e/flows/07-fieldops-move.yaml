@@ -1,0 +1,90 @@
+# Field ops — consume on a ticket + van↔shelf transfer (Wave 33 lane 2).
+#
+# The move screen runs the same minimum-switching grammar as the web panel:
+# scan or search → stage → pick context → human commits. The ticket anchor
+# rides the ticket screen; every commit is a public stock movement endpoint.
+# Fixtures come from native/e2e/seed-fieldops.mjs.
+appId: tech.meridian.app
+---
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: "today-screen"
+    timeout: 20000
+# Open the first ticket and enter the consume flow from the Parts card.
+- tapOn: "Board, tab.*"
+- extendedWaitUntil:
+    visible:
+      id: "ticket-list"
+    timeout: 10000
+- tapOn:
+    id: "ticket-row-.*"
+- extendedWaitUntil:
+    visible:
+      id: "ticket-parts"
+    timeout: 10000
+- tapOn:
+    id: "ticket-use-part"
+- extendedWaitUntil:
+    visible:
+      id: "move-screen"
+    timeout: 10000
+- tapOn:
+    id: "move-scan-input"
+- inputText: "TIE-100"
+- tapOn:
+    id: "move-scan-resolve"
+- extendedWaitUntil:
+    visible:
+      id: "move-scan-staged"
+    timeout: 10000
+- tapOn: "Van 7.*"
+- scrollUntilVisible:
+    element:
+      id: "move-commit"
+    direction: DOWN
+    visibilityPercentage: 40
+    centerElement: true
+- tapOn:
+    id: "move-commit"
+- extendedWaitUntil:
+    visible: ".*Consumed.*"
+    timeout: 15000
+# Transfer a pack from the van to the shelf, scanning locations in order.
+- scrollUntilVisible:
+    element:
+      id: "move-mode-transfer"
+    direction: UP
+    centerElement: true
+- tapOn:
+    id: "move-mode-transfer"
+- tapOn:
+    id: "move-scan-input"
+- inputText: "VAN-7"
+- tapOn:
+    id: "move-scan-resolve"
+- tapOn:
+    id: "move-scan-input"
+- inputText: "B-2"
+- tapOn:
+    id: "move-scan-resolve"
+- tapOn:
+    id: "move-scan-input"
+- inputText: "TIE-100"
+- tapOn:
+    id: "move-scan-resolve"
+- extendedWaitUntil:
+    visible:
+      id: "move-scan-staged"
+    timeout: 10000
+- scrollUntilVisible:
+    element:
+      id: "move-commit"
+    direction: DOWN
+    visibilityPercentage: 40
+    centerElement: true
+- tapOn:
+    id: "move-commit"
+- extendedWaitUntil:
+    visible: ".*Transferred.*"
+    timeout: 15000

@@ -12,7 +12,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { QueuedOp } from "@/core/queue";
 import { useEngine, useQueue } from "@/data/sync-context";
 import { Button, Card, EmptyState, Mono, Pill, Screen, SectionHeader } from "@/ui/primitives";
-import { accentPair, type, useTheme } from "@/ui/tokens";
+import { infoPair, type, useTheme } from "@/ui/tokens";
 
 export default function QueueInspector() {
   const { tokens } = useTheme();
@@ -79,7 +79,7 @@ function QueueOpCard({ op }: { op: QueuedOp }) {
       <View style={styles.row}>
         <Text style={[styles.label, { color: tokens.text }]}>{op.label}</Text>
         <Pill
-          pair={rejected ? tokens.danger : op.state === "pending" ? tokens.warning : accentPair(tokens)}
+          pair={rejected ? tokens.danger : op.state === "pending" ? tokens.warning : infoPair(tokens)}
           label={op.state.toUpperCase()}
         />
       </View>

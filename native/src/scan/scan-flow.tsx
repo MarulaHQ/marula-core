@@ -7,15 +7,15 @@
 // routed by the frozen vocabulary (meridian://stock-item/<uuid>, …).
 
 import { useCallback, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Keyboard, Pressable, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 
 import type { ScanResolution } from "@/core/models";
 import { kindLabel, resolveScan, scanRoute, scanSummary } from "@/core/scan";
 import { useAuth } from "@/auth/auth-context";
 import { friendlyMutationError } from "@/core/errors";
-import { Button, Card, Mono, Pill } from "@/ui/primitives";
-import { accentPair, shape, type, useTheme } from "@/ui/tokens";
+import { Button, Card, Pill } from "@/ui/primitives";
+import { infoPair, shape, type, useTheme } from "@/ui/tokens";
 
 export function useScanResolver() {
   const { client } = useAuth();
@@ -31,6 +31,9 @@ export function useScanResolver() {
       setError(null);
       try {
         const result = await resolveScan(client, trimmed);
+        // The typing is done once the resolver answers; leaving the keyboard
+        // up hides the resolution card and its actions.
+        Keyboard.dismiss();
         setResolution(result);
       } catch (cause) {
         setError(friendlyMutationError(cause).text);
@@ -60,7 +63,7 @@ export function ScanResolutionCard({
     <Card testID="scan-resolution">
       <View style={styles.header}>
         <Pill
-          pair={resolution.kind === "unknown" ? tokens.warning : accentPair(tokens)}
+          pair={resolution.kind === "unknown" ? tokens.warning : infoPair(tokens)}
           label={kindLabel(resolution.kind).toUpperCase()}
         />
         {resolution.is_tool ? <Pill pair={tokens.neutral} label="TOOL" /> : null}
@@ -77,9 +80,6 @@ export function ScanResolutionCard({
       <Text style={[styles.title, { color: tokens.text }]}>
         {resolution.display_name !== "" ? resolution.display_name : "No match"}
       </Text>
-      {resolution.secondary !== null && resolution.secondary !== "" ? (
-        <Mono muted>{resolution.secondary}</Mono>
-      ) : null}
       <Text style={[styles.summary, { color: tokens.textMuted }]}>{scanSummary(resolution)}</Text>
 
       {resolution.kind === "unknown" && candidates.length === 0 ? (

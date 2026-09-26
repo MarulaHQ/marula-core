@@ -6,12 +6,12 @@
 // width the same routes push normally. Both classes share the same route
 // tree, so deep links and push routing behave identically.
 
+import { EmptyState, useTopInset } from "@/ui/primitives";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { StyleSheet, View } from "react-native";
 
 import { TicketList } from "@/tickets/ticket-list";
 import { useAdaptiveLayout } from "@/ui/adaptive";
-import { EmptyState } from "@/ui/primitives";
 import { useTheme } from "@/ui/tokens";
 
 export default function BoardLayout() {
@@ -19,8 +19,9 @@ export default function BoardLayout() {
   const { isRegular } = useAdaptiveLayout();
   const params = useLocalSearchParams<{ id?: string }>();
 
+  const topInset = useTopInset();
   return (
-    <View style={[styles.shell, { backgroundColor: tokens.background }]}>
+    <View style={[styles.shell, { backgroundColor: tokens.background, paddingTop: topInset }]}>
       {isRegular ? (
         <View
           style={[

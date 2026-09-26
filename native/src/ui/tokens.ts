@@ -31,8 +31,6 @@ export interface ThemeTokens {
   border: string;
   primary: string;
   primaryText: string;
-  accent: string;
-  accentText: string;
   destructive: string;
   destructiveText: string;
   success: StatusPair;
@@ -53,8 +51,6 @@ export const lightTokens: ThemeTokens = {
   border: "#DCDFE2",
   primary: "#E05D38",
   primaryText: "#FFFFFF",
-  accent: "#D6E4F0",
-  accentText: "#1E3A8A",
   destructive: "#EF4444",
   destructiveText: "#FFFFFF",
   success: { text: "#15803D", background: "#DCFCE7" },
@@ -75,14 +71,14 @@ export const darkTokens: ThemeTokens = {
   border: "#3D4354",
   primary: "#E05D38",
   primaryText: "#FFFFFF",
-  accent: "#2A3656",
-  accentText: "#BFDBFE",
   destructive: "#EF4444",
   destructiveText: "#FFFFFF",
   success: { text: "#4ADE80", background: "#14532D" },
   warning: { text: "#FBBF24", background: "#78350F" },
   danger: { text: "#F87171", background: "#7F1D1D" },
-  neutral: { text: "#A3A3A3", background: "#2A303E" },
+  // One step above the card surface so the pill shape survives in dark
+  // (vision review finding 9).
+  neutral: { text: "#B4BAC6", background: "#333B4E" },
 };
 
 /** Shape + type scale, identical in both modes (not theme-restylable). */
@@ -105,9 +101,13 @@ export const type = {
   monoMedium: "JetBrainsMono_500Medium",
 } as const;
 
-/** The accent role as a pill pair (status pills use the §3.3 pairs). */
-export function accentPair(tokens: ThemeTokens): StatusPair {
-  return { text: tokens.accentText, background: tokens.accent };
+
+/** Informational pill pair: entity kinds, possession, and context labels.
+ * Neutral on purpose — Ember is interactive-only and the status palette is
+ * green/amber/red, so a blue family would be a second accent (vision review
+ * finding 2, 2026-09-26). Selection is shown with a ring, never a fill. */
+export function infoPair(tokens: ThemeTokens): StatusPair {
+  return tokens.neutral;
 }
 
 export const motion = {

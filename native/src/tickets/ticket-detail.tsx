@@ -12,6 +12,7 @@
 // Non-purpose: no board mechanics or field workflows (lanes 2/3).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { router } from "expo-router";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
@@ -20,12 +21,16 @@ import { API_URL } from "@/config";
 import {
   MODELS,
   fetchActiveTimer,
+  fetchStockItems,
   fetchTicket,
   fetchTicketAttachments,
   fetchTicketComments,
   fetchTimeEntries,
+  fetchTicketStockMovements,
+  type StockItemView,
   type TicketAttachment,
   type TicketComment,
+  type TicketStockMovement,
   type TimeEntry,
 } from "@/core/models";
 import { REASON_COPY } from "@/core/errors";
@@ -60,7 +65,7 @@ import {
   SectionHeader,
 } from "@/ui/primitives";
 import { elapsedMs, clock, isPaused } from "@/ui/timer-bar";
-import { accentPair, shape, type, useTheme, type StatusPair } from "@/ui/tokens";
+import { accentPair, infoPair, shape, type, useTheme, type StatusPair } from "@/ui/tokens";
 
 type NoteKind = "internal" | "client_visible" | "in_house_update";
 
@@ -93,6 +98,12 @@ export function TicketDetail({ id }: { id: string }) {
     { maxAgeMs: 60_000 },
   );
   const timer = useModel(MODELS.activeTimer, fetchActiveTimer);
+  const movements = useModel(
+    MODELS.ticketStockMovements(id),
+    useCallback((client) => fetchTicketStockMovements(client, id), [id]),
+    { maxAgeMs: 30_000 },
+  );
+  const catalog = useModel(MODELS.stockItems, fetchStockItems, { maxAgeMs: 5 * 60_000 });
 
   const [body, setBody] = useState("");
   const [kind, setKind] = useState<NoteKind>("internal");
@@ -367,6 +378,80 @@ export function TicketDetail({ id }: { id: string }) {
         </Card>
       ))}
 
+      <SectionHeader title="Parts & shipping" />
+      <Card testID="ticket-parts">
+        <View style={styles.partsActions}>
+          <Button
+            label="Use a part"
+            testID="ticket-use-part"
+            onPress={() => router.push(`/move?mode=consume&ticket=${id}` as never)}
+          />
+          <Button
+            label="Receive"
+            variant="secondary"
+            testID="ticket-receive-part"
+            onPress={() => router.push(`/move?mode=receive&ticket=${id}` as never)}
+          />
+        </View>
+        {(movements.data ?? []).length === 0 ? (
+          <Text style={[styles.partsEmpty, { color: tokens.textMuted }]}>
+            No parts movements on this job yet. A scan stages the part; you confirm the
+            movement.
+          </Text>
+        ) : (
+          (movements.data ?? []).slice(0, 6).map((movement: TicketStockMovement) => {
+            const itemName =
+              (catalog.data ?? []).find(
+                (candidate: StockItemView) => candidate.id === movement.stock_item_id,
+              )?.name ?? "Item";
+            const shipped = movement.kind === "ship_out";
+            return (
+              <View key={movement.id} style={styles.markerRow} testID={`marker-${movement.id}`}>
+                <View style={styles.markerBody}>
+                  <View style={styles.markerHeader}>
+                    <Pill
+                      pair={markerPair(tokens, movement.kind)}
+                      label={movement.kind.replace(/_/g, " ").toUpperCase()}
+                    />
+                    <Mono muted>{formatTime(movement.created_at)}</Mono>
+                  </View>
+                  <View style={styles.markerLine}>
+                    <Text style={[styles.markerName, { color: tokens.text }]} numberOfLines={1}>
+                      {itemName}
+                    </Text>
+                    <Mono>×{formatQty(Math.abs(movement.qty_milli))}</Mono>
+                  </View>
+                  {shipped ? (
+                    <Mono muted>
+                      {[movement.carrier, movement.tracking_ref]
+                        .filter((value): value is string => value != null && value !== "")
+                        .join(" · ") || "No carrier on file"}
+                    </Mono>
+                  ) : null}
+                </View>
+                {shipped ? (
+                  <Button
+                    label="Confirm"
+                    variant="secondary"
+                    testID={`confirm-shipment-${movement.id}`}
+                    onPress={() =>
+                      router.push(
+                        `/move?mode=receive&ticket=${id}&item=${movement.stock_item_id}` as never,
+                      )
+                    }
+                  />
+                ) : null}
+              </View>
+            );
+          })
+        )}
+        {movements.offline && movements.data !== undefined ? (
+          <Text style={[styles.partsEmpty, { color: tokens.textMuted }]}>
+            Showing the last sync from this device.
+          </Text>
+        ) : null}
+      </Card>
+
       <SectionHeader title={`Notes${sortedComments.length > 0 ? ` (${sortedComments.length})` : ""}`} />
       {comments.status === "error" && comments.data === undefined ? (
         <ErrorNote text={comments.error?.text ?? "Couldn't load notes."} onRetry={comments.refresh} />
@@ -438,7 +523,7 @@ export function TicketDetail({ id }: { id: string }) {
                 style={[
                   styles.kindChip,
                   {
-                    backgroundColor: selected ? tokens.accent : tokens.surfaceHover,
+                    backgroundColor: tokens.surfaceHover,
                     borderColor: selected ? tokens.primary : tokens.border,
                   },
                 ]}
@@ -446,7 +531,7 @@ export function TicketDetail({ id }: { id: string }) {
                 <Text
                   style={[
                     styles.kindChipText,
-                    { color: selected ? tokens.accentText : tokens.textSecondary },
+                    { color: selected ? tokens.text : tokens.textSecondary },
                   ]}
                 >
                   {option.label}
@@ -551,8 +636,13 @@ function priorityPair(
   return tokens.neutral;
 }
 
+/** Movement quantities are milli-units; the field reads whole/loose units. */
+function formatQty(qtyMilli: number): string {
+  return (qtyMilli / 1000).toLocaleString(undefined, { maximumFractionDigits: 3 });
+}
+
 function noteKindPair(tokens: ReturnType<typeof useTheme>["tokens"], kind: string): StatusPair {
-  if (kind === "client_visible") return accentPair(tokens);
+  if (kind === "client_visible") return infoPair(tokens);
   if (kind === "in_house_update") return tokens.warning;
   return tokens.neutral;
 }
@@ -588,6 +678,18 @@ function clockTime(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "--:--";
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+/** Ledger marker colors: outbound shipments warn, receipts succeed. */
+function markerPair(
+  tokens: ReturnType<typeof useTheme>["tokens"],
+  kind: string,
+): StatusPair {
+  if (kind === "ship_out") return tokens.warning;
+  if (kind === "receive" || kind === "checkin" || kind === "loan_return") {
+    return tokens.success;
+  }
+  return tokens.neutral;
 }
 
 function formatTime(iso: string): string {
@@ -680,6 +782,43 @@ const styles = StyleSheet.create({
     fontFamily: type.sans,
     fontSize: 12,
     flex: 1,
+  },
+  partsActions: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  partsEmpty: {
+    fontFamily: type.sans,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  markerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    minHeight: 44,
+    paddingVertical: 4,
+  },
+  markerBody: {
+    flex: 1,
+    gap: 2,
+  },
+  markerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  markerLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  markerName: {
+    flex: 1,
+    fontFamily: type.sansMedium,
+    fontSize: 14,
   },
   comment: {
     gap: 6,

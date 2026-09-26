@@ -80,7 +80,7 @@ describe("scan routing parity with web", () => {
   it("renders the same rejection copy for unknown, ambiguous, and wrong-surface scans", () => {
     const unknown = resolution({ kind: "unknown", display_name: "", input: "???", secondary: null });
     expect(rejectionCopy("tools", unknown)).toBe(
-      "Nothing matches “???”. Charge the scan bar with a label, a SKU, a serial, a location code, a toolbox code, or an asset tag.",
+      "Nothing matches “???”. Charge the scan bar with a label, a SKU, a serial, a location code, an asset tag, or a toolbox code.",
     );
     const ambiguous = resolution({
       candidates: [{ entity_id: "a" }, { entity_id: "b" }] as unknown as ScanResolution["candidates"],

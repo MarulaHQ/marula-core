@@ -14,6 +14,8 @@ import type { MeridianClient } from "@meridian/sdk";
 import {
   MODELS,
   type AppointmentRow,
+  type DayPack,
+  type DayPackTick,
   type DispatchDay,
   type TicketComment,
   type TravelDraft,
@@ -255,6 +257,9 @@ export interface ConsumeStockArgs {
   itemName?: string;
   locationId: string;
   qtyMilli: number;
+  /** Serialized consumption moves ONE unit. */
+  serialId?: string;
+  serialNumber?: string;
   ticketId?: string;
   note?: string;
 }
@@ -263,6 +268,7 @@ export type ConsumeStockBody = {
   item_id: string;
   location_id: string;
   qty_milli: number;
+  serial_id?: string;
   ticket_id?: string;
   note?: string;
   idempotency_key: string;
@@ -279,12 +285,15 @@ export const consumeStock: WriteOperation<ConsumeStockArgs, ConsumeStockBody> = 
     MODELS.onHand,
     MODELS.stockItem(args.itemId),
     MODELS.stockMovements(args.itemId),
+    MODELS.stockSerials,
+    MODELS.toolsAvailability(args.itemId),
     ...(args.ticketId !== undefined ? [MODELS.ticket(args.ticketId)] : []),
   ],
   build: (args, base) => ({
     item_id: args.itemId,
     location_id: args.locationId,
     qty_milli: args.qtyMilli,
+    ...(args.serialId !== undefined ? { serial_id: args.serialId } : {}),
     ...(args.ticketId !== undefined ? { ticket_id: args.ticketId } : {}),
     ...(args.note !== undefined ? { note: args.note } : {}),
     idempotency_key: base.idempotencyKey,
@@ -295,12 +304,281 @@ export const consumeStock: WriteOperation<ConsumeStockArgs, ConsumeStockBody> = 
         item_id: body.item_id,
         location_id: body.location_id,
         qty_milli: body.qty_milli,
+        serial_id: body.serial_id ?? null,
         ticket_id: body.ticket_id ?? null,
         note: body.note ?? null,
         idempotency_key: body.idempotency_key,
       },
     }),
   versionOf: (data) => mutationVersion(data),
+};
+
+export interface TransferStockArgs {
+  itemId: string;
+  itemName?: string;
+  fromLocationId: string;
+  fromLocationName?: string;
+  toLocationId: string;
+  toLocationName?: string;
+  qtyMilli: number;
+  /** Serialized transfers move exactly one physical unit. */
+  serialId?: string;
+  serialNumber?: string;
+  note?: string;
+}
+
+export type TransferStockBody = {
+  item_id: string;
+  from_location_id: string;
+  to_location_id: string;
+  qty_milli: number;
+  serial_id?: string;
+  note?: string;
+  idempotency_key: string;
+};
+
+/** Van ↔ shelf transfer: two locations, one movement leg (Wave 32 lane 6
+ * grammar; the ledger row is the trace). */
+export const transferStock: WriteOperation<TransferStockArgs, TransferStockBody> = {
+  kind: "stock.transfer",
+  label: (args) =>
+    `Move ${args.itemName !== undefined ? args.itemName : "stock"}${
+      args.fromLocationName !== undefined && args.toLocationName !== undefined
+        ? ` · ${args.fromLocationName} → ${args.toLocationName}`
+        : ""
+    }`,
+  entityKey: (args) => `stock:${args.itemId}`,
+  method: "POST",
+  path: () => "/api/v1/stock/transfer",
+  invalidate: (args) => [
+    MODELS.onHand,
+    MODELS.stockItem(args.itemId),
+    MODELS.stockMovements(args.itemId),
+    MODELS.stockSerials,
+    MODELS.toolsAvailability(args.itemId),
+    MODELS.location(args.fromLocationId),
+    MODELS.location(args.toLocationId),
+  ],
+  build: (args, base) => ({
+    item_id: args.itemId,
+    from_location_id: args.fromLocationId,
+    to_location_id: args.toLocationId,
+    qty_milli: args.qtyMilli,
+    ...(args.serialId !== undefined ? { serial_id: args.serialId } : {}),
+    ...(args.note !== undefined ? { note: args.note } : {}),
+    idempotency_key: base.idempotencyKey,
+  }),
+  send: (client, body) =>
+    client.api.POST("/api/v1/stock/transfer", {
+      body: {
+        item_id: body.item_id,
+        from_location_id: body.from_location_id,
+        to_location_id: body.to_location_id,
+        qty_milli: body.qty_milli,
+        serial_id: body.serial_id ?? null,
+        note: body.note ?? null,
+        idempotency_key: body.idempotency_key,
+      },
+    }),
+  versionOf: (data) => mutationVersion(data),
+};
+
+export interface ReceiveStockArgs {
+  itemId: string;
+  itemName?: string;
+  locationId: string;
+  locationName?: string;
+  qtyMilli: number;
+  /** Serialized receives carry one entry per physical unit (usually one). */
+  serialNumbers?: string[];
+  /** The on-site job the arrival belongs to (shipment-marker confirm). */
+  ticketId?: string;
+  note?: string;
+}
+
+export type ReceiveStockBody = {
+  item_id: string;
+  location_id: string;
+  qty_milli: number;
+  serial_numbers?: string[];
+  ticket_id?: string;
+  note?: string;
+  idempotency_key: string;
+};
+
+/** Confirm goods arriving on site (a shipment marker → receive movement). */
+export const receiveStock: WriteOperation<ReceiveStockArgs, ReceiveStockBody> = {
+  kind: "stock.receive",
+  label: (args) => `Receive ${args.itemName !== undefined ? args.itemName : "stock"}`,
+  entityKey: (args) => `stock:${args.itemId}`,
+  method: "POST",
+  path: () => "/api/v1/stock/receive",
+  invalidate: (args) => [
+    MODELS.onHand,
+    MODELS.stockItem(args.itemId),
+    MODELS.stockMovements(args.itemId),
+    MODELS.stockSerials,
+    MODELS.toolsAvailability(args.itemId),
+    MODELS.location(args.locationId),
+    ...(args.ticketId !== undefined
+      ? [MODELS.ticketStockMovements(args.ticketId), MODELS.ticket(args.ticketId)]
+      : []),
+  ],
+  build: (args, base) => ({
+    item_id: args.itemId,
+    location_id: args.locationId,
+    qty_milli: args.qtyMilli,
+    ...(args.serialNumbers !== undefined && args.serialNumbers.length > 0
+      ? { serial_numbers: args.serialNumbers }
+      : {}),
+    ...(args.ticketId !== undefined ? { ticket_id: args.ticketId } : {}),
+    ...(args.note !== undefined ? { note: args.note } : {}),
+    idempotency_key: base.idempotencyKey,
+  }),
+  send: (client, body) =>
+    client.api.POST("/api/v1/stock/receive", {
+      body: {
+        item_id: body.item_id,
+        location_id: body.location_id,
+        qty_milli: body.qty_milli,
+        serial_numbers: body.serial_numbers ?? null,
+        ticket_id: body.ticket_id ?? null,
+        note: body.note ?? null,
+        idempotency_key: body.idempotency_key,
+      },
+    }),
+  versionOf: (data) => mutationVersion(data),
+};
+
+
+/** The local calendar date `YYYY-MM-DD` — the day pack's tick key is a local
+ * date, not a UTC instant. */
+export function localDateString(now: Date = new Date()): string {
+  const month = `${now.getMonth() + 1}`.padStart(2, "0");
+  const day = `${now.getDate()}`.padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+export interface TickDayPackArgs {
+  lineKey: string;
+  date?: string;
+  ticketId?: string;
+  note?: string;
+}
+
+export type TickDayPackBody = {
+  line_key: string;
+  date: string;
+  ticket_id?: string;
+  note?: string;
+  idempotency_key: string;
+};
+
+function patchDayPackTick(
+  cache: ReadCache,
+  lineKey: string,
+  tick: DayPackTick | null,
+): void {
+  void cache.patch<DayPack>(MODELS.dayPack(), (current) => {
+    if (current === undefined) return current as unknown as DayPack;
+    const patchLine = <T extends { line_key: string; tick?: DayPackTick | null }>(line: T): T =>
+      line.line_key === lineKey ? { ...line, tick } : line;
+    return {
+      ...current,
+      trips: current.trips.map((trip) => ({
+        ...trip,
+        lines: trip.lines.map(patchLine),
+        kits: trip.kits.map(patchLine),
+      })),
+    };
+  });
+}
+
+/** Tick a pack line. The tick is a plan note — it never touches the movement
+ * ledger (Wave 32 lane 8's rule); the phone's Today list mirrors that. */
+export const tickDayPack: WriteOperation<TickDayPackArgs, TickDayPackBody> = {
+  kind: "daypack.tick",
+  label: () => "Tick the grab list",
+  entityKey: (args) => `daypack:${args.lineKey}`,
+  method: "POST",
+  path: () => "/api/v1/day-pack/ticks",
+  invalidate: (args) => [
+    MODELS.dayPack(),
+    ...(args.ticketId !== undefined ? [MODELS.ticket(args.ticketId)] : []),
+  ],
+  build: (args, base) => ({
+    line_key: args.lineKey,
+    date: args.date ?? localDateString(),
+    ...(args.ticketId !== undefined ? { ticket_id: args.ticketId } : {}),
+    ...(args.note !== undefined ? { note: args.note } : {}),
+    idempotency_key: base.idempotencyKey,
+  }),
+  send: (client, body) =>
+    client.api.POST("/api/v1/day-pack/ticks", {
+      body: {
+        line_key: body.line_key,
+        date: body.date,
+        ticket_id: body.ticket_id ?? null,
+        note: body.note ?? null,
+        idempotency_key: body.idempotency_key,
+      },
+    }),
+  optimistic: async (args, base, ctx) => {
+    patchDayPackTick(ctx.cache, args.lineKey, {
+      line_key: args.lineKey,
+      ticked_at: ctx.now().toISOString(),
+      ...(args.note !== undefined ? { note: args.note } : {}),
+    });
+    void base;
+  },
+  revert: async (args, _base, ctx) => {
+    patchDayPackTick(ctx.cache, args.lineKey, null);
+  },
+  apply: async (data, args, _base, ctx) => {
+    const tick = (data as { tick?: DayPackTick } | undefined)?.tick;
+    patchDayPackTick(ctx.cache, args.lineKey, tick ?? null);
+  },
+};
+
+export interface UntickDayPackArgs {
+  lineKey: string;
+  date?: string;
+  ticketId?: string;
+}
+
+export type UntickDayPackBody = {
+  line_key: string;
+  date: string;
+};
+
+/** Un-tick: the plan note the tick wrote goes away; the ledger never had it. */
+export const untickDayPack: WriteOperation<UntickDayPackArgs, UntickDayPackBody> = {
+  kind: "daypack.untick",
+  label: () => "Un-tick the grab list",
+  entityKey: (args) => `daypack:${args.lineKey}`,
+  method: "DELETE",
+  path: () => "/api/v1/day-pack/ticks",
+  invalidate: (args) => [
+    MODELS.dayPack(),
+    ...(args.ticketId !== undefined ? [MODELS.ticket(args.ticketId)] : []),
+  ],
+  build: (args) => ({
+    line_key: args.lineKey,
+    date: args.date ?? localDateString(),
+  }),
+  send: (client, body) =>
+    client.api.DELETE("/api/v1/day-pack/ticks", {
+      params: { query: { date: body.date, line_key: body.line_key } },
+    }),
+  optimistic: async (args, _base, ctx) => {
+    patchDayPackTick(ctx.cache, args.lineKey, null);
+  },
+  revert: async (args, _base, ctx) => {
+    patchDayPackTick(ctx.cache, args.lineKey, {
+      line_key: args.lineKey,
+      ticked_at: ctx.now().toISOString(),
+    });
+  },
 };
 
 export interface CreateCheckoutArgs {
@@ -311,6 +589,8 @@ export interface CreateCheckoutArgs {
   items: { itemId: string; serialId?: string }[];
   kitId?: string;
   notes?: string;
+  /** Label override (a kit checkout says "kit", not "tools"). */
+  label?: string;
 }
 
 export type CreateCheckoutBody = {
@@ -325,11 +605,17 @@ export type CreateCheckoutBody = {
 
 export const checkoutTools: WriteOperation<CreateCheckoutArgs, CreateCheckoutBody> = {
   kind: "tool.checkout",
-  label: () => "Check out tools",
+  label: (args) => args.label ?? "Check out tools",
   entityKey: () => "tools",
   method: "POST",
   path: () => "/api/v1/tool-checkouts",
-  invalidate: () => [MODELS.toolCheckouts, MODELS.onHand],
+  invalidate: (args) => [
+    MODELS.toolCheckouts,
+    MODELS.onHand,
+    MODELS.stockSerials,
+    ...(args.kitId !== undefined ? [MODELS.kit(args.kitId), MODELS.kitAvailability(args.kitId)] : []),
+    ...args.items.map((item) => MODELS.toolsAvailability(item.itemId)),
+  ],
   build: (args, base) => ({
     holder_user_id: args.holderUserId,
     from_location_id: args.fromLocationId,
@@ -360,16 +646,27 @@ export const checkoutTools: WriteOperation<CreateCheckoutArgs, CreateCheckoutBod
   versionOf: (data) => nestedVersion(data, "checkout"),
 };
 
+export interface CheckinLine {
+  /** The tool-checkout line this scan returns. */
+  lineId: string;
+  /** good | fair | damaged (the field-ops default is good). */
+  condition?: "good" | "fair" | "damaged";
+  notes?: string;
+}
+
 export interface CheckinArgs {
   checkoutId: string;
   toLocationId?: string;
   notes?: string;
+  /** Empty/absent = every outstanding unit (the whole-transaction return). */
+  lines?: CheckinLine[];
 }
 
 export type CheckinBody = {
   __path_id: string;
   to_location_id?: string;
   notes?: string;
+  lines?: CheckinLine[];
   idempotency_key: string;
 };
 
@@ -379,11 +676,12 @@ export const checkinTools: WriteOperation<CheckinArgs, CheckinBody> = {
   entityKey: (args) => `toolcheckout:${args.checkoutId}`,
   method: "POST",
   path: (args) => `/api/v1/tool-checkouts/${args.checkoutId}/checkin`,
-  invalidate: () => [MODELS.toolCheckouts, MODELS.onHand],
+  invalidate: () => [MODELS.toolCheckouts, MODELS.onHand, MODELS.stockSerials, MODELS.toolsAvailability()],
   build: (args, base) => ({
     __path_id: args.checkoutId,
     ...(args.toLocationId !== undefined ? { to_location_id: args.toLocationId } : {}),
     ...(args.notes !== undefined ? { notes: args.notes } : {}),
+    ...(args.lines !== undefined && args.lines.length > 0 ? { lines: args.lines } : {}),
     idempotency_key: base.idempotencyKey,
   }),
   send: (client, body) => {
@@ -394,7 +692,11 @@ export const checkinTools: WriteOperation<CheckinArgs, CheckinBody> = {
         to_location_id: body.to_location_id ?? null,
         notes: body.notes ?? null,
         idempotency_key: body.idempotency_key,
-        lines: [],
+        lines: (body.lines ?? []).map((line) => ({
+          line_id: line.lineId,
+          return_condition: line.condition ?? "good",
+          return_notes: line.notes ?? null,
+        })),
       },
     });
   },
@@ -659,6 +961,10 @@ export const WRITE_OPERATIONS = {
   [pauseTimer.kind]: pauseTimer,
   [resumeTimer.kind]: resumeTimer,
   [consumeStock.kind]: consumeStock,
+  [tickDayPack.kind]: tickDayPack,
+  [untickDayPack.kind]: untickDayPack,
+  [transferStock.kind]: transferStock,
+  [receiveStock.kind]: receiveStock,
   [checkoutTools.kind]: checkoutTools,
   [checkinTools.kind]: checkinTools,
   [markNotificationRead.kind]: markNotificationRead,

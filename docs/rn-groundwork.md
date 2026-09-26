@@ -33,6 +33,11 @@ operator gaps.
   wiring live sync. They are listed below and need a contract lane, not a
   mobile workaround.
 
+Wave 33 lane 2 added one additive server change after this lane: the scan
+resolver gained a `tool_kit` kind as its LAST code step (`POST /api/scan/resolve`
+matches `tool_kits.code` after every existing step, so no code changes meaning).
+No migration rode with it, and the mobile vocabulary parity test still holds.
+
 ## Findings a follow-up contract lane owns
 
 1. `ticket_comment` events route only to mentioned users
@@ -44,6 +49,10 @@ operator gaps.
    match arm, so those read models reconcile on refocus and reconnect.
 3. No device-token registration route exists, and the worker's fan-out has no
    APNs/FCM transport. The client acquires a token. Nothing can receive it yet.
+   Wave 33 lane 2 added the Live Activity's push token to that queue: the
+   phone holds it per timer session (`native/src/live/activity-push.ts`) and
+   shows it on the status screen, and the lock screen updates only while the
+   app runs.
 
 ## Non-goals (binding, unchanged)
 

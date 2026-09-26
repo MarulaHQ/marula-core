@@ -69,16 +69,18 @@ Simulate offline**, write a note, then switch it back.
 
 ## Scan a code
 
-Printed labels carry `meridian://` links. Until the camera build reaches your
-device, the Scan tab takes a pasted payload:
+Printed labels carry `meridian://` links and short codes. The Scan tab reads
+them both ways:
 
 1. Open **Scan**.
-2. Paste the code or tap a sample, then **Resolve**.
+2. Tap **Open the camera** on a phone, or type the code into the field under
+   it. The simulator has no lens, so it points you at the field; the resolver
+   behind both paths is the same one.
 3. The card shows what the code means. If several records match, pick one —
    the app never guesses. If nothing matches, it says so and keeps your text.
 
 Deep links work too: opening `meridian://stock-item/<uuid>` from anywhere
-resolves the same way a camera scan will.
+resolves the same way a camera scan does.
 
 ## Check tools and stock
 
@@ -86,9 +88,15 @@ resolves the same way a camera scan will.
   records a consumption against the chosen location.
 - **Serialized unit** shows where a tool is right now, with **Check out to me**
   and **Return**.
-- **Tools** (from Today or More) lists open checkouts. Return your own.
+- **Tools** (from Today or More) lists open checkouts. Scan a tool's serial to
+  return it, or a toolbox stencil to open the whole-kit transaction.
+- **Move stock** (from Today) runs Use, Transfer, and Receive with the same
+  scan-then-confirm grammar. **Stock** looks up availability from the device
+  cache when you have no signal.
 
-All four actions queue offline and replay once, the same as notes and timers.
+All of these queue offline and replay once, the same as notes and timers. The
+field flows in depth: [How to move stock and check out tools in the
+field](technician-field-ops.md).
 
 ## When something looks wrong
 

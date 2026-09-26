@@ -48,8 +48,8 @@ export function OfflineBanner() {
   if (pendingCount > 0) {
     return (
       <Banner
-        color={tokens.accentText}
-        background={tokens.accent}
+        color={tokens.warning.text}
+        background={tokens.warning.background}
         text={`Syncing ${pendingCount === 1 ? "1 change" : `${pendingCount} changes`}…`}
         badge={String(pendingCount)}
         onPress={() => router.push("/dev/queue")}

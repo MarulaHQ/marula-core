@@ -7,7 +7,7 @@
 // testable on a simulator.
 
 import { router } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Linking, StyleSheet, Text, View } from "react-native";
 
 import { useAuth } from "@/auth/auth-context";
@@ -21,6 +21,8 @@ import {
 import { MODELS, fetchUnreadCount } from "@/core/models";
 import { useConnectivity } from "@/data/connectivity";
 import { useModel, useQueue, useEngine } from "@/data/sync-context";
+import { liveTimerActivity } from "@/live/activity";
+import { useLiveTimerEnabled } from "@/live/live-pref";
 import { registerForPush, type PushState } from "@/push/push";
 import {
   Button,
@@ -45,6 +47,12 @@ export default function MoreScreen() {
   const unread = useModel(MODELS.unreadCount, fetchUnreadCount, { maxAgeMs: 60_000 });
   const [push, setPush] = useState<PushState | null>(null);
   const [pushBusy, setPushBusy] = useState(false);
+  const [liveEnabled, setLiveEnabled] = useLiveTimerEnabled();
+  const [liveSupported, setLiveSupported] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    void liveTimerActivity.isSupported().then(setLiveSupported);
+  }, []);
 
   return (
     <Screen testID="more-screen">
@@ -185,6 +193,35 @@ export default function MoreScreen() {
             }}
           />
         </View>
+      </Card>
+
+      <SectionHeader title="Field" />
+      <Card>
+        <View style={styles.rowBetween}>
+          <View style={styles.rowText}>
+            <Text style={[styles.rowLabel, { color: tokens.text }]}>
+              Live timer on the lock screen
+            </Text>
+            <Text style={[styles.rowHint, { color: tokens.textMuted }]}>
+              {liveSupported === null
+                ? "Checking this build…"
+                : liveSupported
+                  ? "Mirrors the running job timer so the phone, the lock screen, and the desk all show one clock."
+                  : "This build has no live-timer module — the in-app timer bar still works."}
+            </Text>
+          </View>
+          <Toggle
+            value={liveEnabled}
+            onValueChange={setLiveEnabled}
+            disabled={liveSupported !== true}
+            label="Live timer"
+          />
+        </View>
+        <ListRow
+          title="Live timer status"
+          subtitle="Support, push-token leg, and a manual start/stop"
+          onPress={() => router.push("/dev/live")}
+        />
       </Card>
 
       {DEV_TOOLS_ENABLED ? <SectionHeader title="Dev tools" /> : null}

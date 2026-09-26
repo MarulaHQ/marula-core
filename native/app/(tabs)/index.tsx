@@ -16,6 +16,7 @@ import { useCallback, useMemo, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import { useAuth } from "@/auth/auth-context";
+import { DayPackCard } from "@/fieldops/day-pack-card";
 import {
   MODELS,
   ON_CALL_WINDOW_DAYS,
@@ -245,10 +246,14 @@ export default function TodayScreen() {
     <>
       <View style={styles.actionGrid}>
         <Action label="Scan" icon="scan-outline" href="/scan" />
-        <Action label="Board" icon="grid-outline" href="/board" />
+        <Action label="Move stock" icon="swap-horizontal-outline" href="/move" />
         <Action label="Tools" icon="construct-outline" href="/tools" />
+        <Action label="Stock" icon="cube-outline" href="/stock" />
+        <Action label="Board" icon="grid-outline" href="/board" />
         <Action label="Inbox" icon="notifications-outline" href="/notifications" />
       </View>
+
+      <DayPackCard />
 
       <SectionHeader title="My work" />
       {work.status === "error" && work.data === undefined ? (

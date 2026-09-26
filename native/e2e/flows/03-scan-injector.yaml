@@ -8,7 +8,7 @@ appId: tech.meridian.app
     visible:
       id: "today-screen"
     timeout: 20000
-- tapOn: "Scan"
+- tapOn: "Scan, tab.*"
 - tapOn:
     id: "scan-input"
 - inputText: "NOPE-NOPE-000"
@@ -20,6 +20,12 @@ appId: tech.meridian.app
     timeout: 10000
 - assertVisible: "No match"
 - openLink: "meridian://scan-result?text=NOPE-NOPE-000"
+# iOS asks once before handing a custom-scheme link to the app.
+- runFlow:
+    when:
+      visible: "Open"
+    commands:
+      - tapOn: "Open"
 - extendedWaitUntil:
     visible:
       id: "scan-result-screen"
