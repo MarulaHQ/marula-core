@@ -38,7 +38,7 @@ import {
   SectionHeader,
   SuccessNote,
 } from "@/ui/primitives";
-import { accentPair, shape, type, useTheme } from "@/ui/tokens";
+import { infoPair, shape, type, useTheme } from "@/ui/tokens";
 
 export default function ToolKitScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -171,7 +171,7 @@ export default function ToolKitScreen() {
           {kit.data?.kit.code != null ? (
             <Pill pair={tokens.neutral} label={String(kit.data.kit.code)} />
           ) : null}
-          <Pill pair={accentPair(tokens)} label="TOOLBOX" />
+          <Pill pair={infoPair(tokens)} label="TOOLBOX" />
           {ready ? <Pill pair={tokens.success} label="READY" /> : null}
           {openCheckout !== undefined ? (
             <Pill
@@ -201,7 +201,7 @@ export default function ToolKitScreen() {
                 style={[
                   styles.locationChip,
                   {
-                    backgroundColor: selected ? tokens.accent : tokens.surfaceHover,
+                    backgroundColor: tokens.surfaceHover,
                     borderColor: selected ? tokens.primary : tokens.border,
                   },
                 ]}

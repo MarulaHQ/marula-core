@@ -42,7 +42,7 @@ import {
   SectionHeader,
   SuccessNote,
 } from "@/ui/primitives";
-import { accentPair, shape, type, useTheme } from "@/ui/tokens";
+import { infoPair, shape, type, useTheme } from "@/ui/tokens";
 
 type MoveMode = "consume" | "transfer" | "receive";
 
@@ -357,7 +357,7 @@ export function MovementScreen() {
       {ticketParam !== null && (mode === "consume" || mode === "receive") ? (
         <Card>
           <View style={styles.anchorRow}>
-            <Pill pair={accentPair(tokens)} label={mode === "receive" ? "ARRIVING FOR" : "CHARGED TO"} />
+            <Pill pair={infoPair(tokens)} label={mode === "receive" ? "ARRIVING FOR" : "CHARGED TO"} />
             <Text style={[styles.anchorText, { color: tokens.text }]} numberOfLines={1}>
               {ticket.data !== undefined
                 ? `${ticket.data.number} · ${ticket.data.title}`

@@ -82,7 +82,9 @@ export const darkTokens: ThemeTokens = {
   success: { text: "#4ADE80", background: "#14532D" },
   warning: { text: "#FBBF24", background: "#78350F" },
   danger: { text: "#F87171", background: "#7F1D1D" },
-  neutral: { text: "#A3A3A3", background: "#2A303E" },
+  // One step above the card surface so the pill shape survives in dark
+  // (vision review finding 9).
+  neutral: { text: "#B4BAC6", background: "#333B4E" },
 };
 
 /** Shape + type scale, identical in both modes (not theme-restylable). */
@@ -106,8 +108,12 @@ export const type = {
 } as const;
 
 /** The accent role as a pill pair (status pills use the §3.3 pairs). */
-export function accentPair(tokens: ThemeTokens): StatusPair {
-  return { text: tokens.accentText, background: tokens.accent };
+/** Informational pill pair: entity kinds, possession, and context labels.
+ * Neutral on purpose — Ember is interactive-only and the status palette is
+ * green/amber/red, so a blue family would be a second accent (vision review
+ * finding 2, 2026-09-26). Selection is shown with a ring, never a fill. */
+export function infoPair(tokens: ThemeTokens): StatusPair {
+  return tokens.neutral;
 }
 
 export const motion = {

@@ -38,7 +38,7 @@ import {
   Pill,
   SectionHeader,
 } from "@/ui/primitives";
-import { accentPair, shape, type, useTheme, type StatusPair } from "@/ui/tokens";
+import { infoPair, shape, type, useTheme, type StatusPair } from "@/ui/tokens";
 
 type NoteKind = "internal" | "client_visible" | "in_house_update";
 
@@ -242,9 +242,12 @@ export function TicketDetail({ id }: { id: string }) {
                     />
                     <Mono muted>{formatTime(movement.created_at)}</Mono>
                   </View>
-                  <Text style={[styles.markerName, { color: tokens.text }]} numberOfLines={1}>
-                    {itemName}
-                  </Text>
+                  <View style={styles.markerLine}>
+                    <Text style={[styles.markerName, { color: tokens.text }]} numberOfLines={1}>
+                      {itemName}
+                    </Text>
+                    <Mono>×{formatQty(movement.qty_milli)}</Mono>
+                  </View>
                   {shipped ? (
                     <Mono muted>
                       {[movement.carrier, movement.tracking_ref]
@@ -373,8 +376,13 @@ function priorityPair(
   return tokens.neutral;
 }
 
+/** Movement quantities are milli-units; the field reads whole/loose units. */
+function formatQty(qtyMilli: number): string {
+  return (qtyMilli / 1000).toLocaleString(undefined, { maximumFractionDigits: 3 });
+}
+
 function noteKindPair(tokens: ReturnType<typeof useTheme>["tokens"], kind: string): StatusPair {
-  if (kind === "client_visible") return accentPair(tokens);
+  if (kind === "client_visible") return infoPair(tokens);
   if (kind === "in_house_update") return tokens.warning;
   return tokens.neutral;
 }
@@ -469,7 +477,14 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 8,
   },
+  markerLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
   markerName: {
+    flex: 1,
     fontFamily: type.sansMedium,
     fontSize: 14,
   },

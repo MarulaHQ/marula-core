@@ -26,7 +26,7 @@ import {
 import { CameraScanner } from "@/scan/camera-scanner";
 import { scanRejected, scanStaged } from "@/ui/haptics";
 import { Button, Card, ErrorNote, Field, Mono, Pill } from "@/ui/primitives";
-import { accentPair, type, useTheme } from "@/ui/tokens";
+import { infoPair, type, useTheme } from "@/ui/tokens";
 
 export interface ScanStationProps {
   /** Surface key in SURFACE_ACCEPTS — decides which kinds are usable here. */
@@ -131,7 +131,7 @@ export function ScanStation({
         >
           <View style={styles.stagedBody}>
             <View style={styles.stagedHeader}>
-              <Pill pair={accentPair(tokens)} label={kindLabel(staged.kind).toUpperCase()} />
+              <Pill pair={infoPair(tokens)} label={kindLabel(staged.kind).toUpperCase()} />
               {staged.is_tool ? <Pill pair={tokens.neutral} label="TOOL" /> : null}
             </View>
             <Text style={[styles.stagedTitle, { color: tokens.text }]} numberOfLines={2}>

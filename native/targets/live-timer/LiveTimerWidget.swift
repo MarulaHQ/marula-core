@@ -38,7 +38,11 @@ struct LiveTimerWidget: Widget {
                     }
                 }
             } compactLeading: {
-                Image(systemName: iconName(context.state))
+                // The compact slot cannot hold the glyph and the "what" at
+                // once; the short ticket id answers "what is being timed"
+                // (vision review finding 12).
+                Text(shortTicket(context.state.ticketNumber))
+                    .font(.caption2.weight(.semibold))
                     .foregroundStyle(meridianPrimary)
             } compactTrailing: {
                 ElapsedText(state: context.state)
@@ -115,4 +119,12 @@ private struct ElapsedText: View {
 
 private func iconName(_ state: TimerActivityAttributes.ContentState) -> String {
     state.state == "running" ? "timer" : "pause.fill"
+}
+
+/// Compact-island hint: the last four characters of the ticket number
+/// (e.g. DEMO1034 -> 1034).
+private func shortTicket(_ ticketNumber: String) -> String {
+    let trimmed = ticketNumber.trimmingCharacters(in: .whitespaces)
+    if trimmed.isEmpty { return "—" }
+    return String(trimmed.suffix(4))
 }

@@ -10,7 +10,15 @@ import type { MeridianClient } from "@meridian/sdk";
 
 import type { ScanResolution } from "@/core/models";
 import { accepts, pickCandidate, scanRoute } from "@/core/scan";
-import { checkinTools, consumeStock, receiveStock, transferStock } from "@/core/writes";
+import {
+  checkinTools,
+  consumeStock,
+  localDateString,
+  receiveStock,
+  tickDayPack,
+  transferStock,
+  untickDayPack,
+} from "@/core/writes";
 
 const base = { idempotencyKey: "idem-1" };
 
@@ -169,5 +177,50 @@ describe("mobile field surface vocabulary", () => {
     expect(picked.stock_item_id).toBe("b");
     expect(picked.display_name).toBe("Cable 2 m");
     expect(picked.candidates).toEqual([]);
+  });
+});
+
+describe("day pack ticks", () => {
+  it("keys the tick to the local date, never UTC", () => {
+    // 2026-09-26T00:30 local: UTC would already be the day before.
+    expect(localDateString(new Date(2026, 8, 26, 0, 30))).toBe("2026-09-26");
+    expect(localDateString(new Date(2026, 0, 1, 23, 59))).toBe("2026-01-01");
+  });
+
+  it("builds the tick body with the plan-note key and the ticket anchor", () => {
+    const body = tickDayPack.build(
+      { lineKey: "pick:abc", ticketId: "ticket-1", note: "grabbed at the crib" },
+      base,
+    );
+    expect(body).toMatchObject({
+      line_key: "pick:abc",
+      ticket_id: "ticket-1",
+      note: "grabbed at the crib",
+      idempotency_key: "idem-1",
+    });
+    expect(body.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(tickDayPack.method).toBe("POST");
+    expect(tickDayPack.path(undefined as never)).toBe("/api/v1/day-pack/ticks");
+  });
+
+  it("deletes a tick with the date + line key query", async () => {
+    const built = untickDayPack.build({ lineKey: "rule:k1:t9", date: "2026-09-26" }, base);
+    expect(untickDayPack.method).toBe("DELETE");
+    const captured: { path: string; opts: unknown }[] = [];
+    const client = {
+      api: {
+        DELETE: (path: string, opts: unknown) => {
+          captured.push({ path, opts });
+          return Promise.resolve({
+            data: { mutation: { version: 1 }, tick: null },
+            response: new Response(null, { status: 200 }),
+          });
+        },
+      },
+    } as unknown as MeridianClient;
+    await untickDayPack.send(client, built);
+    expect(captured[0]?.path).toBe("/api/v1/day-pack/ticks");
+    const opts = captured[0]?.opts as { params: { query: { date: string; line_key: string } } };
+    expect(opts.params.query).toEqual({ date: "2026-09-26", line_key: "rule:k1:t9" });
   });
 });

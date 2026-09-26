@@ -40,6 +40,13 @@ export type AppointmentRow =
   DispatchDay["technicians"][number]["appointments"][number];
 export type ScanResolution = Ok<paths["/api/v1/scan/resolve"]["post"]>;
 
+/** Wave 32 lane 8 day pack (Wave 33 lane 2 mirrors it on the phone). */
+export type DayPack = Ok<paths["/api/v1/day-pack"]["get"]>;
+export type DayPackTrip = DayPack["trips"][number];
+export type DayPackLine = DayPackTrip["lines"][number];
+export type DayPackKit = DayPackTrip["kits"][number];
+export type DayPackTick = NonNullable<DayPackLine["tick"]>;
+
 /** Wave 33 lane 2 field-ops reads (all public contract surfaces). */
 export type StockLocationRow = Ok<paths["/api/v1/stock-locations"]["get"]>[number];
 export type ToolAvailabilityRow = Ok<paths["/api/v1/tools/availability"]["get"]>[number];
@@ -63,6 +70,7 @@ export const MODELS = {
   stockLocations: "stock.locations",
   toolsAvailability: (itemId?: string) =>
     itemId !== undefined ? `tools.availability:${itemId}` : "tools.availability",
+  dayPack: () => "day-pack:today",
   kits: "tools.kits",
   kit: (id: string) => `tools.kit:${id}`,
   kitAvailability: (id: string, locationId?: string) =>
@@ -222,6 +230,12 @@ export async function fetchToolsAvailability(
       },
     }),
   );
+}
+
+/** The caller's day pack. No date means today in the user's timezone, which
+ * is exactly the phone's question; the cache key stays stable. */
+export async function fetchDayPack(client: MeridianClient): Promise<DayPack> {
+  return unwrap(await client.api.GET("/api/v1/day-pack", { params: { query: {} } }));
 }
 
 export async function fetchToolKits(client: MeridianClient): Promise<ToolKit[]> {

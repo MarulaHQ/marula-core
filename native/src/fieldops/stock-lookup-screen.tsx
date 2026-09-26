@@ -140,7 +140,7 @@ export function StockLookupScreen() {
               ))
             )}
           </View>
-          {availability.length > 0 ? (
+          {availability.length > 0 && !availabilityDuplicatesStock(stock, availability) ? (
             <View style={styles.toolRow}>
               <Ionicons name="construct-outline" size={14} color={tokens.textMuted} />
               <Mono muted>
@@ -162,6 +162,17 @@ export function StockLookupScreen() {
       ))}
     </Screen>
   );
+}
+
+/** One location row plus one availability row with the same count say the
+ * same thing twice; the location row wins (vision review finding 6 sibling). */
+function availabilityDuplicatesStock(stock: OnHandRow[], availability: ToolAvailabilityRow[]): boolean {
+  if (stock.length !== 1 || availability.length !== 1) return false;
+  const row = stock[0];
+  const tool = availability[0];
+  if (row === undefined || tool === undefined) return false;
+  if (tool.location_name != null && tool.location_name !== row.location_name) return false;
+  return Math.round(row.qty_milli / 1000) === tool.available_units;
 }
 
 function formatQty(qtyMilli: number): string {

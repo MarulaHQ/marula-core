@@ -23,7 +23,7 @@ import {
   Pill,
   Screen,
 } from "@/ui/primitives";
-import { accentPair, type, useTheme } from "@/ui/tokens";
+import { infoPair, type, useTheme } from "@/ui/tokens";
 
 export default function NotificationsRoute() {
   const { tokens } = useTheme();
@@ -109,7 +109,7 @@ function NotificationRow({
         >
           {notification.title}
         </Text>
-        {unread ? <Pill pair={accentPair(tokens)} label="NEW" /> : null}
+        {unread ? <Pill pair={infoPair(tokens)} label="NEW" /> : null}
       </View>
       {notification.body !== "" ? (
         <Text style={[styles.rowBody, { color: tokens.textSecondary }]} numberOfLines={3}>

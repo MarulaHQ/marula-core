@@ -198,6 +198,45 @@ async function ensureToolSerials(itemId, locationId, serial) {
   return received;
 }
 
+
+/** A day-pack line the phone can tick: one appointment today + one pick for
+ * the demo's own ticket. Idempotent — an existing pick for the same item on
+ * that ticket is left alone, and a taken slot is tolerated. */
+async function ensureDayPackFixture(itemId) {
+  const myWork = await api("GET", "/tickets/my-work");
+  const ticket = myWork[0];
+  if (ticket === undefined || ticket.id === undefined) return null;
+  const picks = await api("GET", `/day-pack/picks?ticket_id=${ticket.id}`);
+  const existing = picks.find((row) => row.pick?.stock_item_id === itemId);
+  if (existing === undefined) {
+    await api("POST", "/day-pack/picks", {
+      ticket_id: ticket.id,
+      stock_item_id: itemId,
+      qty_milli: 2000,
+      note: "E2E mobile pack",
+      idempotency_key: key(),
+    });
+  }
+  // A late local slot keeps the fixture away from the demo's own stops.
+  const now = new Date();
+  const startsAt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 21, 0, 0);
+  const endsAt = new Date(startsAt.getTime() + 60 * 60 * 1000);
+  try {
+    await api("POST", "/appointments", {
+      title: "E2E mobile pack stop",
+      ticket_id: ticket.id,
+      kind: "on_site",
+      starts_at: startsAt.toISOString(),
+      ends_at: endsAt.toISOString(),
+      idempotency_key: key(),
+    });
+  } catch (error) {
+    // 409 means a previous run already holds the slot; the pack still reads.
+    if (!String(error.message).includes("409")) throw error;
+  }
+  return ticket.id;
+}
+
 async function main() {
   console.log(`[seed-fieldops] API ${base}`);
   await login();
@@ -211,6 +250,7 @@ async function main() {
   await ensureKitMember(kit.id, tool.id);
   await returnOpenCheckouts();
   await stopActiveTimer();
+  const packTicketId = await ensureDayPackFixture(consumable.id);
   console.log(
     JSON.stringify(
       {
@@ -222,6 +262,7 @@ async function main() {
         toolSerial: FIXTURES.tool.serial,
         kit: FIXTURES.kit.code,
         consumableOnHandMilli: onHand,
+        packTicketId,
       },
       null,
       2,

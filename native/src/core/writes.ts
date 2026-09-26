@@ -11,7 +11,7 @@
 
 import type { MeridianClient } from "@meridian/sdk";
 
-import { MODELS, type TicketComment } from "./models";
+import { MODELS, type DayPack, type DayPackTick, type TicketComment } from "./models";
 import type { OpMethod } from "./queue";
 import type { TransportResult } from "./http";
 import type { ReadCache } from "./cache";
@@ -430,6 +430,137 @@ export const receiveStock: WriteOperation<ReceiveStockArgs, ReceiveStockBody> = 
   versionOf: (data) => mutationVersion(data),
 };
 
+
+/** The local calendar date `YYYY-MM-DD` — the day pack's tick key is a local
+ * date, not a UTC instant. */
+export function localDateString(now: Date = new Date()): string {
+  const month = `${now.getMonth() + 1}`.padStart(2, "0");
+  const day = `${now.getDate()}`.padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+export interface TickDayPackArgs {
+  lineKey: string;
+  date?: string;
+  ticketId?: string;
+  note?: string;
+}
+
+export type TickDayPackBody = {
+  line_key: string;
+  date: string;
+  ticket_id?: string;
+  note?: string;
+  idempotency_key: string;
+};
+
+function patchDayPackTick(
+  cache: ReadCache,
+  lineKey: string,
+  tick: DayPackTick | null,
+): void {
+  void cache.patch<DayPack>(MODELS.dayPack(), (current) => {
+    if (current === undefined) return current as unknown as DayPack;
+    const patchLine = <T extends { line_key: string; tick?: DayPackTick | null }>(line: T): T =>
+      line.line_key === lineKey ? { ...line, tick } : line;
+    return {
+      ...current,
+      trips: current.trips.map((trip) => ({
+        ...trip,
+        lines: trip.lines.map(patchLine),
+        kits: trip.kits.map(patchLine),
+      })),
+    };
+  });
+}
+
+/** Tick a pack line. The tick is a plan note — it never touches the movement
+ * ledger (Wave 32 lane 8's rule); the phone's Today list mirrors that. */
+export const tickDayPack: WriteOperation<TickDayPackArgs, TickDayPackBody> = {
+  kind: "daypack.tick",
+  label: () => "Tick the grab list",
+  entityKey: (args) => `daypack:${args.lineKey}`,
+  method: "POST",
+  path: () => "/api/v1/day-pack/ticks",
+  invalidate: (args) => [
+    MODELS.dayPack(),
+    ...(args.ticketId !== undefined ? [MODELS.ticket(args.ticketId)] : []),
+  ],
+  build: (args, base) => ({
+    line_key: args.lineKey,
+    date: args.date ?? localDateString(),
+    ...(args.ticketId !== undefined ? { ticket_id: args.ticketId } : {}),
+    ...(args.note !== undefined ? { note: args.note } : {}),
+    idempotency_key: base.idempotencyKey,
+  }),
+  send: (client, body) =>
+    client.api.POST("/api/v1/day-pack/ticks", {
+      body: {
+        line_key: body.line_key,
+        date: body.date,
+        ticket_id: body.ticket_id ?? null,
+        note: body.note ?? null,
+        idempotency_key: body.idempotency_key,
+      },
+    }),
+  optimistic: async (args, base, ctx) => {
+    patchDayPackTick(ctx.cache, args.lineKey, {
+      line_key: args.lineKey,
+      ticked_at: ctx.now().toISOString(),
+      ...(args.note !== undefined ? { note: args.note } : {}),
+    });
+    void base;
+  },
+  revert: async (args, _base, ctx) => {
+    patchDayPackTick(ctx.cache, args.lineKey, null);
+  },
+  apply: async (data, args, _base, ctx) => {
+    const tick = (data as { tick?: DayPackTick } | undefined)?.tick;
+    patchDayPackTick(ctx.cache, args.lineKey, tick ?? null);
+  },
+};
+
+export interface UntickDayPackArgs {
+  lineKey: string;
+  date?: string;
+  ticketId?: string;
+}
+
+export type UntickDayPackBody = {
+  line_key: string;
+  date: string;
+};
+
+/** Un-tick: the plan note the tick wrote goes away; the ledger never had it. */
+export const untickDayPack: WriteOperation<UntickDayPackArgs, UntickDayPackBody> = {
+  kind: "daypack.untick",
+  label: () => "Un-tick the grab list",
+  entityKey: (args) => `daypack:${args.lineKey}`,
+  method: "DELETE",
+  path: () => "/api/v1/day-pack/ticks",
+  invalidate: (args) => [
+    MODELS.dayPack(),
+    ...(args.ticketId !== undefined ? [MODELS.ticket(args.ticketId)] : []),
+  ],
+  build: (args) => ({
+    line_key: args.lineKey,
+    date: args.date ?? localDateString(),
+  }),
+  send: (client, body) =>
+    client.api.DELETE("/api/v1/day-pack/ticks", {
+      params: { query: { date: body.date, line_key: body.line_key } },
+    }),
+  optimistic: async (args, _base, ctx) => {
+    patchDayPackTick(ctx.cache, args.lineKey, null);
+  },
+  revert: async (args, _base, ctx) => {
+    patchDayPackTick(ctx.cache, args.lineKey, {
+      line_key: args.lineKey,
+      ticked_at: ctx.now().toISOString(),
+    });
+  },
+};
+
 export interface CreateCheckoutArgs {
   holderUserId: string;
   fromLocationId: string;
@@ -594,6 +725,8 @@ export const WRITE_OPERATIONS = {
   [pauseTimer.kind]: pauseTimer,
   [resumeTimer.kind]: resumeTimer,
   [consumeStock.kind]: consumeStock,
+  [tickDayPack.kind]: tickDayPack,
+  [untickDayPack.kind]: untickDayPack,
   [transferStock.kind]: transferStock,
   [receiveStock.kind]: receiveStock,
   [checkoutTools.kind]: checkoutTools,

@@ -28,8 +28,10 @@ export const SURFACE_ACCEPTS: Record<string, ScanKind[]> = {
   receiving: ["stock_item", "serialized_unit", "stock_location"],
   "stock-locations": ["stock_item", "stock_location"],
   // Wave 32 lane 6 added `dispatch` on web; the parity test catches a mobile
-  // table that missed it.
+  // table that missed it. Lane 8 added `toolboxes` for the toolbox
+  // configuration surface.
   dispatch: ["stock_item", "serialized_unit"],
+  toolboxes: ["tool_kit"],
   tools: ["serialized_unit"],
   assets: ["device_asset"],
   /** The mobile Scan tab accepts everything and routes by kind. */

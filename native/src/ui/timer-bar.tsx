@@ -93,6 +93,7 @@ export function TimerBar() {
       {live.supported && live.enabled && live.activeSessionId !== null ? (
         <View
           testID="timer-live"
+          accessibilityLabel="Timer mirrored to the lock screen"
           style={[styles.live, { borderColor: tokens.border }]}
         >
           <Text style={[styles.liveText, { color: tokens.textMuted }]}>LIVE</Text>

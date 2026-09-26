@@ -16,7 +16,7 @@ import {
   Screen,
   SectionHeader,
 } from "@/ui/primitives";
-import { accentPair, type, useTheme } from "@/ui/tokens";
+import { infoPair, type, useTheme } from "@/ui/tokens";
 
 export default function AssetScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -61,7 +61,7 @@ export default function AssetScreen() {
             <Pill pair={tokens.neutral} label={String(asset.data.status).toUpperCase()} />
           ) : null}
           {asset.data?.kind != null ? (
-            <Pill pair={accentPair(tokens)} label={String(asset.data.kind).toUpperCase()} />
+            <Pill pair={infoPair(tokens)} label={String(asset.data.kind).toUpperCase()} />
           ) : null}
         </View>
       </View>

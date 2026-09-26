@@ -9,6 +9,7 @@
 // Non-purpose: no side effects. A scan opens or stages; it never moves stock.
 
 import Ionicons from "@expo/vector-icons/Ionicons";
+import * as Device from "expo-device";
 import { useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
@@ -110,6 +111,7 @@ export default function ScanScreen() {
       <Card>
         <Button
           label="Open the camera"
+          variant="secondary"
           testID="scan-camera"
           fullWidth
           onPress={() => setCameraOpen(true)}
@@ -117,8 +119,9 @@ export default function ScanScreen() {
         <View style={styles.cameraRow}>
           <Ionicons name="camera-outline" size={22} color={tokens.textMuted} />
           <Text style={[styles.cameraText, { color: tokens.textMuted }]}>
-            On a phone the camera decodes the label and resolves it here. The simulator has no
-            lens — type or paste the code above instead; every scan path behaves the same.
+            {Device.isDevice
+              ? "The camera decodes the label and resolves it here."
+              : "The simulator has no lens — type or paste the code above instead. Every scan path behaves the same."}
           </Text>
         </View>
       </Card>

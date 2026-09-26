@@ -34,7 +34,7 @@ import {
   SectionHeader,
   SuccessNote,
 } from "@/ui/primitives";
-import { accentPair, type, useTheme } from "@/ui/tokens";
+import { infoPair, type, useTheme } from "@/ui/tokens";
 import { commitConfirmed } from "@/ui/haptics";
 
 export default function ToolsScreen() {
@@ -151,7 +151,11 @@ export default function ToolsScreen() {
         <View style={styles.header}>
           <Text style={[styles.title, { color: tokens.text }]}>Tools</Text>
           <Text style={[styles.subtitle, { color: tokens.textMuted }]}>
-            {rows.length === 0 ? "Nothing is checked out." : `${rows.length} open checkouts`}
+            {rows.length === 0
+              ? "Nothing is checked out."
+              : rows.length === 1
+                ? "1 open checkout"
+                : `${rows.length} open checkouts`}
           </Text>
         </View>
         {banner !== null ? (
@@ -191,7 +195,7 @@ export default function ToolsScreen() {
                     : `${row.lines.length} tools`}
                 </Text>
                 {row.checkout.overdue ? <Pill pair={tokens.danger} label="OVERDUE" /> : null}
-                {mine ? <Pill pair={accentPair(tokens)} label="YOURS" /> : null}
+                {mine ? <Pill pair={infoPair(tokens)} label="YOURS" /> : null}
               </View>
               <Mono muted>Due {due.toLocaleString()}</Mono>
               {row.lines.slice(0, 4).map((line) => (
@@ -224,7 +228,6 @@ export default function ToolsScreen() {
             </Card>
           );
         })}
-        <Button label="Back" variant="ghost" fullWidth onPress={() => router.back()} />
       </Screen>
     </RequireAuth>
   );

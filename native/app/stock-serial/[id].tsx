@@ -25,7 +25,7 @@ import {
   Screen,
   SectionHeader,
 } from "@/ui/primitives";
-import { accentPair, type, useTheme } from "@/ui/tokens";
+import { infoPair, type, useTheme } from "@/ui/tokens";
 
 export default function StockSerialScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -96,7 +96,7 @@ export default function StockSerialScreen() {
             pair={row.status === "in_stock" ? tokens.success : tokens.warning}
             label={String(row.status).replace(/_/g, " ").toUpperCase()}
           />
-          {row.is_tool ? <Pill pair={accentPair(tokens)} label="TOOL" /> : null}
+          {row.is_tool ? <Pill pair={infoPair(tokens)} label="TOOL" /> : null}
           {row.overdue ? <Pill pair={tokens.danger} label="OVERDUE" /> : null}
         </View>
       </View>

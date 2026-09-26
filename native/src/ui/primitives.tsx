@@ -45,6 +45,7 @@ export function Screen({
   const { tokens } = useTheme();
   const insets = useSafeAreaInsets();
   const shellHandlesTop = useContext(ShellTopContext);
+  const topInset = shellHandlesTop ? 0 : insets.top;
   const body = (
     <View
       testID={testID}
@@ -53,11 +54,10 @@ export function Screen({
         {
           backgroundColor: tokens.background,
           padding: padded ? shape.screenPadding : 0,
-          // Headers are off in both navigators, so every screen owns its own
-          // safe area: without the top inset a heading (and a back control)
-          // draws under the status bar and the Dynamic Island. The tab shell
-          // says when it already cleared that band with its own chrome.
-          paddingTop: (shellHandlesTop ? 0 : insets.top) + (padded ? shape.screenPadding : 0),
+          // The safe-area band is owned by the container below, not by this
+          // scrolling body: a top padding inside the scroll view slides away
+          // and lets scrolled content cross the status bar.
+          paddingTop: padded ? shape.screenPadding : 0,
           paddingBottom: insets.bottom + shape.screenPadding,
         },
       ]}
@@ -65,10 +65,16 @@ export function Screen({
       {children}
     </View>
   );
-  if (!scroll) return body;
+  if (!scroll) {
+    return (
+      <View style={{ flex: 1, paddingTop: topInset, backgroundColor: tokens.background }}>
+        {body}
+      </View>
+    );
+  }
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: tokens.background }}
+      style={{ flex: 1, backgroundColor: tokens.background, paddingTop: topInset }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={insets.top}
     >

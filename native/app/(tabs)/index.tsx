@@ -11,6 +11,7 @@ import { useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import { useAuth } from "@/auth/auth-context";
+import { DayPackCard } from "@/fieldops/day-pack-card";
 import {
   MODELS,
   fetchDispatchDay,
@@ -114,6 +115,8 @@ export default function TodayScreen() {
         <Action label="Board" icon="grid-outline" href="/board" />
         <Action label="Inbox" icon="notifications-outline" href="/notifications" />
       </View>
+
+      <DayPackCard />
 
       <SectionHeader title="My work" />
       {work.status === "error" && work.data === undefined ? (
