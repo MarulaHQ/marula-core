@@ -75,3 +75,5 @@ Audience tag: **both** (admin hands them the start; steps are client-side).
 - [Portal client-side tasks](client-portal-tasks.md): the four portal
   sections (Requests, Invoices, Knowledge, Schedule) from the client's
   side
+- [Approve or decline a quote](client-quote-approval.md): reading the
+  quote document and recording the decision before it expires

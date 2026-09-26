@@ -426,6 +426,19 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/portal/appointment-requests/{id}/cancel"),
             post(portal_v2::cancel_appointment_request),
         )
+        // Portal quotes (Wave 34 lane 1): scoped list/detail + the
+        // client's approve/decline legs, bound to the SAME quote
+        // lifecycle the staff flow runs; conversion stays staff-side.
+        .route(&rp("/portal/quotes"), get(portal_v2::list_quotes))
+        .route(&rp("/portal/quotes/{id}"), get(portal_v2::get_quote))
+        .route(
+            &rp("/portal/quotes/{id}/approve"),
+            post(portal_v2::approve_quote),
+        )
+        .route(
+            &rp("/portal/quotes/{id}/decline"),
+            post(portal_v2::decline_quote),
+        )
         // Stamps org_id onto the current request span (telemetry) once the
         // portal auth middleware below has resolved it.
         .layer(middleware::from_fn(crate::otel_http::record_org))

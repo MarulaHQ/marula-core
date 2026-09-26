@@ -470,6 +470,12 @@
           "audience": "both",
           "updated": "2026-09-22",
           "title": "How to use the portal (client-side tasks)"
+        },
+        {
+          "path": "how-to/client-quote-approval",
+          "audience": "both",
+          "updated": "2026-09-26",
+          "title": "How to approve or decline a quote"
         }
       ]
     },

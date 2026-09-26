@@ -51,6 +51,12 @@ function NavLinkIcon({ name, size = 14 }: { name: string; size?: number }) {
       <path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1-2-1Z" />
       <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" />
     </svg>
+  ) : name === "FileText" ? (
+    <svg {...common}>
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+      <path d="M14 2v6h6" />
+      <path d="M16 13H8M16 17H8M10 9H8" />
+    </svg>
   ) : name === "BookOpen" ? (
     <svg {...common}>
       <path d="M12 7v14" />
@@ -66,6 +72,7 @@ function NavLinkIcon({ name, size = 14 }: { name: string; size?: number }) {
 
 const PORTAL_SECTIONS = [
   { href: "/portal/tickets", label: "Requests", icon: "PaperPlaneTilt" },
+  { href: "/portal/quotes", label: "Quotes", icon: "FileText" },
   { href: "/portal/invoices", label: "Invoices", icon: "Receipt" },
   { href: "/portal/kb", label: "Knowledge", icon: "BookOpen" },
   { href: "/portal/schedule", label: "Schedule", icon: "CalendarBlank" },

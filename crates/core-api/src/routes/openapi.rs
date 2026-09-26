@@ -676,6 +676,10 @@ use utoipa::OpenApi;
         crate::routes::portal_v2::list_appointment_requests,
         crate::routes::portal_v2::create_appointment_request,
         crate::routes::portal_v2::cancel_appointment_request,
+        crate::routes::portal_v2::list_quotes,
+        crate::routes::portal_v2::get_quote,
+        crate::routes::portal_v2::approve_quote,
+        crate::routes::portal_v2::decline_quote,
         // staff-side appointment-request decisions (Portal v2)
         crate::routes::appointment_requests::list,
         crate::routes::appointment_requests::approve,
@@ -1727,6 +1731,11 @@ use utoipa::OpenApi;
         // portal v2 (TASKLIST Phase 3): invoices, KB, appointment requests
         crate::routes::portal_v2::PortalInvoice,
         crate::routes::portal_v2::PortalInvoiceDetail,
+        crate::routes::portal_v2::PortalQuote,
+        crate::routes::portal_v2::PortalQuoteLine,
+        crate::routes::portal_v2::PortalQuoteDetail,
+        crate::routes::portal_v2::PortalQuoteDecisionRequest,
+        crate::routes::portal_v2::PortalQuoteDecisionResponse,
         crate::routes::portal_v2::PortalPaymentView,
         crate::routes::portal_v2::PortalPayRequest,
         crate::routes::portal_v2::PortalPayResponse,

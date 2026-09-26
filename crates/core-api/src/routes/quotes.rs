@@ -880,7 +880,7 @@ async fn lifecycle(
 }
 
 /// Emits the typed lifecycle event for the reached state.
-async fn emit_lifecycle_event<'a>(
+pub(crate) async fn emit_lifecycle_event<'a>(
     ctx: &mut crate::org_tx::OrgTx<'a>,
     to: QuoteStatus,
     after: &Quote,

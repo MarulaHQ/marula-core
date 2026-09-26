@@ -1265,3 +1265,363 @@ pub(crate) async fn ensure_slot_available(
     }
     Ok(())
 }
+
+// --- quotes (Wave 34 lane 1: portal quote approval) ----------------------------
+
+/// The client-facing quote view. Deliberately NOT the staff entity: the
+/// creator provenance and conversion seam ids stay staff-internal — the
+/// portal sees the document, its validity, and its lifecycle state.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PortalQuote {
+    #[schema(value_type = uuid::Uuid)]
+    pub id: Uuid,
+    pub number: String,
+    /// `sent | accepted | declined | expired` (drafts are staff-internal).
+    pub status: String,
+    pub currency: String,
+    #[schema(value_type = String, format = "date")]
+    pub issued_on: chrono::NaiveDate,
+    /// Last day the quote can be accepted; shown honestly on the portal.
+    #[schema(value_type = String, format = "date")]
+    pub valid_until: chrono::NaiveDate,
+    pub notes: Option<String>,
+    pub terms: Option<String>,
+    pub subtotal_minor: i64,
+    pub tax_rate_bps: i32,
+    pub tax_minor: i64,
+    pub total_minor: i64,
+    #[schema(value_type = Option<String>, format = "date-time")]
+    pub sent_at: Option<DateTime<Utc>>,
+    #[schema(value_type = Option<String>, format = "date-time")]
+    pub decided_at: Option<DateTime<Utc>>,
+    #[schema(value_type = String, format = "date-time")]
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<core_domain::entities::Quote> for PortalQuote {
+    fn from(q: core_domain::entities::Quote) -> Self {
+        Self {
+            id: q.id,
+            number: q.number,
+            status: q.status.as_str().to_string(),
+            currency: q.currency,
+            issued_on: q.issued_on,
+            valid_until: q.valid_until,
+            notes: q.notes,
+            terms: q.terms,
+            subtotal_minor: q.subtotal_minor,
+            tax_rate_bps: q.tax_rate_bps,
+            tax_minor: q.tax_minor,
+            total_minor: q.total_minor,
+            sent_at: q.sent_at,
+            decided_at: q.decided_at,
+            created_at: q.created_at,
+        }
+    }
+}
+
+/// A client-facing quote line: description/qty/price/amount only.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PortalQuoteLine {
+    pub description: String,
+    pub unit: String,
+    /// Quantity in thousandths of a unit (1.5 = 1500).
+    pub quantity_milli: i64,
+    pub unit_amount_minor: i64,
+    pub taxable: bool,
+    pub amount_minor: i64,
+    pub position: i32,
+}
+
+impl From<core_domain::entities::QuoteLine> for PortalQuoteLine {
+    fn from(l: core_domain::entities::QuoteLine) -> Self {
+        Self {
+            description: l.description,
+            unit: l.unit,
+            quantity_milli: l.quantity_milli,
+            unit_amount_minor: l.unit_amount_minor,
+            taxable: l.taxable,
+            amount_minor: l.amount_minor,
+            position: l.position,
+        }
+    }
+}
+
+/// The quote aggregate as the portal sees it: document + lines.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PortalQuoteDetail {
+    #[serde(flatten)]
+    pub quote: PortalQuote,
+    pub lines: Vec<PortalQuoteLine>,
+}
+
+/// A quote decision body (approve/decline): envelope params only; the
+/// target status is the URL. The SAME instant-first envelope the staff
+/// lifecycle legs use.
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct PortalQuoteDecisionRequest {
+    /// Optional reason, recorded in the audit trail (decline-with-reason).
+    pub reason: Option<String>,
+    #[serde(flatten, default)]
+    pub instant: instant::MutationParams,
+}
+
+/// Instant-first mutation response (IF2) for a portal quote decision.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct PortalQuoteDecisionResponse {
+    #[serde(flatten)]
+    pub quote: PortalQuote,
+    pub mutation: instant::MutationMeta,
+}
+
+// The stored decision payload is the FLATTENED PortalQuote (the
+// response minus mutation metadata): the mutation metadata merges into
+// the same JSON object on record, so a replay deserializes straight
+// into the flattened response type.
+
+/// GET /api/portal/quotes — the caller's client's quotes (non-draft
+/// only), newest first.
+#[utoipa::path(operation_id = "portal_list_quotes", get, path = "/api/portal/quotes", tag = "portal",
+    security(("bearer" = [])),
+    responses((status = 200, body = [PortalQuote])))]
+pub async fn list_quotes(
+    State(state): State<AppState>,
+    extensions: Extensions,
+) -> ApiResult<Json<Vec<PortalQuote>>> {
+    let authed = portal_authed(&extensions)?;
+    check_portal(authed.user.role, PortalAction::ViewQuotes)
+        .expect()
+        .map_err(ApiError::Forbidden)?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, authed.user.org_id, authed.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let quotes = core_db::quotes::list_client_quotes(
+        &mut *tx,
+        authed.user.org_id,
+        authed.user.client_id,
+        200,
+    )
+    .await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(quotes.into_iter().map(Into::into).collect()))
+}
+
+/// GET /api/portal/quotes/{id} — one quote of the caller's client with
+/// its lines. A foreign quote or a draft is a bare 404 (no existence
+/// leak).
+#[utoipa::path(operation_id = "portal_get_quote", get, path = "/api/portal/quotes/{id}", tag = "portal",
+    security(("bearer" = [])), params(("id" = Uuid, Path)),
+    responses((status = 200, body = PortalQuoteDetail),
+              (status = 404, description = "quote not visible to this client")))]
+pub async fn get_quote(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<PortalQuoteDetail>> {
+    let authed = portal_authed(&extensions)?;
+    check_portal(authed.user.role, PortalAction::ViewQuotes)
+        .expect()
+        .map_err(ApiError::Forbidden)?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, authed.user.org_id, authed.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let quote = core_db::quotes::get_client_quote(
+        &mut *tx,
+        authed.user.org_id,
+        authed.user.client_id,
+        id,
+    )
+    .await?;
+    let lines = core_db::quotes::list_lines(&mut *tx, authed.user.org_id, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(PortalQuoteDetail {
+        quote: quote.into(),
+        lines: lines.into_iter().map(Into::into).collect(),
+    }))
+}
+
+/// The shared portal decision engine. Binds the SAME lifecycle legs as
+/// the staff quote flow (`routes::quotes::lifecycle`): the SAME domain
+/// transition guard (`QuoteStatus::transition`), the SAME guarded SQL
+/// move (`core_db::quotes::transition_status`), the SAME typed events,
+/// instant-first envelope — the only differences are the portal
+/// principal, the client-scoped load, and the portal actor provenance.
+/// The conversion-to-invoice seam stays a staff action; an accepted
+/// quote simply becomes convertible by the provider.
+#[allow(clippy::too_many_arguments)]
+async fn portal_quote_decision(
+    state: AppState,
+    extensions: Extensions,
+    id: Uuid,
+    req: PortalQuoteDecisionRequest,
+    op: &'static str,
+    to: core_domain::entities::QuoteStatus,
+) -> ApiResult<Json<PortalQuoteDecisionResponse>> {
+    let authed = portal_authed(&extensions)?;
+    check_portal(authed.user.role, PortalAction::DecideQuotes)
+        .expect()
+        .map_err(ApiError::Forbidden)?;
+    let org_id = authed.user.org_id;
+    let client_id = authed.user.client_id;
+    let actor_kind = authed.user.role.actor_kind();
+    let action_label = format!("portal.quote_{op}");
+    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    let key = req.instant.idempotency_key.clone();
+
+    let outcome = org_tx::with_org_tx(&state, org_id, authed.user.id, |mut ctx| async move {
+        if let InstantClaim::Replay(stored) = instant::claim(
+            &mut ctx,
+            instant::ClaimSpec {
+                entity: "quote",
+                entity_id: Some(id),
+                key: key.as_deref(),
+                fingerprint: &fingerprint,
+            },
+        )
+        .await?
+        {
+            return Ok((ctx, MutationOutcome::Replayed(stored)));
+        }
+        // Client-scoped read INSIDE the mutation: a foreign or draft
+        // quote is an rls_sparse, never an existence hint.
+        let before = core_db::quotes::get_client_quote(&mut *ctx.tx, org_id, client_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        // The SAME domain guard the staff legs run.
+        core_domain::entities::QuoteStatus::transition(
+            core_domain::entities::QuoteStatus::Sent,
+            to,
+        )
+        .map_err(ApiError::from)?;
+        let after = core_db::quotes::transition_status(
+            &mut *ctx.tx,
+            org_id,
+            id,
+            core_domain::entities::QuoteStatus::Sent.as_str(),
+            to.as_str(),
+            false,
+            true,
+        )
+        .await?
+        .ok_or_else(|| {
+            ApiError::Conflict(format!(
+                "quote left its {} state; retry",
+                core_domain::entities::QuoteStatus::Sent.as_str()
+            ))
+        })?;
+        let write_seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: "quote",
+                entity_id: id,
+                version: req.instant.version,
+            },
+        )
+        .await?;
+        // The SAME typed event emission the staff legs run.
+        crate::routes::quotes::emit_lifecycle_event(&mut ctx, to, &after).await?;
+        core_db::audit::insert(
+            &mut *ctx.tx,
+            &core_domain::entities::AuditEvent {
+                id: Uuid::now_v7(),
+                org_id,
+                actor: portal_actor(authed.user.role, authed.user.id),
+                action: action_label,
+                entity_type: Some("quote".into()),
+                entity_id: Some(id.to_string()),
+                detail: serde_json::json!({
+                    "number": after.number,
+                    "status": after.status.as_str(),
+                    "reason": req.reason,
+                }),
+                ip: None,
+                occurred_at: chrono::Utc::now(),
+            },
+        )
+        .await?;
+        let meta = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: "quote",
+                entity_id: id,
+                op,
+                seq: write_seq,
+                before: Some(serde_json::to_value(&before).unwrap_or(Value::Null)),
+                after: serde_json::to_value(&after).unwrap_or(Value::Null),
+                updated_at: after.updated_at,
+                key: key.as_deref(),
+                payload: &PortalQuote::from(after.clone()),
+                provenance: instant::ProvenanceContext {
+                    // Portal write: land the trail row under the caller's
+                    // portal identity kind (IF9 provenance seam).
+                    actor_kind: Some(actor_kind),
+                    ..Default::default()
+                },
+            },
+        )
+        .await?;
+        Ok((
+            ctx,
+            MutationOutcome::Applied(PortalQuoteDecisionResponse {
+                quote: after.into(),
+                mutation: meta,
+            }),
+        ))
+    })
+    .await?;
+    Ok(Json(outcome.into_response()?))
+}
+
+/// POST /api/portal/quotes/{id}/approve — the client accepts a sent
+/// quote. Same `sent → accepted` leg as the staff flow; the provider
+/// can then run the conversion-to-invoice seam.
+#[utoipa::path(operation_id = "portal_approve_quote", post, path = "/api/portal/quotes/{id}/approve", tag = "portal",
+    security(("bearer" = [])), params(("id" = Uuid, Path)), request_body = PortalQuoteDecisionRequest,
+    responses((status = 200, body = PortalQuoteDecisionResponse),
+              (status = 404, description = "quote not visible to this client"),
+              (status = 409, description = "quote not decidable, version conflict, or idempotency key reused")))]
+pub async fn approve_quote(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    axum::extract::Json(req): axum::extract::Json<PortalQuoteDecisionRequest>,
+) -> ApiResult<Json<PortalQuoteDecisionResponse>> {
+    portal_quote_decision(
+        state,
+        extensions,
+        id,
+        req,
+        "approve",
+        core_domain::entities::QuoteStatus::Accepted,
+    )
+    .await
+}
+
+/// POST /api/portal/quotes/{id}/decline — the client declines a sent
+/// quote. Same `sent → declined` leg as the staff flow; the optional
+/// reason is audit-only, never shown back as validation.
+#[utoipa::path(operation_id = "portal_decline_quote", post, path = "/api/portal/quotes/{id}/decline", tag = "portal",
+    security(("bearer" = [])), params(("id" = Uuid, Path)), request_body = PortalQuoteDecisionRequest,
+    responses((status = 200, body = PortalQuoteDecisionResponse),
+              (status = 404, description = "quote not visible to this client"),
+              (status = 409, description = "quote not decidable, version conflict, or idempotency key reused")))]
+pub async fn decline_quote(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    axum::extract::Json(req): axum::extract::Json<PortalQuoteDecisionRequest>,
+) -> ApiResult<Json<PortalQuoteDecisionResponse>> {
+    portal_quote_decision(
+        state,
+        extensions,
+        id,
+        req,
+        "decline",
+        core_domain::entities::QuoteStatus::Declined,
+    )
+    .await
+}

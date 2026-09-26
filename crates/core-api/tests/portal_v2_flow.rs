@@ -1234,3 +1234,263 @@ async fn portal_appointment_requests_create_decide_cancel() {
     .expect("outbox rows");
     assert!(!booking_events.is_empty());
 }
+
+// --- quotes: scoped view + the client's approve/decline legs (Wave 34) --------
+
+/// Portal quote approval end-to-end: scoped list/detail over the REAL
+/// router, draft invisibility, cross-client 404, the SAME sent →
+/// accepted | declined lifecycle legs as the staff flow (typed events in
+/// the outbox), IF1 replay, and the post-decision 409s.
+#[tokio::test]
+async fn portal_quotes_scoped_view_and_decide_lifecycle() {
+    let (state, app) = test_state().await;
+    let slug = format!("portal-quote-{}", Uuid::now_v7().simple());
+    let org = register_org(&app, slug).await;
+    let client_a = create_client(&app, &org, "Quote Client A").await;
+    let client_b = create_client(&app, &org, "Quote Client B").await;
+
+    // One sent quote for A, one DRAFT for A; nothing for B.
+    let create_sent = json!({
+        "client_id": client_a,
+        "currency": "USD",
+        "valid_until": tomorrow().to_string(),
+        "notes": "Discovery sprint proposal",
+        "tax_rate_bps": 800,
+        "lines": [
+            {"description": "Discovery workshop", "quantity_milli": 2000, "unit_amount_minor": 9900, "taxable": true},
+        ],
+        "idempotency_key": Uuid::now_v7().to_string(),
+    });
+    let created: Value = body_json(
+        send(&app, axum::http::Method::POST, "/api/quotes", Some(&org.token), Some(create_sent.clone())).await,
+    )
+    .await;
+    assert_eq!(created["status"], "draft");
+    assert_eq!(created["subtotal_minor"], 19800);
+    assert_eq!(created["tax_minor"], 1584);
+    assert_eq!(created["total_minor"], 21384);
+    let quote_id: Uuid = created["id"].as_str().unwrap().parse().unwrap();
+    let sent: Value = body_json(
+        send(
+            &app,
+            axum::http::Method::POST,
+            &format!("/api/quotes/{quote_id}/send"),
+            Some(&org.token),
+            Some(json!({})),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(sent["status"], "sent");
+
+    let _draft: Value = body_json(
+        send(
+            &app,
+            axum::http::Method::POST,
+            "/api/quotes",
+            Some(&org.token),
+            Some(json!({
+                "client_id": client_a,
+                "currency": "USD",
+                "valid_until": tomorrow().to_string(),
+                "lines": [{"description": "Not yet sent", "quantity_milli": 1000, "unit_amount_minor": 10000, "taxable": false}],
+                "idempotency_key": Uuid::now_v7().to_string(),
+            })),
+        )
+        .await,
+    )
+    .await;
+
+    // --- portal identities (unique emails: login resolves the org from
+    // the email alone; the suite never resets the shared schema).
+    let email_a = format!("quote-{}@a.test", Uuid::now_v7().simple());
+    let email_b = format!("quote-{}@b.test", Uuid::now_v7().simple());
+    invite_portal_user(&app, &org.token, client_a, &email_a, "contact").await;
+    invite_portal_user(&app, &org.token, client_b, &email_b, "contact").await;
+    let token_a = portal_login(&app, &email_a).await["access_token"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let token_b = portal_login(&app, &email_b).await["access_token"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Staff tokens never pass the portal gate; portal tokens never pass
+    // the staff one.
+    assert_eq!(
+        send(&app, axum::http::Method::GET, "/api/portal/quotes", Some(&org.token), None)
+            .await
+            .status(),
+        401
+    );
+    assert_eq!(
+        send(&app, axum::http::Method::GET, "/api/quotes", Some(&token_a), None)
+            .await
+            .status(),
+        401
+    );
+
+    // Scoped list: A sees exactly the sent quote (draft hidden); B sees none.
+    let list_a = body_json(
+        send(&app, axum::http::Method::GET, "/api/portal/quotes", Some(&token_a), None).await,
+    )
+    .await;
+    let rows_a = list_a.as_array().unwrap();
+    assert_eq!(rows_a.len(), 1, "drafts are staff-internal");
+    assert_eq!(rows_a[0]["status"], "sent");
+    assert_eq!(rows_a[0]["total_minor"], 21384);
+    assert!(
+        rows_a[0].get("converted_invoice_id").is_none(),
+        "conversion seam ids stay staff-internal"
+    );
+    let list_b = body_json(
+        send(&app, axum::http::Method::GET, "/api/portal/quotes", Some(&token_b), None).await,
+    )
+    .await;
+    assert!(list_b.as_array().unwrap().is_empty(), "client B sees nothing");
+
+    // Detail: lines + rollup money math visible to the scoped client.
+    let detail = body_json(
+        send(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/portal/quotes/{quote_id}"),
+            Some(&token_a),
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(detail["lines"].as_array().unwrap().len(), 1);
+    assert_eq!(detail["lines"][0]["description"], "Discovery workshop");
+
+    // Cross-client reads and decisions are bare 404s (no existence leak).
+    assert_eq!(
+        send(&app, axum::http::Method::GET, &format!("/api/portal/quotes/{quote_id}"), Some(&token_b), None)
+            .await
+            .status(),
+        404
+    );
+    assert_eq!(
+        send(
+            &app,
+            axum::http::Method::POST,
+            &format!("/api/portal/quotes/{quote_id}/approve"),
+            Some(&token_b),
+            Some(json!({})),
+        )
+        .await
+        .status(),
+        404
+    );
+
+    // B cannot see it, so B cannot break it — approve from A, with a
+    // replay under the same key.
+    let key = format!("portal-approve-{}", Uuid::now_v7().simple());
+    let approve = json!({"idempotency_key": key});
+    let approved: Value = body_json(
+        send(
+            &app,
+            axum::http::Method::POST,
+            &format!("/api/portal/quotes/{quote_id}/approve"),
+            Some(&token_a),
+            Some(approve.clone()),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(approved["status"], "accepted");
+    assert!(approved["decided_at"].is_string());
+    let replayed: Value = body_json(
+        send(
+            &app,
+            axum::http::Method::POST,
+            &format!("/api/portal/quotes/{quote_id}/approve"),
+            Some(&token_a),
+            Some(approve),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(replayed["status"], "accepted", "IF1 replay is byte-faithful");
+
+    // A decided quote is decided: the decline leg is a typed 409.
+    assert_eq!(
+        send(
+            &app,
+            axum::http::Method::POST,
+            &format!("/api/portal/quotes/{quote_id}/decline"),
+            Some(&token_a),
+            Some(json!({"reason": "too late"})),
+        )
+        .await
+        .status(),
+        409
+    );
+
+    // Decline leg on a fresh quote: sent → declined with the reason in
+    // the audit trail, same lifecycle legs.
+    let declined_quote: Value = body_json(
+        send(
+            &app,
+            axum::http::Method::POST,
+            "/api/quotes",
+            Some(&org.token),
+            Some(json!({
+                "client_id": client_a,
+                "currency": "USD",
+                "valid_until": tomorrow().to_string(),
+                "lines": [{"description": "Revision B", "quantity_milli": 1000, "unit_amount_minor": 5000, "taxable": false}],
+                "idempotency_key": Uuid::now_v7().to_string(),
+            })),
+        )
+        .await,
+    )
+    .await;
+    let declined_id: Uuid = declined_quote["id"].as_str().unwrap().parse().unwrap();
+    body_json(
+        send(
+            &app,
+            axum::http::Method::POST,
+            &format!("/api/quotes/{declined_id}/send"),
+            Some(&org.token),
+            Some(json!({})),
+        )
+        .await,
+    )
+    .await;
+    let declined: Value = body_json(
+        send(
+            &app,
+            axum::http::Method::POST,
+            &format!("/api/portal/quotes/{declined_id}/decline"),
+            Some(&token_a),
+            Some(json!({"reason": "budget cycle"})),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(declined["status"], "declined");
+    let audit_action: (String,) = sqlx::query_as(
+        "SELECT action FROM audit_events WHERE entity_id = $1 AND action = 'portal.quote_decline'",
+    )
+    .bind(declined_id.to_string())
+    .fetch_one(&state.pool)
+    .await
+    .expect("audit row");
+    assert_eq!(audit_action.0, "portal.quote_decline");
+
+    // The SAME typed lifecycle legs as the staff flow, straight from the
+    // portal actions.
+    let outbox: Vec<(String,)> = sqlx::query_as(
+        "SELECT event_type FROM outbox_events WHERE entity = 'quote' AND entity_id = ANY($1)",
+    )
+    .bind(vec![quote_id.to_string(), declined_id.to_string()])
+    .fetch_all(&state.pool)
+    .await
+    .expect("outbox rows");
+    let types: Vec<&str> = outbox.iter().map(|(t,)| t.as_str()).collect();
+    assert!(types.contains(&"quote.accepted"), "missing quote.accepted");
+    assert!(types.contains(&"quote.declined"), "missing quote.declined");
+}

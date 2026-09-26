@@ -374,3 +374,60 @@ where
         })
         .collect())
 }
+
+// --- client (portal) scope -----------------------------------------------------
+//
+// Portal-visible quotes: the caller's client's non-draft documents only.
+// A quote belonging to another client, or still in draft, is
+// indistinguishable from missing by design (no existence leak).
+
+/// All non-draft quotes of one client, newest first (portal list).
+pub async fn list_client_quotes<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    client_id: Uuid,
+    limit: i64,
+) -> DbResult<Vec<Quote>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = format!(
+        "SELECT {COLUMNS} FROM quotes
+         WHERE org_id = $1 AND client_id = $2 AND status <> 'draft'
+         ORDER BY created_at DESC, id DESC
+         LIMIT $3"
+    );
+    let rows = sqlx::query_as::<_, QuoteRow>(&sql)
+        .bind(org_id)
+        .bind(client_id)
+        .bind(limit)
+        .fetch_all(executor)
+        .await?;
+    Ok(rows.into_iter().map(quote_row).collect())
+}
+
+/// One quote under the same client-scope contract as
+/// [`list_client_quotes`]; `DbError::NotFound` when the document belongs
+/// to another client or is still a draft.
+pub async fn get_client_quote<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    client_id: Uuid,
+    quote_id: Uuid,
+) -> DbResult<Quote>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = format!(
+        "SELECT {COLUMNS} FROM quotes
+         WHERE org_id = $1 AND client_id = $2 AND id = $3 AND status <> 'draft'"
+    );
+    let row = sqlx::query_as::<_, QuoteRow>(&sql)
+        .bind(org_id)
+        .bind(client_id)
+        .bind(quote_id)
+        .fetch_optional(executor)
+        .await?
+        .ok_or(DbError::NotFound)?;
+    Ok(quote_row(row))
+}

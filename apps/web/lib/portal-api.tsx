@@ -323,6 +323,39 @@ export const portalApi = {
     );
   },
 
+  // --- portal v2 wave 34: quote approval -----------------------------------
+
+  listQuotes(): Promise<PortalQuote[]> {
+    return portalFetch<PortalQuote[]>("/api/v1/portal/quotes", {});
+  },
+
+  getQuote(id: string): Promise<PortalQuoteDetail> {
+    return portalFetch<PortalQuoteDetail>(`/api/v1/portal/quotes/${id}`, {});
+  },
+
+  /** Approve (accept) a sent quote — the same sent → accepted lifecycle
+   * leg the provider's staff flow runs. */
+  approveQuote(id: string, reason?: string): Promise<PortalQuoteDecisionResponse> {
+    return portalFetch<PortalQuoteDecisionResponse>(`/api/v1/portal/quotes/${id}/approve`, {
+      method: "POST",
+      body: JSON.stringify({
+        reason: reason ?? null,
+        idempotency_key: `portal-quote-approve-${crypto.randomUUID()}`,
+      }),
+    });
+  },
+
+  /** Decline a sent quote, optionally with a reason (audit-only). */
+  declineQuote(id: string, reason?: string): Promise<PortalQuoteDecisionResponse> {
+    return portalFetch<PortalQuoteDecisionResponse>(`/api/v1/portal/quotes/${id}/decline`, {
+      method: "POST",
+      body: JSON.stringify({
+        reason: reason ?? null,
+        idempotency_key: `portal-quote-decline-${crypto.randomUUID()}`,
+      }),
+    });
+  },
+
   /** The invoice's print-ready HTML document as a blob URL (bearer-fetched;
    * the caller opens and later revokes it). */
   async invoiceDocumentUrl(id: string): Promise<string> {
@@ -495,3 +528,41 @@ export function useRequirePortalAuth(): void {
     if (status === "anonymous") router.replace("/portal/login");
   }, [status, router]);
 }
+
+/** The client-facing quote row (sent | accepted | declined | expired;
+ * drafts never leave the staff surface). */
+export interface PortalQuote {
+  id: string;
+  number: string;
+  status: "sent" | "accepted" | "declined" | "expired";
+  currency: string;
+  issued_on: string;
+  valid_until: string;
+  notes: string | null;
+  terms: string | null;
+  subtotal_minor: number;
+  tax_rate_bps: number;
+  tax_minor: number;
+  total_minor: number;
+  sent_at: string | null;
+  decided_at: string | null;
+  created_at: string;
+}
+
+export interface PortalQuoteLine {
+  description: string;
+  unit: string;
+  quantity_milli: number;
+  unit_amount_minor: number;
+  taxable: boolean;
+  amount_minor: number;
+  position: number;
+}
+
+export interface PortalQuoteDetail extends PortalQuote {
+  lines: PortalQuoteLine[];
+}
+
+/** Decision response: the refreshed quote (flattened) plus instant-first
+ * mutation metadata the portal ignores. */
+export type PortalQuoteDecisionResponse = PortalQuote & { mutation?: unknown };

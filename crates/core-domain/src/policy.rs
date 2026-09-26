@@ -657,6 +657,14 @@ pub enum PortalAction {
     /// cancel own pending requests (Portal v2). Staff approve/decline is
     /// a STAFF action outside this matrix.
     RequestAppointment,
+    /// List/read the caller's client's quotes (Portal v2 / Wave 34).
+    /// Drafts stay staff-internal; the query layer hides them.
+    ViewQuotes,
+    /// Approve (accept) or decline a SENT quote of the caller's own
+    /// client. Binds the SAME lifecycle legs as the staff quote flow —
+    /// sent → accepted | declined — via the same transition guard; the
+    /// conversion-to-invoice seam stays a staff action.
+    DecideQuotes,
 }
 
 impl PortalAction {
@@ -670,11 +678,13 @@ impl PortalAction {
             PortalAction::PayInvoice => "pay_invoice",
             PortalAction::ViewKb => "view_kb",
             PortalAction::RequestAppointment => "request_appointment",
+            PortalAction::ViewQuotes => "view_quotes",
+            PortalAction::DecideQuotes => "decide_quotes",
         }
     }
 
     /// Every portal capability, stable order for the registry.
-    pub const ALL: [PortalAction; 7] = [
+    pub const ALL: [PortalAction; 9] = [
         PortalAction::ViewTickets,
         PortalAction::PostReply,
         PortalAction::ViewInHouseUpdates,
@@ -682,6 +692,8 @@ impl PortalAction {
         PortalAction::PayInvoice,
         PortalAction::ViewKb,
         PortalAction::RequestAppointment,
+        PortalAction::ViewQuotes,
+        PortalAction::DecideQuotes,
     ];
 }
 
@@ -697,7 +709,9 @@ pub const fn portal_tier_allows(role: crate::entities::PortalRole, action: Porta
         | PortalAction::ViewInvoices
         | PortalAction::PayInvoice
         | PortalAction::ViewKb
-        | PortalAction::RequestAppointment => true,
+        | PortalAction::RequestAppointment
+        | PortalAction::ViewQuotes
+        | PortalAction::DecideQuotes => true,
         PortalAction::ViewInHouseUpdates => matches!(role, PortalRole::ItManager),
     }
 }
