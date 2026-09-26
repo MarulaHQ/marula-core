@@ -477,7 +477,7 @@ function LocationChips({
             style={[
               styles.locationChip,
               {
-                backgroundColor: selected ? tokens.accent : tokens.surfaceHover,
+                backgroundColor: tokens.surfaceHover,
                 borderColor: selected ? tokens.primary : tokens.border,
                 opacity: excluded ? 0.4 : 1,
               },
@@ -486,7 +486,7 @@ function LocationChips({
             <Text
               style={[
                 styles.locationChipText,
-                { color: selected ? tokens.accentText : tokens.text },
+                { color: tokens.text },
               ]}
             >
               {location.name}

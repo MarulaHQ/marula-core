@@ -209,7 +209,7 @@ export default function ToolKitScreen() {
                 <Text
                   style={[
                     styles.locationChipText,
-                    { color: selected ? tokens.accentText : tokens.text },
+                    { color: tokens.text },
                   ]}
                 >
                   {location.name}

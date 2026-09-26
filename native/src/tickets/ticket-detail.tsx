@@ -246,7 +246,7 @@ export function TicketDetail({ id }: { id: string }) {
                     <Text style={[styles.markerName, { color: tokens.text }]} numberOfLines={1}>
                       {itemName}
                     </Text>
-                    <Mono>×{formatQty(movement.qty_milli)}</Mono>
+                    <Mono>×{formatQty(Math.abs(movement.qty_milli))}</Mono>
                   </View>
                   {shipped ? (
                     <Mono muted>
@@ -316,7 +316,7 @@ export function TicketDetail({ id }: { id: string }) {
                 style={[
                   styles.kindChip,
                   {
-                    backgroundColor: selected ? tokens.accent : tokens.surfaceHover,
+                    backgroundColor: tokens.surfaceHover,
                     borderColor: selected ? tokens.primary : tokens.border,
                   },
                 ]}
@@ -324,7 +324,7 @@ export function TicketDetail({ id }: { id: string }) {
                 <Text
                   style={[
                     styles.kindChipText,
-                    { color: selected ? tokens.accentText : tokens.textSecondary },
+                    { color: selected ? tokens.text : tokens.textSecondary },
                   ]}
                 >
                   {option.label}
