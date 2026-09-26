@@ -1,0 +1,89 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ss.stock_item_id, ss.id AS serial_id, ss.status::text AS \"status!\",\n                  ss.location_id AS \"location_id?\", sl.name AS \"location_name?\",\n                  sl.kind AS \"location_kind?\", sl.assigned_user_id AS \"assigned_user_id?\",\n                  oc.holder_user_id AS \"holder_user_id?\", u.display_name AS \"holder_name?\",\n                  oc.due_at AS \"due_at?\",\n                  c.name AS \"loan_client_name?\", cl.expected_return_at AS \"expected_return_at?\"\n           FROM stock_serials ss\n           LEFT JOIN stock_locations sl ON sl.id = ss.location_id\n           LEFT JOIN tool_checkout_lines ocl\n             ON ocl.serial_id = ss.id AND ocl.org_id = ss.org_id AND ocl.returned_at IS NULL\n           LEFT JOIN tool_checkouts oc ON oc.id = ocl.checkout_id\n           LEFT JOIN users u ON u.id = oc.holder_user_id\n           LEFT JOIN client_loan_lines ll\n             ON ll.serial_id = ss.id AND ll.org_id = ss.org_id AND ll.returned_at IS NULL\n           LEFT JOIN client_loans cl ON cl.id = ll.loan_id\n           LEFT JOIN clients c ON c.id = cl.client_id\n           WHERE ss.org_id = $1 AND ss.stock_item_id = ANY($2)\n           ORDER BY ss.stock_item_id, ss.serial_number",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "stock_item_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "serial_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "status!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "location_id?",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "location_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "location_kind?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "assigned_user_id?",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 7,
+        "name": "holder_user_id?",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 8,
+        "name": "holder_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "due_at?",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "loan_client_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "expected_return_at?",
+        "type_info": "Date"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "2b571f0fe1032d6be2ec982a8e4daad90a67a0cedfcbb86798ded83135f37539"
+}

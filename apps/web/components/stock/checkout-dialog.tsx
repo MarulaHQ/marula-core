@@ -69,6 +69,10 @@ export interface CheckoutDialogProps {
   initialSerialId?: string;
   /** Display label for a seeded serial that is not in the loaded options. */
   initialSerialLabel?: string;
+  /** Seed the kit path (the day pack's one-tap kit checkout). */
+  initialKitId?: string;
+  /** Seed the location the tools leave from (van vs shelf). */
+  initialLocationId?: string;
 }
 
 export function CheckoutDialog({
@@ -83,6 +87,8 @@ export function CheckoutDialog({
   initialItemId,
   initialSerialId,
   initialSerialLabel,
+  initialKitId,
+  initialLocationId,
 }: CheckoutDialogProps): ReactNode {
   const toolItems = items.filter((item) => item.is_tool && item.active);
   const [holderId, setHolderId] = useState("");
@@ -102,9 +108,9 @@ export function CheckoutDialog({
     if (!open) return;
     const seeded = initialItemId !== undefined && initialItemId !== "";
     setHolderId(defaultHolderId);
-    setFromLocationId("");
+    setFromLocationId(initialLocationId ?? "");
     setDueDate(dateInputValue(1));
-    setKitId("");
+    setKitId(initialKitId ?? "");
     setRows([
       {
         key: 1,
@@ -142,7 +148,15 @@ export function CheckoutDialog({
         setSerialOptions({ 1: merged });
       })();
     }
-  }, [open, defaultHolderId, initialItemId, initialSerialId, initialSerialLabel]);
+  }, [
+    open,
+    defaultHolderId,
+    initialItemId,
+    initialSerialId,
+    initialSerialLabel,
+    initialKitId,
+    initialLocationId,
+  ]);
 
   // Kit readiness at the chosen location — the pre-write check (F).
   useEffect(() => {

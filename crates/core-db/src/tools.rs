@@ -149,31 +149,6 @@ pub async fn get_kit(conn: &mut sqlx::PgConnection, org_id: Uuid, id: Uuid) -> D
     Ok(kit_row(row))
 }
 
-/// Toolbox stencil lookup for the scan resolver (Wave 33 lane 2): the kit's
-/// human short code, matched case-insensitively and org-scoped. Read-only;
-/// the scan resolver owns the precedence rules.
-pub async fn find_kits_by_code(
-    conn: &mut sqlx::PgConnection,
-    org_id: Uuid,
-    code: &str,
-    limit: i64,
-) -> DbResult<Vec<ToolKit>> {
-    let rows = sqlx::query_as!(
-        KitRow,
-        r#"SELECT id, org_id, name, code, note, active, created_by, created_at, updated_at
-           FROM tool_kits
-           WHERE org_id = $1 AND code IS NOT NULL AND lower(code) = lower($2)
-           ORDER BY name
-           LIMIT $3"#,
-        org_id,
-        code,
-        limit,
-    )
-    .fetch_all(&mut *conn)
-    .await?;
-    Ok(rows.into_iter().map(kit_row).collect())
-}
-
 pub async fn list_kits(
     conn: &mut sqlx::PgConnection,
     org_id: Uuid,
@@ -1145,6 +1120,43 @@ pub async fn tool_availability(
             checked_out_units: r.checked_out_units,
             loaned_units: r.loaned_units,
             out_units: r.out_units,
+        })
+        .collect())
+}
+
+/// Kits whose short code matches exactly (case-insensitive). Scan resolution
+/// keeps the same no-guess rule as every other kind: one hit resolves,
+/// several return candidates.
+pub struct KitCodeRow {
+    pub id: Uuid,
+    pub name: String,
+    pub code: Option<String>,
+}
+
+pub async fn find_kits_by_code(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    code: &str,
+    limit: i64,
+) -> DbResult<Vec<KitCodeRow>> {
+    let rows = sqlx::query!(
+        r#"SELECT id, name, code
+           FROM tool_kits
+           WHERE org_id = $1 AND active AND code IS NOT NULL AND lower(code) = lower($2)
+           ORDER BY name
+           LIMIT $3"#,
+        org_id,
+        code,
+        limit,
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| KitCodeRow {
+            id: r.id,
+            name: r.name,
+            code: r.code,
         })
         .collect())
 }

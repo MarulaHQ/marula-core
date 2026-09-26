@@ -64,6 +64,13 @@ import { WbAgentPanel } from "../../../components/workbench-v2/agent-panel";
 import { DecisionSuggestionsCard } from "../../../components/workbench-v2/decision-card";
 import { WbComposer } from "../../../components/workbench-v2/composer";
 import { MovementDialog, type MovementKind } from "../../../components/stock/movement-dialog";
+import { PickDialog } from "../../../components/stock/pick-dialog";
+import {
+  fetchTicketPicks,
+  qtyText,
+  unpinItem,
+  type TicketPickRow,
+} from "../../../lib/day-pack";
 import { LabelPrintButton } from "../../../components/labels/label-print-button";
 import { formatQtyMilli } from "../../../lib/stock-format";
 import { WrapUpSheet } from "../../../components/workbench-v2/wrap-up-sheet";
@@ -291,6 +298,13 @@ export default function TicketWorkbenchPage() {
     return () => window.removeEventListener("resize", update);
   }, []);
 
+  // Day-pack pins for this ticket (best-effort; the strip hides on a
+  // refused read and the pin action still writes).
+  useEffect(() => {
+    if (ticket !== null) void loadPicks(ticket.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ticket?.id]);
+
   // Tabs + writes.
   const [activeTab, setActiveTab] = useState<WbTab>("activity");
   const [commentBusy, setCommentBusy] = useState(false);
@@ -305,6 +319,8 @@ export default function TicketWorkbenchPage() {
   const { active: activeTimer, refresh: refreshTimers } = useTimer();
   const [takeItBusy, setTakeItBusy] = useState(false);
   const [partsOpen, setPartsOpen] = useState(false);
+  const [pinOpen, setPinOpen] = useState(false);
+  const [picks, setPicks] = useState<TicketPickRow[]>([]);
   const [partsReload, setPartsReload] = useState(0);
   const [partsReceipt, setPartsReceipt] = useState<PartsReceipt | null>(null);
   const [partsItems, setPartsItems] = useState<components["schemas"]["StockItemView"][]>([]);
@@ -409,21 +425,50 @@ async function changeStatus(statusId: string): Promise<void> {
   // the workflow allows it, open the timer, then drop the eye on the
   // Activity composer. Each write is a real API call; any typed rejection
   // rolls back that step and surfaces the copy, later steps still settle.
+  async function ensurePartsData(): Promise<boolean> {
+    if (partsItems.length > 0 && partsLocations.length > 0) return true;
+    const [itemsRes, locationsRes] = await Promise.all([
+      api.api.GET("/api/v1/stock-items", { params: { query: { limit: 500 } } }),
+      api.api.GET("/api/v1/stock-locations", { params: { query: {} } }),
+    ]);
+    if (itemsRes.data === undefined) {
+      setError("Could not load stock items for the parts flow.");
+      return false;
+    }
+    setPartsItems((itemsRes.data ?? []).filter((i) => i.active));
+    setPartsLocations(locationsRes.data ?? []);
+    return true;
+  }
+
   async function openParts(): Promise<void> {
     setError(null);
-    if (partsItems.length === 0 || partsLocations.length === 0) {
-      const [itemsRes, locationsRes] = await Promise.all([
-        api.api.GET("/api/v1/stock-items", { params: { query: { limit: 500 } } }),
-        api.api.GET("/api/v1/stock-locations", { params: { query: {} } }),
-      ]);
-      if (itemsRes.data === undefined) {
-        setError("Could not load stock items for the parts flow.");
-        return;
-      }
-      setPartsItems((itemsRes.data ?? []).filter((i) => i.active));
-      setPartsLocations(locationsRes.data ?? []);
-    }
+    if (!(await ensurePartsData())) return;
     setPartsOpen(true);
+  }
+
+  /** Day-pack pinning: intent only, the ledger does not move here. */
+  async function openPin(): Promise<void> {
+    setError(null);
+    if (!(await ensurePartsData())) return;
+    setPinOpen(true);
+  }
+
+  async function loadPicks(ticketId: string): Promise<void> {
+    try {
+      setPicks(await fetchTicketPicks(ticketId));
+    } catch {
+      // A pins read failure never blocks the workbench; the strip stays
+      // hidden and the action still writes.
+    }
+  }
+
+  async function removePick(pickId: string): Promise<void> {
+    const failure = await unpinItem(pickId);
+    if (failure !== null) {
+      setError(failure);
+      return;
+    }
+    if (ticket !== null) void loadPicks(ticket.id);
   }
 
   async function takeIt(): Promise<void> {
@@ -908,6 +953,21 @@ async function changeStatus(statusId: string): Promise<void> {
               >
                 {iconOnlyActions ? "◫" : "Parts & shipping"}
               </button>
+              <button
+                type="button"
+                data-testid="wb-pin-day-pack"
+                disabled={isMerged}
+                className="flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 leading-none text-[12px] font-semibold disabled:cursor-not-allowed"
+                style={{
+                  borderColor: "var(--m-border)",
+                  background: "var(--m-surface)",
+                  color: isMerged ? "var(--m-text-muted)" : "var(--m-text-secondary)",
+                }}
+                title="Pin a tool or consumable to this ticket's day pack (intent only — the ledger does not move)"
+                onClick={() => void openPin()}
+              >
+                {iconOnlyActions ? "⊕" : "Pin to day pack"}
+              </button>
               <Link
                 href={`/tickets/classic/${ticket.id}`}
                 data-testid="wb-open-classic"
@@ -985,6 +1045,37 @@ async function changeStatus(statusId: string): Promise<void> {
               </button>
             </div>
           </div>
+
+          {picks.length > 0 && (
+            <div
+              data-testid="wb-day-pack-pins"
+              className="flex flex-wrap items-center gap-1.5 text-[11px]"
+              style={{ color: "var(--m-text-muted)" }}
+            >
+              <span className="font-semibold uppercase tracking-wide text-[10px]">Day pack</span>
+              {picks.map((pick) => (
+                <span
+                  key={pick.id}
+                  className="inline-flex items-center gap-1 rounded-[3px] border px-1.5 py-0.5"
+                  style={{ borderColor: "var(--m-border)", color: "var(--m-text-secondary)" }}
+                >
+                  <span className="font-mono tabular-nums">{qtyText(pick.qty_milli)}×</span>
+                  <span>{pick.item_name ?? "Item"}</span>
+                  {pick.is_tool && <span className="text-[10px]">tool</span>}
+                  <button
+                    type="button"
+                    aria-label={`Unpin ${pick.item_name ?? "item"}`}
+                    data-testid="wb-day-pack-unpin"
+                    className="cursor-pointer"
+                    style={{ color: "var(--m-text-muted)" }}
+                    onClick={() => void removePick(pick.id)}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
 
           <h1
             className="mb-0 mt-2.5 text-[22px] font-bold leading-tight tracking-[-0.03em]"
@@ -1382,6 +1473,20 @@ async function changeStatus(statusId: string): Promise<void> {
           onRecorded={(movement, recordedKind) => {
             setPartsReceipt({ kind: recordedKind ?? "consume", movement });
             setPartsReload((n) => n + 1);
+          }}
+        />
+      )}
+
+      {ticket !== null && (
+        <PickDialog
+          open={pinOpen}
+          onOpenChange={setPinOpen}
+          ticketId={ticket.id}
+          ticketLabel={`${ticket.number} · ${ticket.title}`}
+          items={partsItems}
+          onPinned={() => {
+            setPinOpen(false);
+            void loadPicks(ticket.id);
           }}
         />
       )}

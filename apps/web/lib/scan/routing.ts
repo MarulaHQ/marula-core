@@ -28,6 +28,7 @@ export const SURFACE_ACCEPTS: Record<string, ScanKind[]> = {
   dispatch: ["stock_item", "serialized_unit"],
   tools: ["serialized_unit"],
   assets: ["device_asset"],
+  toolboxes: ["tool_kit"],
 };
 
 export const KIND_LABELS: Record<string, string> = {
@@ -70,7 +71,7 @@ export function scanDetail(resolution: ScanResolution): string {
 /** Why a scan was not used here — a sentence, never a shrug. */
 export function rejectionCopy(surface: string, resolution: ScanResolution): string {
   if (resolution.kind === "unknown") {
-    return `Nothing matches “${resolution.input}”. Charge the scan bar with a label, a SKU, a serial, a location code, an asset tag, or a toolbox code.`;
+    return `Nothing matches “${resolution.input}”. Charge the scan bar with a label, a SKU, a serial, a location code, a toolbox code, or an asset tag.`;
   }
   const candidates = resolution.candidates ?? [];
   if (candidates.length > 0) {

@@ -8,8 +8,14 @@
         {
           "path": "how-to/technician-field-ops",
           "audience": "both",
-          "updated": "2026-09-25",
+          "updated": "2026-09-26",
           "title": "How to move stock and check out tools in the field"
+        },
+        {
+          "path": "how-to/staff-day-pack",
+          "audience": "both",
+          "updated": "2026-09-25",
+          "title": "How to work a day pack"
         },
         {
           "path": "tutorials/first-ticket",
@@ -112,7 +118,7 @@
         {
           "path": "how-to/technician-field-ops",
           "audience": "both",
-          "updated": "2026-09-25",
+          "updated": "2026-09-26",
           "title": "How to move stock and check out tools in the field"
         },
         {
@@ -486,6 +492,22 @@
           "audience": "both",
           "updated": "2026-09-24",
           "title": "How to scan barcodes and QR codes"
+        }
+      ]
+    },
+    "settings-toolboxes": {
+      "docs": [
+        {
+          "path": "how-to/admin-toolboxes",
+          "audience": "admin",
+          "updated": "2026-09-25",
+          "title": "How to set up toolboxes and dispatch defaults"
+        },
+        {
+          "path": "how-to/staff-day-pack",
+          "audience": "both",
+          "updated": "2026-09-25",
+          "title": "How to work a day pack"
         }
       ]
     }

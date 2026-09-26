@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO day_pack_ticks\n             (id, org_id, user_id, day, line_key, ticket_id, note, created_by)\n           VALUES ($1, $2, $3, $4, $5, $6, $7, $3)\n           ON CONFLICT (org_id, user_id, day, line_key)\n           DO UPDATE SET note = EXCLUDED.note, ticket_id = EXCLUDED.ticket_id\n           RETURNING id, created_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Date",
+        "Text",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "ee2b5295fa20c75ea8a35c1b7427974d1aa4de385fcebf4ccd5e8b02d30ad5c8"
+}

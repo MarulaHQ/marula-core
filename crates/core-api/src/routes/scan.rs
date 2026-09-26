@@ -7,12 +7,12 @@
 //!
 //!   1. A canonical deep link (`meridian://stock-item/<uuid>`,
 //!      `meridian://stock-location/<uuid>`, `meridian://stock-serial/<uuid>`,
-//!      `meridian://device-asset/<uuid>`, `meridian://tool-kit/<uuid>` —
-//!      what printed labels encode) resolves directly by id.
+//!      `meridian://device-asset/<uuid>` — what printed labels encode)
+//!      resolves directly by id.
 //!   2. Otherwise the string is treated as a human/Code128 code and matched,
 //!      case-insensitively and org-scoped, in this FIXED priority order:
 //!      serial number → stock item SKU or part number → location code →
-//!      device asset tag → toolbox code. The first kind with a hit wins.
+//!      device asset tag. The first kind with a hit wins.
 //!   3. More than one row of the winning kind comes back as `candidates` —
 //!      the surface asks the user to pick. A scan never guesses between two
 //!      physical items.
@@ -69,7 +69,7 @@ pub struct ScanCandidateView {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ScanResolutionView {
     pub input: String,
-    /// "stock_item" | "serialized_unit" | "stock_location" | "device_asset" | "tool_kit" | "unknown"
+    /// "stock_item" | "serialized_unit" | "stock_location" | "device_asset" | "unknown"
     pub kind: String,
     #[schema(value_type = Option<uuid::Uuid>)]
     pub entity_id: Option<Uuid>,
@@ -244,8 +244,6 @@ async fn resolve_by_id(
             out.deep_link = Some(deep_link("device_asset", asset.id));
         }
         "tool_kit" => {
-            // The toolbox stencil: one scan resolves the kit so a surface can
-            // check the whole kit out (or back in) as one transaction.
             let Ok(kit) = core_db::tools::get_kit(&mut *conn, org_id, id).await else {
                 return Ok(out);
             };
@@ -415,10 +413,9 @@ async fn resolve_by_code(
         return Ok(out);
     }
 
-    // 5. Toolbox code (`tool_kits.code`, Wave 33 lane 2). Deliberately the
-    //    LAST step: a code that already means a serial, SKU, location, or
-    //    asset tag never changes meaning, so the new kind is additive.
-    let kits = core_db::tools::find_kits_by_code(&mut *conn, org_id, text, CANDIDATE_LIMIT).await?;
+    // 5. Toolbox short code (the Code128 band on a toolbox tag).
+    let kits =
+        core_db::tools::find_kits_by_code(&mut *conn, org_id, text, CANDIDATE_LIMIT).await?;
     if kits.len() == 1 {
         let kit = &kits[0];
         return Ok(ScanResolutionView {
