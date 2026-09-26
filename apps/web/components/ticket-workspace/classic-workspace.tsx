@@ -709,6 +709,7 @@ export function TicketWorkspaceClassic(): ReactNode {
     <div className="grid content-start gap-3 p-3">
       <NotesComposer
         busy={commentDraftsBusy}
+        ticketId={ticketId}
         onPost={async (body, kind, attachmentIds) => {
           setCommentDraftsBusy(true);
           try {

@@ -15,6 +15,7 @@ import { Button, Input, Label, StatusTag, Textarea } from "@meridian/ui";
 import { useState, type ReactNode } from "react";
 
 import { PaperclipIcon } from "./icons";
+import { SnippetPicker } from "./snippet-picker";
 
 export type NoteKindWire = "internal" | "client_visible" | "in_house_update";
 
@@ -26,11 +27,13 @@ const KINDS: { value: NoteKindWire; label: string; tone: "neutral" | "success" |
 
 export interface NotesComposerProps {
   busy: boolean;
+  /** The ticket snippets render against (enables the snippet picker). */
+  ticketId?: string;
   onPost(body: string, kind: NoteKindWire, attachmentIds: string[]): Promise<void>;
   onUpload(file: File): Promise<string>;
 }
 
-export function NotesComposer({ busy, onPost, onUpload }: NotesComposerProps): ReactNode {
+export function NotesComposer({ busy, ticketId, onPost, onUpload }: NotesComposerProps): ReactNode {
   const [draft, setDraft] = useState("");
   const [kind, setKind] = useState<NoteKindWire>("internal");
   const [staged, setStaged] = useState<File[]>([]);
@@ -102,6 +105,13 @@ export function NotesComposer({ busy, onPost, onUpload }: NotesComposerProps): R
             </button>
           ))}
         </div>
+        {ticketId !== undefined && (
+          <SnippetPicker
+            ticketId={ticketId}
+            testPrefix="notes-snippet-picker"
+            onInsert={(body) => setDraft((prev) => (prev.trim() === "" ? body : `${prev}\n${body}`))}
+          />
+        )}
         <label
           className="flex cursor-pointer items-center gap-1 rounded-[var(--m-radius-container)] border px-2 py-1 text-xs"
           style={{ borderColor: "var(--m-border)", color: "var(--m-text-muted)" }}

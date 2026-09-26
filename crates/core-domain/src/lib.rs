@@ -25,6 +25,7 @@ pub mod money;
 pub mod notes;
 pub mod notifications;
 pub mod policy;
+pub mod reply_snippets;
 pub mod routing;
 pub mod scheduling;
 pub mod search;

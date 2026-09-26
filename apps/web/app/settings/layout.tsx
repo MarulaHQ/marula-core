@@ -58,6 +58,7 @@ const GROUPS: NavGroup[] = [
       { href: "/settings/workflow", label: "Workflow" },
       { href: "/settings/sla", label: "SLA" },
       { href: "/settings/portal", label: "Portal" },
+      { href: "/settings/reply-snippets", label: "Reply snippets" },
       { href: "/settings/pm-schedules", label: "PM schedules" },
     ],
   },
