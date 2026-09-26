@@ -17,6 +17,10 @@ use async_trait::async_trait;
 pub struct OutboundEmail {
     pub from_address: String,
     pub from_name: Option<String>,
+    /// Sent as a `Reply-To` header when set (board identities route client
+    /// replies to the board's inbound address while sending from a
+    /// different outbound address).
+    pub reply_to: Option<String>,
     pub to_addresses: Vec<String>,
     pub subject: String,
     pub body_text: String,

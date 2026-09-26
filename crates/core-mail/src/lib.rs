@@ -13,6 +13,7 @@
 //! consumes already-extracted fields from the provider webhook), and no
 //! notification policy decisions (which mail to send is core-api's call).
 
+pub mod brand;
 pub mod hmac;
 pub mod inbound;
 pub mod internal;
@@ -20,6 +21,7 @@ pub mod outbound;
 pub mod scan;
 pub mod transport;
 
+pub use brand::{render_digest, render_notification, render_test, Brand, BrandedEmail, DigestItem};
 pub use inbound::InboundEmail;
 pub use scan::{ClamdScan, NoopScan, ScanError, ScanProvider, ScanVerdict};
 pub use transport::recording::{NoopTransport, RecordingTransport};

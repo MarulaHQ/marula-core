@@ -49,6 +49,7 @@ fn build_request(message: &OutboundEmail) -> serde_json::Value {
     serde_json::json!({
         "From": from,
         "To": message.to_addresses.join(", "),
+        "ReplyTo": message.reply_to.clone().unwrap_or_default(),
         "Subject": message.subject,
         "TextBody": message.body_text,
         // Postmark stores its own id form — bare, no angle brackets.
@@ -114,6 +115,7 @@ mod tests {
         let m = OutboundEmail {
             from_address: "support@acme.test".into(),
             from_name: Some("Acme".into()),
+            reply_to: None,
             to_addresses: vec!["a@x.test".into(), "b@x.test".into()],
             subject: "S".into(),
             body_text: "B".into(),
@@ -125,6 +127,9 @@ mod tests {
         assert_eq!(v["From"], "Acme <support@acme.test>");
         assert_eq!(v["To"], "a@x.test, b@x.test");
         assert_eq!(v["MessageID"], "m1@acme.test");
+        // Unset Reply-To rides as an empty string, which Postmark treats
+        // as absent (its API omits empty fields).
+        assert_eq!(v["ReplyTo"], "");
         let headers = v["Headers"].as_array().expect("headers");
         assert!(headers
             .iter()
@@ -167,6 +172,7 @@ mod tests {
             .send(&OutboundEmail {
                 from_address: "f@a.test".into(),
                 from_name: None,
+                reply_to: None,
                 to_addresses: vec!["t@a.test".into()],
                 subject: "s".into(),
                 body_text: "hello".into(),
@@ -204,6 +210,7 @@ mod tests {
             .send(&OutboundEmail {
                 from_address: "f@a.test".into(),
                 from_name: None,
+                reply_to: None,
                 to_addresses: vec!["t@a.test".into()],
                 subject: "s".into(),
                 body_text: "b".into(),

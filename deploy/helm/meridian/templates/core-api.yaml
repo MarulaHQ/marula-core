@@ -43,6 +43,26 @@ spec:
                   name: {{ default (printf "%s-secrets" (include "meridian.fullname" .)) .Values.existingSecret }}
                   key: MERIDIAN_SECRET_KEY
                   optional: true
+            # Optional EdDSA signing pair (Wave 34 lane 6): both keys must
+            # be present together; empty keys leave the HS256 posture.
+            - name: MERIDIAN_JWT_EDDSA_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (printf "%s-secrets" (include "meridian.fullname" .)) .Values.existingSecret }}
+                  key: MERIDIAN_JWT_EDDSA_PRIVATE_KEY
+                  optional: true
+            - name: MERIDIAN_JWT_EDDSA_PUBLIC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (printf "%s-secrets" (include "meridian.fullname" .)) .Values.existingSecret }}
+                  key: MERIDIAN_JWT_EDDSA_PUBLIC_KEY
+                  optional: true
+            - name: MERIDIAN_JWT_KID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (printf "%s-secrets" (include "meridian.fullname" .)) .Values.existingSecret }}
+                  key: MERIDIAN_JWT_KID
+                  optional: true
             - name: EMAIL_INBOUND_HMAC_SECRET
               valueFrom:
                 secretKeyRef:

@@ -1,9 +1,14 @@
-//! JWT access-token issuing and verification (HS256 on the configured
-//! secret; short TTL — the refresh session is the real credential).
+//! JWT access-token issuing and verification. Two signing postures
+//! (threat-model §A4): HS256 on the configured secret by default, EdDSA
+//! (Ed25519) with a `kid`-stamped header when the EdDSA key pair is
+//! configured (Wave 34 lane 6 upgrade). Verification prefers EdDSA and
+//! keeps accepting HS256 while `jwt_secret` is deployed, so a rolling
+//! upgrade never invalidates live tokens; remove the secret only after
+//! every issued token is EdDSA.
 
 use super::{AccessClaims, PortalClaims};
 use crate::config::Config;
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -21,6 +26,61 @@ pub struct ScopedClaims {
 const KIND_STAFF: &str = "staff";
 const KIND_PORTAL: &str = "portal";
 
+/// Signing header: EdDSA + `kid` when asymmetric signing is configured,
+/// otherwise the HS256 default. Tokens self-describe their algorithm via
+/// the `alg` header, so verification never guesses.
+fn signing_header(config: &Config) -> Header {
+    match &config.jwt_signing {
+        Some(key) => {
+            let mut header = Header::new(Algorithm::EdDSA);
+            header.kid = Some(key.kid.clone());
+            header
+        }
+        None => Header::default(),
+    }
+}
+
+/// The Ed25519 PKCS#8 PEM is parsed per issuance (login/refresh paths,
+/// not per request). The config layer validates it at boot, so a failure
+/// here means the in-memory config was mutated after validation — the
+/// error surfaces instead of quietly downgrading to HS256.
+fn encoding_key(config: &Config) -> Result<EncodingKey, jsonwebtoken::errors::Error> {
+    match &config.jwt_signing {
+        Some(key) => EncodingKey::from_ed_pem(key.private_pem.as_bytes()),
+        None => Ok(EncodingKey::from_secret(config.jwt_secret.as_bytes())),
+    }
+}
+
+/// Verifies under the deployment's posture: EdDSA first when configured,
+/// then HS256 while the secret remains deployed. `configure` binds the
+/// algorithm into the validation (jsonwebtoken pins `alg`), so an EdDSA
+/// token can never be replayed as HS256 or the reverse.
+fn decode_claims<T: serde::de::DeserializeOwned>(
+    config: &Config,
+    token: &str,
+    configure: impl Fn(Algorithm) -> Validation,
+) -> Option<T> {
+    if let Some(key) = &config.jwt_signing {
+        if let Ok(decoding) = DecodingKey::from_ed_pem(key.public_pem.as_bytes()) {
+            if let Ok(data) = decode::<T>(token, &decoding, &configure(Algorithm::EdDSA)) {
+                return Some(data.claims);
+            }
+        }
+    }
+    decode::<T>(
+        token,
+        &DecodingKey::from_secret(config.jwt_secret.as_bytes()),
+        &configure(Algorithm::HS256),
+    )
+    .ok()
+    .map(|data| data.claims)
+}
+
+/// The default validation (exp required, default leeway) bound to `alg`.
+fn default_validation(algorithm: Algorithm) -> Validation {
+    Validation::new(algorithm)
+}
+
 pub fn issue_access_token(
     config: &Config,
     user_id: Uuid,
@@ -36,25 +96,15 @@ pub fn issue_access_token(
         iat: now,
         kind: KIND_STAFF.into(),
     };
-    encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(config.jwt_secret.as_bytes()),
-    )
+    encode(&signing_header(config), &claims, &encoding_key(config)?)
 }
 
 /// Verifies signature + expiry and returns the claims. Portal-family
 /// tokens are rejected HERE so staff middleware can never be tricked into
 /// accepting one.
 pub fn verify_access_token(config: &Config, token: &str) -> Option<AccessClaims> {
-    decode::<AccessClaims>(
-        token,
-        &DecodingKey::from_secret(config.jwt_secret.as_bytes()),
-        &Validation::default(),
-    )
-    .ok()
-    .map(|data| data.claims)
-    .filter(|claims| claims.kind != KIND_PORTAL)
+    decode_claims::<AccessClaims>(config, token, default_validation)
+        .filter(|claims| claims.kind != KIND_PORTAL)
 }
 
 /// Generates a cryptographically random refresh token (returned to the
@@ -83,25 +133,17 @@ fn encode_scoped(
     config: &Config,
     claims: &ScopedClaims,
 ) -> Result<String, jsonwebtoken::errors::Error> {
-    encode(
-        &Header::default(),
-        claims,
-        &EncodingKey::from_secret(config.jwt_secret.as_bytes()),
-    )
+    encode(&signing_header(config), claims, &encoding_key(config)?)
 }
 
 fn decode_scoped(config: &Config, token: &str, typ: &str) -> Option<ScopedClaims> {
-    let mut validation = Validation::default();
-    validation.validate_exp = true;
-    // Bridge tokens must die exactly at exp — no default leeway.
-    validation.leeway = 0;
-    decode::<ScopedClaims>(
-        token,
-        &DecodingKey::from_secret(config.jwt_secret.as_bytes()),
-        &validation,
-    )
-    .ok()
-    .map(|data| data.claims)
+    decode_claims::<ScopedClaims>(config, token, |algorithm| {
+        let mut validation = Validation::new(algorithm);
+        validation.validate_exp = true;
+        // Bridge tokens must die exactly at exp — no default leeway.
+        validation.leeway = 0;
+        validation
+    })
     .filter(|claims| claims.typ == typ)
 }
 
@@ -172,7 +214,7 @@ pub fn issue_portal_access_token(
 ) -> Result<String, jsonwebtoken::errors::Error> {
     let now = chrono::Utc::now().timestamp();
     encode(
-        &Header::default(),
+        &signing_header(config),
         &PortalClaims {
             kind: KIND_PORTAL.into(),
             sub: portal_user_id,
@@ -182,7 +224,7 @@ pub fn issue_portal_access_token(
             exp: now + config.access_ttl_secs,
             iat: now,
         },
-        &EncodingKey::from_secret(config.jwt_secret.as_bytes()),
+        &encoding_key(config)?,
     )
 }
 
@@ -192,20 +234,27 @@ pub fn verify_portal_access_token(
     config: &Config,
     token: &str,
 ) -> Option<(Uuid, Uuid, Uuid, Uuid)> {
-    decode::<PortalClaims>(
-        token,
-        &DecodingKey::from_secret(config.jwt_secret.as_bytes()),
-        &Validation::default(),
-    )
-    .ok()
-    .map(|data| data.claims)
-    .filter(|claims| claims.kind == KIND_PORTAL)
-    .map(|claims| (claims.sub, claims.org, claims.client, claims.sid))
+    decode_claims::<PortalClaims>(config, token, default_validation)
+        .filter(|claims| claims.kind == KIND_PORTAL)
+        .map(|claims| (claims.sub, claims.org, claims.client, claims.sid))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Throwaway Ed25519 key pair A (test material only — generated with
+    /// `openssl genpkey -algorithm ED25519`; never used outside tests).
+    const TEST_EDDSA_PRIVATE_A: &str = "-----BEGIN PRIVATE KEY-----
+MC4CAQAwBQYDK2VwBCIEIGls7GSdvJVi9emSo7IXPNbManY+4G8QbmS8eaXatRFV
+-----END PRIVATE KEY-----";
+    const TEST_EDDSA_PUBLIC_A: &str = "-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAHu5rvYJQ7hMNx8O1NXjxk/9o3s+yqDLRetK1HxH+ldo=
+-----END PUBLIC KEY-----";
+    /// Public half of an UNRELATED pair B (wrong-key rejection test).
+    const TEST_EDDSA_PUBLIC_B: &str = "-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEACifTR92KS0nfpnia/3uCznrkBrmzfHxV+nqX3Xhxw0w=
+-----END PUBLIC KEY-----";
 
     fn test_config() -> Config {
         Config {
@@ -213,6 +262,7 @@ mod tests {
             redis_url: String::new(),
             bind_addr: String::new(),
             jwt_secret: "test-secret".into(),
+            jwt_signing: None,
             access_ttl_secs: 900,
             refresh_ttl_secs: 86_400,
             cors_origin: None,
@@ -351,5 +401,85 @@ mod tests {
             verify_portal_access_token(&cfg, &portal),
             Some((pu, o, c, s))
         );
+    }
+
+    // --- EdDSA signing upgrade (Wave 34 lane 6, threat-model §A4) --------
+
+    fn eddsa_config() -> Config {
+        Config {
+            jwt_signing: Some(crate::config::JwtSigningKey {
+                private_pem: TEST_EDDSA_PRIVATE_A.into(),
+                public_pem: TEST_EDDSA_PUBLIC_A.into(),
+                kid: "m1".into(),
+            }),
+            ..test_config()
+        }
+    }
+
+    #[test]
+    fn eddsa_tokens_roundtrip_and_carry_their_kid() {
+        let cfg = eddsa_config();
+        let (u, o, s) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+        let token = issue_access_token(&cfg, u, o, s).unwrap();
+        let header = jsonwebtoken::decode_header(&token).expect("header decodes");
+        assert_eq!(header.alg, Algorithm::EdDSA);
+        assert_eq!(header.kid.as_deref(), Some("m1"));
+
+        // Every family self-verifies under the same key pair.
+        let claims = verify_access_token(&cfg, &token).expect("access verifies");
+        assert_eq!((claims.sub, claims.org, claims.sid), (u, o, s));
+        let portal = issue_portal_access_token(&cfg, u, o, u, s).unwrap();
+        assert_eq!(verify_portal_access_token(&cfg, &portal), Some((u, o, u, s)));
+        let scoped = issue_mfa_pending_token(&cfg, u, o).unwrap();
+        assert_eq!(verify_mfa_pending_token(&cfg, &scoped), Some((u, o)));
+    }
+
+    #[test]
+    fn hs256_tokens_still_verify_while_the_secret_is_deployed() {
+        // Rolling-upgrade posture: an EdDSA-configured process keeps
+        // accepting HS256 tokens minted by a not-yet-upgraded instance.
+        let hs_cfg = test_config();
+        let eddsa_cfg = eddsa_config();
+        let (u, o, s) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+        let legacy = issue_access_token(&hs_cfg, u, o, s).unwrap();
+        assert_eq!(
+            jsonwebtoken::decode_header(&legacy).unwrap().alg,
+            Algorithm::HS256
+        );
+        assert!(
+            verify_access_token(&eddsa_cfg, &legacy).is_some(),
+            "legacy HS256 access token must verify during the migration"
+        );
+        let legacy_scoped = issue_mfa_pending_token(&hs_cfg, u, o).unwrap();
+        assert_eq!(
+            verify_mfa_pending_token(&eddsa_cfg, &legacy_scoped),
+            Some((u, o))
+        );
+    }
+
+    #[test]
+    fn an_unrelated_eddsa_public_key_rejects_the_token() {
+        let cfg = eddsa_config();
+        let wrong = Config {
+            jwt_signing: Some(crate::config::JwtSigningKey {
+                private_pem: TEST_EDDSA_PRIVATE_A.into(),
+                public_pem: TEST_EDDSA_PUBLIC_B.into(),
+                kid: "m1".into(),
+            }),
+            ..test_config()
+        };
+        let token = issue_access_token(&cfg, Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7()).unwrap();
+        assert!(verify_access_token(&wrong, &token).is_none());
+        // HS256 fallback must not accept an EdDSA token either: the secret
+        // is the same in both configs, but the algorithm is pinned per
+        // attempt, so an EdDSA signature can never pass as HS256.
+        assert!(verify_access_token(
+            &Config {
+                jwt_secret: cfg.jwt_secret.clone(),
+                ..test_config()
+            },
+            &token
+        )
+        .is_none());
     }
 }

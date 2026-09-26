@@ -34,7 +34,7 @@ pub async fn run(config: config::RealtimeConfig) -> anyhow::Result<()> {
         shutdown_rx.clone(),
     ));
 
-    let state = ws::AppState::new(hub, config.jwt_secret);
+    let state = ws::AppState::new(hub, config.jwt_secret, config.jwt_eddsa_public_key);
     let app = Router::new()
         .route("/healthz", get(healthz))
         .route("/ws", get(ws::upgrade))

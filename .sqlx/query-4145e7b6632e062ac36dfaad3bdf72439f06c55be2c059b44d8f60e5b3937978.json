@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM settings WHERE org_id = $1 AND scope = 'org' AND key = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4145e7b6632e062ac36dfaad3bdf72439f06c55be2c059b44d8f60e5b3937978"
+}

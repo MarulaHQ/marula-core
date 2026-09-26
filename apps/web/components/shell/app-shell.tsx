@@ -18,6 +18,7 @@ import { api, useAuth } from "../../lib/api";
 import { AppHeader } from "../app-header";
 import { TimerDock } from "../timer-dock";
 import { isHeaderlessPath } from "./chrome";
+import { DesktopUpdateStrip } from "./desktop-update-strip";
 import { NavRail } from "./nav-rail";
 import { ThemePresetSync } from "../theme-preset-sync";
 import { TourScheduler } from "../help/tour-scheduler";
@@ -121,6 +122,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <NavRail openCount={openCount} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <AppHeader />
+        <DesktopUpdateStrip />
         <main id="m-main-content" className="min-h-0 flex-1 overflow-y-auto">{children}</main>
         <TimerDock />
       </div>

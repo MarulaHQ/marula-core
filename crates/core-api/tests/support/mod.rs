@@ -476,6 +476,10 @@ impl MailHarness {
                     rfc_message_id: claimed.rfc_message_id.clone(),
                     from_address: claimed.from_address.clone(),
                     from_name: claimed.from_name.clone(),
+                    // The simulated worker fixture carries no board identity,
+                    // so there is no Reply-To to resolve (compile fix, Wave 34
+                    // lane 6: the fast-forwarded lane-8 change added the field).
+                    reply_to: None,
                     to_addresses: claimed.to_addresses.clone(),
                     subject: claimed.subject.clone(),
                     body_text: claimed.body_text.clone(),

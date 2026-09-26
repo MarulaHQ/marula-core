@@ -182,7 +182,14 @@ pub async fn get_ai_status(
 
     let secrets = core_db::byok::list_secret_summaries(&mut *tx, org_id).await?;
     tx.commit().await.map_err(ApiError::from)?;
-    let configured_providers = secrets.into_iter().map(|s| s.provider).collect();
+    // The generic sealed store also holds mail transport credentials under
+    // reserved `mail.*` provider ids (Wave 34 lane 8); those are NOT AI
+    // providers and must not surface in the AI settings overview.
+    let configured_providers = secrets
+        .into_iter()
+        .map(|s| s.provider)
+        .filter(|provider| !provider.starts_with("mail."))
+        .collect();
 
     Ok(Json(ByokOverviewResponse {
         active_provider,

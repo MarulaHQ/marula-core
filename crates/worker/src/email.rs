@@ -1,17 +1,24 @@
 //! Outbound email send loop (TASKLIST 2.4).
 //!
-//! Purpose: claim due sends from core-api, perform the transport call
-//! through the configured `MailTransport`, and report per-message results
-//! back — the core-api-callback pattern that keeps core-api the ONLY
-//! database writer (§4.1). Lease recovery on core-api's side re-claims
-//! sends abandoned by a dead worker, so a crash between send and report
-//! can duplicate at worst one message (at-least-once delivery; the RFC
-//! Message-ID keeps threading stable across such redelivery).
+//! Purpose: claim due sends from core-api, resolve the ORG's transport
+//! adapter (settings + sealed credential, Wave 34 lane 8 — env transport
+//! remains the fallback), perform the transport call, and report
+//! per-message results back — the core-api-callback pattern that keeps
+//! core-api the ONLY database writer (§4.1). Lease recovery on core-api's
+//! side re-claims sends abandoned by a dead worker, so a crash between send
+//! and report can duplicate at worst one message (at-least-once delivery;
+//! the RFC Message-ID keeps threading stable across such redelivery).
 //!
-//! Non-purpose: no direct database access, no backoff math (core-api
-//! applies it), no rendering.
+//! Non-purpose: no writes (the resolver and this loop only read), no
+//! backoff math (core-api applies it), no rendering.
+//!
+//! None-mode: an org whose transport is `none` (or whose credential is
+//! missing) reports a retryable failure so the ledger's backoff holds the
+//! message — nothing is silently dropped and nothing is dead-lettered for a
+//! configuration gap.
 
 use crate::config::EmailLoopConfig;
+use crate::mail_config::OrgMailResolver;
 use core_mail::internal::{ClaimRequest, ClaimedOutbound, ResultsRequest, SendResult};
 use core_mail::{MailTransport, TransportError};
 use std::sync::Arc;
@@ -24,7 +31,7 @@ const POLL_INTERVAL: Duration = Duration::from_secs(2);
 /// transient HTTP/transport errors are logged and retried next cycle.
 pub async fn run_email_loop(
     config: EmailLoopConfig,
-    transport: Arc<dyn MailTransport>,
+    resolver: Arc<dyn OrgMailResolver>,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) {
     if config.internal_token.is_none() {
@@ -35,15 +42,14 @@ pub async fn run_email_loop(
     }
     let client = reqwest::Client::new();
     tracing::info!(
-        transport = transport.name(),
         api = %config.core_api_url,
-        "outbound email loop started"
+        "outbound email loop started (per-org transport resolution)"
     );
     loop {
         if *shutdown.borrow_and_update() {
             return;
         }
-        match cycle(&config, &client, transport.as_ref()).await {
+        match cycle(&config, &client, resolver.as_ref()).await {
             Ok(0) => tokio::time::sleep(POLL_INTERVAL).await,
             Ok(_) => {} // work remains; loop immediately
             Err(e) => {
@@ -57,11 +63,12 @@ pub async fn run_email_loop(
     }
 }
 
-/// One claim→send→report pass. Returns how many messages were processed.
+/// One claim→resolve→send→report pass. Returns how many messages were
+/// processed.
 async fn cycle(
     config: &EmailLoopConfig,
     client: &reqwest::Client,
-    transport: &dyn MailTransport,
+    resolver: &dyn OrgMailResolver,
 ) -> anyhow::Result<usize> {
     let Some(token) = config.internal_token.as_deref() else {
         return Ok(0);
@@ -89,15 +96,38 @@ async fn cycle(
 
     let mut results = Vec::with_capacity(claimed.len());
     for message in &claimed {
+        // Resolution first: a configuration gap is a retryable report, not
+        // a lost claim.
+        let transport: Arc<dyn MailTransport> = match resolver.transport_for(message.org_id).await {
+            Ok(transport) => transport,
+            Err(reason) => {
+                tracing::warn!(id = %message.id, %reason, "org mail transport unresolved");
+                results.push(SendResult {
+                    id: message.id,
+                    ok: false,
+                    attempts: message.attempts,
+                    provider_message_id: None,
+                    error: Some(reason),
+                });
+                continue;
+            }
+        };
         let outbound = message.clone().into_outbound();
         let result = match transport.send(&outbound).await {
-            Ok(receipt) => SendResult {
-                id: message.id,
-                ok: true,
-                attempts: message.attempts,
-                provider_message_id: receipt.provider_message_id,
-                error: None,
-            },
+            Ok(receipt) => {
+                tracing::debug!(
+                    id = %message.id,
+                    transport = transport.name(),
+                    "outbound email sent"
+                );
+                SendResult {
+                    id: message.id,
+                    ok: true,
+                    attempts: message.attempts,
+                    provider_message_id: receipt.provider_message_id,
+                    error: None,
+                }
+            }
             Err(TransportError::Rejected(reason)) => {
                 // Rejections are permanent for identical content but the
                 // ledger still owns retry/dead decisions.
@@ -143,6 +173,7 @@ async fn cycle(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mail_config::StaticResolver;
     use axum::routing::post;
     use axum::{Json, Router};
     use core_mail::internal::ClaimResponse;
@@ -156,12 +187,23 @@ mod tests {
             rfc_message_id: "m1@meridian.local".into(),
             from_address: "support@acme.test".into(),
             from_name: None,
+            reply_to: Some("projects@acme.test".into()),
             to_addresses: vec!["client@example.test".into()],
             subject: Some("Re: hi".into()),
             body_text: Some("body".into()),
             in_reply_to: None,
             references: vec![],
             attempts: 1,
+        }
+    }
+
+    fn cfg(addr: std::net::SocketAddr, token: Option<&str>) -> EmailLoopConfig {
+        EmailLoopConfig {
+            core_api_url: format!("http://{addr}"),
+            internal_token: token.map(str::to_string),
+            transport_kind: core_mail::TransportKind::None,
+            claim_batch: 10,
+            lease_secs: 300,
         }
     }
 
@@ -215,23 +257,19 @@ mod tests {
         });
 
         let recording = Arc::new(RecordingTransport::new());
-        let cfg = EmailLoopConfig {
-            core_api_url: format!("http://{addr}"),
-            internal_token: Some("tok".into()),
-            transport_kind: core_mail::TransportKind::None,
-            claim_batch: 10,
-            lease_secs: 300,
-        };
+        let resolver = StaticResolver(Arc::clone(&recording) as Arc<dyn MailTransport>);
         let client = reqwest::Client::new();
-        let n = cycle(
-            &cfg,
-            &client,
-            &(Arc::clone(&recording) as Arc<dyn MailTransport>).as_ref(),
-        )
-        .await
-        .expect("cycle succeeds");
+        let n = cycle(&cfg(addr, Some("tok")), &client, &resolver)
+            .await
+            .expect("cycle succeeds");
         assert_eq!(n, 1);
         assert_eq!(recording.count().await, 1);
+        // The reply-to resolved by core-api at claim time rides the send.
+        let recorded = recording.recorded().await;
+        assert_eq!(
+            recorded[0].reply_to.as_deref(),
+            Some("projects@acme.test")
+        );
         let reported = seen_results.lock().unwrap();
         assert_eq!(reported.len(), 1);
         assert!(reported[0].ok);
@@ -243,16 +281,14 @@ mod tests {
 
     #[tokio::test]
     async fn cycle_without_token_never_calls_the_api() {
-        let cfg = EmailLoopConfig {
-            core_api_url: "http://127.0.0.1:1".into(),
-            internal_token: None,
-            transport_kind: core_mail::TransportKind::None,
-            claim_batch: 10,
-            lease_secs: 300,
-        };
-        let n = cycle(&cfg, &reqwest::Client::new(), &RecordingTransport::new())
-            .await
-            .expect("disabled loop is a no-op");
+        let resolver = StaticResolver(Arc::new(RecordingTransport::new()));
+        let n = cycle(
+            &cfg("127.0.0.1:1".parse().unwrap(), None),
+            &reqwest::Client::new(),
+            &resolver,
+        )
+        .await
+        .expect("disabled loop is a no-op");
         assert_eq!(n, 0);
     }
 
@@ -298,19 +334,65 @@ mod tests {
                 );
             axum::serve(listener, app).await.unwrap();
         });
-        let cfg = EmailLoopConfig {
-            core_api_url: format!("http://{addr}"),
-            internal_token: Some("tok".into()),
-            transport_kind: core_mail::TransportKind::None,
-            claim_batch: 10,
-            lease_secs: 300,
-        };
-        cycle(&cfg, &reqwest::Client::new(), &Failing)
+        let resolver = StaticResolver(Arc::new(Failing) as Arc<dyn MailTransport>);
+        cycle(&cfg(addr, Some("tok")), &reqwest::Client::new(), &resolver)
             .await
             .expect("cycle completes even when sends fail");
         let reported = seen_results.lock().unwrap();
         assert_eq!(reported.len(), 1);
         assert!(!reported[0].ok);
         assert_eq!(reported[0].error.as_deref(), Some("smtp down"));
+    }
+
+    #[tokio::test]
+    async fn unresolved_transport_reports_retryable_not_lost() {
+        struct Broken;
+        #[async_trait::async_trait]
+        impl OrgMailResolver for Broken {
+            async fn transport_for(
+                &self,
+                _org_id: uuid::Uuid,
+            ) -> Result<Arc<dyn MailTransport>, String> {
+                Err("no outbound transport is configured for this organization".into())
+            }
+        }
+        let seen_results: Arc<std::sync::Mutex<Vec<SendResult>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let claimed = vec![fake_claimed(uuid::Uuid::now_v7())];
+        let clone = Arc::clone(&seen_results);
+        tokio::spawn(async move {
+            let app = Router::new()
+                .route(
+                    "/api/internal/email/outbound/claim",
+                    post(move || {
+                        let claimed = claimed.clone();
+                        async move { Json(ClaimResponse { messages: claimed }) }
+                    }),
+                )
+                .route(
+                    "/api/internal/email/outbound/results",
+                    post(move |Json(req): Json<ResultsRequest>| {
+                        let seen = Arc::clone(&clone);
+                        async move {
+                            seen.lock().unwrap().extend(req.results);
+                            Json(serde_json::json!({ "applied": 1 }))
+                        }
+                    }),
+                );
+            axum::serve(listener, app).await.unwrap();
+        });
+        cycle(&cfg(addr, Some("tok")), &reqwest::Client::new(), &Broken)
+            .await
+            .expect("configuration gaps are reported, never fatal");
+        let reported = seen_results.lock().unwrap();
+        assert_eq!(reported.len(), 1);
+        assert!(!reported[0].ok);
+        assert!(reported[0]
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("no outbound transport"));
     }
 }

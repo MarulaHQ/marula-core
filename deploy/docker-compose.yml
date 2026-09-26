@@ -127,6 +127,13 @@ services:
       # hard-fails without an explicit MERIDIAN_SECRET_KEY. Operators MUST
       # override both secrets for anything beyond a local test harness.
       MERIDIAN_SECRET_KEY: ${MERIDIAN_SECRET_KEY:-6e6808490009ad97fe176b954f03a7eeeca54af4e10c384c7beb7ce43e0e7b21}
+      # Optional EdDSA (Ed25519) access-token signing (Wave 34 lane 6):
+      # set BOTH PEMs to switch signing to EdDSA (kid: MERIDIAN_JWT_KID,
+      # default m1); leave unset for the HS256 posture. A malformed or
+      # half-configured pair refuses boot.
+      MERIDIAN_JWT_EDDSA_PRIVATE_KEY: ${MERIDIAN_JWT_EDDSA_PRIVATE_KEY:-}
+      MERIDIAN_JWT_EDDSA_PUBLIC_KEY: ${MERIDIAN_JWT_EDDSA_PUBLIC_KEY:-}
+      MERIDIAN_JWT_KID: ${MERIDIAN_JWT_KID:-}
       CORS_ORIGIN: http://localhost:3000
       # Email v1 defaults (see crates/core-mail/README.md none modes):
       # webhook DISABLED until EMAIL_INBOUND_HMAC_SECRET is set; transport
@@ -170,6 +177,9 @@ services:
       REDIS_URL: redis://redis:6379/0
       BIND_ADDR: 0.0.0.0:8081
       JWT_SECRET: ${JWT_SECRET:-5d1a2f0b3c4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e}
+      # EdDSA verification key when core-api runs the asymmetric posture
+      # (Wave 34 lane 6); empty keeps the HS256-only posture.
+      MERIDIAN_JWT_EDDSA_PUBLIC_KEY: ${MERIDIAN_JWT_EDDSA_PUBLIC_KEY:-}
       # OpenTelemetry (TASKLIST 2.18): empty ⇒ none mode; see header.
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     ports:

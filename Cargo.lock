@@ -3414,6 +3414,7 @@ dependencies = [
  "hex",
  "libc",
  "postgresql_embedded",
+ "serde",
  "serde_json",
  "sqlx 0.8.6",
  "tauri",

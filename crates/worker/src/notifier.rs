@@ -4,28 +4,84 @@
 //! and drive the EMAIL leg of each recipient's preference chain: resolve
 //! the effective preferences (user → org default → built-in), evaluate
 //! quiet hours against the wall clock of the window's timezone, and hand
-//! allowed messages to the `MailTransport` seam (shipped default is the
-//! noop "none" mode; real adapters land with the email-in/out lane).
+//! allowed messages to core-api's internal enqueue endpoint — which renders
+//! the branded wrapper and writes the outbound ledger (Wave 34 lane 8;
+//! single-writer §4.1). Because notification mail rides the ledger, its
+//! delivery state is visible on the email settings page and retries follow
+//! the ledger's backoff instead of vanishing on a transport hiccup.
 //!
-//! Non-purpose: no database writes (the API is the single writer §4.1),
-//! no in-app delivery (the hub already routes those events per-user), and
-//! no durable retry — at-least-once email lands with the Stage-2 job queue,
-//! so this consumer is best-effort by design and never blocks the relay.
+//! Non-purpose: no database writes (the API is the single writer §4.1), no
+//! in-app delivery (the hub already routes those events per-user), and no
+//! rendering (core-api owns the branded wrapper).
 
 use core_domain::entities::{NotificationKind, User};
-use core_domain::notifications::{
-    decide_channel, Decision, DeliveryChannel, EmailMessage, MailError, MailTransport, QuietHours,
-};
+use core_domain::notifications::{decide_channel, Decision, DeliveryChannel, QuietHours};
 use core_events::{Envelope, EVENT_STREAM};
+use core_mail::internal::{EnqueueEmailResponse, NotificationEmailRequest};
 use redis::streams::{StreamReadOptions, StreamReadReply};
 use redis::AsyncCommands;
 use sqlx::PgPool;
+use std::sync::Arc;
 use tokio::sync::watch;
 
 /// Blocking-XREAD wait per poll; bounds shutdown latency.
 const BLOCK_MS: usize = 2_000;
 const COUNT: usize = 100;
 const MAX_BACKOFF_MS: u64 = 5_000;
+
+/// Hands one allowed notification to core-api for ledgered delivery.
+#[async_trait::async_trait]
+pub trait NotificationEmailSink: Send + Sync {
+    /// Returns the enqueue outcome (`queued`, `skipped_*`) or a transport
+    /// error description worth logging.
+    async fn enqueue(&self, req: NotificationEmailRequest) -> Result<String, String>;
+}
+
+/// HTTP sink: `POST /api/internal/email/notification` with the shared
+/// internal token.
+pub struct HttpNotificationSink {
+    client: reqwest::Client,
+    core_api_url: String,
+    internal_token: Option<String>,
+}
+
+impl HttpNotificationSink {
+    #[must_use]
+    pub fn new(core_api_url: String, internal_token: Option<String>) -> Self {
+        Self {
+            client: reqwest::Client::new(),
+            core_api_url,
+            internal_token,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl NotificationEmailSink for HttpNotificationSink {
+    async fn enqueue(&self, req: NotificationEmailRequest) -> Result<String, String> {
+        let token = self
+            .internal_token
+            .as_deref()
+            .ok_or_else(|| "MERIDIAN_INTERNAL_TOKEN is unset".to_string())?;
+        let response = self
+            .client
+            .post(format!(
+                "{}/api/internal/email/notification",
+                self.core_api_url.trim_end_matches('/')
+            ))
+            .header("X-Internal-Token", token)
+            .json(&req)
+            .send()
+            .await
+            .map_err(|e| format!("enqueue call failed: {e}"))?
+            .error_for_status()
+            .map_err(|e| format!("enqueue rejected: {e}"))?
+            .json::<EnqueueEmailResponse>()
+            .await
+            .map_err(|e| format!("enqueue response unreadable: {e}"))?;
+        Ok(response.outcome)
+    }
+}
 
 /// Extracts the actionable payload when an envelope is a
 /// `notification.created`; everything else is ignored here.
@@ -80,10 +136,10 @@ pub async fn plan_email(
 /// Runs the notifier until `shutdown` fires. Redis errors back off and
 /// reconnect; malformed entries are logged and skipped so one bad event
 /// never stalls the stream.
-pub async fn run_notifier<T: MailTransport>(
+pub async fn run_notifier(
     pool: PgPool,
     redis_url: String,
-    transport: T,
+    sink: Arc<dyn NotificationEmailSink>,
     mut shutdown: watch::Receiver<bool>,
 ) {
     let client = match redis::Client::open(redis_url.as_str()) {
@@ -101,7 +157,7 @@ pub async fn run_notifier<T: MailTransport>(
         match client.get_multiplexed_async_connection().await {
             Ok(mut conn) => {
                 backoff_ms = 100;
-                let broke = follow_stream(&pool, &mut conn, &transport, &mut shutdown).await;
+                let broke = follow_stream(&pool, &mut conn, sink.as_ref(), &mut shutdown).await;
                 if broke.is_none() {
                     return;
                 }
@@ -116,10 +172,10 @@ pub async fn run_notifier<T: MailTransport>(
     }
 }
 
-async fn follow_stream<T: MailTransport>(
+async fn follow_stream(
     pool: &PgPool,
     conn: &mut redis::aio::MultiplexedConnection,
-    transport: &T,
+    sink: &dyn NotificationEmailSink,
     shutdown: &mut watch::Receiver<bool>,
 ) -> Option<()> {
     // `$` starts at the live tail: restarts skip history by design; the
@@ -140,7 +196,7 @@ async fn follow_stream<T: MailTransport>(
                         for key in reply.keys {
                             for entry in key.ids {
                                 cursor = entry.id.clone();
-                                handle_entry(pool, transport, &entry).await;
+                                handle_entry(pool, sink, &entry).await;
                             }
                         }
                     }
@@ -154,9 +210,9 @@ async fn follow_stream<T: MailTransport>(
     }
 }
 
-async fn handle_entry<T: MailTransport>(
+async fn handle_entry(
     pool: &PgPool,
-    transport: &T,
+    sink: &dyn NotificationEmailSink,
     entry: &redis::streams::StreamId,
 ) {
     let Some(raw) = entry.get::<String>("data") else {
@@ -171,7 +227,7 @@ async fn handle_entry<T: MailTransport>(
         return;
     };
     let now = chrono::Utc::now();
-    let Some((user, decision)) = plan_email(pool, &envelope, &event, now).await else {
+    let Some((_user, decision)) = plan_email(pool, &envelope, &event, now).await else {
         tracing::warn!(event_id = %envelope.id, "notification fan-out could not resolve recipient/prefs");
         return;
     };
@@ -185,24 +241,27 @@ async fn handle_entry<T: MailTransport>(
             );
         }
         Decision::Deliver => {
-            let message = EmailMessage {
-                to: user.email.clone(),
-                subject: event.title.clone(),
-                text_body: format!(
-                    "You have a new {} notification in Meridian.\n\n{}",
-                    event.kind, event.title
-                ),
+            let request = NotificationEmailRequest {
+                org_id: envelope.org_id,
+                user_id: event.user_id,
+                kind: event.kind.clone(),
+                title: event.title.clone(),
+                // The event carries the title; the wrapper supplies the
+                // greeting/sign-off/footer around it.
+                body: None,
+                ticket_id: event.ticket_id,
             };
-            match transport.send(message).await {
-                Ok(()) => tracing::info!(
+            match sink.enqueue(request).await {
+                Ok(outcome) => tracing::info!(
                     user_id = %event.user_id,
                     ticket_id = ?event.ticket_id,
-                    "email notification handed to transport"
+                    %outcome,
+                    "notification email decided and enqueued"
                 ),
-                Err(MailError::Unavailable | MailError::Rejected(_)) => {
-                    // Best-effort v1: log and move on; retries land with
-                    // the job queue.
-                    tracing::warn!(user_id = %event.user_id, "email transport refused message");
+                Err(reason) => {
+                    // Best-effort: log and move on; the in-app inbox is the
+                    // durable record and the next event carries the state.
+                    tracing::warn!(user_id = %event.user_id, %reason, "notification email enqueue failed");
                 }
             }
         }
@@ -213,7 +272,6 @@ async fn handle_entry<T: MailTransport>(
 mod tests {
     use super::*;
     use core_domain::entities::NotificationKind;
-    use core_domain::notifications::{EmailMessage, MailError};
     use serde_json::json;
     use std::sync::Mutex;
 
@@ -248,40 +306,44 @@ mod tests {
         assert!(match_notification_created(&bad_payload).is_none());
     }
 
-    /// Records every handed message so tests can assert fan-out behavior
-    /// without any real transport.
+    /// Records every enqueued request so tests can assert fan-out behavior
+    /// without any real HTTP.
     #[derive(Clone, Default)]
-    struct RecordingTransport {
-        sent: std::sync::Arc<Mutex<Vec<EmailMessage>>>,
+    struct RecordingSink {
+        requests: std::sync::Arc<Mutex<Vec<NotificationEmailRequest>>>,
     }
 
-    impl RecordingTransport {
-        fn messages(&self) -> Vec<EmailMessage> {
-            self.sent.lock().expect("mutex").clone()
+    impl RecordingSink {
+        fn requests(&self) -> Vec<NotificationEmailRequest> {
+            self.requests.lock().expect("mutex").clone()
         }
     }
 
-    impl MailTransport for RecordingTransport {
-        async fn send(&self, message: EmailMessage) -> Result<(), MailError> {
-            self.sent.lock().expect("mutex").push(message);
-            Ok(())
+    #[async_trait::async_trait]
+    impl NotificationEmailSink for RecordingSink {
+        async fn enqueue(&self, req: NotificationEmailRequest) -> Result<String, String> {
+            self.requests.lock().expect("mutex").push(req);
+            Ok("queued".to_string())
         }
     }
 
     #[tokio::test]
-    async fn transport_receives_allowed_messages() {
-        let transport = RecordingTransport::default();
-        transport
-            .send(EmailMessage {
-                to: "a@b.c".into(),
-                subject: "s".into(),
-                text_body: "b".into(),
-            })
-            .await
-            .expect("send");
-        let messages = transport.messages();
-        assert_eq!(messages.len(), 1);
-        assert_eq!(messages[0].to, "a@b.c");
+    async fn sink_receives_the_event_coordinates() {
+        let sink = RecordingSink::default();
+        let request = NotificationEmailRequest {
+            org_id: uuid::Uuid::now_v7(),
+            user_id: uuid::Uuid::now_v7(),
+            kind: "mention".into(),
+            title: "You were mentioned".into(),
+            body: None,
+            ticket_id: None,
+        };
+        let outcome = sink.enqueue(request.clone()).await.expect("enqueue");
+        assert_eq!(outcome, "queued");
+        let seen = sink.requests();
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].title, "You were mentioned");
+        assert_eq!(seen[0].org_id, request.org_id);
     }
 
     #[test]

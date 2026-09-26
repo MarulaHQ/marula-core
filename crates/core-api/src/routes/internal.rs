@@ -19,7 +19,11 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use core_domain::events::types;
-use core_mail::internal::{ClaimRequest, ClaimResponse, ResultsRequest};
+use core_domain::settings as registry;
+use core_mail::internal::{
+    ClaimRequest, ClaimResponse, DigestEmailRequest, EnqueueEmailResponse,
+    NotificationEmailRequest, ResultsRequest,
+};
 use core_mail::outbound::backoff_delay;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -71,27 +75,31 @@ pub async fn claim_outbound(
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     let rows =
         core_db::emails::claim_due_outbound_for_app(&mut tx, limit, lease_secs as i64).await?;
+    // Enrich each claimed row with the Reply-To resolved from the org/board
+    // identity. A resolution failure rolls the claim back (the lease was
+    // never committed) — a claim is never lost to a lookup error.
+    let mut messages = Vec::with_capacity(rows.len());
+    for r in rows {
+        let reply_to =
+            core_db::emails::resolved_reply_to(&mut tx, r.org_id, &r.from_address).await?;
+        messages.push(core_mail::internal::ClaimedOutbound {
+            id: r.id,
+            org_id: r.org_id,
+            rfc_message_id: r.rfc_message_id,
+            from_address: r.from_address,
+            from_name: r.from_name,
+            reply_to,
+            to_addresses: r.to_addresses,
+            subject: r.subject,
+            body_text: r.body_text,
+            in_reply_to: r.in_reply_to,
+            references: r.references,
+            attempts: r.attempts,
+        });
+    }
     tx.commit().await.map_err(ApiError::from)?;
 
-    Ok(Json(ClaimResponse {
-        messages: rows
-            .into_iter()
-            .map(|r| core_mail::internal::ClaimedOutbound {
-                id: r.id,
-                org_id: r.org_id,
-                rfc_message_id: r.rfc_message_id,
-                from_address: r.from_address,
-                from_name: r.from_name,
-                to_addresses: r.to_addresses,
-                subject: r.subject,
-                body_text: r.body_text,
-                in_reply_to: r.in_reply_to,
-                references: r.references,
-                attempts: r.attempts,
-            })
-            .collect(),
-    })
-    .into_response())
+    Ok(Json(ClaimResponse { messages }).into_response())
 }
 
 /// POST /api/internal/email/outbound/results — applies worker reports.
@@ -122,6 +130,195 @@ pub async fn report_results(
         tx.commit().await.map_err(ApiError::from)?;
     }
     Ok((StatusCode::OK, Json(json!({ "applied": applied }))).into_response())
+}
+
+// --- Wave 34 lane 8: notification + digest email enqueue --------------------
+
+/// POST /api/internal/email/notification — the worker decided the email leg
+/// of one notification delivers (per-channel prefs + quiet hours already
+/// applied). core-api renders the branded message and enqueues it on the
+/// outbound ledger; the normal send loop carries it.
+pub async fn notification_email(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<NotificationEmailRequest>,
+) -> ApiResult<Response> {
+    ensure_internal_token(&state, &headers)?;
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, req.org_id, req.user_id)
+        .await
+        .map_err(ApiError::from)?;
+    let recipient = match core_db::users::get_user(&mut *tx, req.org_id, req.user_id).await {
+        Ok(user) if user.is_active => user,
+        Ok(_) => {
+            tx.rollback().await.ok();
+            return Ok(
+                Json(EnqueueEmailResponse::skipped("skipped_no_recipient")).into_response(),
+            );
+        }
+        Err(core_db::DbError::NotFound) => {
+            tx.rollback().await.ok();
+            return Ok(
+                Json(EnqueueEmailResponse::skipped("skipped_no_recipient")).into_response(),
+            );
+        }
+        Err(e) => return Err(e.into()),
+    };
+    let identity = crate::email::resolve_org_identity(
+        &mut tx,
+        req.org_id,
+        &state.mail.from_address,
+        state.mail.from_name.as_deref(),
+    )
+    .await?;
+    let brand = crate::email::resolve_brand(&mut tx, req.org_id).await?;
+    let greeting = greeting_for(&recipient.display_name);
+    let rendered = core_mail::brand::render_notification(
+        &core_mail::brand::Brand {
+            brand_name: &brand.brand_name,
+            logo_url: brand.logo_url.as_deref(),
+            greeting: Some(greeting.as_str()),
+            signoff: identity.signature.as_deref(),
+        },
+        &req.title,
+        req.body.as_deref(),
+    );
+    let message_id = crate::email::enqueue_rendered_outbound(
+        &mut tx,
+        &state.mail,
+        req.org_id,
+        &recipient.email,
+        &rendered.subject,
+        &rendered.text_body,
+        req.ticket_id,
+    )
+    .await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(EnqueueEmailResponse {
+        outcome: "queued".into(),
+        message_id: Some(message_id),
+    })
+    .into_response())
+}
+
+/// POST /api/internal/email/digest — the worker determined the recipient's
+/// local digest hour arrived. core-api enforces the org policy and the
+/// once-per-local-day marker under a per-recipient advisory lock, renders
+/// the digest, and enqueues it. Repeats for the same day are inert.
+pub async fn digest_email(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<DigestEmailRequest>,
+) -> ApiResult<Response> {
+    ensure_internal_token(&state, &headers)?;
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, req.org_id, req.user_id)
+        .await
+        .map_err(ApiError::from)?;
+    core_db::settings::lock_digest_slot(&mut tx, req.org_id, req.user_id).await?;
+
+    let policy = core_db::settings::get_org_value(
+        &mut *tx,
+        req.org_id,
+        registry::EMAIL_DIGEST_POLICY,
+    )
+    .await?;
+    if policy.as_ref().and_then(Value::as_str) == Some("disabled") {
+        tx.rollback().await.ok();
+        return Ok(Json(EnqueueEmailResponse::skipped("skipped_disabled")).into_response());
+    }
+    let marker = core_db::settings::get_user_value(
+        &mut *tx,
+        req.org_id,
+        req.user_id,
+        registry::EMAIL_DIGEST_LAST_SENT,
+    )
+    .await?;
+    if marker.as_ref().and_then(Value::as_str) == Some(req.day.as_str()) {
+        tx.rollback().await.ok();
+        return Ok(
+            Json(EnqueueEmailResponse::skipped("skipped_already_sent")).into_response(),
+        );
+    }
+    if req.items.is_empty() {
+        tx.rollback().await.ok();
+        return Ok(Json(EnqueueEmailResponse::skipped("skipped_empty")).into_response());
+    }
+    let recipient = match core_db::users::get_user(&mut *tx, req.org_id, req.user_id).await {
+        Ok(user) if user.is_active => user,
+        Ok(_) => {
+            tx.rollback().await.ok();
+            return Ok(
+                Json(EnqueueEmailResponse::skipped("skipped_no_recipient")).into_response(),
+            );
+        }
+        Err(core_db::DbError::NotFound) => {
+            tx.rollback().await.ok();
+            return Ok(
+                Json(EnqueueEmailResponse::skipped("skipped_no_recipient")).into_response(),
+            );
+        }
+        Err(e) => return Err(e.into()),
+    };
+    let identity = crate::email::resolve_org_identity(
+        &mut tx,
+        req.org_id,
+        &state.mail.from_address,
+        state.mail.from_name.as_deref(),
+    )
+    .await?;
+    let brand = crate::email::resolve_brand(&mut tx, req.org_id).await?;
+    let greeting = greeting_for(&recipient.display_name);
+    let items: Vec<core_mail::brand::DigestItem> = req
+        .items
+        .iter()
+        .map(|item| core_mail::brand::DigestItem {
+            title: item.title.clone(),
+            detail: item.detail.clone(),
+        })
+        .collect();
+    let rendered = core_mail::brand::render_digest(
+        &core_mail::brand::Brand {
+            brand_name: &brand.brand_name,
+            logo_url: brand.logo_url.as_deref(),
+            greeting: Some(greeting.as_str()),
+            signoff: identity.signature.as_deref(),
+        },
+        &req.day,
+        &items,
+    );
+    let message_id = crate::email::enqueue_rendered_outbound(
+        &mut tx,
+        &state.mail,
+        req.org_id,
+        &recipient.email,
+        &rendered.subject,
+        &rendered.text_body,
+        None,
+    )
+    .await?;
+    core_db::settings::upsert_user_setting(
+        &mut tx,
+        req.org_id,
+        req.user_id,
+        registry::EMAIL_DIGEST_LAST_SENT,
+        &json!(req.day),
+    )
+    .await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(EnqueueEmailResponse {
+        outcome: "queued".into(),
+        message_id: Some(message_id),
+    })
+    .into_response())
+}
+
+/// First word of the display name, or a neutral `Hi,`.
+fn greeting_for(display_name: &str) -> String {
+    match display_name.split_whitespace().next() {
+        Some(first) if !first.is_empty() => format!("Hi {first},"),
+        _ => "Hi,".to_string(),
+    }
 }
 
 // --- missing-time gap audit run (TASKLIST 2.10) -----------------------------

@@ -9,7 +9,7 @@
 //! worker notifier own those), no org-default administration UI surface
 //! (org defaults are read through the effective chain, managed via seed).
 
-use crate::auth::middleware::authed;
+use crate::auth::middleware::{authed, require_permission};
 use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
 use axum::{
@@ -19,9 +19,17 @@ use axum::{
 };
 use core_domain::entities::NotificationKind;
 use core_domain::notifications::QuietHours;
+use core_domain::policy::{Action, Module, Permission};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
+
+fn admin(action: Action) -> Permission {
+    Permission::Matrix {
+        module: Module::Admin,
+        action,
+    }
+}
 
 #[derive(Debug, Deserialize, ToSchema, utoipa::IntoParams)]
 pub struct ListQuery {
@@ -356,6 +364,128 @@ pub async fn prefs_update(
                 quiet_from: pref.quiet_from,
                 quiet_until: pref.quiet_until,
                 timezone: pref.timezone,
+            },
+        ))
+    })
+    .await?;
+    Ok(Json(view))
+}
+
+// --- org defaults (Wave 34 lane 8: admin overrides over per-user prefs) -----
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct OrgDefaultView {
+    pub kind: NotificationKind,
+    pub in_app: bool,
+    pub email: bool,
+    pub quiet_from: Option<String>,
+    pub quiet_until: Option<String>,
+    pub timezone: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct OrgDefaultsResponse {
+    pub defaults: Vec<OrgDefaultView>,
+}
+
+/// PUT /api/notification-org-defaults — replaces the org default ROW for
+/// one kind; the chain is user override → org default → built-in, so an
+/// untouched user's next email follows this policy. Quiet hours validate as
+/// a paired `HH:MM` window in a real IANA timezone (422 otherwise).
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct UpdateOrgDefaultRequest {
+    pub kind: NotificationKind,
+    pub in_app: bool,
+    pub email: bool,
+    /// `HH:MM` pair; both bounds together or neither.
+    pub quiet_from: Option<String>,
+    pub quiet_until: Option<String>,
+    #[serde(default)]
+    pub timezone: Option<String>,
+}
+
+/// GET /api/notification-org-defaults — the org's default rows (admin).
+#[utoipa::path(operation_id = "notification_org_defaults_get", get,
+    path = "/api/notification-org-defaults", tag = "notifications",
+    security(("bearer" = [])),
+    responses((status = 200, body = OrgDefaultsResponse)))]
+pub async fn org_defaults_get(
+    State(state): State<AppState>,
+    extensions: Extensions,
+) -> ApiResult<Json<OrgDefaultsResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, admin(Action::View))?;
+    let org_id = authed.principal.user.org_id;
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let rows = core_db::notifications::list_org_defaults(&mut *tx, org_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(OrgDefaultsResponse {
+        defaults: rows
+            .into_iter()
+            .map(|row| OrgDefaultView {
+                kind: row.kind.parse().unwrap_or(NotificationKind::TicketUpdate),
+                in_app: row.in_app,
+                email: row.email,
+                quiet_from: row.quiet_from,
+                quiet_until: row.quiet_until,
+                timezone: row.timezone,
+            })
+            .collect(),
+    }))
+}
+
+/// PUT /api/notification-org-defaults — upserts one kind's org default.
+#[utoipa::path(operation_id = "notification_org_defaults_put", put,
+    path = "/api/notification-org-defaults", tag = "notifications",
+    security(("bearer" = [])), request_body = UpdateOrgDefaultRequest,
+    responses((status = 200, body = OrgDefaultView),
+              (status = 422, description = "invalid quiet-hours window or timezone")))]
+pub async fn org_defaults_put(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Json(req): Json<UpdateOrgDefaultRequest>,
+) -> ApiResult<Json<OrgDefaultView>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, admin(Action::Edit))?;
+    let tz = req.timezone.as_deref().unwrap_or("UTC");
+    QuietHours::parse(req.quiet_from.as_deref(), req.quiet_until.as_deref(), tz)?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+    let view = crate::org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        let row = core_db::notifications::OrgDefaultRow {
+            org_id,
+            kind: req.kind.as_str().to_string(),
+            in_app: req.in_app,
+            email: req.email,
+            quiet_from: req.quiet_from.clone(),
+            quiet_until: req.quiet_until.clone(),
+            timezone: tz.to_string(),
+        };
+        core_db::notifications::upsert_org_default(&mut *ctx.tx, &row).await?;
+        ctx.emit(
+            core_domain::events::types::NOTIFICATION_PREFS_UPDATED,
+            "notification_org_defaults",
+            Some(req.kind.as_str()),
+            &serde_json::json!({
+                "scope": "org_default",
+                "kind": req.kind.as_str(),
+                "in_app": req.in_app,
+                "email": req.email,
+            }),
+        )
+        .await?;
+        Ok((
+            ctx,
+            OrgDefaultView {
+                kind: req.kind,
+                in_app: req.in_app,
+                email: req.email,
+                quiet_from: req.quiet_from,
+                quiet_until: req.quiet_until,
+                timezone: tz.to_string(),
             },
         ))
     })

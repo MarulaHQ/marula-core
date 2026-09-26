@@ -313,6 +313,16 @@
         }
       ]
     },
+    "settings-email": {
+      "docs": [
+        {
+          "path": "how-to/admin-email",
+          "audience": "admin",
+          "updated": "2026-09-26",
+          "title": "How to configure email"
+        }
+      ]
+    },
     "settings-general": {
       "docs": [
         {

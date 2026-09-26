@@ -230,6 +230,9 @@ impl SettingDeclaration {
                 AI_COMPLETION_PROVIDER => AI_PROVIDER_OPTIONS,
                 SHORTCUTS_PROFILE => SHORTCUT_PROFILE_OPTIONS,
                 TRAVEL_MILEAGE_RATE_UNIT => MILEAGE_RATE_UNIT_OPTIONS,
+                EMAIL_TRANSPORT => EMAIL_TRANSPORT_OPTIONS,
+                EMAIL_DIGEST_POLICY => EMAIL_DIGEST_POLICY_OPTIONS,
+                EMAIL_DIGEST => EMAIL_DIGEST_OPTIONS,
                 _ => EMPTY_OPTIONS,
             }),
             _ => None,
@@ -324,6 +327,131 @@ pub const AI_FEATURES_ENABLED: &str = "ai.features_enabled";
 /// real user settings instead of device-local panel state.
 pub const EMAIL_GREETING: &str = "email.greeting";
 pub const EMAIL_SIGNOFF: &str = "email.signoff";
+
+// --- Wave 34 lane 8 (`p34-email-config-closeout`): mail configuration ----
+//
+// Org-scope mail configuration lives here as typed settings (the transport
+// SELECTION / identity fields — all non-secret). The transport CREDENTIALS
+// (Postmark server token, SMTP password) never ride settings: they are
+// sealed into the generic sealed-key store (`byok_secrets`, provider
+// `mail.postmark` / `mail.smtp`) through the admin API and are never
+// returned or logged. Per-BOARD outbound identities are org-scope settings
+// under board-qualified keys (`email.board.<board_id>.<field>`) written
+// only by the board-identity admin routes; they are intentionally NOT
+// declared here because the key set is per-board (unbounded), exactly like
+// the `onboarding.org_<step>_done` family is addressed by helper rather
+// than declaration.
+
+/// Outbound transport selection: `none` (queued, honest not-configured
+/// state), `postmark` (API token in the sealed slot), or `smtp` (host +
+/// username in settings, password in the sealed slot).
+pub const EMAIL_TRANSPORT: &str = "email.transport";
+/// Org-level From address for Meridian-generated mail. Boards override it
+/// with their own identity; empty keeps the operator/process default.
+pub const EMAIL_FROM_ADDRESS: &str = "email.from_address";
+pub const EMAIL_FROM_NAME: &str = "email.from_name";
+/// Org-level Reply-To. Empty sends no Reply-To header (the From address is
+/// the reply path). Boards override it with their own identity.
+pub const EMAIL_REPLY_TO: &str = "email.reply_to";
+/// Org-level signature block appended to outbound mail after the greeting
+/// body. Boards override it with their own signature.
+pub const EMAIL_SIGNATURE: &str = "email.signature";
+/// Wordmark shown in the branded notification/digest wrapper header.
+/// Empty falls back to the org name.
+pub const EMAIL_BRAND_NAME: &str = "email.brand_name";
+/// Optional https URL of a logo rendered in the branded wrapper header.
+/// Empty renders the wordmark alone.
+pub const EMAIL_LOGO_URL: &str = "email.logo_url";
+pub const EMAIL_SMTP_HOST: &str = "email.smtp_host";
+pub const EMAIL_SMTP_PORT: &str = "email.smtp_port";
+pub const EMAIL_SMTP_USERNAME: &str = "email.smtp_username";
+pub const EMAIL_POSTMARK_BASE_URL: &str = "email.postmark_base_url";
+/// Org admin policy over the per-user daily digest: `allowed` (users may
+/// opt in) or `disabled` (no digest sends org-wide). Deny wins.
+pub const EMAIL_DIGEST_POLICY: &str = "email.digest_policy";
+/// Per-user daily digest opt-in: `off` | `daily`. The digest is ONE email
+/// summarizing unread notifications, sent at `email.digest_hour` in the
+/// user's own timezone; because it is scheduled (not interruptive) quiet
+/// hours do not suppress it — the chosen hour IS the quiet-hours answer.
+pub const EMAIL_DIGEST: &str = "email.digest";
+/// Local hour (0-23) the daily digest sends at, in the user's quiet-hours
+/// timezone (falling back to UTC).
+pub const EMAIL_DIGEST_HOUR: &str = "email.digest_hour";
+/// Hidden idempotency marker: the local date (`YYYY-MM-DD`) of the last
+/// digest send, so at-least-once loop ticks cannot double-send a day.
+pub const EMAIL_DIGEST_LAST_SENT: &str = "email.digest_last_sent";
+
+/// Transport selections the settings UI and worker resolver accept.
+pub const EMAIL_TRANSPORT_OPTIONS: &[&str] = &["none", "postmark", "smtp"];
+/// Digest policy options (org scope).
+pub const EMAIL_DIGEST_POLICY_OPTIONS: &[&str] = &["allowed", "disabled"];
+/// Per-user digest options.
+pub const EMAIL_DIGEST_OPTIONS: &[&str] = &["off", "daily"];
+
+/// True when the key belongs to the per-board outbound identity family
+/// (`email.board.<uuid>.<field>`), addressed dynamically per board.
+pub fn is_board_identity_key(key: &str) -> bool {
+    board_identity_parts(key).is_some()
+}
+
+/// Parses `email.board.<uuid>.<from_address|from_name|reply_to|signature>`
+/// into its coordinates; `None` for everything else (including unknown
+/// fields, so callers can reject typos instead of silently storing them).
+pub fn board_identity_parts(key: &str) -> Option<(uuid::Uuid, BoardIdentityField)> {
+    let rest = key.strip_prefix("email.board.")?;
+    let (id, field) = rest.split_once('.')?;
+    let board_id = uuid::Uuid::parse_str(id).ok()?;
+    let field = match field {
+        "from_address" => BoardIdentityField::FromAddress,
+        "from_name" => BoardIdentityField::FromName,
+        "reply_to" => BoardIdentityField::ReplyTo,
+        "signature" => BoardIdentityField::Signature,
+        _ => return None,
+    };
+    Some((board_id, field))
+}
+
+/// The four per-board outbound identity fields.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoardIdentityField {
+    FromAddress,
+    FromName,
+    ReplyTo,
+    Signature,
+}
+
+impl BoardIdentityField {
+    pub const ALL: [BoardIdentityField; 4] = [
+        BoardIdentityField::FromAddress,
+        BoardIdentityField::FromName,
+        BoardIdentityField::ReplyTo,
+        BoardIdentityField::Signature,
+    ];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            BoardIdentityField::FromAddress => "from_address",
+            BoardIdentityField::FromName => "from_name",
+            BoardIdentityField::ReplyTo => "reply_to",
+            BoardIdentityField::Signature => "signature",
+        }
+    }
+
+    /// Max stored length per field — mirrors the settings validation caps.
+    pub const fn max_len(self) -> usize {
+        match self {
+            BoardIdentityField::FromAddress | BoardIdentityField::ReplyTo => 254,
+            BoardIdentityField::FromName => 120,
+            BoardIdentityField::Signature => 1000,
+        }
+    }
+}
+
+/// Builds the settings key for one board identity field.
+pub fn board_identity_key(board_id: uuid::Uuid, field: BoardIdentityField) -> String {
+    format!("email.board.{board_id}.{}", field.as_str())
+}
+
 /// Wave 26 lane 2 (`p26-contextual-help`): per-user "Was this helpful?"
 /// feedback on docs surfaced by the in-app help panel. Text carrying a
 /// capped JSON log (`[{doc, up, at}]`, newest last, max 50) — append-only
@@ -764,6 +892,191 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> = std::sync::L
                 description: "Default sign-off block appended to client emails you \
                              compose (e.g. your name and title). Empty appends none.",
             },
+            // Wave 34 lane 8 (`p34-email-config-closeout`): outbound mail
+            // configuration. Selection/identity only — credentials live in
+            // the sealed slot, never here.
+            SettingDeclaration {
+                key: EMAIL_TRANSPORT,
+                kind: SettingKind::Enumeration,
+                default: SettingValue::Text("none".into()),
+                scope: SettingScope::Org,
+                section: SettingSection::Email,
+                visibility: SettingVisibility::Ui,
+                label: "Outbound transport",
+                description: "How Meridian sends mail: none keeps messages queued \
+                             (honest not-configured state), postmark sends through \
+                             the Postmark API, smtp relays through your own SMTP \
+                             host. Credentials go through the sealed slot on the \
+                             email settings page — never environment-only.",
+            },
+            SettingDeclaration {
+                key: EMAIL_FROM_ADDRESS,
+                kind: SettingKind::Text { max_len: 254 },
+                default: SettingValue::Text(String::new()),
+                scope: SettingScope::Org,
+                section: SettingSection::Email,
+                visibility: SettingVisibility::Ui,
+                label: "From address",
+                description: "The address Meridian mail is sent from (for example \
+                             support@yourdomain.com). Boards with their own \
+                             identity override it. Empty keeps the operator \
+                             process default.",
+            },
+            SettingDeclaration {
+                key: EMAIL_FROM_NAME,
+                kind: SettingKind::Text { max_len: 120 },
+                default: SettingValue::Text(String::new()),
+                scope: SettingScope::Org,
+                section: SettingSection::Email,
+                visibility: SettingVisibility::Ui,
+                label: "From display name",
+                description: "Display name shown beside the From address (for \
+                             example \"Acme Support\"). Boards with their own \
+                             identity override it.",
+            },
+            SettingDeclaration {
+                key: EMAIL_REPLY_TO,
+                kind: SettingKind::Text { max_len: 254 },
+                default: SettingValue::Text(String::new()),
+                scope: SettingScope::Org,
+                section: SettingSection::Email,
+                visibility: SettingVisibility::Ui,
+                label: "Reply-To address",
+                description: "Where client replies go when it differs from the From \
+                             address — usually the board's inbound address. Empty \
+                             sends no Reply-To header. Boards override it.",
+            },
+            SettingDeclaration {
+                key: EMAIL_SIGNATURE,
+                kind: SettingKind::Text { max_len: 1000 },
+                default: SettingValue::Text(String::new()),
+                scope: SettingScope::Org,
+                section: SettingSection::Email,
+                visibility: SettingVisibility::Ui,
+                label: "Org email signature",
+                description: "Signature block appended to outbound mail below the \
+                             body (name, role, phone). Boards with their own \
+                             signature override it.",
+            },
+            SettingDeclaration {
+                key: EMAIL_BRAND_NAME,
+                kind: SettingKind::Text { max_len: 120 },
+                default: SettingValue::Text(String::new()),
+                scope: SettingScope::Org,
+                section: SettingSection::Email,
+                visibility: SettingVisibility::Ui,
+                label: "Email brand name",
+                description: "Wordmark shown in the header of notification and \
+                             digest emails. Empty uses the organization name.",
+            },
+            SettingDeclaration {
+                key: EMAIL_LOGO_URL,
+                kind: SettingKind::Text { max_len: 500 },
+                default: SettingValue::Text(String::new()),
+                scope: SettingScope::Org,
+                section: SettingSection::Email,
+                visibility: SettingVisibility::Ui,
+                label: "Email logo URL",
+                description: "Optional https URL of a logo image shown in the \
+                             branded email header. Empty renders the wordmark \
+                             alone.",
+            },
+            SettingDeclaration {
+                key: EMAIL_SMTP_HOST,
+                kind: SettingKind::Text { max_len: 255 },
+                default: SettingValue::Text(String::new()),
+                scope: SettingScope::Org,
+                section: SettingSection::Email,
+                visibility: SettingVisibility::Ui,
+                label: "SMTP host",
+                description: "Hostname of your SMTP relay (for example \
+                             smtp.yourdomain.com). The SMTP password goes through \
+                             the sealed slot, never this field.",
+            },
+            SettingDeclaration {
+                key: EMAIL_SMTP_PORT,
+                kind: SettingKind::Integer { min: 1, max: 65535 },
+                default: SettingValue::Integer(587),
+                scope: SettingScope::Org,
+                section: SettingSection::Email,
+                visibility: SettingVisibility::Ui,
+                label: "SMTP port",
+                description: "SMTP port: 587 for submission with STARTTLS, 25 for \
+                             a plain relay, 465 where implicit TLS is required.",
+            },
+            SettingDeclaration {
+                key: EMAIL_SMTP_USERNAME,
+                kind: SettingKind::Text { max_len: 255 },
+                default: SettingValue::Text(String::new()),
+                scope: SettingScope::Org,
+                section: SettingSection::Email,
+                visibility: SettingVisibility::Ui,
+                label: "SMTP username",
+                description: "Username for SMTP AUTH. Empty sends no authentication \
+                             (relay must trust this instance by network). The \
+                             password is sealed separately.",
+            },
+            SettingDeclaration {
+                key: EMAIL_POSTMARK_BASE_URL,
+                kind: SettingKind::Text { max_len: 255 },
+                default: SettingValue::Text("https://api.postmarkapp.com".into()),
+                scope: SettingScope::Org,
+                section: SettingSection::Email,
+                visibility: SettingVisibility::Ui,
+                label: "Postmark API base URL",
+                description: "Postmark API endpoint — keep the default unless you \
+                             run a regional endpoint or a compatible proxy. The \
+                             server token is sealed separately.",
+            },
+            SettingDeclaration {
+                key: EMAIL_DIGEST_POLICY,
+                kind: SettingKind::Enumeration,
+                default: SettingValue::Text("allowed".into()),
+                scope: SettingScope::Org,
+                section: SettingSection::Email,
+                visibility: SettingVisibility::Ui,
+                label: "Daily digest policy",
+                description: "Admin policy over the per-user daily digest: allowed \
+                             lets members opt in, disabled stops digest email for \
+                             the whole organization (deny wins over personal \
+                             preferences).",
+            },
+            SettingDeclaration {
+                key: EMAIL_DIGEST,
+                kind: SettingKind::Enumeration,
+                default: SettingValue::Text("off".into()),
+                scope: SettingScope::User,
+                section: SettingSection::Email,
+                visibility: SettingVisibility::Ui,
+                label: "Daily digest email",
+                description: "One email a day summarizing your unread \
+                             notifications, sent at your chosen hour in your own \
+                             timezone. Scheduled — quiet hours do not suppress it.",
+            },
+            SettingDeclaration {
+                key: EMAIL_DIGEST_HOUR,
+                kind: SettingKind::Integer { min: 0, max: 23 },
+                default: SettingValue::Integer(7),
+                scope: SettingScope::User,
+                section: SettingSection::Email,
+                visibility: SettingVisibility::Ui,
+                label: "Digest send hour",
+                description: "Local hour (0-23) the daily digest arrives, read in \
+                             your notification timezone. Pick one outside quiet \
+                             hours.",
+            },
+            SettingDeclaration {
+                key: EMAIL_DIGEST_LAST_SENT,
+                kind: SettingKind::Text { max_len: 40 },
+                default: SettingValue::Text(String::new()),
+                scope: SettingScope::User,
+                section: SettingSection::Email,
+                visibility: SettingVisibility::Hidden,
+                label: "Digest last-sent marker",
+                description: "Internal idempotency marker: local date of your last \
+                             digest send. Written by the digest loop; not a \
+                             preference.",
+            },
             // Connector enable/disable toggles (Wave 15 lane 4
             // `p15-docs-closeout`): one org-scope Boolean per shipped
             // connector family, all DEFAULT ON (disabling is the
@@ -1189,15 +1502,81 @@ mod tests {
         // Wave 26 lane 2 added the help/tours seam: doc feedback,
         // tours.disabled, tours.completed = 16.
         // Wave 29 lane 1 added shortcuts.profile (user scope) = 17.
-        assert_eq!(declarations_for(SettingScope::User).len(), 17);
+        // Wave 34 lane 8 added the digest trio (opt-in, hour, marker) = 20.
+        assert_eq!(declarations_for(SettingScope::User).len(), 20);
         // Tripwire count: bump deliberately when an org-scope setting is
         // added (Wave 26 lane 1: flows_disabled + six org steps ×
         // done/dismissed = 13, so 15 → 28; Wave 26 lane 2 added
         // tours.org_disabled — 28 → 29... plus the user/org banner
         // dismissed pair re-counted at 29 → 30. Wave 32 lane 7 added the
         // routing/travel policy block (three heuristic keys + mileage
-        // rate, unit, and reimbursement toggle): 30 → 36.
-        assert_eq!(declarations_for(SettingScope::Org).len(), 36);
+        // rate, unit, and reimbursement toggle): 30 → 36. Wave 34 lane 8
+        // added the twelve mail-config keys (transport, from/reply-to,
+        // signature, brand, logo, smtp ×3, postmark base, digest policy):
+        // 36 → 48.
+        assert_eq!(declarations_for(SettingScope::Org).len(), 48);
+    }
+
+    #[test]
+    fn mail_config_seam_is_typed_and_secret_free() {
+        // Transport selection is an enumeration; credentials never ride
+        // settings (they live in the sealed slot).
+        let d = declaration(EMAIL_TRANSPORT).unwrap();
+        assert_eq!(d.scope, SettingScope::Org);
+        assert_eq!(d.section, SettingSection::Email);
+        for good in EMAIL_TRANSPORT_OPTIONS {
+            assert!(d.validate(&SettingValue::Text((*good).into())).is_ok());
+        }
+        for bad in ["postfix", "Postmark", "", "smtp+starttls"] {
+            assert!(d.validate(&SettingValue::Text(bad.into())).is_err());
+        }
+        // Digest knobs: org policy denies; per-user opt-in + hour.
+        for (key, scope) in [
+            (EMAIL_DIGEST_POLICY, SettingScope::Org),
+            (EMAIL_DIGEST, SettingScope::User),
+            (EMAIL_DIGEST_HOUR, SettingScope::User),
+        ] {
+            assert_eq!(declaration(key).unwrap().scope, scope, "{key}");
+        }
+        assert!(declaration(EMAIL_DIGEST_HOUR)
+            .unwrap()
+            .validate(&SettingValue::Integer(23))
+            .is_ok());
+        assert!(declaration(EMAIL_DIGEST_HOUR)
+            .unwrap()
+            .validate(&SettingValue::Integer(24))
+            .is_err());
+        // The last-sent marker is hidden state, not a preference.
+        assert_eq!(
+            declaration(EMAIL_DIGEST_LAST_SENT).unwrap().visibility,
+            SettingVisibility::Hidden
+        );
+        // From/reply-to fields are text with the mailbox-length cap.
+        for key in [EMAIL_FROM_ADDRESS, EMAIL_REPLY_TO] {
+            let d = declaration(key).unwrap();
+            assert!(d.validate(&SettingValue::Text("a@b.co".into())).is_ok());
+            assert!(d
+                .validate(&SettingValue::Text("x".repeat(255)))
+                .is_err());
+        }
+    }
+
+    #[test]
+    fn board_identity_keys_parse_only_known_fields() {
+        let board = uuid::Uuid::now_v7();
+        for field in BoardIdentityField::ALL {
+            let key = board_identity_key(board, field);
+            assert_eq!(board_identity_parts(&key), Some((board, field)), "{key}");
+        }
+        assert!(is_board_identity_key(&board_identity_key(
+            board,
+            BoardIdentityField::FromAddress
+        )));
+        // Unknown fields, missing parts, and non-uuid ids all miss.
+        assert!(board_identity_parts(&format!("email.board.{board}.cc")).is_none());
+        assert!(board_identity_parts("email.board.not-a-uuid.from_address").is_none());
+        assert!(board_identity_parts("email.board.").is_none());
+        assert!(!is_board_identity_key("email.from_address"));
     }
 
     #[test]

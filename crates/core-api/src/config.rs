@@ -10,6 +10,31 @@
 #[derive(Debug, Clone, Copy)]
 pub struct SecretKey(pub [u8; 32]);
 
+/// Asymmetric access-token signing material (Wave 34 lane 6, threat-model
+/// §A4 upgrade path). When present, every token this process issues is
+/// signed with EdDSA (Ed25519) and stamped with `kid`; verification
+/// prefers EdDSA and keeps accepting HS256 while `jwt_secret` is deployed
+/// (rolling-migration posture — see `auth::jwt`).
+#[derive(Clone)]
+pub struct JwtSigningKey {
+    /// PKCS#8 PEM of the Ed25519 private key (never logged).
+    pub private_pem: String,
+    /// PUBLIC key PEM for verification (SPKI).
+    pub public_pem: String,
+    /// `kid` stamped on every token header this process issues.
+    pub kid: String,
+}
+
+impl std::fmt::Debug for JwtSigningKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("JwtSigningKey")
+            .field("kid", &self.kid)
+            .field("private_pem", &"<redacted>")
+            .field("public_pem", &"<redacted>")
+            .finish()
+    }
+}
+
 use core_mail::TransportKind;
 
 #[derive(Debug, Clone)]
@@ -18,6 +43,15 @@ pub struct Config {
     pub redis_url: String,
     pub bind_addr: String,
     pub jwt_secret: String,
+    /// Asymmetric signing upgrade (threat-model §A4, Wave 34 lane 6):
+    /// `MERIDIAN_JWT_EDDSA_PRIVATE_KEY` (inline PEM) or
+    /// `MERIDIAN_JWT_EDDSA_PRIVATE_KEY_FILE` (path) turns on EdDSA
+    /// signing; `MERIDIAN_JWT_EDDSA_PUBLIC_KEY` / `..._FILE` supplies the
+    /// verification key (required with the private key); `MERIDIAN_JWT_KID`
+    /// names the key (default `m1`). Both PEMs are parsed at boot — a
+    /// malformed key refuses to boot. Unset ⇒ HS256 on `jwt_secret`,
+    /// exactly as before.
+    pub jwt_signing: Option<JwtSigningKey>,
     /// Access token TTL in seconds (default 15 min).
     pub access_ttl_secs: i64,
     /// Refresh token TTL in seconds (default 30 days).
@@ -264,6 +298,7 @@ impl Config {
             redis_url: "redis://127.0.0.1:1/0".into(),
             bind_addr: format!("127.0.0.1:{api_port}"),
             jwt_secret,
+            jwt_signing: None,
             access_ttl_secs: 900,
             refresh_ttl_secs: 60 * 60 * 24 * 30,
             cors_origin: None,
@@ -388,6 +423,7 @@ impl Config {
                 )
             }
         };
+        let jwt_signing = jwt_signing_from_env()?;
         Ok(Self {
             database_url: std::env::var("DATABASE_URL").unwrap_or_else(|_| {
                 "postgres://meridian_app:meridian_app@localhost:15432/meridian".into()
@@ -396,6 +432,7 @@ impl Config {
                 .unwrap_or_else(|_| "redis://localhost:16379/0".into()),
             bind_addr: std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".into()),
             jwt_secret,
+            jwt_signing,
             access_ttl_secs: std::env::var("ACCESS_TTL_SECS")
                 .ok()
                 .and_then(|v| v.parse().ok())
@@ -569,6 +606,77 @@ fn is_64_hex(v: &str) -> bool {
     v.len() == 64 && v.chars().all(|c| c.is_ascii_hexdigit())
 }
 
+/// EdDSA signing/verification key resolution (threat-model §A4). Both
+/// halves come from env (inline PEM or a mounted file); the private key
+/// without a public key is a boot refusal, because the process must be
+/// able to verify what it issues. Parsing goes through the SAME
+/// constructors signing/verification use, so a bad PEM fails at boot
+/// with operator copy instead of at the first login.
+fn jwt_signing_from_env() -> Result<Option<JwtSigningKey>, String> {
+    fn read_key(inline_var: &str, file_var: &str) -> Result<Option<String>, String> {
+        let inline = std::env::var(inline_var)
+            .ok()
+            .filter(|v| !v.trim().is_empty());
+        let file = std::env::var(file_var).ok().filter(|v| !v.trim().is_empty());
+        match (inline, file) {
+            (Some(_), Some(_)) => Err(format!(
+                "set EITHER {inline_var} (inline PEM) OR {file_var} (path), not both"
+            )),
+            (Some(pem), None) => Ok(Some(pem)),
+            (None, Some(path)) => {
+                let path = path.trim().to_string();
+                std::fs::read_to_string(&path)
+                    .map(Some)
+                    .map_err(|e| format!("{file_var}: cannot read {path}: {e}"))
+            }
+            (None, None) => Ok(None),
+        }
+    }
+
+    let private_pem = read_key(
+        "MERIDIAN_JWT_EDDSA_PRIVATE_KEY",
+        "MERIDIAN_JWT_EDDSA_PRIVATE_KEY_FILE",
+    )?;
+    let public_pem = read_key(
+        "MERIDIAN_JWT_EDDSA_PUBLIC_KEY",
+        "MERIDIAN_JWT_EDDSA_PUBLIC_KEY_FILE",
+    )?;
+    let (private_pem, public_pem) = match (private_pem, public_pem) {
+        (None, None) => return Ok(None),
+        (Some(_), None) => {
+            return Err(
+                "MERIDIAN_JWT_EDDSA_PRIVATE_KEY is set without MERIDIAN_JWT_EDDSA_PUBLIC_KEY — \
+                 the process must be able to verify the tokens it signs (generate the pair with: \
+                 openssl genpkey -algorithm ED25519)"
+                    .into(),
+            )
+        }
+        (None, Some(_)) => {
+            return Err(
+                "MERIDIAN_JWT_EDDSA_PUBLIC_KEY is set without MERIDIAN_JWT_EDDSA_PRIVATE_KEY — \
+                 core-api both signs and verifies; the public-only posture belongs to realtime"
+                    .into(),
+            )
+        }
+        (Some(private), Some(public)) => (private, public),
+    };
+    jsonwebtoken::EncodingKey::from_ed_pem(private_pem.as_bytes()).map_err(|e| {
+        format!("MERIDIAN_JWT_EDDSA_PRIVATE_KEY is not a valid Ed25519 PKCS#8 PEM: {e}")
+    })?;
+    jsonwebtoken::DecodingKey::from_ed_pem(public_pem.as_bytes()).map_err(|e| {
+        format!("MERIDIAN_JWT_EDDSA_PUBLIC_KEY is not a valid Ed25519 public-key PEM: {e}")
+    })?;
+    let kid = std::env::var("MERIDIAN_JWT_KID")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| "m1".into());
+    Ok(Some(JwtSigningKey {
+        private_pem,
+        public_pem,
+        kid,
+    }))
+}
+
 /// Single source of truth for the dev fallback derivation lives in
 /// core-db::demo (the CLI seeder must derive the SAME key or the demo
 /// secrets it seals are unopenable by this API).
@@ -585,6 +693,7 @@ impl Config {
             redis_url: String::new(),
             bind_addr: String::new(),
             jwt_secret: secret.to_string(),
+            jwt_signing: None,
             access_ttl_secs: 900,
             refresh_ttl_secs: 86_400,
             cors_origin: None,
@@ -671,7 +780,16 @@ mod hardening_tests {
             let mutex = ENV_MUTEX.get_or_init(|| std::sync::Mutex::new(()));
             let _held = mutex.lock().unwrap();
             let mut state = Vec::new();
-            for key in ["JWT_SECRET", "MERIDIAN_SECRET_KEY", "MERIDIAN_DEV_TOOLS"] {
+            for key in [
+                "JWT_SECRET",
+                "MERIDIAN_SECRET_KEY",
+                "MERIDIAN_DEV_TOOLS",
+                "MERIDIAN_JWT_EDDSA_PRIVATE_KEY",
+                "MERIDIAN_JWT_EDDSA_PRIVATE_KEY_FILE",
+                "MERIDIAN_JWT_EDDSA_PUBLIC_KEY",
+                "MERIDIAN_JWT_EDDSA_PUBLIC_KEY_FILE",
+                "MERIDIAN_JWT_KID",
+            ] {
                 state.push((key.to_string(), std::env::var(key).ok()));
             }
             CleanEnv { state, _held }
@@ -753,5 +871,51 @@ mod hardening_tests {
         std::env::remove_var("MERIDIAN_DEV_TOOLS");
         let cfg = Config::from_env_allow_dev_fallback().expect("test alias boots");
         assert_eq!(cfg.jwt_secret, Config::DEV_JWT_SECRET);
+    }
+
+    // --- EdDSA signing upgrade env contract (Wave 34 lane 6) -------------
+
+    #[test]
+    fn eddsa_private_key_without_public_key_refuses_boot() {
+        let _guard = CleanEnv::snapshot();
+        std::env::set_var("JWT_SECRET", "f".repeat(64));
+        std::env::set_var("MERIDIAN_SECRET_KEY", "e".repeat(64));
+        std::env::set_var("MERIDIAN_JWT_EDDSA_PRIVATE_KEY", "not-a-pem");
+        std::env::remove_var("MERIDIAN_JWT_EDDSA_PUBLIC_KEY");
+        std::env::remove_var("MERIDIAN_JWT_EDDSA_PUBLIC_KEY_FILE");
+        let err = Config::from_env().expect_err("private without public must refuse");
+        assert!(
+            err.contains("MERIDIAN_JWT_EDDSA_PUBLIC_KEY"),
+            "operator copy names the missing variable: {err}"
+        );
+    }
+
+    #[test]
+    fn eddsa_public_key_without_private_key_refuses_boot() {
+        let _guard = CleanEnv::snapshot();
+        std::env::set_var("JWT_SECRET", "f".repeat(64));
+        std::env::set_var("MERIDIAN_SECRET_KEY", "e".repeat(64));
+        std::env::set_var("MERIDIAN_JWT_EDDSA_PUBLIC_KEY", "not-a-pem");
+        std::env::remove_var("MERIDIAN_JWT_EDDSA_PRIVATE_KEY");
+        std::env::remove_var("MERIDIAN_JWT_EDDSA_PRIVATE_KEY_FILE");
+        let err = Config::from_env().expect_err("public without private must refuse");
+        assert!(
+            err.contains("MERIDIAN_JWT_EDDSA_PRIVATE_KEY"),
+            "operator copy names the missing variable: {err}"
+        );
+    }
+
+    #[test]
+    fn eddsa_malformed_private_pem_refuses_boot_with_the_variable_name() {
+        let _guard = CleanEnv::snapshot();
+        std::env::set_var("JWT_SECRET", "f".repeat(64));
+        std::env::set_var("MERIDIAN_SECRET_KEY", "e".repeat(64));
+        std::env::set_var("MERIDIAN_JWT_EDDSA_PRIVATE_KEY", "not-a-pem");
+        std::env::set_var("MERIDIAN_JWT_EDDSA_PUBLIC_KEY", "not-a-pem");
+        let err = Config::from_env().expect_err("malformed PEM must refuse");
+        assert!(
+            err.contains("MERIDIAN_JWT_EDDSA_PRIVATE_KEY"),
+            "operator copy names the malformed variable: {err}"
+        );
     }
 }
