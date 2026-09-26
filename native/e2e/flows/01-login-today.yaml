@@ -22,3 +22,8 @@ appId: tech.meridian.app
       id: "today-screen"
     timeout: 20000
 - assertVisible: "Today"
+- runFlow:
+    when:
+      visible: "Save Password?"
+    commands:
+      - tapOn: "Not Now"

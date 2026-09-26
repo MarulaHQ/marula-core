@@ -1,21 +1,26 @@
-// Tools register — outstanding checkouts with return.
+// Tools register — outstanding checkouts with return, and scan-to-return.
 //
 // Purpose: the shop's checkout list (holder, due, overdue) with the return
-// action for the caller's own tools. Checkin rides the offline queue.
+// action for the caller's own tools, plus the field grammar on top: scan a
+// tool's serial to return that unit (or check it out), scan a toolbox
+// stencil to open the whole-kit transaction. Checkin rides the offline
+// queue.
 
 import { router } from "expo-router";
-import { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { useCallback, useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { useAuth } from "@/auth/auth-context";
 import {
   MODELS,
   fetchStockSerials,
   fetchToolCheckouts,
+  type ScanResolution,
   type ToolCheckoutDetail,
 } from "@/core/models";
-import { checkinTools } from "@/core/writes";
+import { checkinTools, checkoutTools } from "@/core/writes";
 import { useModel, useMutation } from "@/data/sync-context";
+import { ScanStation } from "@/scan/scan-station";
 import { RequireAuth } from "@/ui/require-auth";
 import {
   Button,
@@ -27,15 +32,19 @@ import {
   Pill,
   Screen,
   SectionHeader,
+  SuccessNote,
 } from "@/ui/primitives";
 import { accentPair, type, useTheme } from "@/ui/tokens";
+import { commitConfirmed } from "@/ui/haptics";
 
 export default function ToolsScreen() {
   const { tokens } = useTheme();
   const { me } = useAuth();
   const { mutate } = useMutation();
   const [banner, setBanner] = useState<string | null>(null);
+  const [bannerOk, setBannerOk] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [scanBusy, setScanBusy] = useState(false);
   const checkouts = useModel(MODELS.toolCheckouts, fetchToolCheckouts, { maxAgeMs: 30_000 });
   const serials = useModel(MODELS.stockSerials, fetchStockSerials, { maxAgeMs: 60_000 });
 
@@ -47,18 +56,116 @@ export default function ToolsScreen() {
     return serialId !== null ? serialId.slice(0, 8) : itemId.slice(0, 8);
   };
 
+  // Scan-to-return: one unit (per-line checkin) or a whole kit (route to the
+  // kit screen, which owns the location + availability context).
+  const onScan = useCallback(
+    async (resolution: ScanResolution) => {
+      if (resolution.kind === "tool_kit" && resolution.entity_id !== null) {
+        router.push(`/tool-kit/${resolution.entity_id}` as never);
+        return;
+      }
+      if (resolution.kind !== "serialized_unit" || resolution.serial_id === null) return;
+      setBanner(null);
+      setScanBusy(true);
+      const open = (checkouts.data ?? []).find(
+        (row: ToolCheckoutDetail) =>
+          row.checkout.status !== "returned" &&
+          row.lines.some((line) => line.serial_id === resolution.serial_id),
+      );
+      if (open !== undefined) {
+        const line = open.lines.find((candidate) => candidate.serial_id === resolution.serial_id);
+        if (open.checkout.holder_user_id !== me?.user_id) {
+          setBannerOk(false);
+          setBanner(
+            `${resolution.display_name} is checked out to someone else — due ${new Date(
+              open.checkout.due_at,
+            ).toLocaleString()}.`,
+          );
+          setScanBusy(false);
+          return;
+        }
+        const result = await mutate(checkinTools, {
+          checkoutId: open.checkout.id,
+          ...(line !== undefined ? { lines: [{ lineId: line.id, condition: "good" }] } : {}),
+        });
+        setScanBusy(false);
+        setBannerOk(result.ok);
+        if (result.ok) {
+          commitConfirmed();
+          setBanner(
+            result.queued
+              ? `${resolution.display_name} — return queued on this device.`
+              : `${resolution.display_name} is back in stock.`,
+          );
+        } else {
+          setBanner(result.failure?.text ?? "The return couldn't be saved.");
+        }
+        return;
+      }
+      // Not out: offer a checkout for this unit if it is in stock.
+      if (resolution.serial_status === "in_stock" && me !== null) {
+        const serial = (serials.data ?? []).find((candidate) => candidate.id === resolution.serial_id);
+        if (serial?.location_id != null && serial.stock_item_id !== null) {
+          const result = await mutate(checkoutTools, {
+            holderUserId: me.user_id,
+            fromLocationId: serial.location_id,
+            dueAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+            items: [{ itemId: serial.stock_item_id, serialId: resolution.serial_id }],
+          });
+          setScanBusy(false);
+          setBannerOk(result.ok);
+          if (result.ok) {
+            commitConfirmed();
+            setBanner(
+              result.queued
+                ? `${resolution.display_name} — checkout queued on this device.`
+                : `${resolution.display_name} is checked out to you.`,
+            );
+          } else {
+            setBanner(result.failure?.text ?? "The checkout couldn't be saved.");
+          }
+          return;
+        }
+      }
+      setScanBusy(false);
+      setBannerOk(false);
+      setBanner(
+        `${resolution.display_name} is not out on a checkout held by you.`,
+      );
+    },
+    [checkouts.data, me, mutate, serials.data],
+  );
+
   const rows = (checkouts.data ?? []).filter((row) => row.checkout.status !== "returned");
 
   return (
     <RequireAuth>
       <Screen testID="tools-screen">
+        <Pressable
+          onPress={() => router.back()}
+          hitSlop={8}
+          testID="tools-back"
+        >
+          <Text style={[styles.back, { color: tokens.primary }]}>‹ Back</Text>
+        </Pressable>
         <View style={styles.header}>
           <Text style={[styles.title, { color: tokens.text }]}>Tools</Text>
           <Text style={[styles.subtitle, { color: tokens.textMuted }]}>
             {rows.length === 0 ? "Nothing is checked out." : `${rows.length} open checkouts`}
           </Text>
         </View>
-        {banner !== null ? <ErrorNote text={banner} /> : null}
+        {banner !== null ? (
+          bannerOk ? <SuccessNote text={banner} /> : <ErrorNote text={banner} />
+        ) : null}
+        <ScanStation
+          surface="field-return"
+          testIDPrefix="tools-scan"
+          onAccept={(resolution) => {
+            void onScan(resolution);
+          }}
+          hint="Scan a tool to return it, or a toolbox stencil to open the kit."
+        />
+        {scanBusy ? <Loading label="Updating the checkout" /> : null}
         {checkouts.status === "error" && checkouts.data === undefined ? (
           <ErrorNote text={checkouts.error?.text ?? "Couldn't load checkouts."} onRetry={checkouts.refresh} />
         ) : null}
@@ -124,6 +231,10 @@ export default function ToolsScreen() {
 }
 
 const styles = StyleSheet.create({
+  back: {
+    fontFamily: type.sansSemiBold,
+    fontSize: 15,
+  },
   header: {
     paddingTop: 16,
     gap: 2,

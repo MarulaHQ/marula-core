@@ -1,0 +1,43 @@
+# Field ops — live timer on the lock screen (Wave 33 lane 2).
+#
+# The in-app timer bar drives the platform mirror from the same server
+# session: starting a ticket timer must surface the LIVE marker and the dev
+# status screen must report the bridge. This flow needs a build with the
+# native module (the CI Release build and a dev client); in Expo Go the
+# status screen honestly reports UNSUPPORTED instead.
+appId: tech.meridian.app
+---
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: "today-screen"
+    timeout: 20000
+- tapOn: "Board, tab.*"
+- tapOn:
+    id: "ticket-row-.*"
+- tapOn:
+    id: "ticket-timer-start"
+- extendedWaitUntil:
+    visible:
+      id: "timer-bar"
+    timeout: 15000
+- assertVisible:
+    id: "timer-live"
+- tapOn: "More, tab.*"
+- scrollUntilVisible:
+    element:
+      text: "Live timer status.*"
+    direction: DOWN
+    visibilityPercentage: 40
+    centerElement: true
+- tapOn: "Live timer status.*"
+- extendedWaitUntil:
+    visible:
+      id: "dev-live-screen"
+    timeout: 10000
+- assertVisible: "SUPPORTED"
+- tapOn:
+    id: "dev-live-update"
+- tapOn:
+    id: "dev-live-end"
+

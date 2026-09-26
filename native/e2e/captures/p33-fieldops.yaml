@@ -1,0 +1,189 @@
+# Field-ops capture matrix (Wave 33 lane 2).
+#
+# Not part of `maestro test native/e2e/flows` — run explicitly:
+#   maestro test native/e2e/captures/p33-fieldops.yaml \
+#     --test-output-dir design/qa-p33-rn-fieldops/captures \
+#     --device <SIMULATOR_UDID>
+#
+# Captures the new surfaces in light and dark on whatever device class the
+# --device flag names. The camera sheet honestly shows the simulator state
+# (no lens); the resolve paths under it are the real ones.
+appId: tech.meridian.app
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    when:
+      visible:
+        id: "login-email"
+    commands:
+      - tapOn:
+          id: "login-email"
+      - inputText: "owner@demo.local"
+      - tapOn:
+          id: "login-password"
+      - inputText: "demo-password-123"
+      - tapOn:
+          id: "login-submit"
+- extendedWaitUntil:
+    visible:
+      id: "today-screen"
+    timeout: 20000
+- runFlow:
+    when:
+      visible: "Save Password?"
+    commands:
+      - tapOn: "Not Now"
+# --- light theme ---
+- tapOn: "More, tab.*"
+- tapOn:
+    id: "theme-light"
+- tapOn: "Today, tab.*"
+- takeScreenshot: light-today-fieldops
+- tapOn: "Scan, tab.*"
+- tapOn:
+    id: "scan-camera"
+- takeScreenshot: light-scan-camera-sheet
+- tapOn:
+    id: "camera-close"
+- tapOn:
+    id: "scan-input"
+- inputText: "KIT-FIELD-1"
+- tapOn:
+    id: "scan-resolve"
+- extendedWaitUntil:
+    visible:
+      id: "scan-resolution"
+    timeout: 10000
+- takeScreenshot: light-scan-toolbox
+- tapOn:
+    id: "scan-open"
+- extendedWaitUntil:
+    visible:
+      id: "tool-kit-screen"
+    timeout: 10000
+- takeScreenshot: light-tool-kit
+- tapOn:
+    id: "tool-kit-back"
+- extendedWaitUntil:
+    visible:
+      id: "scan-screen"
+    timeout: 10000
+- tapOn: "Today, tab.*"
+- tapOn: "Stock"
+- extendedWaitUntil:
+    visible:
+      id: "stock-lookup-screen"
+    timeout: 10000
+- takeScreenshot: light-stock-lookup
+- tapOn:
+    id: "stock-back"
+- extendedWaitUntil:
+    visible:
+      id: "today-screen"
+    timeout: 10000
+- tapOn: "Move stock"
+- extendedWaitUntil:
+    visible:
+      id: "move-screen"
+    timeout: 10000
+- takeScreenshot: light-move-empty
+- tapOn:
+    id: "move-mode-transfer"
+- tapOn:
+    id: "move-scan-input"
+- inputText: "VAN-7"
+- tapOn:
+    id: "move-scan-resolve"
+- tapOn:
+    id: "move-scan-input"
+- inputText: "B-2"
+- tapOn:
+    id: "move-scan-resolve"
+- tapOn:
+    id: "move-scan-input"
+- inputText: "TIE-100"
+- tapOn:
+    id: "move-scan-resolve"
+- extendedWaitUntil:
+    visible:
+      id: "move-scan-staged"
+    timeout: 10000
+- takeScreenshot: light-move-transfer-staged
+- tapOn:
+    id: "move-back"
+- extendedWaitUntil:
+    visible:
+      id: "today-screen"
+    timeout: 10000
+- tapOn: "Board, tab.*"
+- tapOn: "Board, tab.*"
+- tapOn:
+    id: "ticket-row-.*"
+- extendedWaitUntil:
+    visible:
+      id: "ticket-parts"
+    timeout: 10000
+- takeScreenshot: light-ticket-parts
+- tapOn:
+    id: "ticket-timer-start"
+- extendedWaitUntil:
+    visible:
+      id: "timer-bar"
+    timeout: 15000
+- takeScreenshot: light-ticket-live-timer
+- tapOn: "Today, tab.*"
+- tapOn: "Tools"
+- extendedWaitUntil:
+    visible:
+      id: "tools-screen"
+    timeout: 10000
+- tapOn:
+    id: "tools-scan-input"
+- inputText: "CT-0001"
+- tapOn:
+    id: "tools-scan-resolve"
+- extendedWaitUntil:
+    visible: ".*(stock|you).*"
+    timeout: 15000
+- takeScreenshot: light-tools-scan
+- tapOn:
+    id: "tools-back"
+- extendedWaitUntil:
+    visible:
+      id: "today-screen"
+    timeout: 10000
+# --- dark theme ---
+- tapOn: "More, tab.*"
+- tapOn:
+    id: "theme-dark"
+- takeScreenshot: dark-more-field
+- tapOn: "Today, tab.*"
+- tapOn: "Move stock"
+- takeScreenshot: dark-move-stock
+- tapOn:
+    id: "move-back"
+- extendedWaitUntil:
+    visible:
+      id: "today-screen"
+    timeout: 10000
+- tapOn: "Today, tab.*"
+- tapOn: "Scan, tab.*"
+- takeScreenshot: dark-scan
+- tapOn: "Today, tab.*"
+- tapOn: "Stock"
+- takeScreenshot: dark-stock-lookup
+- tapOn:
+    id: "stock-back"
+- extendedWaitUntil:
+    visible:
+      id: "today-screen"
+    timeout: 10000
+- tapOn: "Board, tab.*"
+- tapOn: "Board, tab.*"
+- tapOn:
+    id: "ticket-row-.*"
+- takeScreenshot: dark-ticket-parts
+# leave the timer session clean for the next run
+- tapOn:
+    id: "ticket-timer-stop"

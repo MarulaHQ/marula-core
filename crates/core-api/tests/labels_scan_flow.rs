@@ -626,6 +626,37 @@ async fn scan_resolution_is_typed_deterministic_and_never_a_guess() {
     assert_eq!(hit["candidates"].as_array().unwrap().len(), 2);
     assert!(hit["deep_link"].is_null());
 
+    // 7b. Toolbox stencil (Wave 33 lane 2). Kit matching is the LAST code
+    //     step, so codes that already mean a serial/SKU/location/asset keep
+    //     their meaning; the kit resolves case-insensitively with its
+    //     canonical deep link.
+    let kit = body_json(
+        send(
+            &app,
+            axum::http::Method::POST,
+            "/api/v1/tool-kits",
+            &[auth(&token)],
+            Some(json!({
+                "name": "Field network kit",
+                "code": "KIT-FIELD-1",
+                "idempotency_key": Uuid::now_v7().to_string(),
+            })),
+        )
+        .await,
+    )
+    .await;
+    let kit_id = kit["id"].as_str().unwrap();
+    let hit = resolve_scan(&app, &token, "kit-field-1").await;
+    assert_eq!(hit["kind"], "tool_kit");
+    assert_eq!(hit["entity_id"], kit_id);
+    assert_eq!(hit["display_name"], "Field network kit");
+    assert_eq!(hit["secondary"], "KIT-FIELD-1");
+    assert_eq!(hit["deep_link"], format!("meridian://tool-kit/{kit_id}"));
+    assert_eq!(hit["is_tool"], false);
+    let hit = resolve_scan(&app, &token, &format!("meridian://tool-kit/{kit_id}")).await;
+    assert_eq!(hit["kind"], "tool_kit");
+    assert_eq!(hit["entity_id"], kit_id);
+
     // 8. Unknown stays unknown, with the input echoed.
     let hit = resolve_scan(&app, &token, "NOPE-404").await;
     assert_eq!(hit["kind"], "unknown");

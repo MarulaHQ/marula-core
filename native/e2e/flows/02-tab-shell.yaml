@@ -7,17 +7,17 @@ appId: tech.meridian.app
     visible:
       id: "today-screen"
     timeout: 20000
-- tapOn: "Board"
+- tapOn: "Board, tab.*"
 - extendedWaitUntil:
     visible:
       id: "ticket-list"
     timeout: 10000
-- tapOn: "Scan"
+- tapOn: "Scan, tab.*"
 - assertVisible:
     id: "scan-screen"
-- tapOn: "More"
+- tapOn: "More, tab.*"
 - assertVisible:
     id: "more-screen"
-- tapOn: "Today"
+- tapOn: "Today, tab.*"
 - assertVisible:
     id: "today-screen"

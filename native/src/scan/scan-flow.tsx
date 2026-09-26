@@ -7,7 +7,7 @@
 // routed by the frozen vocabulary (meridian://stock-item/<uuid>, …).
 
 import { useCallback, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Keyboard, Pressable, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 
 import type { ScanResolution } from "@/core/models";
@@ -31,6 +31,9 @@ export function useScanResolver() {
       setError(null);
       try {
         const result = await resolveScan(client, trimmed);
+        // The typing is done once the resolver answers; leaving the keyboard
+        // up hides the resolution card and its actions.
+        Keyboard.dismiss();
         setResolution(result);
       } catch (cause) {
         setError(friendlyMutationError(cause).text);

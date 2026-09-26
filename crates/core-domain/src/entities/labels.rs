@@ -105,6 +105,9 @@ pub fn deep_link_kind(purpose: &str) -> &'static str {
         "stock_location" => "stock-location",
         "serialized_unit" => "stock-serial",
         "device_asset" => "device-asset",
+        // Wave 33 lane 2: a toolbox stencil (the kit's `code`) scans as the
+        // kit itself, so one scan checks out the whole kit.
+        "tool_kit" => "tool-kit",
         _ => "unknown",
     }
 }

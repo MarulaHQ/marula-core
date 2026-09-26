@@ -10,14 +10,19 @@
 // Non-purpose: no board mechanics or field workflows (lanes 2/3).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { router } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import {
   MODELS,
   fetchActiveTimer,
+  fetchStockItems,
   fetchTicket,
   fetchTicketComments,
+  fetchTicketStockMovements,
+  type StockItemView,
   type TicketComment,
+  type TicketStockMovement,
 } from "@/core/models";
 import { REASON_COPY } from "@/core/errors";
 import { addTicketNote, startTimer, stopTimer } from "@/core/writes";
@@ -55,6 +60,12 @@ export function TicketDetail({ id }: { id: string }) {
     { maxAgeMs: 15_000 },
   );
   const timer = useModel(MODELS.activeTimer, fetchActiveTimer);
+  const movements = useModel(
+    MODELS.ticketStockMovements(id),
+    useCallback((client) => fetchTicketStockMovements(client, id), [id]),
+    { maxAgeMs: 30_000 },
+  );
+  const catalog = useModel(MODELS.stockItems, fetchStockItems, { maxAgeMs: 5 * 60_000 });
 
   const [body, setBody] = useState("");
   const [kind, setKind] = useState<NoteKind>("internal");
@@ -194,6 +205,77 @@ export function TicketDetail({ id }: { id: string }) {
         </View>
       </Card>
 
+      <SectionHeader title="Parts & shipping" />
+      <Card testID="ticket-parts">
+        <View style={styles.partsActions}>
+          <Button
+            label="Use a part"
+            testID="ticket-use-part"
+            onPress={() => router.push(`/move?mode=consume&ticket=${id}` as never)}
+          />
+          <Button
+            label="Receive"
+            variant="secondary"
+            testID="ticket-receive-part"
+            onPress={() => router.push(`/move?mode=receive&ticket=${id}` as never)}
+          />
+        </View>
+        {(movements.data ?? []).length === 0 ? (
+          <Text style={[styles.partsEmpty, { color: tokens.textMuted }]}>
+            No parts movements on this job yet. A scan stages the part; you confirm the
+            movement.
+          </Text>
+        ) : (
+          (movements.data ?? []).slice(0, 6).map((movement: TicketStockMovement) => {
+            const itemName =
+              (catalog.data ?? []).find(
+                (candidate: StockItemView) => candidate.id === movement.stock_item_id,
+              )?.name ?? "Item";
+            const shipped = movement.kind === "ship_out";
+            return (
+              <View key={movement.id} style={styles.markerRow} testID={`marker-${movement.id}`}>
+                <View style={styles.markerBody}>
+                  <View style={styles.markerHeader}>
+                    <Pill
+                      pair={markerPair(tokens, movement.kind)}
+                      label={movement.kind.replace(/_/g, " ").toUpperCase()}
+                    />
+                    <Mono muted>{formatTime(movement.created_at)}</Mono>
+                  </View>
+                  <Text style={[styles.markerName, { color: tokens.text }]} numberOfLines={1}>
+                    {itemName}
+                  </Text>
+                  {shipped ? (
+                    <Mono muted>
+                      {[movement.carrier, movement.tracking_ref]
+                        .filter((value): value is string => value != null && value !== "")
+                        .join(" · ") || "No carrier on file"}
+                    </Mono>
+                  ) : null}
+                </View>
+                {shipped ? (
+                  <Button
+                    label="Confirm"
+                    variant="secondary"
+                    testID={`confirm-shipment-${movement.id}`}
+                    onPress={() =>
+                      router.push(
+                        `/move?mode=receive&ticket=${id}&item=${movement.stock_item_id}` as never,
+                      )
+                    }
+                  />
+                ) : null}
+              </View>
+            );
+          })
+        )}
+        {movements.offline && movements.data !== undefined ? (
+          <Text style={[styles.partsEmpty, { color: tokens.textMuted }]}>
+            Showing the last sync from this device.
+          </Text>
+        ) : null}
+      </Card>
+
       <SectionHeader title={`Notes${sortedComments.length > 0 ? ` (${sortedComments.length})` : ""}`} />
       {comments.status === "error" && comments.data === undefined ? (
         <ErrorNote text={comments.error?.text ?? "Couldn't load notes."} onRetry={comments.refresh} />
@@ -297,6 +379,18 @@ function noteKindPair(tokens: ReturnType<typeof useTheme>["tokens"], kind: strin
   return tokens.neutral;
 }
 
+/** Ledger marker colors: outbound shipments warn, receipts succeed. */
+function markerPair(
+  tokens: ReturnType<typeof useTheme>["tokens"],
+  kind: string,
+): StatusPair {
+  if (kind === "ship_out") return tokens.warning;
+  if (kind === "receive" || kind === "checkin" || kind === "loan_return") {
+    return tokens.success;
+  }
+  return tokens.neutral;
+}
+
 function formatTime(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
@@ -348,6 +442,36 @@ const styles = StyleSheet.create({
   timerState: {
     fontFamily: type.sansMedium,
     fontSize: 15,
+  },
+  partsActions: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  partsEmpty: {
+    fontFamily: type.sans,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  markerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    minHeight: 44,
+    paddingVertical: 4,
+  },
+  markerBody: {
+    flex: 1,
+    gap: 2,
+  },
+  markerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  markerName: {
+    fontFamily: type.sansMedium,
+    fontSize: 14,
   },
   comment: {
     gap: 6,

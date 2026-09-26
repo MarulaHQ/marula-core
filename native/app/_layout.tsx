@@ -114,8 +114,12 @@ function ThemedStack() {
         <Stack.Screen name="stock-location/[id]" />
         <Stack.Screen name="asset/[id]" />
         <Stack.Screen name="tools" />
+        <Stack.Screen name="tool-kit/[id]" />
+        <Stack.Screen name="stock" />
+        <Stack.Screen name="move" />
         <Stack.Screen name="scan-result" options={{ animation: "fade" }} />
         <Stack.Screen name="dev/queue" />
+        <Stack.Screen name="dev/live" />
       </Stack>
     </>
   );

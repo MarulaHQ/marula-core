@@ -13,14 +13,26 @@ import { Redirect, Tabs } from "expo-router";
 import { StyleSheet, View } from "react-native";
 
 import { useAuth } from "@/auth/auth-context";
+import { MODELS, fetchActiveTimer } from "@/core/models";
+import { useConnectivity } from "@/data/connectivity";
+import { useModel } from "@/data/sync-context";
 import { BootScreen } from "@/ui/boot";
 import { OfflineBanner } from "@/ui/offline-banner";
+import { ShellTopContext } from "@/ui/primitives";
 import { TimerBar } from "@/ui/timer-bar";
 import { useTheme } from "@/ui/tokens";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function TabsLayout() {
   const { status } = useAuth();
   const { tokens } = useTheme();
+  const insets = useSafeAreaInsets();
+  const { online } = useConnectivity();
+  const timer = useModel(MODELS.activeTimer, fetchActiveTimer);
+  // The notice chrome (offline banner, timer bar) is what can collide with
+  // the status bar; when either is visible this shell clears the band and
+  // the screens below skip their own top inset.
+  const chrome = !online || (timer.data !== undefined && timer.data !== null);
 
   if (status === "loading") return <BootScreen />;
   if (status === "locked") return <Redirect href="/locked" />;
@@ -28,10 +40,13 @@ export default function TabsLayout() {
   if (status === "signedOut") return <Redirect href="/login" />;
 
   return (
-    <View style={[styles.shell, { backgroundColor: tokens.background }]}>
-      <OfflineBanner />
-      <TimerBar />
-      <Tabs
+    <ShellTopContext.Provider value={chrome}>
+      <View style={[styles.shell, { backgroundColor: tokens.background }]}>
+        <View style={chrome ? { paddingTop: insets.top } : undefined}>
+          <OfflineBanner />
+          <TimerBar />
+        </View>
+        <Tabs
         screenOptions={{
           headerShown: false,
           animation: "none",
@@ -84,7 +99,8 @@ export default function TabsLayout() {
           }}
         />
       </Tabs>
-    </View>
+      </View>
+    </ShellTopContext.Provider>
   );
 }
 

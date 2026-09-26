@@ -1,12 +1,12 @@
-// Scan tab — the deterministic injector (DX standard) and the resolver.
+// Scan tab — the camera, the deterministic injector, and the resolver.
 //
-// Purpose: the dev build ships a scan injector so scan behaviour is testable
-// in the simulator (which has no camera) and in Maestro: paste any raw
-// scanned string, resolve it through POST /api/v1/scan/resolve, and route
-// by the typed kind. The camera button is an honest seam — lane 2 adds
-// expo-camera and the TestFlight checklist covers the real lens.
+// Purpose: the field's scan surface. On a device the camera decodes a
+// QR/Code128 straight into the shared typed resolver; the injector stays for
+// the simulator and for Maestro, where no lens exists. The resolver owns all
+// meaning (POST /api/v1/scan/resolve) — this screen never parses locally and
+// never treats unknown as "create new".
 //
-// Non-purpose: no local parsing or id guessing (the resolver owns meaning).
+// Non-purpose: no side effects. A scan opens or stages; it never moves stock.
 
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useLocalSearchParams } from "expo-router";
@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Button, Card, ErrorNote, Field, Screen, SectionHeader } from "@/ui/primitives";
+import { CameraScanner } from "@/scan/camera-scanner";
 import { ScanResolutionCard, useScanResolver } from "@/scan/scan-flow";
 import { type, useTheme } from "@/ui/tokens";
 
@@ -29,6 +30,7 @@ export default function ScanScreen() {
   const { tokens } = useTheme();
   const { text: injectedText } = useLocalSearchParams<{ text?: string }>();
   const [text, setText] = useState("");
+  const [cameraOpen, setCameraOpen] = useState(false);
   const { resolution, error, busy, resolve, clear } = useScanResolver();
 
   // Deep-link handoff: meridian://scan-result?text=… resolves immediately.
@@ -106,14 +108,29 @@ export default function ScanScreen() {
 
       <SectionHeader title="Camera" />
       <Card>
+        <Button
+          label="Open the camera"
+          testID="scan-camera"
+          fullWidth
+          onPress={() => setCameraOpen(true)}
+        />
         <View style={styles.cameraRow}>
           <Ionicons name="camera-outline" size={22} color={tokens.textMuted} />
           <Text style={[styles.cameraText, { color: tokens.textMuted }]}>
-            Camera scanning isn’t available in this build yet. Type or paste a code above —
-            every scan path works the same once the camera lands.
+            On a phone the camera decodes the label and resolves it here. The simulator has no
+            lens — type or paste the code above instead; every scan path behaves the same.
           </Text>
         </View>
       </Card>
+      <CameraScanner
+        visible={cameraOpen}
+        onClose={() => setCameraOpen(false)}
+        onScan={(scanned) => {
+          setCameraOpen(false);
+          setText(scanned);
+          void resolve(scanned);
+        }}
+      />
     </Screen>
   );
 }

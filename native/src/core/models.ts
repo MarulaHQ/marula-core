@@ -22,6 +22,8 @@ export type TicketRow = Ok<paths["/api/v1/tickets"]["get"]>[number];
 export type MyWorkItem = Ok<paths["/api/v1/tickets/my-work"]["get"]>[number];
 export type TicketDetail = Ok<paths["/api/v1/tickets/{id}"]["get"]>;
 export type TicketComment = Ok<paths["/api/v1/tickets/{id}/comments"]["get"]>[number];
+export type TicketStockMovement =
+  Ok<paths["/api/v1/tickets/{id}/stock-movements"]["get"]>[number];
 export type StockItemView = Ok<paths["/api/v1/stock-items"]["get"]>[number];
 export type OnHandRow = Ok<paths["/api/v1/stock/on-hand"]["get"]>[number];
 export type StockMovementView = Ok<paths["/api/v1/stock-items/{id}/movements"]["get"]>[number];
@@ -38,18 +40,33 @@ export type AppointmentRow =
   DispatchDay["technicians"][number]["appointments"][number];
 export type ScanResolution = Ok<paths["/api/v1/scan/resolve"]["post"]>;
 
+/** Wave 33 lane 2 field-ops reads (all public contract surfaces). */
+export type StockLocationRow = Ok<paths["/api/v1/stock-locations"]["get"]>[number];
+export type ToolAvailabilityRow = Ok<paths["/api/v1/tools/availability"]["get"]>[number];
+export type ToolKit = Ok<paths["/api/v1/tool-kits"]["get"]>[number];
+export type ToolKitDetail = Ok<paths["/api/v1/tool-kits/{id}"]["get"]>;
+export type KitAvailability = Ok<paths["/api/v1/tool-kits/{id}/availability"]["get"]>;
+
 /** Stable cache keys. Keys are persisted, so treat them as frozen. */
 export const MODELS = {
   me: "me",
   myWork: "tickets.my-work",
   ticket: (id: string) => `ticket:${id}`,
   ticketComments: (id: string) => `ticket:${id}:comments`,
+  ticketStockMovements: (id: string) => `ticket:${id}:stock-movements`,
   activeTimer: "timer.active",
   onHand: "stock.on-hand",
   stockItem: (id: string) => `stock.item:${id}`,
   stockMovements: (id: string) => `stock.item:${id}:movements`,
   stockItems: "stock.items",
   stockSerials: "stock.serials",
+  stockLocations: "stock.locations",
+  toolsAvailability: (itemId?: string) =>
+    itemId !== undefined ? `tools.availability:${itemId}` : "tools.availability",
+  kits: "tools.kits",
+  kit: (id: string) => `tools.kit:${id}`,
+  kitAvailability: (id: string, locationId?: string) =>
+    locationId !== undefined ? `tools.kit:${id}:availability:${locationId}` : `tools.kit:${id}:availability`,
   location: (id: string) => `location:${id}`,
   asset: (id: string) => `asset:${id}`,
   toolCheckouts: "tool.checkouts",
@@ -165,6 +182,69 @@ export async function fetchDispatchDay(
   return unwrap(
     await client.api.GET("/api/v1/dispatch/day", {
       params: { query: date !== undefined ? { date } : {} },
+    }),
+  );
+}
+
+export async function fetchStockLocations(
+  client: MeridianClient,
+): Promise<StockLocationRow[]> {
+  return unwrap(
+    await client.api.GET("/api/v1/stock-locations", {
+      params: { query: { active_only: true } },
+    }),
+  );
+}
+
+export async function fetchTicketStockMovements(
+  client: MeridianClient,
+  ticketId: string,
+): Promise<TicketStockMovement[]> {
+  return unwrap(
+    await client.api.GET("/api/v1/tickets/{id}/stock-movements", {
+      params: { path: { id: ticketId }, query: { limit: QUERY_DEFAULT_LIMIT } },
+    }),
+  );
+}
+
+/** Per-tool-item in-stock counts, optionally narrowed to one item. */
+export async function fetchToolsAvailability(
+  client: MeridianClient,
+  itemId?: string,
+): Promise<ToolAvailabilityRow[]> {
+  return unwrap(
+    await client.api.GET("/api/v1/tools/availability", {
+      params: {
+        query:
+          itemId !== undefined
+            ? { item_id: itemId, limit: QUERY_DEFAULT_LIMIT }
+            : { limit: QUERY_DEFAULT_LIMIT },
+      },
+    }),
+  );
+}
+
+export async function fetchToolKits(client: MeridianClient): Promise<ToolKit[]> {
+  return unwrap(
+    await client.api.GET("/api/v1/tool-kits", { params: { query: { active: true } } }),
+  );
+}
+
+export async function fetchToolKit(client: MeridianClient, id: string): Promise<ToolKitDetail> {
+  return unwrap(await client.api.GET("/api/v1/tool-kits/{id}", { params: { path: { id } } }));
+}
+
+export async function fetchKitAvailability(
+  client: MeridianClient,
+  id: string,
+  locationId?: string,
+): Promise<KitAvailability> {
+  return unwrap(
+    await client.api.GET("/api/v1/tool-kits/{id}/availability", {
+      params: {
+        path: { id },
+        query: locationId !== undefined ? { location_id: locationId } : {},
+      },
     }),
   );
 }

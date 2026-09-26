@@ -7,9 +7,11 @@
 // Non-purpose: no design system breadth. Lane 2/3 extend this file rather
 // than forking styles.
 
-import React, { useState, type ReactNode } from "react";
+import React, { createContext, useContext, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -24,6 +26,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { shape, type, useTheme, type StatusPair } from "./tokens";
 
+/** The tab shell renders notice chrome (offline banner, timer bar) above its
+ * screens. When that chrome is visible it clears the status bar itself, so
+ * the screens below must not add the top inset a second time. */
+export const ShellTopContext = createContext(false);
+
 export function Screen({
   children,
   scroll = true,
@@ -37,6 +44,7 @@ export function Screen({
 }) {
   const { tokens } = useTheme();
   const insets = useSafeAreaInsets();
+  const shellHandlesTop = useContext(ShellTopContext);
   const body = (
     <View
       testID={testID}
@@ -45,6 +53,11 @@ export function Screen({
         {
           backgroundColor: tokens.background,
           padding: padded ? shape.screenPadding : 0,
+          // Headers are off in both navigators, so every screen owns its own
+          // safe area: without the top inset a heading (and a back control)
+          // draws under the status bar and the Dynamic Island. The tab shell
+          // says when it already cleared that band with its own chrome.
+          paddingTop: (shellHandlesTop ? 0 : insets.top) + (padded ? shape.screenPadding : 0),
           paddingBottom: insets.bottom + shape.screenPadding,
         },
       ]}
@@ -54,13 +67,20 @@ export function Screen({
   );
   if (!scroll) return body;
   return (
-    <ScrollView
-      style={{ backgroundColor: tokens.background }}
-      contentContainerStyle={{ flexGrow: 1 }}
-      keyboardShouldPersistTaps="handled"
+    <KeyboardAvoidingView
+      style={{ flex: 1, backgroundColor: tokens.background }}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      keyboardVerticalOffset={insets.top}
     >
-      {body}
-    </ScrollView>
+      <ScrollView
+        style={{ backgroundColor: tokens.background }}
+        contentContainerStyle={{ flexGrow: 1 }}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+      >
+        {body}
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -303,6 +323,18 @@ export function ErrorNote({ text, onRetry }: { text: string; onRetry?: () => voi
           <Text style={[styles.errorRetry, { color: tokens.danger.text }]}>Retry</Text>
         </Pressable>
       ) : null}
+    </View>
+  );
+}
+
+/** The good-news sibling of ErrorNote: a committed write, an adopted
+ * version, a queue that drained. Same shape, success paint — a confirmation
+ * must never wear the danger palette. */
+export function SuccessNote({ text }: { text: string }) {
+  const { tokens } = useTheme();
+  return (
+    <View style={[styles.errorNote, { backgroundColor: tokens.success.background }]}>
+      <Text style={[styles.errorText, { color: tokens.success.text }]}>{text}</Text>
     </View>
   );
 }

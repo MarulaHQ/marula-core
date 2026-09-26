@@ -80,8 +80,11 @@ jobs:
           set -a
           . e2e/.e2e-stack.env
           set +a
-          echo "EXPO_PUBLIC_API_URL=http://localhost:${API_PORT}" >> "$GITHUB_ENV"
-          echo "EXPO_PUBLIC_WS_URL=ws://localhost:${WS_PORT}/ws" >> "$GITHUB_ENV"
+          # The stack env names the API/WS URLs (E2E_API_URL / E2E_WS_URL);
+          # the app reads EXPO_PUBLIC_* at bundle time. The app trims a
+          # trailing slash itself, so either form is safe.
+          echo "EXPO_PUBLIC_API_URL=${E2E_API_URL}" >> "$GITHUB_ENV"
+          echo "EXPO_PUBLIC_WS_URL=${E2E_WS_URL}" >> "$GITHUB_ENV"
       - name: Boot a simulator
         run: |
           DEVICE=$(xcrun simctl list devices available | grep -m1 'iPhone' | sed -E 's/.*\(([0-9A-F-]+)\).*/\1/')

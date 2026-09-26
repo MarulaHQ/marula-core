@@ -21707,7 +21707,7 @@ export interface components {
             is_tool: boolean;
             /** @description Stock items/serials only: "serialized" | "consumable". */
             item_kind?: string | null;
-            /** @description "stock_item" | "serialized_unit" | "stock_location" | "device_asset" | "unknown" */
+            /** @description "stock_item" | "serialized_unit" | "stock_location" | "device_asset" | "tool_kit" | "unknown" */
             kind: string;
             /** Format: uuid */
             location_id?: string | null;

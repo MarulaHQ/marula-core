@@ -1,0 +1,61 @@
+# Field ops — toolbox scan → whole-kit checkout → tool return (Wave 33 lane 2).
+#
+# Deterministic path: the injector types the toolbox stencil (KIT-FIELD-1) and
+# the kit resolves through POST /api/v1/scan/resolve; the checkout runs the
+# lane-3 transaction; scanning the tool's serial then returns that unit with a
+# per-line checkin. Fixtures come from native/e2e/seed-fieldops.mjs.
+appId: tech.meridian.app
+---
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: "today-screen"
+    timeout: 20000
+# Scan the toolbox stencil.
+- tapOn: "Scan, tab.*"
+- tapOn:
+    id: "scan-input"
+- inputText: "KIT-FIELD-1"
+- tapOn:
+    id: "scan-resolve"
+- extendedWaitUntil:
+    visible:
+      id: "scan-resolution"
+    timeout: 10000
+- assertVisible: "Toolbox"
+- assertVisible: "Field network kit"
+- tapOn:
+    id: "scan-open"
+# The kit screen: availability, then the whole-kit transaction.
+- extendedWaitUntil:
+    visible:
+      id: "tool-kit-screen"
+    timeout: 10000
+- assertVisible: "Field network kit"
+- assertVisible: "READY"
+- tapOn:
+    id: "kit-checkout"
+- extendedWaitUntil:
+    visible: ".*Checked out.*"
+    timeout: 15000
+# Return the hand tool by scanning its serial.
+- tapOn:
+    id: "tool-kit-back"
+- extendedWaitUntil:
+    visible:
+      id: "scan-screen"
+    timeout: 10000
+- tapOn: "Today, tab.*"
+- tapOn: "Tools"
+- extendedWaitUntil:
+    visible:
+      id: "tools-screen"
+    timeout: 10000
+- tapOn:
+    id: "tools-scan-input"
+- inputText: "CT-0001"
+- tapOn:
+    id: "tools-scan-resolve"
+- extendedWaitUntil:
+    visible: ".*back in stock.*"
+    timeout: 15000

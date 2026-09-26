@@ -8,21 +8,28 @@ appId: tech.meridian.app
     visible:
       id: "today-screen"
     timeout: 20000
-- tapOn: "More"
+- tapOn: "More, tab.*"
 - tapOn:
     id: "more-airplane-toggle"
 - assertVisible:
     id: "banner-offline"
-- tapOn: "Board"
+- tapOn: "Board, tab.*"
 - tapOn:
     id: "ticket-row-.*"
+- scrollUntilVisible:
+    element:
+      id: "note-input"
+    direction: DOWN
+    visibilityPercentage: 40
+    centerElement: true
 - tapOn:
     id: "note-input"
 - inputText: "Offline Maestro note"
+- hideKeyboard
 - tapOn:
     id: "note-submit"
 - assertVisible: "Offline Maestro note"
-- tapOn: "More"
+- tapOn: "More, tab.*"
 - assertVisible:
     id: "banner-offline"
 - tapOn:
@@ -31,7 +38,14 @@ appId: tech.meridian.app
     notVisible:
       id: "banner-offline"
     timeout: 20000
-- tapOn: "Board"
+- tapOn: "Board, tab.*"
+- tapOn: "Board, tab.*"
 - tapOn:
     id: "ticket-row-.*"
-- assertVisible: "Offline Maestro note"
+- scrollUntilVisible:
+    element:
+      text: "Offline Maestro note"
+    direction: DOWN
+    visibilityPercentage: 40
+    centerElement: true
+- assertVisible: ".*Offline Maestro note.*"

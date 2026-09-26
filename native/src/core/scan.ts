@@ -19,6 +19,7 @@ export type ScanKind =
   | "serialized_unit"
   | "stock_location"
   | "device_asset"
+  | "tool_kit"
   | "unknown";
 
 /** Which resolved kinds each surface acts on (frozen vocabulary). */
@@ -26,6 +27,9 @@ export const SURFACE_ACCEPTS: Record<string, ScanKind[]> = {
   "ticket-parts": ["stock_item", "serialized_unit"],
   receiving: ["stock_item", "serialized_unit", "stock_location"],
   "stock-locations": ["stock_item", "stock_location"],
+  // Wave 32 lane 6 added `dispatch` on web; the parity test catches a mobile
+  // table that missed it.
+  dispatch: ["stock_item", "serialized_unit"],
   tools: ["serialized_unit"],
   assets: ["device_asset"],
   /** The mobile Scan tab accepts everything and routes by kind. */
@@ -34,7 +38,14 @@ export const SURFACE_ACCEPTS: Record<string, ScanKind[]> = {
     "serialized_unit",
     "stock_location",
     "device_asset",
+    "tool_kit",
   ],
+  // Mobile-only field surfaces (Wave 33 lane 2). The web table stays the
+  // shared core; these rows name what the phone's field flows accept.
+  "field-checkout": ["serialized_unit", "tool_kit"],
+  "field-return": ["serialized_unit", "tool_kit"],
+  "stock-move": ["stock_item", "serialized_unit", "stock_location"],
+  "ticket-consume": ["stock_item", "serialized_unit"],
 };
 
 export const KIND_LABELS: Record<string, string> = {
@@ -42,6 +53,7 @@ export const KIND_LABELS: Record<string, string> = {
   serialized_unit: "Serialized unit",
   stock_location: "Location",
   device_asset: "Device asset",
+  tool_kit: "Toolbox",
   unknown: "Not recognized",
 };
 
@@ -67,7 +79,7 @@ export function scanSummary(resolution: ScanResolution): string {
 /** Why a scan was not used here — a sentence, never a shrug. */
 export function rejectionCopy(surface: string, resolution: ScanResolution): string {
   if (resolution.kind === "unknown") {
-    return `Nothing matches “${resolution.input}”. Charge the scan bar with a label, a SKU, a serial, a location code, or an asset tag.`;
+    return `Nothing matches “${resolution.input}”. Charge the scan bar with a label, a SKU, a serial, a location code, an asset tag, or a toolbox code.`;
   }
   const candidates = resolution.candidates ?? [];
   if (candidates.length > 0) {
@@ -88,6 +100,47 @@ export async function resolveScan(
   );
 }
 
+/**
+ * Turn an ambiguous resolution + the candidate the user picked into the same
+ * shape a single hit would have produced. A candidate row only carries its id
+ * and labels; the per-kind id field is filled here so downstream staging code
+ * never has to special-case ambiguity. The kind rides through unchanged.
+ */
+export function pickCandidate(
+  resolution: ScanResolution,
+  entityId: string,
+): ScanResolution {
+  const candidate = (resolution.candidates ?? []).find(
+    (row) => row.entity_id === entityId,
+  );
+  const picked: ScanResolution = {
+    ...resolution,
+    entity_id: entityId,
+    display_name: candidate?.display_name ?? resolution.display_name,
+    secondary: candidate?.secondary ?? resolution.secondary,
+    // A candidate row carries no canonical link; the resolved id does.
+    deep_link: null,
+    candidates: [],
+  };
+  switch (resolution.kind) {
+    case "stock_item":
+      picked.stock_item_id = entityId;
+      break;
+    case "serialized_unit":
+      picked.serial_id = entityId;
+      break;
+    case "stock_location":
+      picked.location_id = entityId;
+      break;
+    case "device_asset":
+      picked.device_asset_id = entityId;
+      break;
+    default:
+      break;
+  }
+  return picked;
+}
+
 /** The in-app route a resolved scan opens (mobile Scan tab). */
 export function scanRoute(resolution: ScanResolution): string | null {
   switch (resolution.kind) {
@@ -106,6 +159,12 @@ export function scanRoute(resolution: ScanResolution): string | null {
     case "device_asset": {
       const id = resolution.device_asset_id;
       return id !== null && id !== undefined ? `/asset/${id}` : null;
+    }
+    case "tool_kit": {
+      // The toolbox stencil: one scan opens the kit, where the whole-kit
+      // check-out / check-in transactions live (Wave 32 lane 3).
+      const id = resolution.entity_id;
+      return id !== null && id !== undefined ? `/tool-kit/${id}` : null;
     }
     default:
       return null;

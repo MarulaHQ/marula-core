@@ -24,11 +24,20 @@ const devHost = Platform.select({
   default: "localhost",
 });
 
-export const API_URL =
-  process.env.EXPO_PUBLIC_API_URL ?? `http://${devHost}:8080`;
+/** Env URLs come from operators and stack scripts, where a trailing slash is
+ * easy to leave on. A double slash 404s every request, so normalize here:
+ * the app always concatenates paths, never re-parses the base. */
+function withoutTrailingSlash(value: string): string {
+  return value.endsWith("/") ? value.slice(0, -1) : value;
+}
 
-export const WS_URL =
-  process.env.EXPO_PUBLIC_WS_URL ?? `ws://${devHost}:8081/ws`;
+export const API_URL = withoutTrailingSlash(
+  process.env.EXPO_PUBLIC_API_URL ?? `http://${devHost}:8080`,
+);
+
+export const WS_URL = withoutTrailingSlash(
+  process.env.EXPO_PUBLIC_WS_URL ?? `ws://${devHost}:8081/ws`,
+);
 
 /** EAS project id — absent until an operator registers one (see README). */
 export const EAS_PROJECT_ID = process.env.EXPO_PUBLIC_EAS_PROJECT_ID ?? "";

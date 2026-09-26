@@ -108,8 +108,10 @@ export default function TodayScreen() {
 
       <View style={styles.actionGrid}>
         <Action label="Scan" icon="scan-outline" href="/scan" />
-        <Action label="Board" icon="grid-outline" href="/board" />
+        <Action label="Move stock" icon="swap-horizontal-outline" href="/move" />
         <Action label="Tools" icon="construct-outline" href="/tools" />
+        <Action label="Stock" icon="cube-outline" href="/stock" />
+        <Action label="Board" icon="grid-outline" href="/board" />
         <Action label="Inbox" icon="notifications-outline" href="/notifications" />
       </View>
 

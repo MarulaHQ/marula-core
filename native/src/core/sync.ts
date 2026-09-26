@@ -115,6 +115,22 @@ export class SyncEngine {
   constructor(deps: SyncEngineDeps) {
     this.deps = deps;
     this.cache = new ReadCache(deps.stores.cache, deps.now !== undefined ? { now: deps.now } : {});
+    // Optimistic renders (and offline queues) patch the cache directly, so
+    // the live view state has to follow the cache or a queued note stays
+    // invisible until the next fetch. Mirror patched keys into mounted
+    // models, keeping their offline/stale story intact.
+    this.cache.subscribe((key) => {
+      const cached = this.cache.get(key);
+      const state = this.states.get(key);
+      if (cached === undefined || state === undefined) return;
+      this.setState(key, {
+        ...state,
+        status: "ready",
+        data: cached.data,
+        stale: cached.stale,
+        ...(state.offline === true ? { offline: true } : {}),
+      });
+    });
     this.writeContext = {
       cache: this.cache,
       uuid: deps.uuid,
