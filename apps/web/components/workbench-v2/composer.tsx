@@ -4,9 +4,9 @@
 // endpoints: an intent selector (Internal note ▾ / Client-visible /
 // In-house update) mapping onto the note taxonomy, a textarea, and the
 // tool row — Attach (real upload), AI Assist (inserts the agent panel's
-// real draft), Template (typed not-available: note templates don't exist
-// yet — checklist templates live on boards), Dictate (real Web Speech
-// recognition when the browser provides it, typed gap otherwise). Send
+// real draft), Snippets (the canned-response library, Wave 34 lane 3 —
+// inserts the body rendered against this ticket), Dictate (real Web
+// Speech recognition when the browser provides it, typed gap otherwise). Send
 // posts through the instant-first envelope with optimistic render.
 // Non-purpose: no note editing/deleting (the API creates notes once).
 
@@ -15,6 +15,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { uploadAttachment } from "../../lib/api";
+import { SnippetPicker } from "../ticket-workspace/snippet-picker";
 import { NoteComposer } from "../notes/note-composer";
 import { ModelPicker, useLazySurfacePick } from "../ai/model-picker";
 import type { NoteKindWire } from "../ticket-workspace/notes-composer";
@@ -230,14 +231,10 @@ export function WbComposer({ ticketId, disabled, busy, draftRef, onPost }: WbCom
           >
             ✦ AI Assist
           </button>
-          <button
-            type="button"
-            className="m-wb-tool flex cursor-pointer items-center gap-1 border-none bg-transparent text-[10.5px]"
-            style={{ color: "var(--m-text-muted)" }}
-            onClick={() => setToolNote("Note templates are not available yet — checklist templates live on the board.")}
-          >
-            ▤ Template
-          </button>
+          <SnippetPicker
+            ticketId={ticketId}
+            onInsert={(body) => setDraft((prev) => (prev.trim() === "" ? body : `${prev}\n\n${body}`))}
+          />
           <button
             type="button"
             aria-pressed={dictating}

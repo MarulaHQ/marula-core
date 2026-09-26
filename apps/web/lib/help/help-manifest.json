@@ -45,6 +45,12 @@
     },
     "tickets": {
       "docs": [
+        {
+          "path": "how-to/admin-reply-snippets",
+          "audience": "both",
+          "updated": "2026-09-26",
+          "title": "How to use reply snippets"
+        },
           {
             "path": "how-to/technician-tools-and-parts",
             "audience": "both",

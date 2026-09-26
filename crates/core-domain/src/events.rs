@@ -38,6 +38,16 @@ pub mod types {
     /// An org-owned template row was removed (shipped defaults are
     /// immutable, never removable).
     pub const TEMPLATE_REMOVED: &str = "template.removed";
+    /// A reply snippet was added to the org's canned-response library
+    /// (Wave 34 lane 3, settings-domain typed library).
+    pub const REPLY_SNIPPET_CREATED: &str = "reply_snippet.created";
+    /// A reply snippet's content or scoping changed.
+    pub const REPLY_SNIPPET_UPDATED: &str = "reply_snippet.updated";
+    /// A reply snippet was forked into an editable copy (templates
+    /// fork-on-edit provenance pattern).
+    pub const REPLY_SNIPPET_FORKED: &str = "reply_snippet.forked";
+    /// A reply snippet was removed from the library.
+    pub const REPLY_SNIPPET_REMOVED: &str = "reply_snippet.removed";
     pub const CLIENT_CREATED: &str = "client.created";
     pub const CLIENT_UPDATED: &str = "client.updated";
     /// A client workflow override was set or explicitly disabled (Wave 12

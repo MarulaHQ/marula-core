@@ -107,6 +107,7 @@ pub mod provenance;
 pub mod purchasing;
 pub mod quotes;
 pub mod recurring;
+pub mod reply_snippets;
 pub mod report_defs;
 pub mod report_schedules;
 pub mod reports;
@@ -349,10 +350,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/internal/email/notification"),
             post(internal::notification_email),
         )
-        .route(
-            &rp("/internal/email/digest"),
-            post(internal::digest_email),
-        )
+        .route(&rp("/internal/email/digest"), post(internal::digest_email))
         // Machine surface for the worker (token-gated inside the handlers,
         // NOT behind the JWT middleware — §4.1: worker effects enter
         // through core-api, never direct DB writes).
@@ -585,6 +583,21 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(&rp("/templates/{id}/fork"), post(templates::fork))
         .route(&rp("/templates/{id}/restore"), post(templates::restore))
         .route(&rp("/templates/{id}/render"), post(templates::render))
+        // canned responses/snippets close-out (Wave 34 lane 3): typed
+        // library in the settings domain, staff-composed, fork-on-edit.
+        .route(
+            &rp("/reply-snippets"),
+            get(reply_snippets::list).post(reply_snippets::create),
+        )
+        .route(
+            &rp("/reply-snippets/{id}"),
+            axum::routing::patch(reply_snippets::update).delete(reply_snippets::delete),
+        )
+        .route(&rp("/reply-snippets/{id}/fork"), post(reply_snippets::fork))
+        .route(
+            &rp("/reply-snippets/{id}/render"),
+            post(reply_snippets::render),
+        )
         // ticket taxonomy (Wave 11 lane 3): classification-only trees,
         // full org CRUD (soft retire), instant-first envelope, audited.
         .route(
