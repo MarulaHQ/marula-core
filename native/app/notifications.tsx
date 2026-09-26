@@ -100,6 +100,7 @@ function NotificationRow({
 }) {
   const { tokens } = useTheme();
   const unread = notification.read_at == null;
+  const hasTicket = notification.ticket_id !== undefined && notification.ticket_id !== null;
   return (
     <Card testID={`notification-${notification.id}`} onPress={onPress} style={styles.card}>
       <View style={styles.rowHeader}>
@@ -111,21 +112,34 @@ function NotificationRow({
         </Text>
         {unread ? <Pill pair={accentPair(tokens)} label="NEW" /> : null}
       </View>
-      {notification.body !== "" ? (
+      {notification.body !== null && notification.body !== "" ? (
         <Text style={[styles.rowBody, { color: tokens.textSecondary }]} numberOfLines={3}>
           {notification.body}
         </Text>
       ) : null}
-      <Mono muted>
-        {new Date(notification.created_at).toLocaleString(undefined, {
-          month: "short",
-          day: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        })}
-      </Mono>
+      <View style={styles.rowFooter}>
+        <Pill pair={tokens.neutral} label={kindLabel(notification.kind)} />
+        {hasTicket ? (
+          <Text style={[styles.affordance, { color: tokens.primary }]}>Open ticket →</Text>
+        ) : unread ? (
+          <Text style={[styles.affordance, { color: tokens.textMuted }]}>Tap to mark read</Text>
+        ) : null}
+        <View style={styles.footerSpacer} />
+        <Mono muted>
+          {new Date(notification.created_at).toLocaleString(undefined, {
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+        </Mono>
+      </View>
     </Card>
   );
+}
+
+function kindLabel(kind: string): string {
+  return kind.replace(/_/g, " ").toUpperCase();
 }
 
 const styles = StyleSheet.create({
@@ -168,5 +182,17 @@ const styles = StyleSheet.create({
     fontFamily: type.sans,
     fontSize: 14,
     lineHeight: 20,
+  },
+  rowFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  affordance: {
+    fontFamily: type.sansSemiBold,
+    fontSize: 13,
+  },
+  footerSpacer: {
+    flex: 1,
   },
 });

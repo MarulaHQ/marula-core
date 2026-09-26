@@ -5,6 +5,12 @@
   "routes": {
     "today": {
       "docs": [
+          {
+            "path": "how-to/technician-service-day",
+            "audience": "both",
+            "updated": "2026-09-26",
+            "title": "How to run a service day from the phone"
+          },
         {
           "path": "how-to/staff-day-pack",
           "audience": "both",
@@ -33,6 +39,18 @@
     },
     "tickets": {
       "docs": [
+          {
+            "path": "how-to/technician-tools-and-parts",
+            "audience": "both",
+            "updated": "2026-09-26",
+            "title": "How to check out tools and use parts on site"
+          },
+          {
+            "path": "how-to/technician-service-day",
+            "audience": "both",
+            "updated": "2026-09-26",
+            "title": "How to run a service day from the phone"
+          },
         {
           "path": "how-to/staff-work-a-ticket",
           "audience": "both",
@@ -109,6 +127,12 @@
     },
     "inventory": {
       "docs": [
+          {
+            "path": "how-to/technician-tools-and-parts",
+            "audience": "both",
+            "updated": "2026-09-26",
+            "title": "How to check out tools and use parts on site"
+          },
         {
           "path": "tutorials/first-inventory-sync",
           "audience": "both",

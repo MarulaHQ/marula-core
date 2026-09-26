@@ -11,7 +11,13 @@
 
 import type { MeridianClient } from "@meridian/sdk";
 
-import { MODELS, type TicketComment } from "./models";
+import {
+  MODELS,
+  type AppointmentRow,
+  type DispatchDay,
+  type TicketComment,
+  type TravelDraft,
+} from "./models";
 import type { OpMethod } from "./queue";
 import type { TransportResult } from "./http";
 import type { ReadCache } from "./cache";
@@ -52,6 +58,9 @@ export interface AddNoteArgs {
   ticketNumber?: string;
   body: string;
   kind?: "internal" | "client_visible" | "in_house_update";
+  /** Uploaded-against-this-ticket attachment ids (upload-first flow: the
+   * comment links files the composer staged before submit). */
+  attachmentIds?: string[];
 }
 
 export type AddNoteBody = {
@@ -60,6 +69,7 @@ export type AddNoteBody = {
   __path_id: string;
   body: string;
   kind: "internal" | "client_visible" | "in_house_update";
+  attachment_ids?: string[];
   idempotency_key: string;
 };
 
@@ -80,12 +90,20 @@ export const addTicketNote: WriteOperation<AddNoteArgs, AddNoteBody> = {
     __path_id: args.ticketId,
     body: args.body,
     kind: args.kind ?? "internal",
+    ...(args.attachmentIds !== undefined && args.attachmentIds.length > 0
+      ? { attachment_ids: args.attachmentIds }
+      : {}),
     idempotency_key: base.idempotencyKey,
   }),
   send: (client, body) =>
     client.api.POST("/api/v1/tickets/{id}/comments", {
       params: { path: { id: pathId(body) } },
-      body: { body: body.body, kind: body.kind, idempotency_key: body.idempotency_key },
+      body: {
+        body: body.body,
+        kind: body.kind,
+        ...(body.attachment_ids !== undefined ? { attachment_ids: body.attachment_ids } : {}),
+        idempotency_key: body.idempotency_key,
+      },
     }),
   versionOf: (data) => mutationVersion(data),
   optimistic: async (args, base, ctx) => {
@@ -417,6 +435,222 @@ export const markAllNotificationsRead: WriteOperation<Record<string, never>, { i
     send: (client) => client.api.POST("/api/v1/notifications/read-all"),
   };
 
+export type AppointmentStatusValue = AppointmentRow["status"];
+
+export interface AppointmentStatusArgs {
+  appointmentId: string;
+  appointmentTitle?: string;
+  /** Local date of the day view that owns the booking (the cache key). */
+  date: string;
+  status: Extract<AppointmentStatusValue, "in_progress" | "done">;
+  /** State to restore if the write is rejected (optimistic revert). */
+  previousStatus: AppointmentStatusValue;
+}
+
+export type AppointmentStatusBody = {
+  __path_id: string;
+  status: Extract<AppointmentStatusValue, "in_progress" | "done">;
+};
+
+/** Accept a dispatched booking (start it) or finish it.
+ *
+ * PATCH /appointments/{id} carries no IF envelope on the wire (the handler
+ * takes a plain PatchAppointmentRequest), so this op sends the status alone;
+ * the queue still orders it per appointment and the local day model renders
+ * the flip before the server echo arrives. */
+export const setAppointmentStatus: WriteOperation<AppointmentStatusArgs, AppointmentStatusBody> =
+  {
+    kind: "appointment.status",
+    label: (args) =>
+      `${args.status === "in_progress" ? "Accept" : "Finish"} ${
+        args.appointmentTitle !== undefined ? args.appointmentTitle : "booking"
+      }`,
+    entityKey: (args) => `appointment:${args.appointmentId}`,
+    entityId: (args) => `appointment:${args.appointmentId}`,
+    method: "PATCH",
+    path: (args) => `/api/v1/appointments/${args.appointmentId}`,
+    invalidate: (args) => [MODELS.dispatchDay(args.date)],
+    build: (args) => ({ __path_id: args.appointmentId, status: args.status }),
+    send: (client, body) =>
+      client.api.PATCH("/api/v1/appointments/{id}", {
+        params: { path: { id: body.__path_id } },
+        body: { status: body.status },
+      }),
+    optimistic: async (args, _base, ctx) => {
+      await patchCached<DispatchDay>(ctx, MODELS.dispatchDay(args.date), (current) =>
+        withAppointmentStatus(current, args.appointmentId, args.status),
+      );
+    },
+    revert: async (args, _base, ctx) => {
+      await patchCached<DispatchDay>(ctx, MODELS.dispatchDay(args.date), (current) =>
+        withAppointmentStatus(current, args.appointmentId, args.previousStatus),
+      );
+    },
+    apply: async (data, args, _base, ctx) => {
+      const status = (data as { status?: AppointmentStatusValue } | undefined)?.status;
+      if (status === undefined) return;
+      await patchCached<DispatchDay>(ctx, MODELS.dispatchDay(args.date), (current) =>
+        withAppointmentStatus(current, args.appointmentId, status),
+      );
+    },
+  };
+
+export interface TravelDraftCreateArgs {
+  ticketId: string;
+  ticketNumber?: string;
+  appointmentId?: string;
+  startedAt: string;
+  endedAt: string;
+  distance: number;
+  distanceUnit: string;
+  vehicle: string;
+  billable: boolean;
+  notes?: string;
+}
+
+export type TravelDraftCreateBody = {
+  ticket_id: string;
+  appointment_id?: string;
+  started_at: string;
+  ended_at: string;
+  distance: number;
+  distance_unit: string;
+  vehicle: string;
+  billable: boolean;
+  notes?: string;
+  idempotency_key: string;
+};
+
+export const createTravelDraft: WriteOperation<TravelDraftCreateArgs, TravelDraftCreateBody> = {
+  kind: "travel.create",
+  label: (args) =>
+    `Log travel${args.ticketNumber !== undefined ? ` for ${args.ticketNumber}` : ""}`,
+  entityKey: () => "travel",
+  method: "POST",
+  path: () => "/api/v1/dispatch/travel-drafts",
+  invalidate: () => [MODELS.travelDrafts],
+  build: (args, base) => ({
+    ticket_id: args.ticketId,
+    ...(args.appointmentId !== undefined ? { appointment_id: args.appointmentId } : {}),
+    started_at: args.startedAt,
+    ended_at: args.endedAt,
+    distance: args.distance,
+    distance_unit: args.distanceUnit,
+    vehicle: args.vehicle,
+    billable: args.billable,
+    ...(args.notes !== undefined && args.notes.trim() !== "" ? { notes: args.notes } : {}),
+    idempotency_key: base.idempotencyKey,
+  }),
+  send: (client, body) =>
+    client.api.POST("/api/v1/dispatch/travel-drafts", {
+      body: {
+        ticket_id: body.ticket_id,
+        appointment_id: body.appointment_id ?? null,
+        started_at: body.started_at,
+        ended_at: body.ended_at,
+        distance: body.distance,
+        distance_unit: body.distance_unit,
+        vehicle: body.vehicle,
+        billable: body.billable,
+        notes: body.notes ?? null,
+        idempotency_key: body.idempotency_key,
+      },
+    }),
+  versionOf: (data) => nestedVersion(data, "draft"),
+  optimistic: async (args, base, ctx) => {
+    await ctx.cache.patch<TravelDraft[]>(MODELS.travelDrafts, (current) => [
+      pendingTravelDraft(args, base.idempotencyKey, ctx),
+      ...(current ?? []),
+    ]);
+  },
+  revert: async (_args, base, ctx) => {
+    const pendingId = pendingTravelDraftId(base.idempotencyKey);
+    await ctx.cache.patch<TravelDraft[]>(MODELS.travelDrafts, (current) =>
+      (current ?? []).filter((draft) => draft.id !== pendingId),
+    );
+  },
+  apply: async (data, _args, base, ctx) => {
+    const pendingId = pendingTravelDraftId(base.idempotencyKey);
+    const authoritative = data as { id?: unknown } | undefined;
+    await ctx.cache.patch<TravelDraft[]>(MODELS.travelDrafts, (current) => {
+      const rest = (current ?? []).filter((draft) => draft.id !== pendingId);
+      if (authoritative === undefined || typeof authoritative.id !== "string") return rest;
+      return [data as TravelDraft, ...rest];
+    });
+  },
+};
+
+export interface TravelDraftIdArgs {
+  draftId: string;
+  version?: number;
+  ticketId?: string;
+  /** The row as rendered when the action fired, so a rejected delete can
+   * put it back exactly as it was. */
+  snapshot?: TravelDraft;
+}
+
+export type TravelDraftSubmitBody = { __path_id: string; idempotency_key: string };
+
+export const submitTravelDraft: WriteOperation<TravelDraftIdArgs, TravelDraftSubmitBody> = {
+  kind: "travel.submit",
+  label: () => "Submit travel draft",
+  entityKey: (args) => `traveldraft:${args.draftId}`,
+  method: "POST",
+  path: (args) => `/api/v1/dispatch/travel-drafts/${args.draftId}/submit`,
+  invalidate: (args) => [
+    MODELS.travelDrafts,
+    MODELS.myWork,
+    ...(args.ticketId !== undefined ? [MODELS.timeEntries(args.ticketId)] : []),
+  ],
+  build: (args, base) => ({ __path_id: args.draftId, idempotency_key: base.idempotencyKey }),
+  send: (client, body) =>
+    client.api.POST("/api/v1/dispatch/travel-drafts/{id}/submit", {
+      params: { path: { id: body.__path_id } },
+      body: { idempotency_key: body.idempotency_key },
+    }),
+  versionOf: (data) => nestedVersion(data, "entry"),
+  optimistic: async (args, _base, ctx) => {
+    await patchCached<TravelDraft[]>(ctx, MODELS.travelDrafts, (current) =>
+      setTravelDraftStatus(current, args.draftId, "submitted"),
+    );
+  },
+  revert: async (args, _base, ctx) => {
+    await patchCached<TravelDraft[]>(ctx, MODELS.travelDrafts, (current) =>
+      setTravelDraftStatus(current, args.draftId, "draft"),
+    );
+  },
+};
+
+export type TravelDraftDeleteBody = { __path_id: string; idempotency_key: string };
+
+export const deleteTravelDraft: WriteOperation<TravelDraftIdArgs, TravelDraftDeleteBody> = {
+  kind: "travel.delete",
+  label: () => "Delete travel draft",
+  entityKey: (args) => `traveldraft:${args.draftId}`,
+  method: "DELETE",
+  path: (args) => `/api/v1/dispatch/travel-drafts/${args.draftId}`,
+  invalidate: () => [MODELS.travelDrafts],
+  build: (args, base) => ({ __path_id: args.draftId, idempotency_key: base.idempotencyKey }),
+  send: (client, body) =>
+    client.api.DELETE("/api/v1/dispatch/travel-drafts/{id}", {
+      params: { path: { id: body.__path_id } },
+    }),
+  optimistic: async (args, _base, ctx) => {
+    await ctx.cache.patch<TravelDraft[]>(MODELS.travelDrafts, (current) =>
+      (current ?? []).filter((draft) => draft.id !== args.draftId),
+    );
+  },
+  revert: async (args, _base, ctx) => {
+    if (args.snapshot === undefined) return;
+    const restored = args.snapshot;
+    await ctx.cache.patch<TravelDraft[]>(MODELS.travelDrafts, (current) => {
+      const rows = current ?? [];
+      if (rows.some((draft) => draft.id === restored.id)) return rows;
+      return [restored, ...rows].sort((a, b) => b.created_at.localeCompare(a.created_at));
+    });
+  },
+};
+
 /** All operations the replay engine can reconstruct after relaunch. */
 export const WRITE_OPERATIONS = {
   [addTicketNote.kind]: addTicketNote,
@@ -429,6 +663,10 @@ export const WRITE_OPERATIONS = {
   [checkinTools.kind]: checkinTools,
   [markNotificationRead.kind]: markNotificationRead,
   [markAllNotificationsRead.kind]: markAllNotificationsRead,
+  [setAppointmentStatus.kind]: setAppointmentStatus,
+  [createTravelDraft.kind]: createTravelDraft,
+  [submitTravelDraft.kind]: submitTravelDraft,
+  [deleteTravelDraft.kind]: deleteTravelDraft,
 } as const;
 
 export type WriteOperationKind = keyof typeof WRITE_OPERATIONS;
@@ -461,6 +699,72 @@ function pendingComment(
     created_at: ctx.now().toISOString(),
     updated_at: null,
   } as TicketComment;
+}
+
+/** Patch a cached model only when it is actually in the cache. A write made
+ * before the model ever loaded has nothing to render optimistically, and
+ * fabricating an entry would claim server truth the app does not have. */
+async function patchCached<T>(
+  ctx: WriteContext,
+  key: string,
+  patcher: (current: T) => T,
+): Promise<void> {
+  if (!ctx.cache.keys().includes(key)) return;
+  await ctx.cache.patch<T>(key, (current) => patcher(current as T));
+}
+
+function withAppointmentStatus(
+  day: DispatchDay,
+  appointmentId: string,
+  status: AppointmentStatusValue,
+): DispatchDay {
+  return {
+    ...day,
+    technicians: day.technicians.map((technician) => ({
+      ...technician,
+      appointments: technician.appointments.map((appointment) =>
+        appointment.id === appointmentId ? { ...appointment, status } : appointment,
+      ),
+    })),
+  };
+}
+
+function pendingTravelDraftId(idempotencyKey: string): string {
+  return `pending-${idempotencyKey}`;
+}
+
+function pendingTravelDraft(
+  args: TravelDraftCreateArgs,
+  idempotencyKey: string,
+  ctx: WriteContext,
+): TravelDraft {
+  const now = ctx.now().toISOString();
+  return {
+    id: pendingTravelDraftId(idempotencyKey),
+    ticket_id: args.ticketId,
+    user_id: "",
+    started_at: args.startedAt,
+    ended_at: args.endedAt,
+    distance: args.distance,
+    distance_unit: args.distanceUnit,
+    vehicle: args.vehicle,
+    billable: args.billable,
+    notes: args.notes !== undefined && args.notes.trim() !== "" ? args.notes : null,
+    status: "draft",
+    ...(args.appointmentId !== undefined ? { appointment_id: args.appointmentId } : {}),
+    submitted_time_entry_id: null,
+    expense_id: null,
+    created_at: now,
+    updated_at: now,
+  } as TravelDraft;
+}
+
+function setTravelDraftStatus(
+  drafts: TravelDraft[],
+  draftId: string,
+  status: string,
+): TravelDraft[] {
+  return drafts.map((draft) => (draft.id === draftId ? { ...draft, status } : draft));
 }
 
 function nestedVersion(data: unknown, key: string): number | undefined {

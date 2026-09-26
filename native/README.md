@@ -70,6 +70,12 @@ Maestro flows live in `native/e2e/flows` and drive the simulator build:
 pnpm --filter @meridian/native e2e
 ```
 
+The day surface is captured at phone and tablet widths, light and dark, with
+`node native/scripts/capture-web-tech-day.mjs` once Expo web runs against the
+stack (the header of the script carries the full boot sequence). The script
+signs in through the API, seeds the session into browser storage, and writes
+to `design/qa-p33-rn-tech-day/captures`.
+
 ## Code map
 
 ```
@@ -81,7 +87,8 @@ src/data/             React bindings: storage adapters, connectivity,
 src/auth/             login, MFA bridge, refresh rotation, biometric sign-in
 src/ui/               tokens (light + dark), primitives, adaptive layout,
                       offline banner, timer bar
-src/tickets/          ticket list + detail (notes, timer)
+src/day/              today's schedule rail, on-call strip, travel drafts
+src/tickets/          ticket list + detail (clock, time, notes, photos)
 src/scan/             scan resolver flow and result card
 src/push/             push registration + notification tap routing
 tests/                vitest: replay invariants, parity with the web copy

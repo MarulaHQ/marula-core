@@ -10,7 +10,7 @@
 
 import { MeridianClient, type paths } from "@meridian/sdk";
 
-import { unwrap } from "./http";
+import { unwrap, type TransportResult } from "./http";
 
 type Ok<T> = T extends {
   responses: { 200: { content: { "application/json": infer R } } };
@@ -37,6 +37,11 @@ export type DispatchDay = Ok<paths["/api/v1/dispatch/day"]["get"]>;
 export type AppointmentRow =
   DispatchDay["technicians"][number]["appointments"][number];
 export type ScanResolution = Ok<paths["/api/v1/scan/resolve"]["post"]>;
+export type TimeEntry = Ok<paths["/api/v1/time-entries"]["get"]>[number];
+export type TravelDraft = Ok<paths["/api/v1/dispatch/travel-drafts"]["get"]>[number];
+export type OnCallBlock = Ok<paths["/api/v1/on-call-blocks"]["get"]>[number];
+export type TicketAttachment =
+  Ok<paths["/api/v1/tickets/{id}/attachments"]["get"]>[number];
 
 /** Stable cache keys. Keys are persisted, so treat them as frozen. */
 export const MODELS = {
@@ -56,7 +61,14 @@ export const MODELS = {
   notifications: "notifications",
   unreadCount: "notifications.unread",
   dispatchDay: (date: string) => `dispatch.day:${date}`,
+  timeEntries: (ticketId: string) => `ticket:${ticketId}:time`,
+  ticketAttachments: (ticketId: string) => `ticket:${ticketId}:attachments`,
+  travelDrafts: "dispatch.travel-drafts",
+  onCall: (fromDate: string) => `oncall:${fromDate}`,
 } as const;
+
+/** The on-call window the day surface reads (today plus two weeks). */
+export const ON_CALL_WINDOW_DAYS = 14;
 
 export const QUERY_DEFAULT_LIMIT = 100;
 
@@ -167,4 +179,50 @@ export async function fetchDispatchDay(
       params: { query: date !== undefined ? { date } : {} },
     }),
   );
+}
+
+export async function fetchTimeEntries(
+  client: MeridianClient,
+  ticketId: string,
+): Promise<TimeEntry[]> {
+  return unwrap(
+    await client.api.GET("/api/v1/time-entries", {
+      params: { query: { ticket_id: ticketId, limit: QUERY_DEFAULT_LIMIT } },
+    }),
+  );
+}
+
+export async function fetchTicketAttachments(
+  client: MeridianClient,
+  ticketId: string,
+): Promise<TicketAttachment[]> {
+  return unwrap(
+    await client.api.GET("/api/v1/tickets/{id}/attachments", {
+      params: { path: { id: ticketId } },
+    }),
+  );
+}
+
+export async function fetchTravelDrafts(client: MeridianClient): Promise<TravelDraft[]> {
+  return unwrap(
+    await client.api.GET("/api/v1/dispatch/travel-drafts", {
+      params: { query: { limit: 100 } },
+    }),
+  );
+}
+
+export async function fetchOnCallBlocks(
+  client: MeridianClient,
+  from: Date,
+  to: Date,
+): Promise<OnCallBlock[]> {
+  // The pin annotates this route with the calendar day/week params, so the
+  // generated signature names path params the wire call never sends. The
+  // route itself reads `?user_id=&from=&to=` (crates/core-api/src/routes/
+  // availability.rs), with the caller as the default subject. Read back as
+  // the documented query shape until the pin catches up.
+  const result = (await client.api.GET("/api/v1/on-call-blocks", {
+    params: { query: { from: from.toISOString(), to: to.toISOString() } },
+  } as never)) as unknown as TransportResult<OnCallBlock[]>;
+  return unwrap(result);
 }

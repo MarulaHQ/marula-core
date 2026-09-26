@@ -1,0 +1,30 @@
+# Travel: log a draft from Today, submit it, and see the state flip.
+appId: tech.meridian.app
+---
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: "today-screen"
+    timeout: 20000
+- tapOn:
+    id: "travel-log"
+- extendedWaitUntil:
+    visible:
+      id: "travel-form"
+    timeout: 10000
+- tapOn:
+    id: "travel-vehicle"
+- inputText: "Lane test van"
+- tapOn:
+    id: "travel-distance"
+- inputText: "12.5"
+- tapOn:
+    id: "travel-save"
+- extendedWaitUntil:
+    visible: "DRAFT"
+    timeout: 10000
+- tapOn:
+    id: "travel-submit-.*"
+- extendedWaitUntil:
+    visible: "SUBMITTED"
+    timeout: 15000

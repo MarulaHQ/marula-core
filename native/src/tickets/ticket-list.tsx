@@ -1,12 +1,12 @@
 // Ticket list — the Board tab's master pane and the compact list screen.
 
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { MODELS, fetchMyWork, type MyWorkItem } from "@/core/models";
 import { useModel } from "@/data/sync-context";
 import { slaState, type SlaState } from "@/ui/sla";
 import { useNow } from "@/ui/use-now";
-import { Card, EmptyState, ErrorNote, ListRow, Loading, Pill } from "@/ui/primitives";
+import { Card, EmptyState, ErrorNote, Loading, Pill } from "@/ui/primitives";
 import { type, useTheme, type ThemeTokens } from "@/ui/tokens";
 
 export function TicketList({
@@ -35,18 +35,30 @@ export function TicketList({
       {rows.map((item: MyWorkItem) => {
         const selected = item.id === selectedId;
         return (
-          <View
+          <Pressable
             key={item.id}
-            style={selected ? { backgroundColor: tokens.surfaceHover, borderRadius: 8 } : undefined}
+            testID={`ticket-row-${item.id}`}
+            onPress={() => onSelect(item.id)}
+            accessibilityRole="button"
+            accessibilityState={{ selected }}
+            accessibilityLabel={`${item.number} ${item.title}`}
+            style={({ pressed }) => [
+              styles.row,
+              { borderBottomColor: tokens.border },
+              selected || pressed ? { backgroundColor: tokens.surfaceHover } : null,
+            ]}
           >
-            <ListRow
-              testID={`ticket-row-${item.id}`}
-              title={`${item.number} · ${item.title}`}
-              subtitle={[item.client_name, item.status_name].filter(Boolean).join(" · ")}
-              onPress={() => onSelect(item.id)}
-              trailing={<SlaPill tokens={tokens} iso={item.sla_resolution_due ?? null} now={now} />}
-            />
-          </View>
+            <View style={styles.rowMain}>
+              <Text style={[styles.rowNumber, { color: tokens.textMuted }]}>{item.number}</Text>
+              <Text style={[styles.rowTitle, { color: tokens.text }]} numberOfLines={1}>
+                {item.title}
+              </Text>
+              <Text style={[styles.rowSubtitle, { color: tokens.textSecondary }]} numberOfLines={1}>
+                {[item.client_name, item.status_name].filter(Boolean).join(" · ")}
+              </Text>
+            </View>
+            <SlaPill tokens={tokens} iso={item.sla_resolution_due ?? null} now={now} />
+          </Pressable>
         );
       })}
       {work.offline ? (
@@ -81,6 +93,32 @@ const styles = StyleSheet.create({
   card: {
     padding: 0,
     paddingHorizontal: 16,
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minHeight: 60,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  rowMain: {
+    flex: 1,
+    gap: 2,
+  },
+  rowNumber: {
+    fontFamily: type.mono,
+    fontSize: 12,
+    fontVariant: ["tabular-nums"],
+  },
+  rowTitle: {
+    fontFamily: type.sansMedium,
+    fontSize: 15,
+  },
+  rowSubtitle: {
+    fontFamily: type.sans,
+    fontSize: 12,
   },
   offlineNote: {
     fontFamily: type.sans,

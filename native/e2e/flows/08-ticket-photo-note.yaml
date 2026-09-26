@@ -1,0 +1,33 @@
+# Ticket detail: the time section renders, a sampled photo stages, and the
+# note carries it. The sample injector rides the same upload path the system
+# picker feeds, so the flow stays deterministic.
+appId: tech.meridian.app
+---
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: "today-screen"
+    timeout: 20000
+- tapOn: "Board"
+- tapOn:
+    id: "ticket-row-.*"
+- extendedWaitUntil:
+    visible:
+      id: "note-input"
+    timeout: 20000
+- assertVisible: "Time"
+- tapOn:
+    id: "note-attach-sample"
+- extendedWaitUntil:
+    visible: "site-panel.png"
+    timeout: 20000
+- tapOn:
+    id: "note-input"
+- inputText: "Maestro photo note"
+- tapOn:
+    id: "note-submit"
+- assertVisible: "Maestro photo note"
+- extendedWaitUntil:
+    visible:
+      id: "comment-photo-.*"
+    timeout: 30000
