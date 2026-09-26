@@ -72,3 +72,13 @@ at-rest seal key. For anything beyond a local test harness, override
 `JWT_SECRET`, `MERIDIAN_SECRET_KEY` (worker and core-api must match, or
 sealed webhook secrets become undecryptable) and set `EMAIL_INBOUND_HMAC_SECRET`
 from the start — the inbound webhook mail path stays disabled until it is.
+
+Optional: asymmetric access-token signing. Set
+`MERIDIAN_JWT_EDDSA_PRIVATE_KEY` and `MERIDIAN_JWT_EDDSA_PUBLIC_KEY` (PEM
+contents) on core-api, and `MERIDIAN_JWT_EDDSA_PUBLIC_KEY` on realtime, to
+sign with Ed25519 instead of the shared secret. `MERIDIAN_JWT_KID` names
+the key (default `m1`). The pair must be complete and parse, or core-api
+refuses to boot. HS256 keeps verifying during a rollout, so you can
+switch without logging anyone out. The [threat
+model](../../reference/auth-threat-model.md) §A4 covers when to retire the
+shared secret.

@@ -578,13 +578,16 @@ pub async fn get_board_identity(
 
 /// Sets or clears one board identity field. `None`/blank clears (the row is
 /// deleted so the org identity applies again). Returns NotFound when the
-/// board is not in this org.
+/// board is not in this org. `updated_by` is the ACTING USER — `settings.
+/// updated_by` references `users(id)`, so passing the org id here fails the
+/// FK (Wave 34 lane 6 fix for the fast-forwarded lane-8 code).
 pub async fn set_board_identity_field(
     tx: &mut PgConnection,
     org_id: Uuid,
     board_id: Uuid,
     field: BoardIdentityField,
     value: Option<&str>,
+    updated_by: Uuid,
 ) -> DbResult<()> {
     let exists: Option<Uuid> = sqlx::query_scalar(
         "SELECT id FROM boards WHERE org_id = $1 AND id = $2",
@@ -605,7 +608,7 @@ pub async fn set_board_identity_field(
                 org_id,
                 &key,
                 &serde_json::json!(v),
-                org_id,
+                updated_by,
             )
             .await?;
         }

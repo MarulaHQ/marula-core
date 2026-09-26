@@ -12,6 +12,7 @@ use anyhow::{bail, Context};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{Manager, RunEvent};
+use tauri_plugin_updater::{Update, UpdaterExt};
 
 const PREFERRED_PG_PORT: u16 = 15434;
 const PREFERRED_API_PORT: u16 = 15433;
@@ -609,6 +610,74 @@ async fn print_raw_zpl(host: String, port: Option<u16>, zpl: String) -> Result<(
         .map_err(|e| format!("{e:#}"))
 }
 
+// ---------------------------------------------------------------------------
+// Desktop updater (Wave 34 lane 6, `p34-open-gaps-collector`)
+// ---------------------------------------------------------------------------
+
+/// Update checked on the Wave 20 auto-update channel but not yet applied.
+/// Managed in app state so the install command applies the EXACT update the
+/// UI reported — one check, one apply, no second channel round-trip that
+/// could resolve to a different release mid-flow.
+#[derive(Default)]
+struct PendingUpdate(std::sync::Mutex<Option<Update>>);
+
+/// What the web app shows for an available update (camelCase wire shape).
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopUpdateInfo {
+    version: String,
+    current_version: String,
+    date: Option<String>,
+    notes: Option<String>,
+}
+
+/// Tauri command: runs the real update check against the channel configured
+/// in `tauri.conf.json` (endpoint + minisign pubkey; config is the only
+/// source — the frontend cannot redirect the check). Returns `None` when the
+/// running version is current; the typed error string is surfaced as-is
+/// (e.g. the placeholder channel host is not deployed yet).
+#[tauri::command]
+async fn check_desktop_update(
+    app: tauri::AppHandle,
+    pending: tauri::State<'_, PendingUpdate>,
+) -> Result<Option<DesktopUpdateInfo>, String> {
+    let updater = app.updater().map_err(|e| format!("{e:#}"))?;
+    let update = updater.check().await.map_err(|e| format!("{e:#}"))?;
+    let info = update.as_ref().map(|u| DesktopUpdateInfo {
+        version: u.version.clone(),
+        current_version: u.current_version.clone(),
+        date: u.date.map(|d| d.to_string()),
+        notes: u.body.clone(),
+    });
+    *pending.0.lock().expect("pending update mutex") = update;
+    Ok(info)
+}
+
+/// Tauri command: downloads + verifies (minisign against the pinned pubkey)
+/// and installs the update checked by [`check_desktop_update`], then
+/// relaunches into it. Refuses honestly when nothing was checked first. The
+/// checked update stays in state until the restart, so a failed download
+/// can be retried from the UI without another channel round-trip.
+#[tauri::command]
+async fn install_desktop_update(
+    app: tauri::AppHandle,
+    pending: tauri::State<'_, PendingUpdate>,
+) -> Result<(), String> {
+    let update = pending
+        .0
+        .lock()
+        .expect("pending update mutex")
+        .as_ref()
+        .cloned()
+        .ok_or_else(|| "no update has been checked".to_string())?;
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|e| format!("{e:#}"))?;
+    // macOS/Linux need an explicit relaunch into the installed version.
+    app.restart()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -646,6 +715,35 @@ mod tests {
         let err = send_zpl_to("   ", 9100, b"^XA^XZ\n").await.unwrap_err();
         assert!(format!("{err:#}").contains("empty"), "{err:#}");
     }
+
+    /// ACL wiring contract (Wave 34 lane 6): the web app loads from a
+    /// REMOTE loopback origin, and since tauri 2.11 remote origins need an
+    /// explicit `remote` capability even for custom commands. This pins
+    /// the capability file that grants the three app commands — losing any
+    /// of them silently disables the ZPL transport or the update UI in the
+    /// real shell while every browser test stays green.
+    #[test]
+    fn loopback_web_capability_grants_the_three_app_commands() {
+        let raw = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capabilities/desktop-web.json"
+        ))
+        .expect("capability file exists");
+        let v: serde_json::Value = serde_json::from_str(&raw).expect("capability parses");
+        assert_eq!(v["windows"][0], "main");
+        assert_eq!(v["remote"]["urls"][0], "http://127.0.0.1:*");
+        let permissions = v["permissions"].as_array().expect("permissions array");
+        for expected in [
+            "allow-print-raw-zpl",
+            "allow-check-desktop-update",
+            "allow-install-desktop-update",
+        ] {
+            assert!(
+                permissions.contains(&serde_json::json!(expected)),
+                "capability must grant {expected}"
+            );
+        }
+    }
 }
 
 fn main() {
@@ -670,15 +768,23 @@ fn main() {
     tauri::Builder::default()
         // Auto-update channel (GA packaging): the updater reads its
         // endpoint + pubkey from tauri.conf.json `plugins.updater`. The
-        // update check is opt-in from the frontend seam (no update UI
-        // ships in this lane); release workflow lives in
+        // check is exposed to the web app as the typed
+        // `check_desktop_update` / `install_desktop_update` commands (Wave
+        // 34 lane 6) — the plugin's own JS commands are deliberately NOT
+        // granted; the UI rides the app ACL only. Release workflow lives in
         // docs/desktop-release.md.
         .plugin(tauri_plugin_updater::Builder::new().build())
-        // Wave 32 lane 5: typed raw-ZPL door for label printing. Custom
-        // app commands are not ACL-gated (only plugin commands are), and
-        // the webview only reaches them from the local app.
-        .invoke_handler(tauri::generate_handler![print_raw_zpl])
+        // Wave 32 lane 5: typed raw-ZPL door for label printing. Custom app
+        // commands are ACL-gated for this shell's remote web origin (tauri
+        // >= 2.11); the grants live in desktop/capabilities/desktop-web.json
+        // and are generated from desktop/build.rs.
+        .invoke_handler(tauri::generate_handler![
+            print_raw_zpl,
+            check_desktop_update,
+            install_desktop_update
+        ])
         .manage(backend)
+        .manage(PendingUpdate::default())
         .setup(move |app| {
             // Rust-built window so the initialization script (API base
             // URL injection, ADR 0005) runs before the page's scripts.

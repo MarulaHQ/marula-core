@@ -16,6 +16,11 @@
 
 import type { ResolvedLabel } from "./model";
 import { LABEL_PADDING_MM, qrPositionMm } from "./model";
+// Detection + invoke live in the shared desktop seam (lib/desktop/shell);
+// `isDesktopShell` is re-exported below because callers of this module
+// predate the shared seam.
+import { isDesktopShell, tauriInvoke } from "../desktop/shell";
+export { isDesktopShell };
 
 const PRINTER_KEY = "meridian.labels.printer";
 const DEFAULT_PRINTER_PORT = 9100;
@@ -146,19 +151,6 @@ export function printLabelViaBrowser(input: LabelPrintInput): void {
 
 // --- desktop raw-ZPL transport ---------------------------------------------
 
-interface TauriGlobal {
-  core?: {
-    invoke?: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
-  };
-}
-
-/** True only inside the Tauri desktop shell (web falls back to the dialog). */
-export function isDesktopShell(): boolean {
-  if (typeof window === "undefined") return false;
-  const w = window as unknown as { __TAURI__?: TauriGlobal };
-  return typeof w.__TAURI__?.core?.invoke === "function";
-}
-
 /** `host` or `host:port` → parsed destination (default port 9100). */
 export function parsePrinterAddress(raw: string): { host: string; port: number } | null {
   const trimmed = raw.trim();
@@ -198,11 +190,10 @@ export async function sendZpl(zpl: string, address: string): Promise<ZplSendResu
   if (parsed === null) {
     return { kind: "error", message: "Enter the printer as host or host:port (e.g. 10.0.0.9:9100)." };
   }
-  const w = window as unknown as { __TAURI__?: TauriGlobal };
-  const invoke = w.__TAURI__?.core?.invoke;
-  if (invoke === undefined) return { kind: "unsupported" };
+  const pending = tauriInvoke("print_raw_zpl", { host: parsed.host, port: parsed.port, zpl });
+  if (pending === null) return { kind: "unsupported" };
   try {
-    await invoke("print_raw_zpl", { host: parsed.host, port: parsed.port, zpl });
+    await pending;
     return { kind: "sent" };
   } catch (error) {
     return {

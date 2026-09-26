@@ -23,6 +23,13 @@ secrets:
   appSecretKey: ""
   emailInboundHmacSecret: ""
   emailInternalToken: ""
+  # EdDSA (Ed25519) access-token signing (optional, Wave 34 lane 6): PEM
+  # contents. Set BOTH to switch core-api to EdDSA signing; realtime then
+  # verifies with the public key. Leave empty for the HS256 posture.
+  jwtEddsaPrivateKey: ""
+  jwtEddsaPublicKey: ""
+  # Key id stamped on issued tokens (defaults to m1 when empty).
+  jwtKid: ""
 
 imagePullSecrets: []
 

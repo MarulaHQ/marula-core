@@ -35,6 +35,21 @@ your deployment. Deployments behind a reverse proxy should keep the
 redirect URIs consistent with the [TLS runbook's](../reference/reverse-proxy-tls.md)
 public URL — redirect mismatches fail at the IdP, not at Meridian.
 
+### Presets save the URL typing
+
+The provider catalog carries declarative presets — Google Workspace,
+Microsoft Entra ID, Okta, and Keycloak. Pick one and fill its parameters
+(Entra takes a tenant, Okta a domain, Keycloak a host and `realm`)
+instead of typing issuer and discovery URLs by hand. Meridian derives
+both and pins the issuer at verification time.
+
+Anything else that speaks standard OIDC (an Ory Kratos deployment behind
+Hydra or Ory Network, for example) works without a preset: pin its issuer
+and discovery URL yourself. A bare Ory Kratos (no OIDC front) has no
+discovery document to point at, and the [provider
+contract](../../reference/auth-provider-contract.md) records that native
+support as not built.
+
 ## 2. Verify the whole loop, not half of it
 
 Test with a real account:

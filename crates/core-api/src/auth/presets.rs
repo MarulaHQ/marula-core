@@ -1,14 +1,22 @@
-//! First-party OIDC provider PRESETS (TASKLIST ID1): Google, Entra
-//! ID/M365, Okta as DECLARATIVE config. The catalog below is data —
-//! issuer/discovery templates, scopes, and a per-preset claim mapping —
-//! so an admin creates a provider by naming a preset and filling its
-//! parameters; no code fork per vendor.
+//! First-party OIDC provider PRESETS (TASKLIST ID1; Wave 34 lane 6 adds
+//! Keycloak): Google, Entra ID/M365, Okta, Keycloak as DECLARATIVE config.
+//! The catalog below is data — issuer/discovery templates, scopes, and a
+//! per-preset claim mapping — so an admin creates a provider by naming a
+//! preset and filling its parameters; no code fork per vendor.
 //!
 //! Security posture: a preset only FILLS configuration defaults
 //! (issuer, discovery URL, attribute mapping). Secrets, client ids,
 //! and enable decisions stay admin inputs; verification is identical
 //! for every provider (RS256 via the discovered JWKS with the issuer
 //! pinned) regardless of preset.
+//!
+//! Non-preset kinds: a headless IdP that does NOT speak standard OIDC
+//! (e.g. a bare Ory Kratos deployment without an OIDC front) is NOT a
+//! preset — it would need its own session-introspection provider KIND at
+//! the `auth::provider` seam. See docs/reference/auth-provider-contract.md
+//! for that typed not-built state; a Kratos deployment fronted by
+//! Hydra/Ory Network speaks standard OIDC and works through the generic
+//! (preset-less) provider path today.
 
 use crate::auth::oidc_client::IdClaims;
 use std::collections::HashMap;
@@ -68,6 +76,26 @@ fn map_okta(c: &mut IdClaims) {
     }
 }
 
+/// Keycloak (self-hosted or any standards realm). Standard OIDC claims; a
+/// realm can be configured without the `email` scope, in which case
+/// `preferred_username` is the e-mail-shaped login and the UPN fallback
+/// applies exactly as it does for Entra. `email_verified` stays whatever
+/// the realm asserts — never invented here.
+fn map_keycloak(c: &mut IdClaims) {
+    if c.email.is_none() {
+        if let Some(login) = &c.preferred_username {
+            if login.contains('@') {
+                c.email = Some(login.clone());
+            }
+        }
+    }
+    if c.name.is_none() {
+        if let Some(login) = &c.preferred_username {
+            c.name = Some(login.clone());
+        }
+    }
+}
+
 pub const OIDC_PRESETS: &[OidcPreset] = &[
     OidcPreset {
         name: "google",
@@ -101,6 +129,17 @@ pub const OIDC_PRESETS: &[OidcPreset] = &[
         redirect_guidance:
             "Okta app → General → Login redirect URIs: {base}/api/auth/oidc/{name}/callback",
         map_claims: map_okta,
+    },
+    OidcPreset {
+        name: "keycloak",
+        display_name: "Keycloak (realm)",
+        issuer_template: "https://{host}/realms/{realm}",
+        discovery_template: "https://{host}/realms/{realm}/.well-known/openid-configuration",
+        scopes: "openid email profile",
+        required_params: &["host", "realm"],
+        redirect_guidance:
+            "Keycloak admin → Clients → {name} → Valid redirect URIs: {base}/api/auth/oidc/{name}/callback",
+        map_claims: map_keycloak,
     },
 ];
 
@@ -173,6 +212,18 @@ mod tests {
         let (issuer, discovery) = resolve_preset("google", &HashMap::new()).unwrap();
         assert_eq!(issuer, "https://accounts.google.com");
         assert!(discovery.ends_with(".well-known/openid-configuration"));
+
+        // Keycloak (self-hosted IdP realm): host + realm template the
+        // standard realm issuer/discovery pair.
+        let mut p = HashMap::new();
+        p.insert("host".to_string(), "sso.example.com".to_string());
+        p.insert("realm".to_string(), "meridian".to_string());
+        let (issuer, discovery) = resolve_preset("keycloak", &p).unwrap();
+        assert_eq!(issuer, "https://sso.example.com/realms/meridian");
+        assert_eq!(
+            discovery,
+            "https://sso.example.com/realms/meridian/.well-known/openid-configuration"
+        );
     }
 
     #[test]
@@ -211,5 +262,32 @@ mod tests {
         };
         (get_preset("entra").unwrap().map_claims)(&mut claims);
         assert!(claims.email.is_none());
+    }
+
+    #[test]
+    fn keycloak_mapping_uses_upn_fallback_only_for_email_shaped_logins() {
+        let mut claims = IdClaims {
+            sub: "s".into(),
+            email: None,
+            email_verified: Some(true),
+            name: None,
+            preferred_username: Some("alice@example.com".into()),
+            nonce: None,
+        };
+        (get_preset("keycloak").unwrap().map_claims)(&mut claims);
+        assert_eq!(claims.email.as_deref(), Some("alice@example.com"));
+        assert_eq!(claims.name.as_deref(), Some("alice@example.com"));
+        assert_eq!(claims.email_verified, Some(true));
+
+        let mut bare = IdClaims {
+            sub: "s".into(),
+            email: None,
+            email_verified: None,
+            name: None,
+            preferred_username: Some("alice".into()),
+            nonce: None,
+        };
+        (get_preset("keycloak").unwrap().map_claims)(&mut bare);
+        assert!(bare.email.is_none());
     }
 }

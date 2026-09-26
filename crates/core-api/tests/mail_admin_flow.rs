@@ -264,7 +264,10 @@ async fn mail_surface_stays_honest_and_the_probe_rides_the_ledger() {
         .await,
     )
     .await;
-    assert_eq!(ledger["counts"]["queued"], 1);
+    // Registration queues its address-verification mail through the same
+    // ledger, so the org total is verification + probe (and the probe is
+    // the most recent row).
+    assert_eq!(ledger["counts"]["queued"], 2);
     assert_eq!(ledger["counts"]["sent"], 0);
     assert_eq!(ledger["transport_configured"], true);
     let row = &ledger["rows"][0];
@@ -373,11 +376,12 @@ async fn board_identities_validate_and_clear_per_field() {
     )
     .await;
     assert_eq!(response.status(), 409);
-    assert!(body_json(response)
-        .await["error"]["message"]
-        .as_str()
-        .unwrap_or_default()
-        .contains("Field Ops"));
+    let conflict = body_json(response).await;
+    let message = conflict["error"]["message"].as_str().unwrap_or_default();
+    assert!(
+        message.contains("Service Desk"),
+        "conflict must name the OWNING board (the seeded default), got: {message}"
+    );
 
     // Explicit null clears one field and leaves the rest.
     let response = send(

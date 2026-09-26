@@ -172,7 +172,8 @@ mod tests {
 
     #[test]
     fn digest_item_cap_is_sane() {
-        assert!(MAX_DIGEST_ITEMS >= 10 && MAX_DIGEST_ITEMS <= 100);
+        // Compile-time assertion: the cap must stay inside the sane band.
+        const { assert!(MAX_DIGEST_ITEMS >= 10 && MAX_DIGEST_ITEMS <= 100) };
     }
 
     #[test]

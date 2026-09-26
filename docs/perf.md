@@ -12,7 +12,7 @@
 | Ticket list (primary reads) | **p95 < 150ms @ 50k tickets/org** | `perf-smoke` CI job (`.github/workflows/ci.yml`) via `measure::assert_budget` |
 | Deep pagination, keyset (`cursor`, depth 40k) | same primary budget — keyset IS budgeted since Wave 15 lane 3 | same smoke (the `deep_page_keyset40k` mix) |
 | Deep pagination, legacy `OFFSET 40000` | 400ms regression tripwire (not a product budget) | same smoke. See the finding below |
-| HTTP capacity (saturated closed-loop) | p95 ≤ 150ms @ 50k, concurrency 8, keyset mix | `Nightly perf` job (`.github/workflows/nightly.yml`) via `perf-harness load --budget-ms` |
+| HTTP capacity (saturated closed-loop) | p95 ≤ 150ms @ 50k, concurrency 8, keyset mix | `Nightly perf` job (`.github/workflows/nightly.yml.disabled`) via `perf-harness load --budget-ms` |
 | Scale harness | 100k tickets/org, reproducible | `perf-harness seed/load` (nightly: measurement + 600ms tripwire, not gated) |
 
 The primary budget covers every standard list shape: unfiltered page 1,
@@ -212,13 +212,22 @@ order-of-magnitude tripwire (capacity observation, not budget).
   budget covers — including the keyset deep page since the cursor
   shipped. The test is env-gated (`MERIDIAN_PERF_SMOKE=1`) so the plain
   `cargo test --workspace` sweep skips it (fast sweeps).
-- `Nightly perf` (`.github/workflows/nightly.yml`, cron 05:30 UTC +
-  workflow_dispatch): gates the saturated HTTP capacity point
+- `Nightly perf` (`.github/workflows/nightly.yml.disabled`, cron 05:30 UTC
+  + workflow_dispatch): gates the saturated HTTP capacity point
   (`perf-harness load --concurrency 8 --budget-ms 150` @50k through the
-  release-built core-api) and measures the 100k scale leg on a 600ms
-  tripwire (not gated). Results surface as a step summary +
-  `nightly-load-report` / `nightly-scale-report` artifacts. A red
-  nightly is investigated in the next session, never shrugged off.
+  release-built core-api, connected as `meridian_app` so RLS is in the
+  path) and measures the 100k scale leg on a 600ms tripwire (not gated).
+  Results surface as a step summary + `nightly-load-report` /
+  `nightly-scale-report` artifacts. A red nightly is investigated in the
+  next session, never shrugged off.
+  - Wave 34 lane 6 repaired this definition before any re-enable: the
+    `perf-load-budget` `services:` block was indented one level too deep
+    (the file had never parsed), both Boot steps omitted the explicit
+    `JWT_SECRET` / `MERIDIAN_SECRET_KEY` that fail-closed core-api
+    requires since Wave 19, and both inherited the superuser
+    `DATABASE_URL` (RLS bypassed) instead of the app role.
+  - The `.disabled` suffix is USER-GATED: turning the schedule on is a
+    user decision, never a lane action.
 - Budget overrides are for local triage only: `PERF_SMOKE_BUDGET_MS` /
   `PERF_SMOKE_DEEP_PAGE_BUDGET_MS` (via `measure::assert_budget`
   constants). A CI failure is investigated, never shrugged off.

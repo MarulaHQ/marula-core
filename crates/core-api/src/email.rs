@@ -664,7 +664,7 @@ pub async fn enqueue_outbound(tx: &mut Tx, req: OutboundEnqueue<'_>) -> ApiResul
     if req.to_addresses.is_empty() {
         return Ok(());
     }
-    let identity = resolve_mail_identity(&mut **tx, req.org_id, req.ticket_id, req.mail).await?;
+    let identity = resolve_mail_identity(tx, req.org_id, req.ticket_id, req.mail).await?;
     let mut body = req.kind.body();
     if let Some(signature) = identity.signature.as_deref() {
         if !signature.trim().is_empty() {
@@ -723,7 +723,7 @@ pub async fn enqueue_rendered_outbound(
     body: &str,
     ticket_id: Option<Uuid>,
 ) -> ApiResult<Uuid> {
-    let identity = resolve_mail_identity(&mut **tx, org_id, ticket_id, mail).await?;
+    let identity = resolve_mail_identity(tx, org_id, ticket_id, mail).await?;
     let message_id = emails::enqueue_outbound(
         tx,
         emails::NewOutbound {

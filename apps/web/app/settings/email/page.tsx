@@ -152,9 +152,10 @@ function statusTone(status: string): "success" | "warning" | "danger" | "neutral
 }
 
 function shortAddress(list: string[]): string {
-  if (list.length === 0) return "—";
-  if (list.length === 1) return list[0];
-  return `${list[0]} +${list.length - 1}`;
+  const first = list[0];
+  if (first === undefined) return "—";
+  if (list.length === 1) return first;
+  return `${first} +${list.length - 1}`;
 }
 
 function when(iso: string): string {
@@ -311,7 +312,8 @@ function InboundCard({
           </p>
         </div>
       </CardHeader>
-      <CardContent className="grid gap-4">
+      <CardContent>
+            <div className="grid gap-4">
         <div className="flex flex-wrap items-end gap-3">
           <label className="grid gap-1">
             <span className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
@@ -369,10 +371,10 @@ function InboundCard({
                 className="text-left text-[11px] uppercase tracking-wide"
                 style={{ color: "var(--m-text-muted)", background: "var(--m-canvas)" }}
               >
-                <Th className="px-3 py-2 font-medium">Board</Th>
-                <Th className="px-3 py-2 font-medium">Inbound address</Th>
-                <Th className="px-3 py-2 font-medium">Outbound from</Th>
-                <Th className="px-3 py-2 font-medium">Identity</Th>
+                <Th className="font-medium">Board</Th>
+                <Th className="font-medium">Inbound address</Th>
+                <Th className="font-medium">Outbound from</Th>
+                <Th className="font-medium">Identity</Th>
               </tr>
             </thead>
             <tbody>
@@ -382,7 +384,8 @@ function InboundCard({
             </tbody>
           </Table>
         </div>
-      </CardContent>
+      </div>
+          </CardContent>
     </Card>
   );
 }
@@ -540,7 +543,8 @@ function BoardIdentityDialog({
             </p>
           </div>
         </CardHeader>
-        <CardContent className="grid gap-3">
+        <CardContent>
+            <div className="grid gap-3">
           <label className="grid gap-1">
             <span className="text-[12px]">From address</span>
             <Input
@@ -584,7 +588,8 @@ function BoardIdentityDialog({
               {saving ? "Saving…" : "Save identity"}
             </Button>
           </div>
-        </CardContent>
+        </div>
+          </CardContent>
       </Card>
     </div>
   );
@@ -761,7 +766,8 @@ function SendingCard({
           </p>
         </div>
       </CardHeader>
-      <CardContent className="grid gap-4">
+      <CardContent>
+            <div className="grid gap-4">
         {!out.ready ? (
           <div
             role="status"
@@ -993,7 +999,8 @@ function SendingCard({
             {probeError ? <FieldError>{probeError}</FieldError> : null}
           </div>
         </div>
-      </CardContent>
+      </div>
+          </CardContent>
     </Card>
   );
 }
@@ -1045,7 +1052,8 @@ function LedgerCard({
           </div>
         </div>
       </CardHeader>
-      <CardContent className="grid gap-3">
+      <CardContent>
+            <div className="grid gap-3">
         <div className="flex flex-wrap gap-2 text-[12px]">
           {(["queued", "sending", "sent", "dead"] as const).map((status) => (
             <span key={status} className="flex items-center gap-1.5">
@@ -1085,12 +1093,12 @@ function LedgerCard({
                   className="text-left text-[11px] uppercase tracking-wide"
                   style={{ color: "var(--m-text-muted)", background: "var(--m-canvas)" }}
                 >
-                  <Th className="px-3 py-2 font-medium">When</Th>
-                  <Th className="px-3 py-2 font-medium">To</Th>
-                  <Th className="px-3 py-2 font-medium">Subject</Th>
-                  <Th className="px-3 py-2 font-medium">State</Th>
-                  <Th className="px-3 py-2 font-medium">Attempts</Th>
-                  <Th className="px-3 py-2 font-medium">Detail</Th>
+                  <Th className="font-medium">When</Th>
+                  <Th className="font-medium">To</Th>
+                  <Th className="font-medium">Subject</Th>
+                  <Th className="font-medium">State</Th>
+                  <Th className="font-medium">Attempts</Th>
+                  <Th className="font-medium">Detail</Th>
                 </tr>
               </thead>
               <tbody>
@@ -1130,7 +1138,8 @@ function LedgerCard({
             </Table>
           </div>
         )}
-      </CardContent>
+      </div>
+          </CardContent>
     </Card>
   );
 }
@@ -1268,7 +1277,8 @@ function NotificationEmailCard({
           </p>
         </div>
       </CardHeader>
-      <CardContent className="grid gap-4">
+      <CardContent>
+            <div className="grid gap-4">
         <div className="grid gap-3 md:grid-cols-3">
           <label className="grid gap-1">
             <span className="text-[12px]">Brand name in the header</span>
@@ -1340,11 +1350,11 @@ function NotificationEmailCard({
                   className="text-left text-[11px] uppercase tracking-wide"
                   style={{ color: "var(--m-text-muted)", background: "var(--m-canvas)" }}
                 >
-                  <Th className="px-3 py-2 font-medium">Event</Th>
-                  <Th className="px-3 py-2 font-medium">In-app</Th>
-                  <Th className="px-3 py-2 font-medium">Email</Th>
-                  <Th className="px-3 py-2 font-medium">Quiet from</Th>
-                  <Th className="px-3 py-2 font-medium">Until</Th>
+                  <Th className="font-medium">Event</Th>
+                  <Th className="font-medium">In-app</Th>
+                  <Th className="font-medium">Email</Th>
+                  <Th className="font-medium">Quiet from</Th>
+                  <Th className="font-medium">Until</Th>
                 </tr>
               </thead>
               <tbody>
@@ -1408,7 +1418,8 @@ function NotificationEmailCard({
             onSave={() => void saveDefaults()}
           />
         </div>
-      </CardContent>
+      </div>
+          </CardContent>
     </Card>
   );
 }

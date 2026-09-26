@@ -1767,6 +1767,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/boards/{id}/email-identity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * PUT /api/boards/{id}/email-identity — set/clear per-board outbound
+         *     identity fields (from address, display name, reply-to, signature).
+         */
+        put: operations["email_board_identity_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/boards/{id}/fields": {
         parameters: {
             query?: never;
@@ -1829,6 +1849,23 @@ export interface paths {
          *     Board-admin gated (ConfigureBoard); emits `board.group_updated`.
          */
         put: operations["boards_assign_group"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/boards/{id}/inbound-address": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** PUT /api/boards/{id}/inbound-address — set/clear a board-level address. */
+        put: operations["email_board_inbound_address_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -4027,6 +4064,133 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/email/delivery-ledger": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/email/delivery-ledger — the outbound message ledger
+         *     (queued/sending/sent/dead) with attempts, last error, and counts.
+         */
+        get: operations["email_delivery_ledger_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/email/inbound-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/email/inbound-settings — current org catch-all, if configured. */
+        get: operations["email_inbound_settings_get"];
+        /** PUT /api/email/inbound-settings — upsert the org catch-all route. */
+        put: operations["email_inbound_settings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/email/outbound-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * PUT /api/email/outbound-settings — partial update of the org outbound
+         *     identity, transport selection, and digest policy. Values are validated
+         *     against their registry declarations before any write.
+         */
+        put: operations["email_outbound_settings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/email/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/email/settings — the whole mail surface in one read: inbound
+         *     routes + per-board identities, outbound identity + transport readiness
+         *     (never credential material), the delivery ledger's enablement bits, and
+         *     the org digest policy.
+         */
+        get: operations["email_settings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/email/test-send": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/email/test-send — renders a branded test message and enqueues
+         *     it through the configured transport. Refuses with a typed conflict when
+         *     no transport is configured (the honest not-configured state).
+         */
+        post: operations["email_test_send"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/email/transport-credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * PUT /api/email/transport-credentials — seals the selected transport's
+         *     credential into the sealed slot (presence-only response). The plaintext
+         *     exists exactly once, in this request.
+         */
+        put: operations["email_transport_credentials_put"];
+        post?: never;
+        /**
+         * DELETE /api/email/transport-credentials?transport=… — removes the sealed
+         *     credential; the transport then reports not-configured (mail stays queued).
+         */
+        delete: operations["email_transport_credentials_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entity-dedupe/candidates": {
         parameters: {
             query?: never;
@@ -5224,6 +5388,24 @@ export interface paths {
          *     `migration.push_session_finished`.
          */
         post: operations["migration_finish_push_session"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notification-org-defaults": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/notification-org-defaults — the org's default rows (admin). */
+        get: operations["notification_org_defaults_get"];
+        /** PUT /api/notification-org-defaults — upserts one kind's org default. */
+        put: operations["notification_org_defaults_put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -12510,6 +12692,11 @@ export interface components {
              */
             require_checklist_close: boolean;
         };
+        BoardAddressResponse: {
+            /** Format: uuid */
+            board_id: string;
+            inbound_address?: string | null;
+        };
         BoardExposureView: {
             /** Format: uuid */
             board_id: string;
@@ -12536,6 +12723,12 @@ export interface components {
             owner_id: string;
             /** Format: int32 */
             position: number;
+        };
+        BoardIdentityView: {
+            from_address?: string | null;
+            from_name?: string | null;
+            reply_to?: string | null;
+            signature?: string | null;
         };
         /**
          * @description An explicit per-user membership on one board carrying a board-level
@@ -12585,6 +12778,13 @@ export interface components {
          * @enum {string}
          */
         BoardRole: "viewer" | "member" | "admin";
+        BoardRouteView: {
+            /** Format: uuid */
+            board_id: string;
+            identity: components["schemas"]["BoardIdentityView"];
+            inbound_address?: string | null;
+            name: string;
+        };
         /**
          * @description A per-board status. `category` is the binding contract — labels are
          *     presentation, category is behavior.
@@ -15080,6 +15280,14 @@ export interface components {
             mutation: components["schemas"]["MutationMeta"];
             token: string;
         };
+        CredentialView: {
+            configured: boolean;
+            updated_at?: string | null;
+        };
+        CredentialsView: {
+            postmark: components["schemas"]["CredentialView"];
+            smtp: components["schemas"]["CredentialView"];
+        };
         /**
          * @description The credit document. `issued_against_invoice_id` is the issuing
          *     context (may be `None` for a free-standing client credit);
@@ -15724,6 +15932,46 @@ export interface components {
              * @description HTTP status when a response arrived; null for transport failures.
              */
             response_status?: number | null;
+        };
+        DeliveryCounts: {
+            /** Format: int64 */
+            dead: number;
+            /** Format: int64 */
+            queued: number;
+            /** Format: int64 */
+            sending: number;
+            /** Format: int64 */
+            sent: number;
+        };
+        DeliveryLedgerResponse: {
+            /**
+             * @description Complete status set — zero counts included, so the summary strip
+             *     never hides a state by omission.
+             */
+            counts: components["schemas"]["DeliveryCounts"];
+            /** @description Opaque cursor for the next page; `None` = exhausted. */
+            next_cursor?: string | null;
+            rows: components["schemas"]["DeliveryLedgerRow"][];
+            /** @description False when no transport is configured: every row then sits queued. */
+            transport_configured: boolean;
+        };
+        DeliveryLedgerRow: {
+            /** Format: int32 */
+            attempts: number;
+            created_at: string;
+            from_address: string;
+            last_error?: string | null;
+            /** Format: int32 */
+            max_attempts: number;
+            /** Format: uuid */
+            message_id: string;
+            rfc_message_id: string;
+            status: string;
+            subject?: string | null;
+            /** Format: uuid */
+            ticket_id?: string | null;
+            to_addresses: string[];
+            updated_at: string;
         };
         /** @description GET /api/report-schedules/{id}/deliveries query. */
         DeliveryListQuery: {
@@ -16988,6 +17236,12 @@ export interface components {
             /** @description The entity instance id. */
             entity_id: string;
         };
+        InboundSettingsResponse: {
+            catchall_address?: string | null;
+            /** Format: uuid */
+            catchall_board_id?: string | null;
+            enabled: boolean;
+        };
         /** @description The storm group behind an incident ticket. */
         IncidentView: {
             /**
@@ -17951,6 +18205,13 @@ export interface components {
         MagicLinkConfirm: {
             token: string;
         };
+        MailSettingsResponse: {
+            boards: components["schemas"]["BoardRouteView"][];
+            digest_policy: string;
+            inbound: components["schemas"]["InboundSettingsResponse"];
+            outbound: components["schemas"]["OutboundSettingsView"];
+            reply_by_email: components["schemas"]["ReplyByEmailView"];
+        };
         /**
          * @description Planned downtime: an absolute UTC interval during which SLA clocks do
          *     not consume business-time budget (vendor maintenance, change freezes).
@@ -18832,6 +19093,17 @@ export interface components {
              */
             total_minor: number;
         };
+        OrgDefaultView: {
+            email: boolean;
+            in_app: boolean;
+            kind: components["schemas"]["NotificationKind"];
+            quiet_from?: string | null;
+            quiet_until?: string | null;
+            timezone: string;
+        };
+        OrgDefaultsResponse: {
+            defaults: components["schemas"]["OrgDefaultView"][];
+        };
         OrgProfileResponse: {
             /** @description The org's ONE base (reporting) currency (ADR 0002, FX1). */
             base_currency: string;
@@ -18883,6 +19155,28 @@ export interface components {
         OrgUserMutationResponse: components["schemas"]["OrgUser"] & {
             invite?: null | components["schemas"]["InviteInfo"];
             mutation: components["schemas"]["MutationMeta"];
+        };
+        OutboundSettingsView: {
+            brand_name: string;
+            credentials: components["schemas"]["CredentialsView"];
+            from_address: string;
+            from_name: string;
+            logo_url: string;
+            /** @description Human reason when `ready` is false. */
+            not_ready_reason?: string | null;
+            postmark_base_url: string;
+            /**
+             * @description Whether the SELECTED transport has a usable credential/endpoint
+             *     combination (the honest not-configured bit the UI renders).
+             */
+            ready: boolean;
+            reply_to: string;
+            signature: string;
+            smtp_host: string;
+            /** Format: int64 */
+            smtp_port: number;
+            smtp_username: string;
+            transport: string;
         };
         /** @description One registry declaration, projected for the settings/admin surface. */
         OverrideDeclarationView: {
@@ -20879,6 +21173,21 @@ export interface components {
             key: string;
             label?: string;
         };
+        PutBoardAddressRequest: {
+            /** @description `None` clears the address. */
+            address?: string | null;
+        };
+        PutBoardIdentityRequest: {
+            /**
+             * @description All fields optional and partial: only present keys are written; an
+             *     explicit `null` (or blank string) clears that field back to the org
+             *     identity.
+             */
+            from_address?: string | null;
+            from_name?: string | null;
+            reply_to?: string | null;
+            signature?: string | null;
+        };
         /** @description Request to store or update a sealed BYOK API key. */
         PutByokSecretRequest: components["schemas"]["MutationParams"] & {
             /** @description Plaintext API key / token to be sealed at rest. */
@@ -20934,6 +21243,13 @@ export interface components {
              */
             visible_status_ids: string[];
         };
+        PutInboundSettingsRequest: {
+            catchall_address: string;
+            /** Format: uuid */
+            catchall_board_id: string;
+            /** @description Enables/disables catch-all routing; absent keeps the stored value. */
+            enabled?: boolean | null;
+        };
         PutInstallSettingsRequest: {
             config: unknown;
         };
@@ -20944,6 +21260,21 @@ export interface components {
              *     overwrite (last-writer-wins per §5.2 cadence).
              */
             instant?: components["schemas"]["MutationParams"];
+        };
+        PutOutboundSettingsRequest: {
+            brand_name?: string | null;
+            digest_policy?: string | null;
+            from_address?: string | null;
+            from_name?: string | null;
+            logo_url?: string | null;
+            postmark_base_url?: string | null;
+            reply_to?: string | null;
+            signature?: string | null;
+            smtp_host?: string | null;
+            /** Format: int64 */
+            smtp_port?: number | null;
+            smtp_username?: string | null;
+            transport?: string | null;
         };
         /**
          * @description PUT body: `{ "state": "set", "value": <typed payload> }` or
@@ -20980,6 +21311,14 @@ export interface components {
              */
             source_kind: string;
             source_url: string;
+        };
+        PutTransportCredentialsRequest: {
+            /** @description Postmark server token (required when transport = postmark). */
+            postmark_server_token?: string | null;
+            /** @description SMTP password (required when transport = smtp). */
+            smtp_password?: string | null;
+            /** @description `postmark` or `smtp` — which credential this request rotates. */
+            transport: string;
         };
         /**
          * @description Queue mutation envelope (set + clear share the shape; clears carry
@@ -21474,6 +21813,12 @@ export interface components {
         ReplaceUserSkillsRequest: components["schemas"]["MutationParams"] & {
             /** @description Full replacement set (an empty set clears every skill). */
             skills: components["schemas"]["SkillInput"][];
+        };
+        ReplyByEmailView: {
+            board_addresses: number;
+            catchall_address?: string | null;
+            /** @description Inbound routing is what makes client replies land on tickets. */
+            enabled: boolean;
         };
         /** @description GET /api/report-catalog envelope. */
         ReportCatalog: {
@@ -23609,6 +23954,21 @@ export interface components {
             /** @description `delivered` | `refused` | `bad_config` | `unreachable`. */
             outcome: string;
         };
+        TestSendRequest: {
+            /** @description Where the probe goes; absent sends to the caller's own address. */
+            to?: string | null;
+        };
+        TestSendResponse: {
+            /** Format: uuid */
+            message_id: string;
+            /**
+             * @description `queued` — the worker performs the actual send; the delivery ledger
+             *     carries the outcome (never a fake synchronous "sent" here).
+             */
+            outcome: string;
+            to: string;
+            transport: string;
+        };
         ThemePackList: {
             packs: components["schemas"]["ThemePackView"][];
         };
@@ -24803,6 +25163,21 @@ export interface components {
             /** Format: uuid */
             project_id?: string | null;
             vendor_reference?: string | null;
+        };
+        /**
+         * @description PUT /api/notification-org-defaults — replaces the org default ROW for
+         *     one kind; the chain is user override → org default → built-in, so an
+         *     untouched user's next email follows this policy. Quiet hours validate as
+         *     a paired `HH:MM` window in a real IANA timezone (422 otherwise).
+         */
+        UpdateOrgDefaultRequest: {
+            email: boolean;
+            in_app: boolean;
+            kind: components["schemas"]["NotificationKind"];
+            /** @description `HH:MM` pair; both bounds together or neither. */
+            quiet_from?: string | null;
+            quiet_until?: string | null;
+            timezone?: string | null;
         };
         UpdatePasswordRequest: components["schemas"]["MutationParams"] & {
             /**
@@ -28566,6 +28941,46 @@ export interface operations {
             };
         };
     };
+    email_board_identity_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Board id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutBoardIdentityRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardIdentityView"];
+                };
+            };
+            /** @description board not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description from address already in use */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     fields_list_for_board: {
         parameters: {
             query?: never;
@@ -28681,6 +29096,46 @@ export interface operations {
         };
         responses: {
             204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    email_board_inbound_address_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Board id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutBoardAddressRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardAddressResponse"];
+                };
+            };
+            /** @description board not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description address already routed */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -33129,6 +33584,219 @@ export interface operations {
             };
         };
     };
+    email_delivery_ledger_get: {
+        parameters: {
+            query?: {
+                /** @description queued | sending | sent | dead */
+                status?: string;
+                /** @description page size (default 25, max 100) */
+                limit?: number;
+                /** @description opaque next-page cursor */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryLedgerResponse"];
+                };
+            };
+        };
+    };
+    email_inbound_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboundSettingsResponse"];
+                };
+            };
+        };
+    };
+    email_inbound_settings_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutInboundSettingsRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboundSettingsResponse"];
+                };
+            };
+            /** @description address already routed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    email_outbound_settings_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutOutboundSettingsRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailSettingsResponse"];
+                };
+            };
+            /** @description invalid value */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    email_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailSettingsResponse"];
+                };
+            };
+        };
+    };
+    email_test_send: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestSendRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestSendResponse"];
+                };
+            };
+            /** @description transport not configured */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    email_transport_credentials_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutTransportCredentialsRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CredentialsView"];
+                };
+            };
+            /** @description unknown transport or missing secret */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    email_transport_credentials_delete: {
+        parameters: {
+            query: {
+                /** @description postmark | smtp */
+                transport: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CredentialsView"];
+                };
+            };
+            /** @description unknown transport */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     entity_dedupe_list_candidates: {
         parameters: {
             query?: {
@@ -35500,6 +36168,55 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PushSessionFinishedResponse"];
                 };
+            };
+        };
+    };
+    notification_org_defaults_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgDefaultsResponse"];
+                };
+            };
+        };
+    };
+    notification_org_defaults_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateOrgDefaultRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgDefaultView"];
+                };
+            };
+            /** @description invalid quiet-hours window or timezone */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

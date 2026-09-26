@@ -24,8 +24,20 @@ function seedPortalTokens(): void {
   );
 }
 
-const DAY1 = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
-const DAY2 = new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10);
+// Slot dates must be LOCAL calendar dates (Wave 34 lane 6 fix): deriving
+// them from the UTC slice of `now + 24h` makes the fixture label yesterday
+// as "Today" between local midnight and the UTC/local date boundary,
+// failing the day-grouping assertions for a couple of hours every night.
+function localDateIn(days: number): string {
+  const d = new Date(Date.now() + days * 86_400_000);
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, "0"),
+    String(d.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+const DAY1 = localDateIn(1);
+const DAY2 = localDateIn(2);
 
 function slots(hour: number): { starts_at: string; ends_at: string } {
   return {

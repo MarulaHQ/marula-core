@@ -248,6 +248,10 @@ pub async fn put_board_inbound_address(
     };
     let clear = address.is_none();
     let address = address.unwrap_or_default();
+    // The tx closure is `async move`, so it takes its own copy while the
+    // response below still reports the stored address (compile fix, Wave 34
+    // lane 6: the fast-forwarded lane-8 commit used `address` after the move).
+    let address_in_tx = address.clone();
     let result = crate::org_tx::with_org_tx(&state, org, user, |mut ctx| async move {
         core_db::set_org(&mut ctx.tx, org)
             .await
@@ -263,7 +267,7 @@ pub async fn put_board_inbound_address(
         .await?;
         if !clear {
             if let Some(owner) =
-                inbound_address_owner(&mut ctx.tx, org, &address, Some(board_id), false).await?
+                inbound_address_owner(&mut ctx.tx, org, &address_in_tx, Some(board_id), false).await?
             {
                 return Err(ApiError::Conflict(format!(
                     "address already in use by {owner}"
@@ -274,7 +278,7 @@ pub async fn put_board_inbound_address(
             &mut *ctx.tx,
             org,
             board_id,
-            (!clear).then_some(address.as_str()),
+            (!clear).then_some(address_in_tx.as_str()),
         )
         .await;
         match result {
@@ -288,7 +292,7 @@ pub async fn put_board_inbound_address(
                 org,
                 user,
                 format!("inbound:board:{board_id}"),
-                json!({ "address": if clear { serde_json::Value::Null } else { json!(address) } }),
+                json!({ "address": if clear { serde_json::Value::Null } else { json!(address_in_tx) } }),
             ),
         )
         .await?;
@@ -456,6 +460,7 @@ pub async fn put_board_identity(
                 board_id,
                 core_domain::settings::BoardIdentityField::FromAddress,
                 value.as_deref(),
+                user,
             )
             .await
             .map_err(board_identity_error)?;
@@ -468,18 +473,20 @@ pub async fn put_board_identity(
                 board_id,
                 core_domain::settings::BoardIdentityField::FromName,
                 value.as_deref(),
+                user,
             )
             .await
             .map_err(board_identity_error)?;
             changed.push("from_name");
         }
-        if let Some(value) = req.reply_to.as_ref() {
+        if req.reply_to.is_some() {
             core_db::emails::set_board_identity_field(
                 &mut ctx.tx,
                 org,
                 board_id,
                 core_domain::settings::BoardIdentityField::ReplyTo,
-                value.as_deref(),
+                reply_to.as_deref(),
+                user,
             )
             .await
             .map_err(board_identity_error)?;
@@ -492,6 +499,7 @@ pub async fn put_board_identity(
                 board_id,
                 core_domain::settings::BoardIdentityField::Signature,
                 value.as_deref(),
+                user,
             )
             .await
             .map_err(board_identity_error)?;
@@ -504,7 +512,7 @@ pub async fn put_board_identity(
                 org,
                 user,
                 format!("outbound:board:{board_id}"),
-                json!({ "changed": changed, "identity": &identity }),
+                json!({ "changed": changed, "identity": BoardIdentityView::from(identity.clone()) }),
             ),
         )
         .await?;
@@ -819,14 +827,14 @@ pub async fn get_mail_settings(
         .map_err(ApiError::from)?;
 
     let inbound_row = core_db::emails::get_inbound_settings(&mut *tx, org).await?;
-    let boards = core_db::emails::list_board_routes(&mut *tx, org).await?;
+    let boards = core_db::emails::list_board_routes(&mut tx, org).await?;
     let mut board_views = Vec::with_capacity(boards.len());
     let mut board_addresses = 0_usize;
     for (board_id, name, inbound_address) in boards {
         if inbound_address.is_some() {
             board_addresses += 1;
         }
-        let identity = core_db::emails::get_board_identity(&mut *tx, org, board_id).await?;
+        let identity = core_db::emails::get_board_identity(&mut tx, org, board_id).await?;
         board_views.push(BoardRouteView {
             board_id,
             name,
@@ -1350,12 +1358,19 @@ pub async fn test_send(
         &transport,
         &identity.from_address,
     );
+    // The tx closure is `async move`; it takes its own copies of the
+    // enqueue/log inputs while the response below still reports `to` and
+    // `transport` (compile fix, Wave 34 lane 6: the fast-forwarded lane-8
+    // commit used both after the move).
+    let mail = state.mail.clone();
+    let to_in_tx = to.clone();
+    let transport_in_tx = transport.clone();
     let message_id = crate::org_tx::with_org_tx(&state, org, user, |mut ctx| async move {
         let message_id = crate::email::enqueue_rendered_outbound(
             &mut ctx.tx,
-            &state.mail,
+            &mail,
             org,
-            &to,
+            &to_in_tx,
             &rendered.subject,
             &rendered.text_body,
             None,
@@ -1367,7 +1382,7 @@ pub async fn test_send(
                 org,
                 user,
                 "outbound:test_send".into(),
-                json!({ "to": to, "transport": transport, "message_id": message_id }),
+                json!({ "to": to_in_tx, "transport": transport_in_tx, "message_id": message_id }),
             ),
         )
         .await?;
