@@ -25,7 +25,11 @@ anonymous admin access, so touch that before exposing it anywhere.
 Config files live under `deploy/observability/*.yaml`; the profile's member
 services and memory ceilings live in `deploy/docker-compose.yml`.
 
-Error tracking (GlitchTip) is stub-documented in the compose file but
-deliberately not wired: no Meridian code references it until the DSN
-distribution decision for self-host vs managed is made. Do not expect an
-error pipeline in this profile yet.
+Error tracking (GlitchTip) has its DSN distribution settled: per-service
+`GLITCHTIP_DSN_CORE_API`, `GLITCHTIP_DSN_REALTIME`, and
+`GLITCHTIP_DSN_WORKER` environment variables. The Settings →
+Self-host services pane reports which of the three are configured,
+presence only, never the value. The SDK wiring that sends events from
+the three Rust binaries is still its own work item, so a configured DSN
+means the credential is in place, not that errors flow yet. See
+[How to watch your self-hosted services](../how-to/admin-self-host-services.md).

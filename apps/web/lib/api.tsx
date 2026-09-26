@@ -195,7 +195,7 @@ const DOCUMENT_ATTACHMENT_DOWNLOAD_PATH =
 const PLUGIN_ZIP_STAGE_PATH = "/api/v1/plugins/distribution/staged/zip" satisfies keyof MeridianPaths;
 
 /** Auth header for manual fetches against the API base URL. */
-function authHeaders(): HeadersInit {
+export function authHeaders(): HeadersInit {
   const tokens = loadTokens();
   return tokens === null ? {} : { authorization: `Bearer ${tokens.access_token}` };
 }

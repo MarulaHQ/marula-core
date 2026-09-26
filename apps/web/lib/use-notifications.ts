@@ -50,6 +50,7 @@ const KIND_LABELS: Record<string, string> = {
   secret_rotation: "Secret rotation",
   dedupe_report: "Duplicate report",
   stock_low: "Low stock",
+  scan_detection: "Malware quarantine",
 };
 
 export function kindLabel(kind: string): string {

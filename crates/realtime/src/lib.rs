@@ -50,8 +50,23 @@ pub async fn run(config: config::RealtimeConfig) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn healthz() -> &'static str {
-    "ok"
+/// Liveness for orchestrators plus the GlitchTip DSN presence the self-host
+/// settings pane reports (Wave 36 lane 3). Presence only — the DSN value
+/// never leaves the process environment. Probes check the status code, so
+/// the body stays additive.
+async fn healthz() -> axum::Json<serde_json::Value> {
+    axum::Json(serde_json::json!({
+        "status": "ok",
+        "glitchtip": dsn_state("GLITCHTIP_DSN_REALTIME"),
+    }))
+}
+
+/// `configured` | `unset`.
+fn dsn_state(name: &str) -> &'static str {
+    match std::env::var(name) {
+        Ok(v) if !v.trim().is_empty() => "configured",
+        _ => "unset",
+    }
 }
 
 /// Flips the shared shutdown flag so the blocking XREAD loop wakes up.

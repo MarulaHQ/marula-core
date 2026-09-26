@@ -508,6 +508,16 @@
           "title": "How to work a day pack"
         }
       ]
+    },
+    "settings-self-host": {
+      "docs": [
+        {
+          "path": "how-to/admin-self-host-services",
+          "audience": "admin",
+          "updated": "2026-09-26",
+          "title": "How to watch your self-hosted services"
+        }
+      ]
     }
   }
 }

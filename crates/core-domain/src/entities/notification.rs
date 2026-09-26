@@ -39,11 +39,16 @@ pub enum NotificationKind {
     /// outcome (suggestions above threshold, auto-merges applied) to the
     /// designated users.
     DedupeReport,
+    /// Inbound malware quarantine (Wave 36 lane 3): the stage-2 scan seam
+    /// quarantined an inbound message — either a signature hit or the
+    /// fail-closed path when the scanner was unreachable. Org owners and
+    /// admins receive it; the message never becomes a ticket.
+    ScanDetection,
 }
 
 impl NotificationKind {
     /// Every kind, stable order — drives preference screens and defaults.
-    pub const ALL: [NotificationKind; 11] = [
+    pub const ALL: [NotificationKind; 12] = [
         NotificationKind::Mention,
         NotificationKind::Assignment,
         NotificationKind::SlaRisk,
@@ -55,6 +60,7 @@ impl NotificationKind {
         NotificationKind::AiCapWarn,
         NotificationKind::SecretRotation,
         NotificationKind::DedupeReport,
+        NotificationKind::ScanDetection,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -71,6 +77,7 @@ impl NotificationKind {
             NotificationKind::SecretRotation => "secret_rotation",
             NotificationKind::DedupeReport => "dedupe_report",
             NotificationKind::StockLow => "stock_low",
+            NotificationKind::ScanDetection => "scan_detection",
         }
     }
 }
@@ -91,6 +98,7 @@ impl std::str::FromStr for NotificationKind {
             "secret_rotation" => Ok(NotificationKind::SecretRotation),
             "dedupe_report" => Ok(NotificationKind::DedupeReport),
             "stock_low" => Ok(NotificationKind::StockLow),
+            "scan_detection" => Ok(NotificationKind::ScanDetection),
             other => Err(crate::DomainError::Validation(format!(
                 "invalid notification kind: {other}"
             ))),

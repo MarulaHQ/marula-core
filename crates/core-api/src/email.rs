@@ -272,8 +272,8 @@ pub async fn process_inbound(
         scan_text.push('\n');
         scan_text.push_str(&String::from_utf8_lossy(&part.bytes));
     }
-    let (scan_status, proceed) = match state.mail.scanner.scan(&scan_text).await {
-        Ok(v) if v.infected => (ScanStatus::Infected, false),
+    let (scan_status, proceed, scan_detail) = match state.mail.scanner.scan(&scan_text).await {
+        Ok(v) if v.infected => (ScanStatus::Infected, false, v.detail),
         Ok(_) => (
             if state.mail.scanner.name() == "none" {
                 ScanStatus::Skipped
@@ -281,10 +281,15 @@ pub async fn process_inbound(
                 ScanStatus::Clean
             },
             true,
+            None,
         ),
         Err(e) => {
             tracing::warn!(error = %e, "scanner unavailable; quarantining message");
-            (ScanStatus::Infected, false)
+            (
+                ScanStatus::Infected,
+                false,
+                Some(format!("scanner unavailable: {e}")),
+            )
         }
     };
 
@@ -328,6 +333,15 @@ pub async fn process_inbound(
     .await?;
     if inserted.is_none() {
         return Ok(InboundStatus::Duplicate);
+    }
+
+    // --- quarantine notice (Wave 36 lane 3): a quarantined message notifies
+    // org owners/admins over the EXISTING notification chain (durable in-app
+    // row + `notification.created` → worker → email leg). Inside the
+    // claim-winning transaction and after the replay gate, so a replayed
+    // message never re-notifies and a failed commit notifies nobody.
+    if !proceed {
+        notify_quarantine(&mut tx, org_id, &msg, scan_detail.as_deref()).await?;
     }
 
     // --- attachments: store objects + rows INSIDE the claim-winning
@@ -536,6 +550,81 @@ async fn reclaim(store: &Arc<dyn core_store::ObjectStore>, keys: &[String]) {
             tracing::warn!(key = %key, error = %e, "orphaned attachment bytes");
         }
     }
+}
+
+/// Char-safe clip for notification copy — never splits a codepoint.
+fn clip(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        return s.to_string();
+    }
+    let mut out: String = s.chars().take(max_chars.saturating_sub(1)).collect();
+    out.push('…');
+    out
+}
+
+/// Fans one quarantined inbound message out to the org's owners/admins:
+/// one durable in-app row plus `notification.created` per recipient, so the
+/// worker's existing notifier chain carries the email leg. Recipients with
+/// the channel toggled off are skipped before any row exists (defaults-first
+/// preference chain, same rule as @mention notifications).
+async fn notify_quarantine(
+    tx: &mut Tx,
+    org_id: Uuid,
+    msg: &core_mail::InboundEmail,
+    detail: Option<&str>,
+) -> ApiResult<()> {
+    let recipients = core_db::notifications::scan_detection_recipients(&mut **tx, org_id).await?;
+    if recipients.is_empty() {
+        return Ok(());
+    }
+    let subject = msg.subject.as_deref().unwrap_or("(no subject)");
+    let title = "Malware scanner quarantined an inbound message";
+    let body = format!(
+        "From {} — {} ({})",
+        clip(&msg.from_address, 120),
+        clip(subject, 160),
+        clip(detail.unwrap_or("no scanner detail recorded"), 160),
+    );
+    let kind = core_domain::entities::NotificationKind::ScanDetection;
+    for user_id in recipients {
+        let pref = core_db::notifications::effective_preference(
+            &mut **tx,
+            org_id,
+            user_id,
+            kind.as_str(),
+        )
+        .await?;
+        if !pref.in_app {
+            continue;
+        }
+        let notification = core_db::notifications::insert(
+            &mut **tx,
+            Uuid::now_v7(),
+            org_id,
+            user_id,
+            kind.as_str(),
+            None,
+            title,
+            Some(&body),
+        )
+        .await?;
+        emit_event(
+            tx,
+            org_id,
+            types::NOTIFICATION_CREATED,
+            "notification",
+            Some(notification.id),
+            &serde_json::to_value(core_domain::events::NotificationCreated {
+                user_id,
+                kind: notification.kind.as_str().to_string(),
+                ticket_id: None,
+                title: notification.title.clone(),
+            })
+            .unwrap_or_default(),
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 /// Creates the autoresponder ticket for brand-new senders: requester

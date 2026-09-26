@@ -56,6 +56,30 @@ where
     })
 }
 
+/// Recipients for an inbound malware-quarantine notice (Wave 36 lane 3):
+/// active org owners and admins, bounded so one noisy inbound loop cannot
+/// fan out without limit. Runtime-checked SQL on purpose — this seam must
+/// not require a sqlx offline-cache regeneration to land.
+pub async fn scan_detection_recipients<'e, E>(executor: E, org_id: Uuid) -> DbResult<Vec<Uuid>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let rows = sqlx::query_scalar::<_, Uuid>(
+        r#"SELECT u.id FROM users u
+           WHERE u.org_id = $1 AND u.is_active
+             AND EXISTS (
+                SELECT 1 FROM user_roles ur
+                JOIN roles r ON r.id = ur.role_id
+                WHERE ur.user_id = u.id AND r.builtin IN ('owner','admin'))
+           ORDER BY u.id
+           LIMIT 50"#,
+    )
+    .bind(org_id)
+    .fetch_all(executor)
+    .await?;
+    Ok(rows)
+}
+
 fn notification_from_row(row: sqlx::postgres::PgRow) -> DbResult<Notification> {
     use sqlx::Row;
     Ok(Notification {
