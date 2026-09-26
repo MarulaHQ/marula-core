@@ -61,6 +61,12 @@ pub enum AutomationCondition {
     },
     /// Assignee is currently unset.
     Unassigned,
+    /// CSAT surveys on resolution (Wave 34 lane 2): fires only on
+    /// `csat.response_recorded` events whose score is BELOW the threshold
+    /// (strictly less — threshold 3 fires on 1 and 2). Evaluated against
+    /// the event payload score, not the ticket snapshot; on any other
+    /// trigger event the condition is a no-match.
+    CsatScoreBelow { threshold: i16 },
     /// Semantic condition answered by the decision model (ADR 0010 §3
     /// #2): references (surface, question, operator, threshold,
     /// confidence-path) and is evaluated by the worker AGAINST THE
@@ -170,6 +176,10 @@ impl AutomationCondition {
             // condition — callers MUST split first (see split_conditions);
             // reaching here unsplit evaluates the AI condition as no-match.
             Self::AiDecision { .. } => false,
+            // The CSAT score rides the event payload, not the snapshot —
+            // callers MUST go through `csat_score_holds` (the worker does,
+            // per its skip-with-warn posture for out-of-band predicates).
+            Self::CsatScoreBelow { .. } => false,
         }
     }
 
@@ -244,6 +254,28 @@ where
     I: IntoIterator<Item = &'a AutomationCondition>,
 {
     conditions.into_iter().all(|c| c.holds(snap))
+}
+
+/// Evaluates the rule's `csat_score_below` conditions against the
+/// `csat.response_recorded` payload score (`None` = not a CSAT event or a
+/// malformed payload — no-match, the standard skip posture). All such
+/// conditions must hold; rules without one are unaffected and stay
+/// snapshot-driven.
+pub fn csat_score_holds(conditions: &[AutomationCondition], score: Option<i16>) -> bool {
+    let csat_rules: Vec<i16> = conditions
+        .iter()
+        .filter_map(|c| match c {
+            AutomationCondition::CsatScoreBelow { threshold } => Some(*threshold),
+            _ => None,
+        })
+        .collect();
+    if csat_rules.is_empty() {
+        return true;
+    }
+    match score {
+        Some(score) => csat_rules.iter().all(|t| score < *t),
+        None => false,
+    }
 }
 
 /// Effects a rule may request. Every variant maps onto an existing core-api
@@ -675,5 +707,24 @@ mod tests {
             0.5,
             Some("nope.deep")
         ));
+    }
+}
+
+#[cfg(test)]
+mod csat_tests {
+    use super::*;
+
+    #[test]
+    fn csat_score_below_matches_payload_scores_strictly() {
+        let conditions = vec![AutomationCondition::CsatScoreBelow { threshold: 3 }];
+        assert!(csat_score_holds(&conditions, Some(1)));
+        assert!(csat_score_holds(&conditions, Some(2)));
+        assert!(!csat_score_holds(&conditions, Some(3)));
+        assert!(!csat_score_holds(&conditions, Some(5)));
+        // Malformed payload: no-match, never a false fire.
+        assert!(!csat_score_holds(&conditions, None));
+        // Rules without a CSAT condition are unaffected.
+        assert!(csat_score_holds(&[], None));
+        assert!(csat_score_holds(&[], Some(1)));
     }
 }

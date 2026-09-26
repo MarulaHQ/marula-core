@@ -796,3 +796,176 @@ pub async fn download_attachment(
         .body(axum::body::Body::from_stream(stream))
         .map_err(|e| ApiError::Internal(anyhow::anyhow!(e.to_string())))
 }
+
+// --- CSAT surveys on resolution (Wave 34 lane 2) -----------------------------
+
+/// Portal CSAT survey state as the in-app response route sees it.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PortalCsatView {
+    pub ticket_id: Uuid,
+    pub ticket_number: String,
+    pub ticket_subject: String,
+    /// `valid` renders the form; `responded` renders the thank-you state.
+    pub status: String,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct PortalCsatSubmit {
+    /// 1 (poor) – 5 (excellent).
+    pub score: i16,
+    #[serde(default)]
+    pub comment: Option<String>,
+}
+
+fn csat_token_hash(raw: &str) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(raw.as_bytes()))
+}
+
+/// GET /api/portal/csat/{token} — validity check for the in-app response
+/// view. Scoped TWICE: the survey row must belong to the caller's client,
+/// and the token must be live (sent, unexpired). Read-only — rendering the
+/// form never burns the single-use token.
+#[utoipa::path(operation_id = "portal_csat_view", get,
+    path = "/api/portal/csat/{token}", tag = "portal",
+    security(("bearer" = [])), params(("token" = String, Path)),
+    responses((status = 200, body = PortalCsatView), (status = 404)))]
+pub async fn csat_view(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(token): Path<String>,
+) -> ApiResult<Json<PortalCsatView>> {
+    let authed = portal_authed(&extensions)?;
+    let org_id = authed.user.org_id;
+    let client_id = authed.user.client_id;
+    let survey = core_db::csat::peek(
+        &state.pool,
+        &csat_token_hash(&token),
+        org_id,
+        client_id,
+        chrono::Utc::now(),
+    )
+    .await?
+    .ok_or(ApiError::NotFound)?;
+    let ticket = core_db::portal::get_client_ticket(&state.pool, org_id, client_id, survey.ticket_id)
+        .await
+        .map_err(|_| ApiError::NotFound)?;
+    Ok(Json(PortalCsatView {
+        ticket_id: survey.ticket_id,
+        ticket_number: ticket.number.0,
+        ticket_subject: ticket.title,
+        status: if survey.responded_at.is_some() {
+            "responded".to_string()
+        } else {
+            "valid".to_string()
+        },
+        expires_at: survey.token_expires_at,
+    }))
+}
+
+/// POST /api/portal/csat/{token} — the single-use consume + score record.
+/// The consume UPDATE wins exactly once per token; the event (and the
+/// audit row) ride the same transaction, so `csat.response_recorded`
+/// never fires for a replayed or expired link.
+#[utoipa::path(operation_id = "portal_csat_submit", post,
+    path = "/api/portal/csat/{token}", tag = "portal",
+    security(("bearer" = [])), params(("token" = String, Path)),
+    request_body = PortalCsatSubmit,
+    responses((status = 200, body = PortalCsatView), (status = 404)))]
+pub async fn csat_submit(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(token): Path<String>,
+    Json(req): Json<PortalCsatSubmit>,
+) -> ApiResult<Json<PortalCsatView>> {
+    let authed = portal_authed(&extensions)?;
+    let org_id = authed.user.org_id;
+    let client_id = authed.user.client_id;
+    let portal_user_id = authed.user.id;
+    let role = authed.user.role;
+    if !(1..=5).contains(&req.score) {
+        return Err(ApiError::Validation("score must be 1-5".into()));
+    }
+    let comment = req
+        .comment
+        .as_deref()
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+        .map(|c| c.to_string());
+    let hash = csat_token_hash(&token);
+
+    let view = org_tx::with_org_tx(&state, org_id, portal_user_id, |mut ctx| async move {
+        let attempt = core_db::csat::consume(
+            &mut *ctx.tx,
+            &hash,
+            org_id,
+            client_id,
+            chrono::Utc::now(),
+        )
+        .await?
+        .ok_or(ApiError::NotFound)?;
+        let ticket_id = core_db::csat::record_response(
+            &mut *ctx.tx,
+            org_id,
+            attempt.survey_id,
+            req.score,
+            comment.as_deref(),
+        )
+        .await?
+        .ok_or(ApiError::NotFound)?;
+        let assignee_id = core_db::csat::ticket_assignee(&mut *ctx.tx, org_id, ticket_id).await?;
+
+        core_db::audit::insert(
+            &mut *ctx.tx,
+            &AuditEvent {
+                id: Uuid::now_v7(),
+                org_id,
+                actor: portal_actor(role, portal_user_id),
+                action: "portal.csat_response".into(),
+                entity_type: Some("csat_survey".into()),
+                entity_id: Some(attempt.survey_id.to_string()),
+                detail: serde_json::json!({
+                    "ticket_id": ticket_id,
+                    "client_id": client_id,
+                    "score": req.score,
+                }),
+                ip: None,
+                occurred_at: chrono::Utc::now(),
+            },
+        )
+        .await?;
+
+        // Automation low-score triggers key on this event.
+        ctx.emit(
+            types::CSAT_RESPONSE_RECORDED,
+            "csat_survey",
+            Some(attempt.survey_id.to_string().as_str()),
+            &serde_json::to_value(core_domain::events::CsatResponseRecorded {
+                ticket_id,
+                client_id: Some(client_id),
+                assignee_id: assignee_id.flatten(),
+                score: req.score,
+                occurred_at: chrono::Utc::now(),
+            })
+            .unwrap_or_default(),
+        )
+        .await?;
+
+        let ticket = core_db::portal::get_client_ticket(&mut *ctx.tx, org_id, client_id, ticket_id)
+            .await
+            .map_err(|_| ApiError::NotFound)?;
+        Ok((
+            ctx,
+            PortalCsatView {
+                ticket_id,
+                ticket_number: ticket.number.0,
+                ticket_subject: ticket.title,
+                status: "responded".to_string(),
+                expires_at: attempt.token_expires_at,
+            },
+        ))
+    })
+    .await?;
+    Ok(Json(view))
+}

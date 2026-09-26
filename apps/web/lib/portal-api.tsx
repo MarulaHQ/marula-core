@@ -61,6 +61,16 @@ interface PortalComment {
   created_at: string;
 }
 
+/** CSAT survey state (Wave 34 lane 2): `valid` renders the form,
+ * `responded` renders the thank-you state. */
+export interface PortalCsatView {
+  ticket_id: string;
+  ticket_number: string;
+  ticket_subject: string;
+  status: "valid" | "responded";
+  expires_at: string;
+}
+
 export interface PortalTicketDetail {
   ticket: PortalTicket;
   comments: PortalComment[];
@@ -219,6 +229,19 @@ export const portalApi = {
     return portalFetch<PortalComment>(`/api/v1/portal/tickets/${id}/reply`, {
       method: "POST",
       body: JSON.stringify({ body }),
+    });
+  },
+
+  /** CSAT surveys on resolution (Wave 34 lane 2): tokenized, single-use,
+   * scoped to the signed-in client. The view never burns the token. */
+  csatView(token: string): Promise<PortalCsatView> {
+    return portalFetch<PortalCsatView>(`/api/v1/portal/csat/${token}`, {});
+  },
+
+  csatSubmit(token: string, score: number, comment?: string): Promise<PortalCsatView> {
+    return portalFetch<PortalCsatView>(`/api/v1/portal/csat/${token}`, {
+      method: "POST",
+      body: JSON.stringify({ score, comment: comment || undefined }),
     });
   },
 

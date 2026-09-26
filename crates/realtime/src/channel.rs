@@ -124,6 +124,8 @@ pub fn routes_for(envelope: &Envelope) -> Vec<Channel> {
                     .collect()
             })
             .unwrap_or_default(),
+        // CSAT survey lifecycle events fan out org-wide (scorecard rollups).
+        "csat_survey" => vec![Channel::Org(envelope.org_id)],
         _ => Vec::new(),
     }
 }

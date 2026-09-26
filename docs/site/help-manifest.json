@@ -347,6 +347,16 @@
         }
       ]
     },
+    "settings-surveys": {
+      "docs": [
+        {
+          "path": "how-to/admin-csat-surveys",
+          "audience": "admin",
+          "updated": "2026-09-26",
+          "title": "How to set up CSAT surveys on resolution"
+        }
+      ]
+    },
     "settings-general": {
       "docs": [
         {

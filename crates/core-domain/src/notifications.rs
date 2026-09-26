@@ -60,6 +60,26 @@ impl QuietHours {
             .map_err(|_| DomainError::Validation(format!("unknown timezone: {tz}")))
     }
 
+    /// The next instant this window's `until` boundary occurs at or after
+    /// `now`, in UTC — the moment a quiet-deferred send becomes due.
+    /// Outside quiet hours this is `now` itself (send immediately).
+    pub fn next_window_end(&self, now: DateTime<Utc>) -> DateTime<Utc> {
+        use chrono::TimeZone;
+        let local = now.with_timezone(&self.tz);
+        let until = chrono::NaiveTime::from_hms_opt(self.until.0, self.until.1, 0)
+            .expect("valid quiet end");
+        for day_offset in [0, 1] {
+            let day = local.date_naive() + chrono::Duration::days(day_offset);
+            if let Some(c) = day.and_time(until).and_local_timezone(self.tz).single() {
+                let utc = c.with_timezone(&Utc);
+                if utc > now {
+                    return utc;
+                }
+            }
+        }
+        now
+    }
+
     /// True when `now`, expressed in the window's timezone, falls inside
     /// `[from, until)`. DST transitions are handled by the timezone
     /// conversion itself: during spring-forward the skipped local times

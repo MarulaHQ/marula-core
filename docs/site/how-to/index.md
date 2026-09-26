@@ -34,6 +34,8 @@ the tag is **both** or points to the staff/client catalog below.
   Zebra/DYMO stock, QR deep links, and the print targets in browsers or ZPL
 - [Set up toolboxes and dispatch defaults](admin-toolboxes.md) — kits,
   membership, box tags, and the mappings the day pack reads
+- [Set up CSAT surveys on resolution](admin-csat-surveys.md) — survey
+  policy, intervals, quiet hours, single-use links
 - [Configure email](admin-email.md) — routing addresses, the signed
   webhook, SPF/DKIM/DMARC, transports, notifications, and the self-host
   runbook

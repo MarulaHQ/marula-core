@@ -24,6 +24,7 @@
 
 pub mod automations;
 pub mod config;
+pub mod csat;
 pub mod decision;
 pub mod dedupe_sweep;
 pub mod delivery;
@@ -251,6 +252,26 @@ pub async fn run(
             automations::run_automations(pool, redis_url, shutdown).await;
             alive.store(false, Ordering::Relaxed);
             tracing::error!("automations loop exited; reporting unhealthy");
+        });
+    }
+
+    // CSAT surveys on resolution (Wave 34 lane 2): ticket.closed → policy
+    // (send-on-resolve, per-client interval, quiet hours) → core-api-rendered
+    // tokenized mail. Disabled cleanly when no internal token is configured.
+    let csat_alive = Arc::new(AtomicBool::new(true));
+    {
+        let alive = Arc::clone(&csat_alive);
+        let pool = pool.clone();
+        let redis_url = config.redis_url.clone();
+        let csat_config = csat::CsatLoopConfig {
+            core_api_url: config.internal_api_url.clone(),
+            internal_token: config.internal_token.clone(),
+        };
+        let shutdown = shutdown.clone();
+        tokio::spawn(async move {
+            csat::run_csat(pool, redis_url, csat_config, shutdown).await;
+            alive.store(false, Ordering::Relaxed);
+            tracing::error!("csat loop exited; reporting unhealthy");
         });
     }
 

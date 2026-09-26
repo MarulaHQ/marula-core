@@ -147,6 +147,17 @@ pub async fn match_rules(pool: &PgPool, envelope: &Envelope) -> Vec<MatchedRule>
         // one-fan-out-per-trigger dispatch; missing/malformed answers
         // are no-match-with-warn, the same skip posture as a malformed
         // deterministic rule).
+        // CSAT score conditions evaluate against the EVENT PAYLOAD score
+        // (Wave 34 lane 2); a `csat_score_below` condition on any other
+        // trigger event is a no-match by construction.
+        let score = envelope
+            .payload
+            .get("score")
+            .and_then(|v| v.as_i64())
+            .map(|v| v as i16);
+        if !core_domain::automations::csat_score_holds(&rule.conditions, score) {
+            continue;
+        }
         let split = core_domain::automations::split_conditions(&rule.conditions);
         if !core_domain::automations::matches_all(split.deterministic.iter().copied(), &snapshot) {
             continue;

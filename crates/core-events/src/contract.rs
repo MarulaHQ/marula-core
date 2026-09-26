@@ -696,6 +696,36 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
         ),
     },
     PublishedEvent {
+        event_type: types::CSAT_SURVEY_SENT,
+        entity: "csat_survey",
+        variant: "default",
+        shape: untyped_shape!(
+            ["ticket_id", "client_id", "status", "skip_reason", "occurred_at"],
+            serde_json::json!({
+                "ticket_id": su(1).to_string(),
+                "client_id": su(2).to_string(),
+                "status": "sent",
+                "skip_reason": serde_json::Value::Null,
+                "occurred_at": st(9).to_rfc3339(),
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::CSAT_RESPONSE_RECORDED,
+        entity: "csat_survey",
+        variant: "default",
+        shape: untyped_shape!(
+            ["ticket_id", "client_id", "assignee_id", "score", "occurred_at"],
+            serde_json::json!({
+                "ticket_id": su(1).to_string(),
+                "client_id": su(2).to_string(),
+                "assignee_id": su(3).to_string(),
+                "score": 5,
+                "occurred_at": st(9).to_rfc3339(),
+            })
+        ),
+    },
+    PublishedEvent {
         event_type: types::TICKET_FIELD_SET,
         entity: "ticket",
         variant: "default",
