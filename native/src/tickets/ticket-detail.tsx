@@ -65,7 +65,7 @@ import {
   SectionHeader,
 } from "@/ui/primitives";
 import { elapsedMs, clock, isPaused } from "@/ui/timer-bar";
-import { accentPair, infoPair, shape, type, useTheme, type StatusPair } from "@/ui/tokens";
+import { infoPair, shape, type, useTheme, type StatusPair } from "@/ui/tokens";
 
 type NoteKind = "internal" | "client_visible" | "in_house_update";
 
@@ -559,10 +559,10 @@ export function TicketDetail({ id }: { id: string }) {
               <View
                 key={attachment.id}
                 testID={`staged-photo-${attachment.id}`}
-                style={[styles.fileChip, { borderColor: tokens.primary, backgroundColor: tokens.accent }]}
+                style={[styles.fileChip, { borderColor: tokens.primary, backgroundColor: tokens.primary }]}
               >
-                <Ionicons name="image-outline" size={14} color={tokens.accentText} />
-                <Text style={[styles.fileName, { color: tokens.accentText }]} numberOfLines={1}>
+                <Ionicons name="image-outline" size={14} color={tokens.primaryText} />
+                <Text style={[styles.fileName, { color: tokens.primaryText }]} numberOfLines={1}>
                   {attachment.filename}
                 </Text>
                 <Pressable
@@ -574,7 +574,7 @@ export function TicketDetail({ id }: { id: string }) {
                   accessibilityRole="button"
                   accessibilityLabel={`Remove ${attachment.filename}`}
                 >
-                  <Ionicons name="close" size={14} color={tokens.accentText} />
+                  <Ionicons name="close" size={14} color={tokens.primaryText} />
                 </Pressable>
               </View>
             ))}

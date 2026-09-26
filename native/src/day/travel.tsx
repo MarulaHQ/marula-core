@@ -212,7 +212,7 @@ export function TravelDraftForm({
                 style={[
                   styles.chip,
                   {
-                    backgroundColor: selected ? tokens.accent : tokens.surfaceHover,
+                    backgroundColor: selected ? tokens.primary : tokens.surfaceHover,
                     borderColor: selected ? tokens.primary : tokens.border,
                   },
                 ]}
@@ -220,7 +220,7 @@ export function TravelDraftForm({
                 <Text
                   style={[
                     styles.chipText,
-                    { color: selected ? tokens.accentText : tokens.textSecondary },
+                    { color: selected ? tokens.primaryText : tokens.textSecondary },
                   ]}
                   numberOfLines={1}
                 >
@@ -281,7 +281,7 @@ export function TravelDraftForm({
                   style={[
                     styles.chip,
                     {
-                      backgroundColor: selected ? tokens.accent : tokens.surfaceHover,
+                      backgroundColor: selected ? tokens.primary : tokens.surfaceHover,
                       borderColor: selected ? tokens.primary : tokens.border,
                     },
                   ]}
@@ -289,7 +289,7 @@ export function TravelDraftForm({
                   <Text
                     style={[
                       styles.chipText,
-                      { color: selected ? tokens.accentText : tokens.textSecondary },
+                      { color: selected ? tokens.primaryText : tokens.textSecondary },
                     ]}
                   >
                     {option}

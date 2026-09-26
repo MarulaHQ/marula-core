@@ -9,6 +9,11 @@ ios/
 android/
 native-artifacts/
 
+# Local Expo module source lives under modules/*/ios and modules/*/android —
+# not generated prebuild output, so un-ignore it.
+!modules/**/ios/
+!modules/**/android/
+
 # Test and CI artifacts
 artifacts/
 coverage/
