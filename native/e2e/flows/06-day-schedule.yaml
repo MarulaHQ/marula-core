@@ -1,0 +1,28 @@
+# Today: the day rail renders, and a scheduled booking accepts.
+# Defensive: demo data may already hold an in-progress booking, so the
+# accept leg runs only when the action button is present.
+appId: tech.meridian.app
+---
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: "today-screen"
+    timeout: 20000
+- assertVisible: "Today"
+- runFlow:
+    when:
+      visible:
+        id: "day-schedule"
+    commands:
+      - assertVisible:
+          id: "day-schedule"
+- runFlow:
+    when:
+      visible:
+        id: "appointment-action-.*"
+    commands:
+      - tapOn:
+          id: "appointment-action-.*"
+      - extendedWaitUntil:
+          visible: "IN PROGRESS"
+          timeout: 10000

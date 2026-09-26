@@ -1,27 +1,53 @@
-// Ticket detail — notes and the timer, both server-backed entities.
+// Ticket detail — the workbar IA on a phone: clock, notes, photos, time.
 //
 // Purpose: the live-sync proof surface. Notes are comments (queued offline
 // with a stable idempotency key, optimistic append, authoritative reconcile
 // on the server snapshot), the timer is the org's timer session (start /
-// stop through the same queue), and every inbound ticket/comment/timer event
+// pause / stop through the same queue), photos stage through the upload
+// endpoint before the note links them, and the time entries section shows
+// what the day already booked. Every inbound ticket/comment/timer event
 // marks these models stale so the pane re-renders without a pull-to-refresh.
 // 404 and 409 render the same honest copy the web app renders.
 //
 // Non-purpose: no board mechanics or field workflows (lanes 2/3).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
 
+import { useAuth } from "@/auth/auth-context";
+import { API_URL } from "@/config";
 import {
   MODELS,
   fetchActiveTimer,
   fetchTicket,
+  fetchTicketAttachments,
   fetchTicketComments,
+  fetchTimeEntries,
+  type TicketAttachment,
   type TicketComment,
+  type TimeEntry,
 } from "@/core/models";
 import { REASON_COPY } from "@/core/errors";
-import { addTicketNote, startTimer, stopTimer } from "@/core/writes";
+import {
+  addTicketNote,
+  pauseTimer,
+  resumeTimer,
+  startTimer,
+  stopTimer,
+} from "@/core/writes";
 import { useModel, useMutation } from "@/data/sync-context";
+import {
+  ATTACH_INJECTOR_ENABLED,
+  AttachmentUploadError,
+  attachmentUrl,
+  formatBytes,
+  pickPhoto,
+  samplePhoto,
+  uploadTicketAttachment,
+  type PickedPhoto,
+  type StagedAttachment,
+} from "@/tickets/attachments";
 import {
   Button,
   Card,
@@ -33,6 +59,7 @@ import {
   Pill,
   SectionHeader,
 } from "@/ui/primitives";
+import { elapsedMs, clock, isPaused } from "@/ui/timer-bar";
 import { accentPair, shape, type, useTheme, type StatusPair } from "@/ui/tokens";
 
 type NoteKind = "internal" | "client_visible" | "in_house_update";
@@ -46,6 +73,7 @@ const NOTE_KINDS: { kind: NoteKind; label: string }[] = [
 export function TicketDetail({ id }: { id: string }) {
   const { tokens } = useTheme();
   const { mutate } = useMutation();
+  const { accessToken } = useAuth();
   const ticket = useModel(MODELS.ticket(id), useCallback((client) => fetchTicket(client, id), [id]), {
     maxAgeMs: 15_000,
   });
@@ -54,15 +82,30 @@ export function TicketDetail({ id }: { id: string }) {
     useCallback((client) => fetchTicketComments(client, id), [id]),
     { maxAgeMs: 15_000 },
   );
+  const time = useModel(
+    MODELS.timeEntries(id),
+    useCallback((client) => fetchTimeEntries(client, id), [id]),
+    { maxAgeMs: 30_000 },
+  );
+  const attachments = useModel(
+    MODELS.ticketAttachments(id),
+    useCallback((client) => fetchTicketAttachments(client, id), [id]),
+    { maxAgeMs: 60_000 },
+  );
   const timer = useModel(MODELS.activeTimer, fetchActiveTimer);
 
   const [body, setBody] = useState("");
   const [kind, setKind] = useState<NoteKind>("internal");
   const [banner, setBanner] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [staged, setStaged] = useState<StagedAttachment[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
 
+  const token = accessToken();
   const runningHere =
     timer.data != null && timer.data.ticket_id === id ? timer.data : null;
+  const paused = runningHere !== null && isPaused(runningHere);
 
   const notFound =
     ticket.status === "error" &&
@@ -75,10 +118,77 @@ export function TicketDetail({ id }: { id: string }) {
     return () => clearTimeout(timeout);
   }, [banner]);
 
+  useEffect(() => {
+    if (runningHere === null || paused) return;
+    const interval = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(interval);
+  }, [runningHere, paused]);
+
   const sortedComments = useMemo(() => {
     const rows = comments.data ?? [];
     return [...rows].sort((a, b) => a.created_at.localeCompare(b.created_at));
   }, [comments.data]);
+
+  const entries = useMemo(() => {
+    const rows = time.data ?? [];
+    return [...rows].sort((a, b) => b.started_at.localeCompare(a.started_at));
+  }, [time.data]);
+
+  const totalMinutes = useMemo(
+    () => entries.reduce((sum, entry) => sum + entry.minutes, 0),
+    [entries],
+  );
+
+  const attachmentsByComment = useMemo(() => {
+    const map = new Map<string, TicketAttachment[]>();
+    for (const attachment of attachments.data ?? []) {
+      const commentId = attachment.ticket_comment_id;
+      if (commentId === null || commentId === undefined) continue;
+      const rows = map.get(commentId) ?? [];
+      rows.push(attachment);
+      map.set(commentId, rows);
+    }
+    return map;
+  }, [attachments.data]);
+
+  const stage = useCallback(
+    async (file: PickedPhoto) => {
+      const access = accessToken();
+      if (access === null) {
+        setBanner("Sign in again to attach photos.");
+        return;
+      }
+      setUploading(true);
+      setBanner(null);
+      try {
+        const uploaded = await uploadTicketAttachment({
+          apiUrl: API_URL,
+          accessToken: access,
+          ticketId: id,
+          file,
+        });
+        setStaged((current) => [...current, uploaded]);
+      } catch (error) {
+        setBanner(
+          error instanceof AttachmentUploadError
+            ? error.message
+            : "The photo upload didn't complete.",
+        );
+      } finally {
+        setUploading(false);
+      }
+    },
+    [accessToken, id],
+  );
+
+  const attachPhoto = useCallback(async () => {
+    try {
+      const file = await pickPhoto();
+      if (file !== null) await stage(file);
+    } catch (error) {
+      setBanner(error instanceof Error ? error.message : "The photo picker didn't open.");
+    }
+  }, [stage]);
 
   const send = useCallback(async () => {
     const text = body.trim();
@@ -92,19 +202,22 @@ export function TicketDetail({ id }: { id: string }) {
       ...(ticket.data !== undefined ? { ticketNumber: ticket.data.number } : {}),
       body: text,
       kind,
+      ...(staged.length > 0 ? { attachmentIds: staged.map((item) => item.id) } : {}),
     });
     setSending(false);
     if (result.ok && result.queued) {
       setBody("");
+      setStaged([]);
       setBanner("Saved on this device — will sync when you're back online.");
       return;
     }
     if (result.ok) {
       setBody("");
+      setStaged([]);
       return;
     }
     setBanner(result.failure?.text ?? "The note couldn't be saved.");
-  }, [body, id, kind, mutate, ticket.data]);
+  }, [body, id, kind, mutate, staged, ticket.data]);
 
   if (notFound) {
     return (
@@ -150,49 +263,109 @@ export function TicketDetail({ id }: { id: string }) {
       ) : null}
       {banner !== null ? <ErrorNote text={banner} /> : null}
 
-      <Card>
+      <Card testID="ticket-timer">
         <View style={styles.timerRow}>
           <View style={styles.timerInfo}>
-            <Text style={[styles.metaLabel, { color: tokens.textMuted }]}>TIMER</Text>
-            <Text style={[styles.timerState, { color: tokens.text }]}>
+            <Text style={[styles.metaLabel, { color: tokens.textMuted }]}>CLOCK</Text>
+            <Text
+              style={[styles.clock, { color: runningHere !== null ? tokens.text : tokens.textMuted }]}
+            >
+              {runningHere !== null ? clock(elapsedMs(runningHere, now)) : "00:00:00"}
+            </Text>
+            <Text style={[styles.timerState, { color: tokens.textSecondary }]}>
               {runningHere !== null
-                ? "Running on this ticket"
+                ? paused
+                  ? "Paused on this ticket"
+                  : "Running on this ticket"
                 : timer.data != null
                   ? "Running on another ticket"
                   : "Not running"}
             </Text>
           </View>
-          {runningHere !== null ? (
-            <Button
-              label="Stop"
-              variant="secondary"
-              testID="ticket-timer-stop"
-              onPress={() => {
-                void mutate(stopTimer, {
-                  sessionId: runningHere.id,
-                  ticketId: id,
-                }).then((result) =>
-                  setBanner(result.ok ? null : (result.failure?.text ?? "Couldn't stop the timer.")),
-                );
-              }}
-            />
-          ) : (
-            <Button
-              label="Start timer"
-              testID="ticket-timer-start"
-              disabled={timer.data != null}
-              onPress={() => {
-                void mutate(startTimer, {
-                  ticketId: id,
-                  ...(ticket.data !== undefined ? { ticketNumber: ticket.data.number } : {}),
-                }).then((result) =>
-                  setBanner(result.ok ? null : (result.failure?.text ?? "Couldn't start the timer.")),
-                );
-              }}
-            />
-          )}
+          <View style={styles.timerActions}>
+            {runningHere !== null ? (
+              <>
+                <Button
+                  label={paused ? "Resume" : "Pause"}
+                  variant="ghost"
+                  testID={paused ? "ticket-timer-resume" : "ticket-timer-pause"}
+                  onPress={() => {
+                    void mutate(paused ? resumeTimer : pauseTimer, {
+                      sessionId: runningHere.id,
+                      ticketId: id,
+                    }).then((result) =>
+                      setBanner(
+                        result.ok ? null : (result.failure?.text ?? "Couldn't change the timer."),
+                      ),
+                    );
+                  }}
+                />
+                <Button
+                  label="Stop"
+                  variant="secondary"
+                  testID="ticket-timer-stop"
+                  onPress={() => {
+                    void mutate(stopTimer, {
+                      sessionId: runningHere.id,
+                      ticketId: id,
+                    }).then((result) =>
+                      setBanner(result.ok ? null : (result.failure?.text ?? "Couldn't stop the timer.")),
+                    );
+                  }}
+                />
+              </>
+            ) : (
+              <Button
+                label="Clock in"
+                testID="ticket-timer-start"
+                disabled={timer.data != null}
+                onPress={() => {
+                  void mutate(startTimer, {
+                    ticketId: id,
+                    ...(ticket.data !== undefined ? { ticketNumber: ticket.data.number } : {}),
+                  }).then((result) =>
+                    setBanner(result.ok ? null : (result.failure?.text ?? "Couldn't start the clock.")),
+                  );
+                }}
+              />
+            )}
+          </View>
         </View>
       </Card>
+
+      <SectionHeader
+        title={`Time${totalMinutes > 0 ? ` · ${formatMinutes(totalMinutes)}` : ""}`}
+      />
+      {time.status === "error" && time.data === undefined ? (
+        <ErrorNote text={time.error?.text ?? "Couldn't load time entries."} onRetry={time.refresh} />
+      ) : null}
+      {entries.length === 0 && time.data !== undefined ? (
+        <EmptyState message="No time booked on this ticket yet — the clock writes the first entry." />
+      ) : null}
+      {entries.slice(0, 6).map((entry: TimeEntry) => (
+        <Card key={entry.id} style={styles.entry} testID={`time-entry-${entry.id}`}>
+          <View style={styles.entryRow}>
+            <Text style={[styles.entryMinutes, { color: tokens.text }]}>
+              {formatMinutes(entry.minutes)}
+            </Text>
+            <Mono muted>
+              {shortDate(entry.started_at)} · {clockTime(entry.started_at)}–
+              {clockTime(entry.ended_at)}
+            </Mono>
+          </View>
+          <View style={styles.entryMeta}>
+            {entry.billable ? <Pill pair={tokens.success} label="BILLABLE" /> : null}
+            {entry.approval_status !== null && entry.approval_status !== undefined ? (
+              <Pill pair={approvalPair(tokens, entry.approval_status)} label={entry.approval_status.toUpperCase()} />
+            ) : null}
+            {entry.notes !== null && entry.notes !== undefined && entry.notes !== "" ? (
+              <Text style={[styles.entryNote, { color: tokens.textMuted }]} numberOfLines={1}>
+                {entry.notes}
+              </Text>
+            ) : null}
+          </View>
+        </Card>
+      ))}
 
       <SectionHeader title={`Notes${sortedComments.length > 0 ? ` (${sortedComments.length})` : ""}`} />
       {comments.status === "error" && comments.data === undefined ? (
@@ -201,20 +374,54 @@ export function TicketDetail({ id }: { id: string }) {
       {comments.data !== undefined && sortedComments.length === 0 ? (
         <EmptyState message="No notes yet — the first one starts the record." />
       ) : null}
-      {sortedComments.map((comment: TicketComment) => (
-        <Card key={comment.id} style={styles.comment}>
-          <View style={styles.commentHeader}>
-            <View style={styles.commentPills}>
-              <Pill pair={noteKindPair(tokens, comment.kind)} label={noteKindLabel(comment.kind)} />
-              {comment.id.startsWith("pending-") ? (
-                <Pill pair={tokens.warning} label="QUEUED" />
-              ) : null}
+      {sortedComments.map((comment: TicketComment) => {
+        const files = attachmentsByComment.get(comment.id) ?? [];
+        return (
+          <Card key={comment.id} style={styles.comment} testID={`comment-${comment.id}`}>
+            <View style={styles.commentHeader}>
+              <View style={styles.commentPills}>
+                <Pill pair={noteKindPair(tokens, comment.kind)} label={noteKindLabel(comment.kind)} />
+                {comment.id.startsWith("pending-") ? (
+                  <Pill pair={tokens.warning} label="QUEUED" />
+                ) : null}
+              </View>
+              <Mono muted>{formatTime(comment.created_at)}</Mono>
             </View>
-            <Mono muted>{formatTime(comment.created_at)}</Mono>
-          </View>
-          <Text style={[styles.commentBody, { color: tokens.text }]}>{comment.body}</Text>
-        </Card>
-      ))}
+            <Text style={[styles.commentBody, { color: tokens.text }]}>{comment.body}</Text>
+            {files.length > 0 ? (
+              <View style={styles.photoRow}>
+                {files.map((attachment) =>
+                  token !== null && isImage(attachment.content_type) ? (
+                    <Image
+                      key={attachment.id}
+                      testID={`comment-photo-${attachment.id}`}
+                      source={{
+                        uri: attachmentUrl(API_URL, attachment.id),
+                        headers: { Authorization: `Bearer ${token}` },
+                      }}
+                      style={[styles.photo, { borderColor: tokens.border }]}
+                      accessibilityLabel={attachment.filename}
+                    />
+                  ) : (
+                    <View
+                      key={attachment.id}
+                      style={[styles.fileChip, { borderColor: tokens.border, backgroundColor: tokens.surfaceHover }]}
+                    >
+                      <Ionicons name="document-outline" size={14} color={tokens.textSecondary} />
+                      <Text style={[styles.fileName, { color: tokens.textSecondary }]} numberOfLines={1}>
+                        {attachment.filename}
+                      </Text>
+                      <Text style={[styles.fileName, { color: tokens.textMuted }]}>
+                        {formatBytes(attachment.size_bytes)}
+                      </Text>
+                    </View>
+                  ),
+                )}
+              </View>
+            ) : null}
+          </Card>
+        );
+      })}
 
       <Card style={styles.composer}>
         <Text style={[styles.metaLabel, { color: tokens.textMuted }]}>ADD A NOTE</Text>
@@ -256,17 +463,70 @@ export function TicketDetail({ id }: { id: string }) {
           multiline
           numberOfLines={3}
           style={styles.noteInput}
-        />
-        <Button
-          label="Add note"
-          testID="note-submit"
-          fullWidth
-          loading={sending}
-          disabled={body.trim().length === 0 || sending}
-          onPress={() => {
+          submitBehavior="submit"
+          onSubmitEditing={() => {
             void send();
           }}
         />
+        {staged.length > 0 ? (
+          <View style={styles.photoRow}>
+            {staged.map((attachment) => (
+              <View
+                key={attachment.id}
+                testID={`staged-photo-${attachment.id}`}
+                style={[styles.fileChip, { borderColor: tokens.primary, backgroundColor: tokens.accent }]}
+              >
+                <Ionicons name="image-outline" size={14} color={tokens.accentText} />
+                <Text style={[styles.fileName, { color: tokens.accentText }]} numberOfLines={1}>
+                  {attachment.filename}
+                </Text>
+                <Pressable
+                  testID={`staged-remove-${attachment.id}`}
+                  hitSlop={10}
+                  onPress={() =>
+                    setStaged((current) => current.filter((item) => item.id !== attachment.id))
+                  }
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${attachment.filename}`}
+                >
+                  <Ionicons name="close" size={14} color={tokens.accentText} />
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        ) : null}
+        <View style={styles.composerActions}>
+          <Button
+            label={uploading ? "Uploading…" : "Photo"}
+            variant="ghost"
+            testID="note-attach-photo"
+            disabled={uploading || sending}
+            onPress={() => {
+              void attachPhoto();
+            }}
+          />
+          {ATTACH_INJECTOR_ENABLED ? (
+            <Button
+              label="Sample photo"
+              variant="ghost"
+              testID="note-attach-sample"
+              disabled={uploading || sending}
+              onPress={() => {
+                void stage(samplePhoto());
+              }}
+            />
+          ) : null}
+          <View style={styles.composerSpacer} />
+          <Button
+            label="Add note"
+            testID="note-submit"
+            loading={sending}
+            disabled={body.trim().length === 0 || sending || uploading}
+            onPress={() => {
+              void send();
+            }}
+          />
+        </View>
       </Card>
     </View>
   );
@@ -297,6 +557,39 @@ function noteKindPair(tokens: ReturnType<typeof useTheme>["tokens"], kind: strin
   return tokens.neutral;
 }
 
+function approvalPair(
+  tokens: ReturnType<typeof useTheme>["tokens"],
+  status: string,
+): StatusPair {
+  if (status === "approved") return tokens.success;
+  if (status === "rejected") return tokens.danger;
+  if (status === "submitted") return tokens.warning;
+  return tokens.neutral;
+}
+
+function isImage(contentType: string): boolean {
+  return contentType.startsWith("image/");
+}
+
+function formatMinutes(minutes: number): string {
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest === 0 ? `${hours} h` : `${hours} h ${rest} min`;
+}
+
+function shortDate(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function clockTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "--:--";
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
 function formatTime(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
@@ -311,6 +604,11 @@ function formatTime(iso: string): string {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+    width: "100%",
+    // Home-indicator-era tablets stretch a detail pane past comfortable
+    // measure; cap it and centre the column (S13).
+    maxWidth: 760,
+    alignSelf: "center",
     padding: shape.screenPadding,
     gap: 12,
   },
@@ -339,15 +637,49 @@ const styles = StyleSheet.create({
   },
   timerInfo: {
     gap: 2,
+    flexShrink: 1,
+  },
+  timerActions: {
+    flexDirection: "row",
+    gap: 6,
   },
   metaLabel: {
     fontFamily: type.sansMedium,
     fontSize: 11,
     letterSpacing: 0.8,
   },
+  clock: {
+    fontFamily: type.monoMedium,
+    fontSize: 26,
+    fontVariant: ["tabular-nums"],
+  },
   timerState: {
     fontFamily: type.sansMedium,
+    fontSize: 13,
+  },
+  entry: {
+    gap: 6,
+  },
+  entryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  entryMinutes: {
+    fontFamily: type.sansSemiBold,
     fontSize: 15,
+    fontVariant: ["tabular-nums"],
+  },
+  entryMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  entryNote: {
+    fontFamily: type.sans,
+    fontSize: 12,
+    flex: 1,
   },
   comment: {
     gap: 6,
@@ -366,6 +698,32 @@ const styles = StyleSheet.create({
     fontFamily: type.sans,
     fontSize: 15,
     lineHeight: 21,
+  },
+  photoRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  photo: {
+    width: 96,
+    height: 96,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  fileChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    minHeight: 28,
+    maxWidth: 240,
+  },
+  fileName: {
+    fontFamily: type.sansMedium,
+    fontSize: 12,
+    flexShrink: 1,
   },
   composer: {
     gap: 10,
@@ -390,5 +748,13 @@ const styles = StyleSheet.create({
     minHeight: 88,
     textAlignVertical: "top",
     paddingTop: 10,
+  },
+  composerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  composerSpacer: {
+    flex: 1,
   },
 });
