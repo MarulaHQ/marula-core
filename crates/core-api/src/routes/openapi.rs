@@ -285,6 +285,9 @@ use utoipa::OpenApi;
         // org-scoped pod-visibility matrix (Wave 12 lane 6)
         crate::routes::org_config::pod_visibility_get,
         crate::routes::org_config::pod_visibility_put,
+        // self-host services visibility (Wave 36 lane 3): owner/admin read
+        // of the ops stack — health sweep, detections, link-out cards.
+        crate::routes::self_host::get,
         // BYOK sealed credentials + completion seam (TASKLIST Phase 3
         // adapters lane): owner/admin-gated, instant-first write path.
         crate::routes::byok::get_ai_status,
@@ -1277,6 +1280,15 @@ use utoipa::OpenApi;
         // org-scoped pod-visibility matrix (Wave 12 lane 6)
         crate::routes::org_config::PodVisibilityView,
         crate::routes::org_config::PutPodVisibilityRequest,
+        // self-host services visibility (Wave 36 lane 3)
+        crate::routes::self_host::SelfHostView,
+        crate::routes::self_host::ScanView,
+        crate::routes::self_host::DetectionView,
+        crate::routes::self_host::DetectionFile,
+        crate::routes::self_host::ServiceView,
+        crate::routes::self_host::DsnRow,
+        crate::routes::self_host::LinksView,
+        crate::routes::self_host::GarageView,
         // per-ticket email read (Wave 12 lane 6)
         crate::routes::ticket_emails::TicketEmailsView,
         crate::routes::ticket_emails::TicketEmailRow,

@@ -132,6 +132,61 @@ where
     Ok(row_to_message(row)?)
 }
 
+/// Recently quarantined inbound messages, newest first — the self-host
+/// detections list (Wave 36 lane 3). Callers run it on an org-scoped
+/// connection so RLS applies; `limit` is caller-bounded.
+pub async fn list_recent_detections<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    limit: i64,
+) -> DbResult<Vec<EmailMessage>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let sql = format!(
+        "SELECT {MESSAGE_COLS} FROM email_messages \
+         WHERE org_id = $1 AND direction = 'inbound' AND scan_status = 'infected' \
+         ORDER BY created_at DESC LIMIT $2"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(limit)
+        .fetch_all(executor)
+        .await?;
+    rows.into_iter()
+        .map(|row| row_to_message(row).map_err(DbError::from))
+        .collect()
+}
+
+/// Scan-surface freshness for the self-host pane: newest inbound scan,
+/// newest recorded quarantine, and the lifetime quarantine count.
+pub struct ScanFreshness {
+    pub last_scan_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_detection_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub detection_count: i64,
+}
+
+pub async fn scan_freshness<'e, E>(executor: E, org_id: Uuid) -> DbResult<ScanFreshness>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let row = sqlx::query_as::<_, (Option<chrono::DateTime<chrono::Utc>>, Option<chrono::DateTime<chrono::Utc>>, i64)>(
+        r#"SELECT
+             max(created_at) FILTER (WHERE direction = 'inbound'),
+             max(created_at) FILTER (WHERE direction = 'inbound' AND scan_status = 'infected'),
+             count(*) FILTER (WHERE direction = 'inbound' AND scan_status = 'infected')
+           FROM email_messages WHERE org_id = $1"#,
+    )
+    .bind(org_id)
+    .fetch_one(executor)
+    .await?;
+    Ok(ScanFreshness {
+        last_scan_at: row.0,
+        last_detection_at: row.1,
+        detection_count: row.2,
+    })
+}
+
 /// Links a claimed inbound ledger row to its routing outcome after the
 /// comment/ticket was created. Part of the insert-gate → act → link
 /// sequence that makes replay handling race-free.

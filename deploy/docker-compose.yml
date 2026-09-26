@@ -31,8 +31,10 @@
 #     docker compose -f deploy/docker-compose.yml --profile observability up
 # Grafana (http://localhost:3001) ships preprovisioned Tempo/Loki/
 # MeridianMetrics datasources plus the "Meridian Starter" dashboard.
-# GlitchTip slot is stub-documented below (not yet wired to any error
-# pipeline); Uptime-Kuma was deliberately left out of this baseline.
+# GlitchTip slot is live; its per-service DSN env is declared on each
+# service block and presence (never the value) is reported by the
+# Settings → Self-host services pane. Uptime-Kuma was deliberately left
+# out of this baseline.
 
 name: meridian
 
@@ -157,6 +159,28 @@ services:
       # exporters). Set to http://otel-collector:4318 together with the
       # observability profile (see header comment).
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      # Self-host visibility (Wave 36 lane 3): the Settings → Self-host
+      # services pane probes each loop's /healthz and renders external-UI
+      # links. Internal URLs default to the compose service names; the
+      # MERIDIAN_*_URL vars are PUBLIC browser URLs — leave them empty on a
+      # laptop (localhost defaults are pointless across hosts) and set them
+      # when the stack runs on a server.
+      REALTIME_INTERNAL_URL: ${REALTIME_INTERNAL_URL:-http://realtime:8081}
+      WORKER_INTERNAL_URL: ${WORKER_INTERNAL_URL:-http://worker:8082}
+      MERIDIAN_GLITCHTIP_URL: ${MERIDIAN_GLITCHTIP_URL:-}
+      MERIDIAN_GRAFANA_URL: ${MERIDIAN_GRAFANA_URL:-}
+      MERIDIAN_TEMPO_URL: ${MERIDIAN_TEMPO_URL:-}
+      MERIDIAN_LOKI_URL: ${MERIDIAN_LOKI_URL:-}
+      MERIDIAN_OTEL_METRICS_URL: ${MERIDIAN_OTEL_METRICS_URL:-}
+      # GlitchTip DSNs (per-service; lane 2 decision): ingest-only
+      # credentials. The pane reports presence only; the SDK wiring that
+      # consumes them is a follow-up lane.
+      GLITCHTIP_DSN_CORE_API: ${GLITCHTIP_DSN_CORE_API:-}
+      # Inbound malware scanning (stage2 profile): EMAIL_SCAN=clamd turns
+      # the scan gate on, CLAMD_ADDR names the clamav slot. Unset =
+      # standalone-first default, messages record scan_status=skipped.
+      EMAIL_SCAN: ${EMAIL_SCAN:-}
+      CLAMD_ADDR: ${CLAMD_ADDR:-clamav:3310}
     ports:
       - "8080:8080"
     depends_on:
@@ -182,6 +206,9 @@ services:
       MERIDIAN_JWT_EDDSA_PUBLIC_KEY: ${MERIDIAN_JWT_EDDSA_PUBLIC_KEY:-}
       # OpenTelemetry (TASKLIST 2.18): empty ⇒ none mode; see header.
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      # GlitchTip DSN presence for the self-host pane (Wave 36 lane 3);
+      # the value itself is never printed by any surface.
+      GLITCHTIP_DSN_REALTIME: ${GLITCHTIP_DSN_REALTIME:-}
     ports:
       - "8081:8081"
     depends_on:
@@ -215,6 +242,9 @@ services:
       SMTP_PORT: ${SMTP_PORT:-1025}
       # OpenTelemetry (TASKLIST 2.18): empty ⇒ none mode; see header.
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      # GlitchTip DSN presence for the self-host pane (Wave 36 lane 3);
+      # the value itself is never printed by any surface.
+      GLITCHTIP_DSN_WORKER: ${GLITCHTIP_DSN_WORKER:-}
     ports:
       - "8082:8082"
     depends_on:

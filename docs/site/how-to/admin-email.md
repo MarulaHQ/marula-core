@@ -197,9 +197,11 @@ reply can reach a ticket until routing is enabled.
 ## 6. Malware scanning (optional, recommended)
 
 Attachments are scanned before anything is written when a scanner is
-configured with `EMAIL_SCAN_CLAMD_ADDR`, the host and port of a clamd
-daemon. The pipeline fails closed. If the scanner is unreachable or errors,
-the message is quarantined rather than admitted.
+configured: `EMAIL_SCAN=clamd` switches the scan provider on, and
+`CLAMD_ADDR` names the host and port of the clamd daemon. The pipeline
+fails closed. If the scanner is unreachable or errors, the message is
+quarantined rather than admitted, and owners and admins get a **Malware
+quarantine** notification.
 
 Without a scanner the message is stored with scan status `skipped`, which
 means the bytes are kept unscanned. That is a deliberate standalone-first
@@ -226,7 +228,8 @@ SMTP_USERNAME=meridian
 SMTP_PASSWORD=<password>
 
 # Optional malware scanning
-EMAIL_SCAN_CLAMD_ADDR=clamd:3310
+EMAIL_SCAN=clamd
+CLAMD_ADDR=clamd:3310
 
 # Worker to core-api send pipeline (the worker claims and reports sends)
 MERIDIAN_INTERNAL_TOKEN=<shared random token>

@@ -40,6 +40,9 @@ the tag is **both** or points to the staff/client catalog below.
 - [Connect an IdP (SSO)](admin-sso.md) — the IdP handoff round-trip
 - [Buy: vendors, purchase orders, receiving, bills](admin-purchasing.md)
   — the order lifecycle, receipts into stock, posted bills
+- [Watch your self-hosted services](admin-self-host-services.md) — the
+  Settings pane's health sweep and ClamAV quarantines, plus links to
+  every operator UI
 - [Upgrade to the latest release](upgrade.md) — including the N−2 rule
 - [Customize without code](customize.md) — custom fields, boards,
   automations

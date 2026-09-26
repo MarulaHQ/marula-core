@@ -119,6 +119,7 @@ pub mod scorecards;
 pub mod search;
 pub mod secret_share;
 pub mod secrets;
+pub mod self_host;
 pub mod settings;
 pub mod similar_tickets;
 pub mod sla_admin;
@@ -1288,6 +1289,9 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         )
         // settings hub: typed registry + org/user scoped values + org profile
         .route(&rp("/settings/registry"), get(settings::get_registry))
+        // self-hoster visibility (Wave 36 lane 3): one owner/admin read of
+        // the ops stack — health sweep, ClamAV detections, external links.
+        .route(&rp("/settings/self-host"), get(self_host::get))
         .route(
             &rp("/settings/org"),
             get(settings::org_values_get).put(settings::org_value_put),

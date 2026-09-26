@@ -420,10 +420,19 @@ async fn healthz(State(flags): State<Arc<HealthFlags>>) -> Json<serde_json::Valu
         && flags.rotation_alive.load(Ordering::Relaxed);
     if ok {
         Json(
-            json!({ "status": "ok", "relay": "alive", "email": "alive", "queue": "alive", "sla": "alive", "automations": "alive", "webhooks": "alive", "delivery": "alive", "pm": "alive", "rotation": "alive" }),
+            json!({ "status": "ok", "glitchtip": dsn_state("GLITCHTIP_DSN_WORKER"), "relay": "alive", "email": "alive", "queue": "alive", "sla": "alive", "automations": "alive", "webhooks": "alive", "delivery": "alive", "pm": "alive", "rotation": "alive" }),
         )
     } else {
-        Json(json!({ "status": "unhealthy" }))
+        Json(json!({ "status": "unhealthy", "glitchtip": dsn_state("GLITCHTIP_DSN_WORKER") }))
+    }
+}
+
+/// `configured` | `unset` — GlitchTip DSN presence for the self-host
+/// settings pane (Wave 36 lane 3); the DSN value never leaves env.
+fn dsn_state(name: &str) -> &'static str {
+    match std::env::var(name) {
+        Ok(v) if !v.trim().is_empty() => "configured",
+        _ => "unset",
     }
 }
 
