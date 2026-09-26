@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT q.status, COUNT(*) AS count\n           FROM email_outbound q\n           WHERE q.org_id = $1\n           GROUP BY q.status\n           ORDER BY q.status",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "2f2e2694e382f89921207fdbdd5eecc14cce864ccb63a842fab6a06bba70c546"
+}

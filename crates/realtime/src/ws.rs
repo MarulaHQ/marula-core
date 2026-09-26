@@ -21,19 +21,22 @@ use serde::Deserialize;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-/// Shared handler state: the fan-out hub and the JWT secret.
+/// Shared handler state: the fan-out hub and the token verification keys.
 #[derive(Clone)]
 pub struct AppState {
     hub: Hub,
     jwt_secret: Arc<String>,
+    /// Ed25519 public key PEM when core-api runs the EdDSA posture.
+    jwt_eddsa_public_key: Option<Arc<String>>,
 }
 
 impl AppState {
-    /// Bundles a hub and JWT verification secret into router state.
-    pub fn new(hub: Hub, jwt_secret: String) -> Self {
+    /// Bundles a hub and the token verification keys into router state.
+    pub fn new(hub: Hub, jwt_secret: String, jwt_eddsa_public_key: Option<String>) -> Self {
         Self {
             hub,
             jwt_secret: Arc::new(jwt_secret),
+            jwt_eddsa_public_key: jwt_eddsa_public_key.map(Arc::new),
         }
     }
 }
@@ -57,9 +60,13 @@ pub async fn upgrade(
     ws: WebSocketUpgrade,
 ) -> Response {
     let token = bearer_token(&headers).or_else(|| query.as_deref().and_then(token_from_query));
-    let verified = token
-        .as_deref()
-        .and_then(|t| auth::verify_token(&state.jwt_secret, t));
+    let verified = token.as_deref().and_then(|t| {
+        auth::verify_token(
+            &state.jwt_secret,
+            state.jwt_eddsa_public_key.as_deref().map(String::as_str),
+            t,
+        )
+    });
     match verified {
         Some(claims) => ws.on_upgrade(move |socket| run_session(socket, state.hub, claims)),
         None => (StatusCode::UNAUTHORIZED, "missing or invalid token").into_response(),
@@ -228,7 +235,8 @@ mod tests {
 
     #[test]
     fn app_state_bundles_hub_and_secret() {
-        let state = AppState::new(Hub::new(), "secret".to_string());
+        let state = AppState::new(Hub::new(), "secret".to_string(), None);
         assert_eq!(state.jwt_secret.as_str(), "secret");
+        assert!(state.jwt_eddsa_public_key.is_none());
     }
 }

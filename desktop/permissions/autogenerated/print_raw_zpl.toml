@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-print-raw-zpl"
+description = "Enables the print_raw_zpl command without any pre-configured scope."
+commands.allow = ["print_raw_zpl"]
+
+[[permission]]
+identifier = "deny-print-raw-zpl"
+description = "Denies the print_raw_zpl command without any pre-configured scope."
+commands.deny = ["print_raw_zpl"]

@@ -45,6 +45,11 @@ const KIND_LABELS: Record<string, string> = {
   escalation: "Escalation",
   missing_time: "Missing time",
   ticket_update: "Ticket update",
+  report_delivery: "Report delivery",
+  ai_cap_warn: "AI usage warning",
+  secret_rotation: "Secret rotation",
+  dedupe_report: "Duplicate report",
+  stock_low: "Low stock",
 };
 
 export function kindLabel(kind: string): string {

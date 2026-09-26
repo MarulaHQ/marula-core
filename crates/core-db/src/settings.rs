@@ -117,3 +117,116 @@ pub async fn list_user_overrides(
         })
         .collect())
 }
+
+/// One org-scope override's JSONB value, if stored (defaults are the
+/// caller's business — this is storage, not resolution).
+pub async fn get_org_value(
+    executor: impl sqlx::Executor<'_, Database = Postgres>,
+    org_id: Uuid,
+    key: &str,
+) -> DbResult<Option<serde_json::Value>> {
+    let row: Option<(serde_json::Value,)> = sqlx::query_as(
+        "SELECT value FROM settings WHERE org_id = $1 AND scope = 'org' AND key = $2",
+    )
+    .bind(org_id)
+    .bind(key)
+    .fetch_optional(executor)
+    .await?;
+    Ok(row.map(|r| r.0))
+}
+
+/// One user-scope override's JSONB value, if stored.
+pub async fn get_user_value(
+    executor: impl sqlx::Executor<'_, Database = Postgres>,
+    org_id: Uuid,
+    user_id: Uuid,
+    key: &str,
+) -> DbResult<Option<serde_json::Value>> {
+    let row: Option<(serde_json::Value,)> = sqlx::query_as(
+        "SELECT value FROM settings \
+         WHERE org_id = $1 AND scope = 'user' AND owner_id = $2 AND key = $3",
+    )
+    .bind(org_id)
+    .bind(user_id)
+    .bind(key)
+    .fetch_optional(executor)
+    .await?;
+    Ok(row.map(|r| r.0))
+}
+
+/// Org-scope overrides whose key starts with `prefix` (the per-board
+/// identity family is addressed this way — the key set is per-board).
+pub async fn list_org_values_with_prefix(
+    executor: impl sqlx::Executor<'_, Database = Postgres>,
+    org_id: Uuid,
+    prefix: &str,
+) -> DbResult<Vec<SettingOverride>> {
+    let rows = sqlx::query!(
+        r#"SELECT key, value FROM settings
+           WHERE org_id = $1 AND scope = 'org' AND key LIKE $2 || '%'"#,
+        org_id,
+        prefix
+    )
+    .fetch_all(executor)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| SettingOverride {
+            key: r.key,
+            value: r.value,
+        })
+        .collect())
+}
+
+/// Removes one org-scope override (clearing a field returns it to the
+/// default — a stored empty string is NOT the same as absent).
+pub async fn delete_org_setting(
+    tx: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    key: &str,
+) -> DbResult<()> {
+    sqlx::query!(
+        "DELETE FROM settings WHERE org_id = $1 AND scope = 'org' AND key = $2",
+        org_id,
+        key
+    )
+    .execute(tx)
+    .await?;
+    Ok(())
+}
+
+/// One user-scope override row across the whole table, matched by an exact
+/// text value — the digest loop's candidate scan (owner-pool only; callers
+/// are background sweeps, never request paths).
+pub async fn list_user_settings_with_text_value(
+    executor: impl sqlx::Executor<'_, Database = Postgres>,
+    key: &str,
+    value: &str,
+) -> DbResult<Vec<(Uuid, Uuid)>> {
+    let rows: Vec<(Uuid, Uuid)> = sqlx::query_as(
+        "SELECT org_id, owner_id FROM settings \
+         WHERE scope = 'user' AND key = $1 AND value = to_jsonb($2::text) \
+         ORDER BY org_id, owner_id",
+    )
+    .bind(key)
+    .bind(value)
+    .fetch_all(executor)
+    .await?;
+    Ok(rows)
+}
+
+/// Serializes digest sends for one (org, user) for the remainder of the
+/// transaction — two overlapping sweeps cannot both see "no marker yet"
+/// and double-send. Released automatically at commit/rollback.
+pub async fn lock_digest_slot(
+    tx: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    user_id: Uuid,
+) -> DbResult<()> {
+    let key = format!("email.digest:{org_id}:{user_id}");
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 42))")
+        .bind(key)
+        .execute(tx)
+        .await?;
+    Ok(())
+}

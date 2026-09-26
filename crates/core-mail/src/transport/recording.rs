@@ -161,6 +161,7 @@ mod tests {
         OutboundEmail {
             from_address: "f@a.test".into(),
             from_name: None,
+            reply_to: None,
             to_addresses: vec!["t@a.test".into()],
             subject: "s".into(),
             body_text: "b".into(),

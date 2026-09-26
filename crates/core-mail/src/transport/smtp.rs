@@ -33,6 +33,9 @@ impl SmtpTransport {
         let mut m = String::new();
         m.push_str(&format!("From: {from}\r\n"));
         m.push_str(&format!("To: {}\r\n", message.to_addresses.join(", ")));
+        if let Some(reply_to) = &message.reply_to {
+            m.push_str(&format!("Reply-To: {reply_to}\r\n"));
+        }
         m.push_str(&format!("Subject: {}\r\n", encode_header(&message.subject)));
         m.push_str(&format!("Date: {}\r\n", rfc2822_now()));
         m.push_str(&format!(
@@ -257,6 +260,7 @@ mod tests {
         let m = OutboundEmail {
             from_address: "support@acme.test".into(),
             from_name: Some("Acme Support".into()),
+            reply_to: Some("projects@acme.test".into()),
             to_addresses: vec!["client@example.test".into()],
             subject: "Re: Printer".into(),
             body_text: "line\n.dot".into(),
@@ -266,9 +270,26 @@ mod tests {
         };
         let rendered = SmtpTransport::render_message(&m);
         assert!(rendered.contains("From: Acme Support <support@acme.test>\r\n"));
+        assert!(rendered.contains("Reply-To: projects@acme.test\r\n"));
         assert!(rendered.contains("In-Reply-To: <orig@example.test>\r\n"));
         assert!(rendered.contains("References: <orig@example.test>\r\n"));
         assert!(rendered.contains("\r\n..dot\r\n") || rendered.ends_with("..dot\r\n"));
+    }
+
+    #[test]
+    fn no_reply_to_header_when_unset() {
+        let m = OutboundEmail {
+            from_address: "f@a.test".into(),
+            from_name: None,
+            reply_to: None,
+            to_addresses: vec!["t@a.test".into()],
+            subject: "s".into(),
+            body_text: "b".into(),
+            rfc_message_id: "m@a.test".into(),
+            in_reply_to: None,
+            references: vec![],
+        };
+        assert!(!SmtpTransport::render_message(&m).contains("Reply-To:"));
     }
 
     /// Scripted in-process SMTP server asserting the exact conversation.
@@ -329,6 +350,7 @@ mod tests {
             .send(&OutboundEmail {
                 from_address: "support@acme.test".into(),
                 from_name: None,
+                reply_to: None,
                 to_addresses: vec!["a@x.test".into(), "b@x.test".into()],
                 subject: "Hi".into(),
                 body_text: "body text".into(),
@@ -366,6 +388,7 @@ mod tests {
             .send(&OutboundEmail {
                 from_address: "f@a".into(),
                 from_name: None,
+                reply_to: None,
                 to_addresses: vec!["t@a".into()],
                 subject: "s".into(),
                 body_text: "b".into(),

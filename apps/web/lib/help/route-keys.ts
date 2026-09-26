@@ -40,6 +40,8 @@ export const ROUTE_KEY_RULES: readonly (readonly [RegExp, string])[] = [
   [/^\/agent-platform/, "agent-platform"],
   [/^\/portal/, "portal"],
   [/^\/settings\/onboarding/, "settings-onboarding"],
+  [/^\/settings\/email/, "settings-email"],
+  [/^\/settings\/mail/, "settings-email"],
   [/^\/settings\/preferences/, "settings-preferences"],
   [/^\/settings\/shortcuts/, "settings-shortcuts"],
   [/^\/settings\/team/, "settings-team"],

@@ -342,6 +342,16 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/internal/email/outbound/results"),
             post(internal::report_results),
         )
+        // Wave 34 lane 8: notification + digest email enqueue (the worker
+        // decides WHO gets mail; core-api renders + writes the ledger).
+        .route(
+            &rp("/internal/email/notification"),
+            post(internal::notification_email),
+        )
+        .route(
+            &rp("/internal/email/digest"),
+            post(internal::digest_email),
+        )
         // Machine surface for the worker (token-gated inside the handlers,
         // NOT behind the JWT middleware — §4.1: worker effects enter
         // through core-api, never direct DB writes).
@@ -887,6 +897,12 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/notification-preferences"),
             get(notifications::prefs_get).put(notifications::prefs_update),
         )
+        // Wave 34 lane 8: org-level notification defaults (admin policy over
+        // the per-user preference chain).
+        .route(
+            &rp("/notification-org-defaults"),
+            get(notifications::org_defaults_get).put(notifications::org_defaults_put),
+        )
         // unified search (TASKLIST 2.16)
         .route(&rp("/search"), get(search::search))
         // search pins (Wave 17 lane 13, migration 0089): operator-curated
@@ -1400,6 +1416,26 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/boards/{id}/inbound-address"),
             put(email_admin::put_board_inbound_address),
+        )
+        // Wave 34 lane 8: outbound identity + transport + delivery ledger.
+        .route(&rp("/email/settings"), get(email_admin::get_mail_settings))
+        .route(
+            &rp("/email/outbound-settings"),
+            put(email_admin::put_outbound_settings),
+        )
+        .route(
+            &rp("/email/transport-credentials"),
+            put(email_admin::put_transport_credentials)
+                .delete(email_admin::delete_transport_credentials),
+        )
+        .route(
+            &rp("/email/delivery-ledger"),
+            get(email_admin::get_delivery_ledger),
+        )
+        .route(&rp("/email/test-send"), post(email_admin::test_send))
+        .route(
+            &rp("/boards/{id}/email-identity"),
+            put(email_admin::put_board_identity),
         )
         // portal administration (staff, PortalAdmin grant)
         .route(
