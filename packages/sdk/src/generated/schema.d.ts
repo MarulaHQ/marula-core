@@ -9434,6 +9434,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/settings/self-host": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/v1/settings/self-host — the self-hoster visibility payload. */
+        get: operations["settings_self_host_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/settings/user": {
         parameters: {
             query?: never;
@@ -16007,6 +16024,34 @@ export interface components {
             /** Format: uuid */
             task_id: string;
         };
+        DetectionFile: {
+            content_type: string;
+            filename: string;
+            sha256: string;
+            /** Format: int64 */
+            size_bytes: number;
+        };
+        DetectionView: {
+            /**
+             * @description Files that rode the message; the v1 scanner returns one verdict per
+             *     message (body plus attachment bytes), so these are what was scanned
+             *     with it, not per-file verdicts.
+             */
+            attachments: components["schemas"]["DetectionFile"][];
+            from_address: string;
+            /** @description Ledger transport label — the ingest source (`webhook/clamd`, …). */
+            ingest_source: string;
+            /** Format: uuid */
+            message_id: string;
+            /** Format: date-time */
+            occurred_at: string;
+            subject?: string | null;
+            /**
+             * @description Recorded scan verdict (`infected`); fail-closed quarantines ride the
+             *     same status, so the pane words it as "quarantined", not "virus".
+             */
+            verdict: string;
+        };
         DeviceAsset: {
             /** Format: int64 */
             base_purchase_cost_minor?: number | null;
@@ -16360,6 +16405,12 @@ export interface components {
              *     the template's canonical columns before validation (D2 remainder).
              */
             template_id?: string | null;
+        };
+        DsnRow: {
+            detail?: string | null;
+            service: string;
+            /** @description `configured` | `unset` | `unknown` — never the DSN itself. */
+            state: string;
         };
         /**
          * @description Collections posture of an issued invoice. Forward-only: states are
@@ -17216,6 +17267,21 @@ export interface components {
             /** Format: uuid */
             user_id: string;
         };
+        GarageView: {
+            admin_api_docs_url: string;
+            /** @description The documented bootstrap sequence, verbatim. */
+            bootstrap_commands: string[];
+            /** @description Mount points inside the Garage container. */
+            container_paths: string[];
+            s3_bucket?: string | null;
+            /** @description S3 endpoint the API is configured against, when S3 mode is on. */
+            s3_endpoint?: string | null;
+            /**
+             * @description Named volumes in the shipped compose file (the compose project
+             *     prefix applies at runtime).
+             */
+            volumes: string[];
+        };
         GroupMutation: {
             group: components["schemas"]["SchedulingGroup"];
             mutation: components["schemas"]["MutationMeta"];
@@ -18060,9 +18126,11 @@ export interface components {
             mutation: components["schemas"]["MutationMeta"];
         };
         LinksView: {
-            from: Record<string, never>[];
-            rollup: components["schemas"]["TicketRollup"];
-            to: Record<string, never>[];
+            glitchtip?: string | null;
+            grafana?: string | null;
+            loki?: string | null;
+            otel_metrics?: string | null;
+            tempo?: string | null;
         };
         ListCandidatesQuery: {
             /** @description pending | auto_merged | accepted | rejected */
@@ -18922,7 +18990,7 @@ export interface components {
             user_id: string;
         };
         /** @enum {string} */
-        NotificationKind: "mention" | "assignment" | "sla_risk" | "sla_breach" | "escalation" | "missing_time" | "ticket_update" | "report_delivery" | "ai_cap_warn" | "secret_rotation" | "stock_low" | "dedupe_report";
+        NotificationKind: "mention" | "assignment" | "sla_risk" | "sla_breach" | "escalation" | "missing_time" | "ticket_update" | "report_delivery" | "ai_cap_warn" | "secret_rotation" | "stock_low" | "dedupe_report" | "scan_detection";
         /** @description One page of the inbox plus the cursor to continue with. */
         NotificationPage: {
             items: components["schemas"]["Notification"][];
@@ -22410,6 +22478,18 @@ export interface components {
          * @enum {string}
          */
         ScanStatus: "clean" | "infected" | "skipped";
+        ScanView: {
+            /** @description Configured clamd TCP address — a host:port, never a credential. */
+            clamd_addr?: string | null;
+            /** Format: int64 */
+            detection_count: number;
+            /** Format: date-time */
+            last_detection_at?: string | null;
+            /** Format: date-time */
+            last_scan_at?: string | null;
+            /** @description `clamd` (scanner wired) or `none` (scanning disabled). */
+            provider: string;
+        };
         /**
          * @description Wire cadence of a schedule (snake_case slugs matching the stored
          *     column and the worker's parser).
@@ -22943,6 +23023,14 @@ export interface components {
          * @enum {string}
          */
         SegmentEnd: "stopped" | "paused" | "switched";
+        SelfHostView: {
+            detections: components["schemas"]["DetectionView"][];
+            garage: components["schemas"]["GarageView"];
+            glitchtip_dsns: components["schemas"]["DsnRow"][];
+            links: components["schemas"]["LinksView"];
+            scan: components["schemas"]["ScanView"];
+            services: components["schemas"]["ServiceView"][];
+        };
         /** @description POST /api/invoices/{id}/dunning/statement body. */
         SendStatementRequest: components["schemas"]["MutationParams"];
         /** @description POST /api/invoices/{id}/dunning/statement response. */
@@ -22970,6 +23058,18 @@ export interface components {
             /** Format: uuid */
             location_id?: string | null;
             status?: string | null;
+        };
+        ServiceView: {
+            detail?: string | null;
+            id: string;
+            label: string;
+            /**
+             * @description The raw `/healthz` body when the service speaks JSON (the worker's
+             *     per-loop liveness flags ride here); null otherwise.
+             */
+            loops?: unknown;
+            /** @description `up` | `down` | `not_configured` | `unknown`. */
+            state: string;
         };
         SessionInfo: {
             chain_root: boolean;
@@ -44564,6 +44664,32 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["RegistryResponse"];
                 };
+            };
+        };
+    };
+    settings_self_host_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SelfHostView"];
+                };
+            };
+            /** @description requires an org owner or admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

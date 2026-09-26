@@ -120,15 +120,15 @@ pub async fn get(
             id: "realtime".into(),
             label: "realtime hub".into(),
             state: realtime.state.into(),
-            detail: realtime.detail,
+            detail: realtime.detail.clone(),
             loops: None,
         },
         ServiceView {
             id: "worker".into(),
             label: "worker".into(),
             state: worker.state.into(),
-            detail: worker.detail,
-            loops: worker.body,
+            detail: worker.detail.clone(),
+            loops: worker.body.clone(),
         },
     ];
 

@@ -3,7 +3,7 @@
 
 **Meridian Core API 0.1.0** — The single write surface for Project Meridian. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**563 paths · 760 operations · 1147 schemas.**
+**564 paths · 761 operations · 1154 schemas.**
 
 ## agent-proposals
 
@@ -1035,6 +1035,7 @@
 | `GET` | `/api/v1/settings/org` <a id="settings_org_get"></a> | GET /api/settings/org — effective org settings (defaults overlaid by stored overrides). Visible to every member. | — |
 | `PUT` | `/api/v1/settings/org` <a id="settings_org_put"></a> | PUT /api/settings/org — upserts one org-scope override after registry validation (Admin:edit required). Emits `setting.updated` + audit row. | [UpdateSettingRequest](#schema-updatesettingrequest) |
 | `GET` | `/api/v1/settings/registry` <a id="settings_registry"></a> | GET /api/settings/registry — every declared setting with kind, default, scope and validation shape. Any authenticated member may read it. | — |
+| `GET` | `/api/v1/settings/self-host` <a id="settings_self_host_get"></a> | GET /api/v1/settings/self-host — the self-hoster visibility payload. | — |
 | `GET` | `/api/v1/settings/user` <a id="settings_user_get"></a> | GET /api/settings/user — the caller's effective personal settings. | — |
 | `PUT` | `/api/v1/settings/user` <a id="settings_user_put"></a> | PUT /api/settings/user — upserts one of the CALLER's own user-scope overrides. No role requirement: everyone may tune their own preferences. | [UpdateSettingRequest](#schema-updatesettingrequest) |
 
@@ -1647,6 +1648,8 @@
 | <a id="schema-deliverypage"></a>`DeliveryPage` | object |  |
 | <a id="schema-deliveryquery"></a>`DeliveryQuery` | object |  |
 | <a id="schema-dependencylistresponse"></a>`DependencyListResponse` | object | A task's direct finish-to-start dependencies (full rows, so the client renders "blocked by" without extra fetches). |
+| <a id="schema-detectionfile"></a>`DetectionFile` | object |  |
+| <a id="schema-detectionview"></a>`DetectionView` | object |  |
 | <a id="schema-deviceasset"></a>`DeviceAsset` | object |  |
 | <a id="schema-dispatchappointment"></a>`DispatchAppointment` | object | One booking block on the dispatch board: the appointment plus the ticket number and client name the block face renders. |
 | <a id="schema-dispatchdayquery"></a>`DispatchDayQuery` | object | One dispatch-path query: `date` is a LOCAL date interpreted as the UTC day window (documented UTC scope). |
@@ -1665,6 +1668,7 @@
 | <a id="schema-documentversion"></a>`DocumentVersion` | object | One immutable snapshot in a document's append-only history. Every version stores its complete title + body, so any pair is diffable without reconstructing intermediate state. |
 | <a id="schema-documentview"></a>`DocumentView` | composite | GET /api/documents/{id} response: the living handle plus the CURRENT version's content (read-your-write on the body the last write stored). |
 | <a id="schema-dryrunrequest"></a>`DryRunRequest` | composite | POST /api/imports/dry-run request: validate a full payload and report what each row WOULD do before any data write. The probe is recorded as a finished dry-run batch for operator history. |
+| <a id="schema-dsnrow"></a>`DsnRow` | object |  |
 | <a id="schema-dunningstate"></a>`DunningState` | string | Collections posture of an issued invoice. Forward-only: states are data moved by explicit API writes (events + write trail), never a background side effect. |
 | <a id="schema-dunningtransitionrequest"></a>`DunningTransitionRequest` | composite |  |
 | <a id="schema-edgeexchangeresponse"></a>`EdgeExchangeResponse` | object |  |
@@ -1732,6 +1736,7 @@
 | <a id="schema-gapdayview"></a>`GapDayView` | object |  |
 | <a id="schema-gapreportquery"></a>`GapReportQuery` | object |  |
 | <a id="schema-gapreportresponse"></a>`GapReportResponse` | object |  |
+| <a id="schema-garageview"></a>`GarageView` | object |  |
 | <a id="schema-groupmutation"></a>`GroupMutation` | object |  |
 | <a id="schema-healthresponse"></a>`HealthResponse` | object |  |
 | <a id="schema-heartbeatrequest"></a>`HeartbeatRequest` | object | POST /api/presence/heartbeat body. One heartbeat per viewer per entity instance every ~30s; entries expire after 90s without one (TTL is server-side, see `realtime::presence`). |
@@ -2150,6 +2155,7 @@
 | <a id="schema-scanresolutionview"></a>`ScanResolutionView` | object | The typed meaning of one scanned string. `entity_id` is the resolved entity: the stock item, the serialized unit, the location, or the device asset. `deep_link` is always the canonical link for that e |
 | <a id="schema-scanresolverequest"></a>`ScanResolveRequest` | object |  |
 | <a id="schema-scanstatus"></a>`ScanStatus` | string | Outcome of the malware scan that runs between webhook receipt and persistence. `skipped` is the documented "none" mode (no scanner configured) — never a silent pass of an actual verdict. |
+| <a id="schema-scanview"></a>`ScanView` | object |  |
 | <a id="schema-schedulecadence"></a>`ScheduleCadence` | string | Wire cadence of a schedule (snake_case slugs matching the stored column and the worker's parser). |
 | <a id="schema-schedulelistquery"></a>`ScheduleListQuery` | object | GET /api/report-schedules query. |
 | <a id="schema-schedulemutationresponse"></a>`ScheduleMutationResponse` | object |  |
@@ -2183,9 +2189,11 @@
 | <a id="schema-secretsharelink"></a>`SecretShareLink` | object | A one-time share link row (`secret_share_links`, migration 0096). The token NEVER round-trips here: the DB stores a SHA-256 hash and the raw token exists exactly once, inside the create response (`Sec |
 | <a id="schema-secretsharelinkissued"></a>`SecretShareLinkIssued` | object | The create response — the ONLY place the raw token exists on the wire; the URL is resolved by the web app at `/{app}/share?token=…`. (Named `Issued` because `SecretShareLinkCreated` is the domain-EVEN |
 | <a id="schema-segmentend"></a>`SegmentEnd` | string | Why a timer segment ended. Preserved forever — the pause reason is billable-work metadata, not a transient UI state. |
+| <a id="schema-selfhostview"></a>`SelfHostView` | object |  |
 | <a id="schema-sendstatementrequest"></a>`SendStatementRequest` | composite | POST /api/invoices/{id}/dunning/statement body. |
 | <a id="schema-sendstatementresponse"></a>`SendStatementResponse` | object | POST /api/invoices/{id}/dunning/statement response. |
 | <a id="schema-seriallistquery"></a>`SerialListQuery` | object |  |
+| <a id="schema-serviceview"></a>`ServiceView` | object |  |
 | <a id="schema-sessioninfo"></a>`SessionInfo` | object |  |
 | <a id="schema-setchecklistitemrequest"></a>`SetChecklistItemRequest` | composite |  |
 | <a id="schema-setdependenciesrequest"></a>`SetDependenciesRequest` | object |  |
@@ -2437,4 +2445,4 @@
 | <a id="schema-workbenchside"></a>`WorkbenchSide` | composite | One side of the workbench comparison: the item view plus its FULL tier state (observed/curated/field_sources) and identity keys. |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 28 operation groups; schema count 1147 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 28 operation groups; schema count 1154 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
